@@ -1,0 +1,29 @@
+{
+  "response": {
+    "header": {"resultCode": "00", "resultMsg": "NORMAL SERVICE."},
+    "body": {
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1,
+      "items": {
+        "item": [{
+          "basDt": "20220919",
+          "srtnCd": "900110",
+          "isinCd": "HK0000057197",
+          "itmsNm": "이스트아시아홀딩스",
+          "mrktCtg": "KOSDAQ",
+          "clpr": "167",
+          "vs": "-8",
+          "fltRt": "-4.57",
+          "mkp": "173",
+          "hipr": "176",
+          "lopr": "167",
+          "trqu": "2788311",
+          "trPrc": "475708047",
+          "lstgStCnt": "219932050",
+          "mrktTotAmt": "36728652350"
+        }]
+      }
+    }
+  }
+}
