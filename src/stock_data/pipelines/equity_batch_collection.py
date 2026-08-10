@@ -53,6 +53,15 @@ def _upsert_batch(frame, root, contract, validator):
         raise RuntimeError("batch atomic read-back row count differs")
 
 
+def _mark_completed_batch(state, dates):
+    state.completed_partitions.update(dates)
+    if state.staged_partitions is not None:
+        state.staged_partitions.difference_update(dates)
+    for date in dates:
+        state.failed_partitions.pop(date, None)
+    state.save()
+
+
 def _stage_dates(project_root, dates, *, endpoint, landing_root, state, interval, sleep_fn):
     calls = 0
     client = DataGoKrClient(
@@ -110,8 +119,7 @@ def collect_equity_batch(project_root: Path, dates, *, chunk_size=200,
                           KR_EQUITY_PRICE_DAILY, validate_equity_price)
             _upsert_batch(normalized.market_cap, project_root / "data/normalized/kr_equity_market_cap_daily",
                           KR_EQUITY_MARKET_CAP_DAILY, validate_equity_market_cap)
-            for date in price_dates:
-                price_state.mark_completed(date)
+            _mark_completed_batch(price_state, price_dates)
 
         universe_dates = [d for d in chunk if d in (universe_state.staged_partitions or set())]
         if universe_dates:
@@ -120,8 +128,7 @@ def collect_equity_batch(project_root: Path, dates, *, chunk_size=200,
             validator = lambda value: validate_data_v1(value, KR_EQUITY_UNIVERSE_DAILY)
             _upsert_batch(frame, project_root / "data/normalized/kr_equity_universe_daily",
                           KR_EQUITY_UNIVERSE_DAILY, validator)
-            for date in universe_dates:
-                universe_state.mark_completed(date)
+            _mark_completed_batch(universe_state, universe_dates)
     return calls
 
 
