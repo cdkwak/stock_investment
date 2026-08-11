@@ -112,7 +112,7 @@ Scope: local official guides only. This document defines source roles and datase
 - Request: common fields plus `basDt`, KSD issuer customer number, and issuer name.
 - Response: issuer/customer/corporate identity, issuance and exercise reason codes, exercise start/end dates, transfer-agent classification, par value, fiscal date and registry-closure start/end dates.
 - Coverage: not stated. Service start is 2020-04-08; the sample date is 2019-12-31 and does not establish the first available date.
-- Mapping/role: **Primary candidate** for `kr_equity_rights_schedule`; `basDt` is a source snapshot date, while the exercise/registry dates and official reason/type codes describe the event. Raw repeated snapshots are retained; normalized identity excludes the snapshot date. Corporate-action factors remain derived only after stable identity and economic terms are validated.
+- Mapping/role: **Primary source-observation candidate** for `kr_equity_rights_schedule`; `basDt` is a source snapshot date, while exercise/registry dates describe the reported schedule. Version 2 keys immutable observations by Landing response-body SHA-256 plus item ordinal and retains page/snapshot provenance. It does not claim a canonical business-event identity or historical completeness. Corporate-action factors remain blocked until stable event identity and economic terms are independently validated.
 
 ## Shared-call and lineage rules
 
@@ -122,7 +122,7 @@ Scope: local official guides only. This document defines source roles and datase
 4. Futures and options are separate source operations. PCR/basis are recalculated only after normalized partitions pass validation.
 5. KOFIA operations are not combined merely because they share a service. Only the two structured-product operations share a normalized schema.
 6. Lending detail, aggregate trend and participant detail remain separate because their primary keys and units differ.
-7. Dividend and rights records are event datasets; adjustments and research features are derived/published outputs.
+7. Dividend records are source events. Rights rows are immutable source observations, not canonical economic events; adjustments and research features remain blocked pending verified terms and identity.
 8. Backtests, market breadth, and ML must consume `kr_equity_canonical_universe_daily`, not the provider-specific `kr_equity_universe_daily`. Daily membership is the union of listed-info and price sources; master data enriches identity/lifecycle but never creates a daily member by itself.
 
 ## KRX Open API approval-gated contracts

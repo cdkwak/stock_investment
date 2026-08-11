@@ -6,13 +6,22 @@ from typing import Callable
 import pandas as pd
 
 
+def _partition_date_column(contract) -> str:
+    columns = set(contract.column_names)
+    for candidate in ("date", "source_snapshot_date"):
+        if candidate in columns:
+            return candidate
+    raise ValueError(f"{contract.name}: year partition requires a date column")
+
+
 def read_dataset(root: Path, contract, validator: Callable[[pd.DataFrame], None]) -> pd.DataFrame:
     paths = sorted(root.rglob("data.parquet"))
     if not paths:
         raise FileNotFoundError(root)
     result = pd.concat([pd.read_parquet(path) for path in paths], ignore_index=True)
-    if "date" in result:
-        result["date"] = pd.to_datetime(result["date"], errors="raise").dt.strftime("%Y-%m-%d")
+    for date_column in ("date", "source_snapshot_date"):
+        if date_column in result:
+            result[date_column] = pd.to_datetime(result[date_column], errors="raise").dt.strftime("%Y-%m-%d")
     result = result[list(contract.column_names)].sort_values(
         list(contract.sort_key), kind="stable"
     ).reset_index(drop=True)
@@ -26,7 +35,8 @@ def write_dataset_atomic(dataframe: pd.DataFrame, root: Path, contract, validato
     group_columns = []
     for column in contract.partition_by:
         if column == "year":
-            working["_year"] = pd.to_datetime(working["date"], errors="raise").dt.year
+            date_column = _partition_date_column(contract)
+            working["_year"] = pd.to_datetime(working[date_column], errors="raise").dt.year
             group_columns.append("_year")
         else:
             group_columns.append(column)
@@ -46,12 +56,14 @@ def write_dataset_atomic(dataframe: pd.DataFrame, root: Path, contract, validato
             ) as temporary:
                 temporary_path = Path(temporary.name)
             stored = partition.drop(columns="_year", errors="ignore").copy()
-            if "date" in stored:
-                stored["date"] = pd.to_datetime(stored["date"], errors="raise").dt.date
+            for date_column in ("date", "source_snapshot_date"):
+                if date_column in stored:
+                    stored[date_column] = pd.to_datetime(stored[date_column], errors="raise").dt.date
             stored.to_parquet(temporary_path, index=False)
             verified = pd.read_parquet(temporary_path)
-            if "date" in verified:
-                verified["date"] = pd.to_datetime(verified["date"]).dt.strftime("%Y-%m-%d")
+            for date_column in ("date", "source_snapshot_date"):
+                if date_column in verified:
+                    verified[date_column] = pd.to_datetime(verified[date_column]).dt.strftime("%Y-%m-%d")
             verified = verified[list(contract.column_names)].reset_index(drop=True)
             validator(verified)
             staged[target] = temporary_path

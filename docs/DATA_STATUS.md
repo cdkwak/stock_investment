@@ -36,7 +36,7 @@ official continuous coverage.
 | `kr_stock_lending_market_daily` | FSC stock-lending public API | DATA_COMPLETE, 2021-04-01..2026-08-10; 1,254 rows/source dates | 63 source-absent dates versus detail intentionally preserved |
 | `kr_stock_lending_participant_daily` | FSC stock-lending public API | DATA_COMPLETE, 2021-04-01..2026-08-10; 11,472 rows, 1,290 source dates | 27 source-absent dates versus detail intentionally preserved |
 | `kr_equity_dividend` | FSC dividend public API | one current snapshot complete, 71,652 source events; no historical point-in-time series | define versioned incremental snapshot policy |
-| `kr_equity_rights_schedule` | FSC rights public API | analysis complete; dataset BLOCKED, 0 rows | after D lock/quota approval, run at most one no-retry diagnostic; then define versioned observation grain and a safe key |
+| `kr_equity_rights_schedule` | FSC rights public API | source diagnostic complete; canonical event dataset BLOCKED, 0 rows | source-observation contract is implementable; economic adjustment terms and a canonical event key remain unverified |
 | Corporate-action source boundary | FSC/data.go.kr local official guides | analysis complete; no new dataset | verify split/merger/reduction economic-term source before deriving adjustments |
 | Adjusted price / total return | none selected | not started | define corporate-action accounting policy and source |
 | 2020+ official equity | FSC stock price/listed APIs | complete, 2020-01-02..2026-08-07 | daily incremental |
@@ -46,7 +46,7 @@ official continuous coverage.
 | `krx_legacy_kospi200_futures_daily` | verified legacy migration | DATA_COMPLETE, 2010-01-04..2019-12-30; 38,583 rows, 2,466 observed dates | retain legacy source-row provenance and session identity |
 | `krx_legacy_kospi200_options_daily` | verified legacy migration | DATA_COMPLETE, 2010-01-04..2019-12-30; 1,090,078 rows, 2,466 observed dates | retain source `ISU_CD` as string and source-row identity |
 | `kr_kospi200_option_pcr_daily` | derived from migrated options | DATA_COMPLETE, 2010-01-04..2019-12-31; 2,607 rows = 2,466 observed + 141 valid-empty weekdays | volume/open-interest PCR only; zero denominators remain null |
-| Legacy KOSPI investor net purchase | KRX via PyKRX 1.2.8 legacy artifact | analysis complete, NOT_IMPLEMENTED; 3,834 pre-A001 candidate rows | separate versioned import only; exact monetary unit remains unverified |
+| `kr_market_investor_net_purchase_daily` | KRX via PyKRX 1.2.8 legacy artifact | DATA_COMPLETE, 1999-01-04..2014-06-30; 3,834 KOSPI rows | checksum-fixed pre-A001 dataset; signed source integers retain `unit_unknown` and must not be concatenated with A001 without an explicit bridge |
 
 Automated access to `data.krx.co.kr` is disabled. Existing pykrx Parquet data and
 checkpoints remain preserved. KB work remains read-only; order APIs are out of scope.
@@ -71,7 +71,7 @@ remain in landing and never overwrite normalized data.
 | Dataset | Source snapshot / as-of | Event-effective fields | Announcement field | Historical predictive use |
 |---|---|---|---|---|
 | `kr_equity_dividend` | `date` (`basDt`) | record, cash-payment, stock-delivery dates | not provided | from the captured source snapshot date only; event dates are not knowledge dates |
-| `kr_equity_rights_schedule` | no retained successful snapshot | exercise and registry-close dates in the guide | not provided | blocked; do not infer knowledge time or collapse later snapshots into earlier history |
+| `kr_equity_rights_schedule` | one retained successful diagnostic snapshot (`basDt` 2019-12-31) | exercise and registry-close dates | not provided | source observations may be retained immutably by response hash + item ordinal; canonical event identity and historical knowledge remain blocked |
 | `kr_equity_master` | `source_date` | listing, delisting, deposit registration/cancellation dates | not provided | only when `source_date <= as_of`; missing `source_date` is ineligible for predictive features |
 | `kr_treasury_yield_daily` | unavailable from the retained source response | candle date | not provided | blocked for predictive features until a defensible observation-availability policy exists |
 
@@ -122,6 +122,14 @@ layer does not shift either date.
   current master would drop 23,305 rows across 3,533 ISINs. Rights, issuance,
   split, merger, and capital-reduction terms require separate verified sources
   and versioned observation contracts before any adjustment-factor derivation.
+- The one-call B002-P1 Rights diagnostic returned HTTP 200/result `00` with
+  12 source records reported and one retained item (page size one). It proves
+  source usability only, not historical coverage. B002-P2 found that an
+  immutable source-observation contract can use response-body SHA-256 plus item
+  ordinal as its key and append later corrections, but the response does not
+  provide ratios, share quantities, issue price, adjustment factors, or a safe
+  field-only canonical event identity. No economic Rights event dataset or
+  adjusted-price input is therefore marked complete.
 - Deferred source/definition work: short selling, VKOSPI, and futures-basis roll
   rules. Toss per-symbol program/lending/credit history remains survivorship
   blocked. KOSPI200 PCR for 2010-2019 is implemented; later-period linkage is a
@@ -148,3 +156,7 @@ remains separate technical debt; it must not be used to silently rewrite frozen
 artifacts. The two legacy KOSPI200 Normalized datasets and their Derived PCR
 dataset have separate active contracts registered with their implemented Arrow
 schemas, source identity, keys, sort order, partitioning, and nullability.
+The legacy investor-flow contract is likewise registered separately with key
+`(date, market)`, year partitioning, a strict pre-A001 end date of 2014-06-30,
+and checksum-fixed source provenance. Its monetary scale remains deliberately
+`unit_unknown`.

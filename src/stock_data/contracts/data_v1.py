@@ -1,9 +1,9 @@
 from stock_data.contracts.base import ColumnContract, DatasetContract
 
 
-def _dataset(name, description, source, primary_key, columns, *, frequency="daily", layer="normalized"):
+def _dataset(name, description, source, primary_key, columns, *, frequency="daily", layer="normalized", version=1):
     return DatasetContract(
-        name=name, version=1, status="draft", description=description,
+        name=name, version=version, status="draft", description=description,
         source=source, layer=layer, storage_format="parquet", frequency=frequency,
         timezone="Asia/Seoul", primary_key=primary_key, sort_key=primary_key,
         partition_by=("year",), columns=tuple(ColumnContract(*column) for column in columns),
@@ -78,14 +78,24 @@ KR_EQUITY_DIVIDEND = _dataset(
      FLOAT("differential_stock_dividend_ratio", "percent"), FLOAT("par_value", "KRW")), frequency="event",
 )
 KR_EQUITY_RIGHTS_SCHEDULE = _dataset(
-    "kr_equity_rights_schedule", "Source corporate-right schedule events with source event type preserved.",
+    "kr_equity_rights_schedule", "Immutable source observations of corporate-right schedule records; not canonical economic events.",
     "data_go_kr:GetStocRighScheService_V2/getRighExerReasSche_V2",
-    ("issuer_code", "event_type_code", "exercise_start_date", "exercise_end_date", "issuance_reason_code"),
-    (DATE, STRING("issuer_code"), ("corporate_number", "string", True), STRING("company"),
-     STRING("issuance_reason_code"), STRING("issuance_reason"), STRING("event_type_code"), STRING("event_type"),
-     ("exercise_start_date", "string", True), ("exercise_end_date", "string", True),
-     ("registry_close_start_date", "string", True), ("registry_close_end_date", "string", True),
-     FLOAT("par_value", "KRW")), frequency="event",
+    ("landing_response_body_sha256", "source_item_ordinal"),
+    (("source_snapshot_date", "date32", False),
+     STRING("landing_response_body_sha256"), INT("source_item_ordinal"), INT("source_page_no"),
+     STRING("source_record_sha256"), STRING("ksd_issuer_customer_no"),
+     ("corporate_number", "string", True), STRING("issuer_name"),
+     ("securities_issuer_entity_code", "string", True),
+     ("securities_issuer_entity_name", "string", True),
+     ("issuance_reason_code", "string", True), ("issuance_reason_name", "string", True),
+     ("rights_exercise_reason_code", "string", True),
+     ("rights_exercise_reason_name", "string", True),
+     ("exercise_start_date", "date32", True), ("exercise_end_date", "date32", True),
+     ("registry_close_start_date", "date32", True), ("registry_close_end_date", "date32", True),
+     ("transfer_agent_classification_code", "string", True),
+     ("transfer_agent_classification_name", "string", True),
+     ("par_value", "decimal(22,3)", True), ("fiscal_month_day", "string", True)),
+    frequency="event", version=2,
 )
 
 DATA_V1_CONTRACTS = (

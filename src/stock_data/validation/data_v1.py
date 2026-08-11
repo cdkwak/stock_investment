@@ -17,7 +17,8 @@ def validate_data_v1(dataframe: pd.DataFrame, contract, *, allow_empty: bool = T
         raise DataV1ValidationError(f"{contract.name}: null primary key")
     if dataframe.duplicated(list(contract.primary_key)).any():
         raise DataV1ValidationError(f"{contract.name}: duplicate primary key")
-    dates = pd.to_datetime(dataframe["date"], format="%Y-%m-%d", errors="coerce")
+    date_column = "date" if "date" in dataframe.columns else "source_snapshot_date"
+    dates = pd.to_datetime(dataframe[date_column], format="%Y-%m-%d", errors="coerce")
     if dates.isna().any():
         raise DataV1ValidationError(f"{contract.name}: invalid date")
     numeric = dataframe.select_dtypes(include="number")

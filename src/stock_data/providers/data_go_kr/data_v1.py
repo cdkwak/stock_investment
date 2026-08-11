@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
+import hashlib
+import json
+import re
 from typing import Mapping, Sequence
 import pandas as pd
 
@@ -48,6 +53,43 @@ def _date(item, field="basDt"):
     if pd.isna(parsed):
         raise ValueError(f"field {field} is not YYYYMMDD")
     return parsed.strftime("%Y-%m-%d")
+
+
+def _nullable_date(item, field):
+    if _text(item, field, nullable=True) is None:
+        return None
+    return _date(item, field)
+
+
+def _nullable_decimal_22_3(item, field):
+    value = _text(item, field, nullable=True)
+    if value is None:
+        return None
+    try:
+        parsed = Decimal(value)
+    except InvalidOperation:
+        raise ValueError(f"field {field} is not decimal") from None
+    if not parsed.is_finite() or parsed < 0:
+        raise ValueError(f"field {field} is invalid")
+    sign, digits, exponent = parsed.as_tuple()
+    integer_digits = max(len(digits) + exponent, 0)
+    fractional_digits = max(-exponent, 0)
+    if integer_digits + fractional_digits > 22 or fractional_digits > 3:
+        raise ValueError(f"field {field} exceeds decimal(22,3)")
+    return parsed
+
+
+def _fiscal_month_day(item, field):
+    value = _text(item, field, nullable=True)
+    if value is None:
+        return None
+    if re.fullmatch(r"\d{4}", value) is None:
+        raise ValueError(f"field {field} is not MMDD")
+    try:
+        datetime.strptime("2000" + value, "%Y%m%d")
+    except ValueError:
+        raise ValueError(f"field {field} is not MMDD") from None
+    return value
 
 
 def _normalize(items: Sequence[Mapping[str, object]], contract, mapping):
@@ -146,13 +188,57 @@ def normalize_dividend(items):
     ))
 
 
-def normalize_rights(items):
-    return _normalize(items, KR_EQUITY_RIGHTS_SCHEDULE, (
-        ("date", "basDt", D), ("issuer_code", "scrsIssuMnbdCd", T),
-        ("corporate_number", "crno", TN), ("company", "stckIssuCmpyNm", T),
-        ("issuance_reason_code", "stckIssuRcd", T), ("issuance_reason", "stckIssuRcdNm", T),
-        ("event_type_code", "rgtExertRcd", T), ("event_type", "rgtExertRcdNm", T),
-        ("exercise_start_date", "rgtExertSttgDt", TN),
-        ("exercise_end_date", "rgtExertEdDt", TN), ("registry_close_start_date", "nmlsLckSttgDt", TN),
-        ("registry_close_end_date", "nmlsLckEdDt", TN), ("par_value", "stckParPrc", F),
-    ))
+RIGHTS_SOURCE_FIELDS = (
+    "basDt", "issuCmpyKsdCustNo", "crno", "stckIssuCmpyNm",
+    "scrsIssuMnbdCd", "scrsIssuMnbdCdNm", "stckIssuRcd", "stckIssuRcdNm",
+    "rgtExertRcd", "rgtExertRcdNm", "rgtExertSttgDt", "rgtExertEdDt",
+    "nmlsLckSttgDt", "nmlsLckEdDt", "trsnmDptyDcd", "trsnmDptyDcdNm",
+    "stckParPrc", "stckStacMd",
+)
+
+
+def _source_record_sha256(item):
+    raw = {
+        field: None if item.get(field) is None else str(item.get(field))
+        for field in RIGHTS_SOURCE_FIELDS
+    }
+    payload = json.dumps(raw, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def normalize_rights(items, *, landing_response_body_sha256: str, source_page_no: int):
+    """Normalize immutable Rights source observations, never canonical events."""
+    if re.fullmatch(r"[0-9a-f]{64}", landing_response_body_sha256) is None:
+        raise ValueError("landing_response_body_sha256 is not lowercase SHA-256")
+    if not isinstance(source_page_no, int) or isinstance(source_page_no, bool) or source_page_no < 1:
+        raise ValueError("source_page_no must be a positive integer")
+    rows = []
+    for ordinal, item in enumerate(items):
+        rows.append({
+            "source_snapshot_date": D(item, "basDt"),
+            "landing_response_body_sha256": landing_response_body_sha256,
+            "source_item_ordinal": ordinal,
+            "source_page_no": source_page_no,
+            "source_record_sha256": _source_record_sha256(item),
+            "ksd_issuer_customer_no": T(item, "issuCmpyKsdCustNo"),
+            "corporate_number": TN(item, "crno"),
+            "issuer_name": T(item, "stckIssuCmpyNm"),
+            "securities_issuer_entity_code": TN(item, "scrsIssuMnbdCd"),
+            "securities_issuer_entity_name": TN(item, "scrsIssuMnbdCdNm"),
+            "issuance_reason_code": TN(item, "stckIssuRcd"),
+            "issuance_reason_name": TN(item, "stckIssuRcdNm"),
+            "rights_exercise_reason_code": TN(item, "rgtExertRcd"),
+            "rights_exercise_reason_name": TN(item, "rgtExertRcdNm"),
+            "exercise_start_date": _nullable_date(item, "rgtExertSttgDt"),
+            "exercise_end_date": _nullable_date(item, "rgtExertEdDt"),
+            "registry_close_start_date": _nullable_date(item, "nmlsLckSttgDt"),
+            "registry_close_end_date": _nullable_date(item, "nmlsLckEdDt"),
+            "transfer_agent_classification_code": TN(item, "trsnmDptyDcd"),
+            "transfer_agent_classification_name": TN(item, "trsnmDptyDcdNm"),
+            "par_value": _nullable_decimal_22_3(item, "stckParPrc"),
+            "fiscal_month_day": _fiscal_month_day(item, "stckStacMd"),
+        })
+    frame = pd.DataFrame(rows, columns=KR_EQUITY_RIGHTS_SCHEDULE.column_names)
+    frame = frame.sort_values(list(KR_EQUITY_RIGHTS_SCHEDULE.sort_key), kind="stable").reset_index(drop=True)
+    validate_data_v1(frame, KR_EQUITY_RIGHTS_SCHEDULE)
+    return frame

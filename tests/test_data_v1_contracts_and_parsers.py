@@ -8,6 +8,7 @@ from stock_data.providers.data_go_kr.data_v1 import (
     normalize_stock_lending, normalize_stock_lending_market,
     normalize_stock_lending_participant,
 )
+from stock_data.storage.contract_parquet import read_dataset, write_dataset_atomic
 from stock_data.validation.data_v1 import DataV1ValidationError, validate_data_v1
 
 
@@ -75,12 +76,16 @@ def test_dividend_and_rights_preserve_source_event_type():
         "scrsItmsKcdNm":"보통주","stckDvdnRcdNm":"무배당","dvdnBasDt":"19941231",
         "cashDvdnPayDt":"NULL","stckHndvDt":"NULL","stckGenrDvdnAmt":"0","stckGenrCashDvdnRt":"0",
         "stckGenrDvdnRt":"0","stckGrdnDvdnAmt":"0","cashGrdnDvdnRt":"0","stckGrdnDvdnRt":"0","stckParPrc":"500"}])
-    rights = normalize_rights([{"basDt":"20191231","scrsIssuMnbdCd":"1115","crno":"1101110215578",
+    rights = normalize_rights([{"basDt":"20191231","issuCmpyKsdCustNo":"1115","scrsIssuMnbdCd":"01115","crno":"1101110215578",
         "stckIssuRcd":"01","stckIssuRcdNm":"capital increase","rgtExertRcd":"02",
         "stckIssuCmpyNm":"CJ씨푸드","rgtExertRcdNm":"기준일","rgtExertSttgDt":"20191231",
-        "rgtExertEdDt":"20191231","nmlsLckSttgDt":"20200101","nmlsLckEdDt":"20200115","stckParPrc":"500"}])
+        "rgtExertEdDt":"20191231","nmlsLckSttgDt":"20200101","nmlsLckEdDt":"20200115",
+        "trsnmDptyDcd":"01","trsnmDptyDcdNm":"agent","stckParPrc":"500.000","stckStacMd":"1231"}],
+        landing_response_body_sha256="a" * 64, source_page_no=1)
     assert dividend.loc[0,"event_type"] == "무배당" and pd.isna(dividend.loc[0,"cash_payment_date"])
-    assert rights.loc[0,"event_type"] == "기준일"
+    assert rights.loc[0,"rights_exercise_reason_name"] == "기준일"
+    assert rights.loc[0,"ksd_issuer_customer_no"] == "1115"
+    assert rights.loc[0,"securities_issuer_entity_code"] == "01115"
 
 
 def test_validation_rejects_duplicates_and_bad_ohlc():
@@ -93,6 +98,56 @@ def test_validation_rejects_duplicates_and_bad_ohlc():
         validate_data_v1(frame, contract)
 
 
-def test_rights_event_identity_excludes_source_snapshot_date():
-    assert "date" not in KR_EQUITY_RIGHTS_SCHEDULE.primary_key
-    assert "event_type_code" in KR_EQUITY_RIGHTS_SCHEDULE.primary_key
+def test_rights_observation_identity_is_provenance_backed():
+    assert KR_EQUITY_RIGHTS_SCHEDULE.version == 2
+    assert KR_EQUITY_RIGHTS_SCHEDULE.primary_key == (
+        "landing_response_body_sha256", "source_item_ordinal"
+    )
+    assert "source_snapshot_date" not in KR_EQUITY_RIGHTS_SCHEDULE.primary_key
+
+
+def test_rights_optional_fields_and_provenance_validation():
+    item = {
+        "basDt": "20191231", "issuCmpyKsdCustNo": "1115",
+        "stckIssuCmpyNm": "issuer", "stckParPrc": "NULL", "stckStacMd": "NULL",
+    }
+    frame = normalize_rights(
+        [item], landing_response_body_sha256="b" * 64, source_page_no=2,
+    )
+    assert frame.loc[0, "source_item_ordinal"] == 0
+    assert frame.loc[0, "source_page_no"] == 2
+    assert pd.isna(frame.loc[0, "issuance_reason_code"])
+    assert pd.isna(frame.loc[0, "par_value"])
+    assert len(frame.loc[0, "source_record_sha256"]) == 64
+    with pytest.raises(ValueError, match="lowercase SHA-256"):
+        normalize_rights([item], landing_response_body_sha256="bad", source_page_no=1)
+
+
+def test_rights_observation_parquet_round_trip_uses_snapshot_year(tmp_path):
+    item = {
+        "basDt": "20191231", "issuCmpyKsdCustNo": "1115",
+        "stckIssuCmpyNm": "issuer", "stckParPrc": "500.000", "stckStacMd": "1231",
+    }
+    frame = normalize_rights(
+        [item], landing_response_body_sha256="d" * 64, source_page_no=1,
+    )
+    validator = lambda value: validate_data_v1(value, KR_EQUITY_RIGHTS_SCHEDULE)
+    root = tmp_path / KR_EQUITY_RIGHTS_SCHEDULE.name
+    write_dataset_atomic(frame, root, KR_EQUITY_RIGHTS_SCHEDULE, validator)
+    restored = read_dataset(root, KR_EQUITY_RIGHTS_SCHEDULE, validator)
+    assert (root / "year=2019" / "data.parquet").is_file()
+    assert restored.equals(frame)
+
+
+@pytest.mark.parametrize(("field", "value", "error"), [
+    ("stckStacMd", "1331", "MMDD"),
+    ("stckParPrc", "1.2345", "decimal"),
+    ("rgtExertSttgDt", "20190230", "YYYYMMDD"),
+])
+def test_rights_rejects_invalid_documented_values(field, value, error):
+    item = {
+        "basDt": "20191231", "issuCmpyKsdCustNo": "1115",
+        "stckIssuCmpyNm": "issuer", field: value,
+    }
+    with pytest.raises(ValueError, match=error):
+        normalize_rights([item], landing_response_body_sha256="c" * 64, source_page_no=1)

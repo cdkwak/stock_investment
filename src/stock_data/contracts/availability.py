@@ -33,7 +33,7 @@ SNAPSHOT_EVENT_AVAILABILITY = {
     ),
     "kr_equity_rights_schedule": AvailabilitySemantics(
         dataset="kr_equity_rights_schedule",
-        source_snapshot_field="date",
+        source_snapshot_field="source_snapshot_date",
         event_effective_fields=(
             "exercise_start_date", "exercise_end_date",
             "registry_close_start_date", "registry_close_end_date",

@@ -17,6 +17,7 @@ from stock_data.contracts.data_v1 import DATA_V1_CONTRACTS
 from stock_data.contracts.kr_derivatives import KR_DERIVATIVE_CONTRACTS
 from stock_data.contracts.kbsec_snapshot import KBSEC_SNAPSHOT_CONTRACTS
 from stock_data.contracts.legacy_kospi200 import LEGACY_KOSPI200_CONTRACTS
+from stock_data.contracts.legacy_market_investor import LEGACY_MARKET_INVESTOR_CONTRACTS
 from stock_data.contracts.tossinvest_historical import TOSSINVEST_HISTORICAL_CONTRACTS
 
 
@@ -32,8 +33,9 @@ CONTRACTS = {contract.name: contract for contract in (
     *KR_DERIVATIVE_CONTRACTS,
     *KBSEC_SNAPSHOT_CONTRACTS,
     *LEGACY_KOSPI200_CONTRACTS,
+    *LEGACY_MARKET_INVESTOR_CONTRACTS,
     *TOSSINVEST_HISTORICAL_CONTRACTS,
 )}
 
-if len(CONTRACTS) != 15 + len(DATA_V1_CONTRACTS) + len(KR_DERIVATIVE_CONTRACTS) + len(KBSEC_SNAPSHOT_CONTRACTS) + len(LEGACY_KOSPI200_CONTRACTS) + len(TOSSINVEST_HISTORICAL_CONTRACTS):
+if len(CONTRACTS) != 15 + len(DATA_V1_CONTRACTS) + len(KR_DERIVATIVE_CONTRACTS) + len(KBSEC_SNAPSHOT_CONTRACTS) + len(LEGACY_KOSPI200_CONTRACTS) + len(LEGACY_MARKET_INVESTOR_CONTRACTS) + len(TOSSINVEST_HISTORICAL_CONTRACTS):
     raise RuntimeError("duplicate Dataset Contract name")
