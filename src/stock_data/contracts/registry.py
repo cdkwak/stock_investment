@@ -9,6 +9,7 @@ from stock_data.contracts.kr_equity import (
 )
 from stock_data.contracts.kr_index_daily import KR_INDEX_DAILY
 from stock_data.contracts.kr_market import KR_INVESTOR_FLOW_DAILY, KR_MARKET_BREADTH_DAILY
+from stock_data.contracts.investor_bridge import INVESTOR_BRIDGE_CONTRACTS
 from stock_data.contracts.kr_short_selling import (
     KR_SHORT_SELLING_BALANCE_DAILY, KR_SHORT_SELLING_INVESTOR_DAILY,
     KR_SHORT_SELLING_TRADING_DAILY,
@@ -34,8 +35,9 @@ CONTRACTS = {contract.name: contract for contract in (
     *KBSEC_SNAPSHOT_CONTRACTS,
     *LEGACY_KOSPI200_CONTRACTS,
     *LEGACY_MARKET_INVESTOR_CONTRACTS,
+    *INVESTOR_BRIDGE_CONTRACTS,
     *TOSSINVEST_HISTORICAL_CONTRACTS,
 )}
 
-if len(CONTRACTS) != 15 + len(DATA_V1_CONTRACTS) + len(KR_DERIVATIVE_CONTRACTS) + len(KBSEC_SNAPSHOT_CONTRACTS) + len(LEGACY_KOSPI200_CONTRACTS) + len(LEGACY_MARKET_INVESTOR_CONTRACTS) + len(TOSSINVEST_HISTORICAL_CONTRACTS):
+if len(CONTRACTS) != 15 + len(DATA_V1_CONTRACTS) + len(KR_DERIVATIVE_CONTRACTS) + len(KBSEC_SNAPSHOT_CONTRACTS) + len(LEGACY_KOSPI200_CONTRACTS) + len(LEGACY_MARKET_INVESTOR_CONTRACTS) + len(INVESTOR_BRIDGE_CONTRACTS) + len(TOSSINVEST_HISTORICAL_CONTRACTS):
     raise RuntimeError("duplicate Dataset Contract name")

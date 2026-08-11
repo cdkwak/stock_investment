@@ -18,15 +18,16 @@ official continuous coverage.
 | Korean source verification | authenticated pykrx 1.2.8 | bounded manual smoke passed; 5/5 public probes, 12 raw HTTP requests | historical automation remains disabled pending per-dataset contract and budgeted pilot |
 | Korean equity price/cap/universe | marcap + KRX Open API + FSC data.go.kr | complete, 1995-05-02..2026-08-07 | daily incremental |
 | Korean Open API history | KRX Open API | complete, 2010-01-04..2019-12-30 | daily ledger/checkpoint retained |
-| Korean short selling | authenticated pykrx candidate | source feasibility confirmed for delisted `003410` on 2024-07-08; dataset not implemented | reconcile status endpoint with trading/balance/investor contracts, then run a separately budgeted pilot |
-| Global index | Yahoo | available | routine validation |
-| US macro | FRED | available | routine validation |
+| Korean short selling | authenticated pykrx 1.2.8 | SOURCE_FEASIBILITY_CONFIRMED; 25/25 bounded pilot probes complete | implement v2 contracts and execute only checkpointed, bounded, single-stream historical batches |
+| `global_index_price_daily` | Yahoo chart API | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 49,051 rows through 2026-08-07 | canonical read, PK, OHLC, null, infinity, and gap audit pass; retained collection has no lossless Landing or call ledger |
+| `fred_treasury_yield_daily` | FRED | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 16,853 weekdays, 1962-01-02..2026-08-06 | source-series nulls are preserved; retained state is only a coarse completion marker |
+| `fred_usd_fx_daily` | FRED | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 14,500 weekdays, 1971-01-04..2026-07-31 | source-series nulls are preserved; retained state is only a coarse completion marker |
 | `kr_market_investor_trading_daily` | Toss Securities | DATA_COMPLETE; 2014-07-01..2026-08-11, KOSPI/KOSDAQ, 5,946 rows | historical secondary; preserve the source `updatedAt`-derived `availability_date` |
 | `kr_treasury_yield_daily` | Toss Securities | ARTIFACT_COMPLETE / PREDICTIVE_USE_BLOCKED; 2019-01-02..2026-08-10, six tenors, 11,162 rows | percent yield semantics verified; source volume unit and observation availability are unknown |
 | Toss per-symbol short/program/lending/credit | Toss Securities | not survivorship safe; delisted sample returned `stock-not-found` for all four operations | do not run full-universe historical backfill |
 | KB realtime | KB Securities | earlier OAuth success reported; 2026-08-11 fresh check failed with HTTP 500, result `9999`, process `E021`; IVSA0070 not called | verify app-key authorization externally, then authorize a new one-shot validation |
 | Market breadth | canonical universe + Korean equity prices | complete, 1995-05-03..2026-08-07 | daily incremental |
-| Treasury spread | FRED yields | implemented | recalculate after yield updates |
+| `us_treasury_spread_daily` | FRED yields | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 16,853 rows, 1962-01-02..2026-08-06 | exact local parity with retained yields; no independent state file |
 | `kr_market_liquidity_daily` | FSC/KOFIA public API | complete, 2021-10-26..2026-08-05 | daily incremental |
 | `kr_credit_balance_daily` | FSC/KOFIA public API | complete, 2021-11-09..2026-08-05 | daily incremental |
 | `kr_kospi200_futures_daily` | FSC derivatives public API | complete, 2020-01-02..2026-08-07; 1,620 dates | daily incremental |
@@ -45,8 +46,9 @@ official continuous coverage.
 | KRX Open API 2010-2019 | KRX Open API | complete; 2,466 trading dates and 9,864 backfill calls | no resume required |
 | `krx_legacy_kospi200_futures_daily` | verified legacy migration | DATA_COMPLETE, 2010-01-04..2019-12-30; 38,583 rows, 2,466 observed dates | retain legacy source-row provenance and session identity |
 | `krx_legacy_kospi200_options_daily` | verified legacy migration | DATA_COMPLETE, 2010-01-04..2019-12-30; 1,090,078 rows, 2,466 observed dates | retain source `ISU_CD` as string and source-row identity |
-| `kr_kospi200_option_pcr_daily` | derived from migrated options | DATA_COMPLETE, 2010-01-04..2019-12-31; 2,607 rows = 2,466 observed + 141 valid-empty weekdays | volume/open-interest PCR only; zero denominators remain null |
+| `kr_kospi200_option_pcr_daily` | legacy + official KOSPI200 options | DATA_COMPLETE, 2010-01-04..2026-08-07; 4,227 rows = 4,086 observed + 141 legacy valid-empty weekdays | 2010-2019 legacy 2,607 + 2020-present official 1,620; volume/open-interest PCR only |
 | `kr_market_investor_net_purchase_daily` | KRX via PyKRX 1.2.8 legacy artifact | DATA_COMPLETE, 1999-01-04..2014-06-30; 3,834 KOSPI rows | checksum-fixed pre-A001 dataset; signed source integers retain `unit_unknown` and must not be concatenated with A001 without an explicit bridge |
+| `kr_market_investor_net_purchase_bridge_daily` | legacy investor + Toss A001 | DATA_COMPLETE, 1999-01-04..2026-08-11; 9,780 rows | Published provider-boundary bridge; legacy rows retain `unit_unknown`, null availability, and predictive-use block; cross-segment numeric comparison is prohibited |
 
 Unauthenticated/standalone automated access to `data.krx.co.kr` remains disabled.
 Authenticated pykrx 1.2.8 access passed a bounded manual smoke test, but historical
@@ -128,6 +130,13 @@ layer does not shift either date.
   current master would drop 23,305 rows across 3,533 ISINs. Rights, issuance,
   split, merger, and capital-reduction terms require separate verified sources
   and versioned observation contracts before any adjustment-factor derivation.
+- Official OpenDART discovery found 2015+ filing APIs for paid/free capital
+  increases, capital reductions, mergers, divisions, and division-mergers. The
+  responses carry filing receipt identity and decision/economic schedule fields,
+  and some products expose share counts or ratios. This is a defensible
+  corporate-action observation candidate, not yet an adjustment-factor dataset.
+  The repository has no OpenDART API key, so collection is paused at the external
+  credential gate; no values or coverage before 2015 are inferred.
 - The one-call B002-P1 Rights diagnostic returned HTTP 200/result `00` with
   12 source records reported and one retained item (page size one). It proves
   source usability only, not historical coverage. B002-P2 found that an
@@ -137,9 +146,34 @@ layer does not shift either date.
   field-only canonical event identity. No economic Rights event dataset or
   adjusted-price input is therefore marked complete.
 - Short-selling source feasibility is confirmed but its dataset contract/coverage
-  pilot remains gated. VKOSPI and futures-basis roll definitions remain deferred.
+  pilot is now complete. The 25 sequential business probes used 40 raw HTTP
+  requests: 25 business responses and 15 authentication requests across the
+  original process plus two verified checkpoint resumes. Every response was
+  HTTP 200, no business request was repeated, and credential scans were clean.
+  Full-market trading and investor probes were non-empty on 2008-01-02;
+  full-market balance probes were non-empty on 2016-06-30. Both current and
+  historical/delisted symbol probes succeeded, including KOSPI `003410` and
+  KOSDAQ `030270`. Weekend trading/balance returned empty arrays; the investor
+  endpoint returned its source-specific blank-date, all-zero placeholder, which
+  is retained and classified separately as valid-empty. These sentinels prove
+  feasibility, not the earliest possible source date. Production collection
+  remains disabled until the v2 contracts and bounded single-stream collector
+  pass D review. VKOSPI and futures-basis roll definitions remain deferred.
   Toss per-symbol program/lending/credit history remains survivorship blocked.
-  KOSPI200 PCR for 2010-2019 is implemented; later-period linkage is separate.
+  KOSPI200 PCR is linked through 2026-08-07. The combined atomic writer
+  preserved all ten 2010-2019 Parquet files byte-for-byte and added seven
+  official 2020-2026 partitions. The 4,227-row result has zero PK duplicates or
+  infinities; ratio nulls are exactly the 141 audited legacy valid-empty rows.
+- The retained Yahoo/FRED artifacts passed a deterministic 2026-08-11 audit.
+  Global indices contain 49,051 rows: S&P 500 24,766
+  (1928-01-03..2026-08-07), NASDAQ Composite 13,993
+  (1971-02-05..2026-08-07), and NASDAQ-100 10,292
+  (1985-10-01..2026-08-07). FRED yields contain 16,853 weekday rows and
+  USD FX 14,500 weekday rows; source-start nulls are preserved rather than
+  backfilled. Treasury-spread values reproduce the retained yield arithmetic
+  exactly. These datasets are artifact-complete with provenance limits because
+  their retained states lack Landing reconciliation, call ledgers, and strong
+  source-response manifests.
 
 ## Artifact and execution classifications
 
