@@ -47,6 +47,8 @@ official continuous coverage.
 | `krx_legacy_kospi200_futures_daily` | verified legacy migration | DATA_COMPLETE, 2010-01-04..2019-12-30; 38,583 rows, 2,466 observed dates | retain legacy source-row provenance and session identity |
 | `krx_legacy_kospi200_options_daily` | verified legacy migration | DATA_COMPLETE, 2010-01-04..2019-12-30; 1,090,078 rows, 2,466 observed dates | retain source `ISU_CD` as string and source-row identity |
 | `kr_kospi200_option_pcr_daily` | legacy + official KOSPI200 options | DATA_COMPLETE, 2010-01-04..2026-08-07; 4,227 rows = 4,086 observed + 141 legacy valid-empty weekdays | 2010-2019 legacy 2,607 + 2020-present official 1,620; volume/open-interest PCR only |
+| `kr_kospi200_futures_provider_bridge_daily` | legacy + official KOSPI200 futures | DATA_COMPLETE_WITH_LIMITS, 2010-01-04..2026-08-07; 38,601 contract rows | provider/session boundary preserved; 11,322 legacy spread rows excluded; no continuous/front-month roll rule |
+| `kr_kospi200_options_provider_bridge_daily` | legacy + official KOSPI200 options | DATA_COMPLETE_WITH_LIMITS, 2010-01-04..2026-08-07; 3,782,720 contract rows | official session is unspecified by source; no continuous/front-month roll rule |
 | `kr_market_investor_net_purchase_daily` | KRX via PyKRX 1.2.8 legacy artifact | DATA_COMPLETE, 1999-01-04..2014-06-30; 3,834 KOSPI rows | checksum-fixed pre-A001 dataset; signed source integers retain `unit_unknown` and must not be concatenated with A001 without an explicit bridge |
 | `kr_market_investor_net_purchase_bridge_daily` | legacy investor + Toss A001 | DATA_COMPLETE, 1999-01-04..2026-08-11; 9,780 rows | Published provider-boundary bridge; legacy rows retain `unit_unknown`, null availability, and predictive-use block; cross-segment numeric comparison is prohibited |
 
@@ -164,6 +166,14 @@ layer does not shift either date.
   preserved all ten 2010-2019 Parquet files byte-for-byte and added seven
   official 2020-2026 partitions. The 4,227-row result has zero PK duplicates or
   infinities; ratio nulls are exactly the 141 audited legacy valid-empty rows.
+- The KOSPI200 derivatives Published bridges retain contract rows across the
+  2019-12-30 legacy / 2020-01-02 official boundary. Boundary contract-code
+  intersections are exact for futures (7/7) and options (894/894). Regular and
+  night futures remain separate; 11,322 legacy spread rows are excluded from
+  the outright-futures bridge. Official option session, exact expiry dates,
+  and legacy price/volume/open-interest units are not inferred. These datasets
+  are not continuous contracts and must not be used as one without a separately
+  specified and tested roll rule.
 - The retained Yahoo/FRED artifacts passed a deterministic 2026-08-11 audit.
   Global indices contain 49,051 rows: S&P 500 24,766
   (1928-01-03..2026-08-07), NASDAQ Composite 13,993
