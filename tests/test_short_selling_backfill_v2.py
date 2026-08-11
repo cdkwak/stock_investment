@@ -119,6 +119,41 @@ def test_call_cap_order_landing_first_checkpoint_and_exact_resume(tmp_path):
     assert seen == ["20260810_KOSPI", "20260810_KOSDAQ"]
 
 
+def test_disjoint_ranges_share_checkpoint_but_complete_independently(tmp_path):
+    def collect(days, responses, seen, *, enter_error=False):
+        return run_short_selling_batch(
+            dataset="trading", trading_dates=days, max_business_calls=2,
+            project_root=tmp_path,
+            client_factory=lambda ledger: FakeClient(
+                responses, seen, ledger, enter_error=enter_error
+            ),
+            throttle=no_sleep_throttle(),
+        )
+
+    earlier = (date(2026, 8, 7),)
+    later = (date(2026, 8, 10),)
+    seen = []
+    first = collect(
+        earlier,
+        [RawResponse(200, trading_response()), RawResponse(200, trading_response("035720"))],
+        seen,
+    )
+    assert json.loads(first.checkpoint_path.read_text())["status"] == "BATCH_COMPLETE"
+    second = collect(
+        later,
+        [RawResponse(200, trading_response()), RawResponse(200, trading_response("035720"))],
+        seen,
+    )
+    checkpoint = json.loads(second.checkpoint_path.read_text())
+    assert checkpoint["status"] == "BATCH_COMPLETE"
+    assert set(checkpoint["completed"]) == {
+        "20260807_KOSPI", "20260807_KOSDAQ", "20260810_KOSPI", "20260810_KOSDAQ"
+    }
+    reconciled = collect(earlier, [], seen, enter_error=True)
+    assert reconciled.previously_completed_scopes == 2
+    assert reconciled.requested_business_calls == 0
+
+
 def test_orphan_landing_is_recovered_atomically_without_repeat(tmp_path):
     orphan = tmp_path / "data/landing/pykrx/short_selling/trading/20260810_KOSPI.json"
     orphan.parent.mkdir(parents=True)

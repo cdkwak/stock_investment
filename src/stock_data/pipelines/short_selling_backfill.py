@@ -994,7 +994,7 @@ def run_short_selling_batch(
                 _atomic_json(checkpoint_path, checkpoint)
                 ledger.append("RUN_STOPPED", error_type=type(error).__name__, error=_redact_text(error))
                 raise
-            remaining = len(scopes) - len(completed)
+            remaining = sum(scope.scope_id not in completed for scope in scopes)
             checkpoint["status"] = "BATCH_COMPLETE" if remaining == 0 else "BATCH_LIMIT_REACHED"
             checkpoint["updated_at_utc"] = utc_now()
             _atomic_json(checkpoint_path, checkpoint)
