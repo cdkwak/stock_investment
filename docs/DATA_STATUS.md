@@ -100,6 +100,14 @@ layer does not shift either date.
   ownership observations; all succeeded in 12/14 permitted raw requests with
   zero retries. Historical, scheduled, polling, and repair automation remain
   disabled until the authenticated collection runbook gates are satisfied.
+- Bounded Landing-only pilots for fundamentals, foreign ownership, and ETF are
+  implemented and offline-tested. They remain unexecuted while A007 owns the
+  single KRX stream; no candidate contract is registered before actual full-market
+  response semantics and historical coverage are audited.
+- The OpenDART free-issue observation pilot is IMPLEMENTATION_READY but unexecuted.
+  It is capped at three sequential zero-retry requests and preserves filings as
+  immutable observations; it does not infer supersession, canonical events,
+  adjustment factors, prices, or predictive availability.
 - Legacy pykrx failed checkpoint entries are preserved for audit but do not
   indicate a gap in the completed official 1995-2026 equity datasets.
 - KB Securities remains read-only. An earlier OAuth success was reported, but the
@@ -110,7 +118,10 @@ layer does not shift either date.
   source rate-limit headers, landing-first capture, atomic Parquet merge, and
   explicit provenance fields. Treasury responses do not provide `updatedAt`;
   the earlier inferred `availability_date = source_date` was removed by an
-  offline replay of all 60 retained landing responses, with no API calls.
+  offline replay of all 60 retained landing responses, with no API calls. The
+  official-source audit in `A006_TREASURY_AVAILABILITY_AUDIT.md` confirms that
+  Toss OHLC cannot inherit KOFIA's separate 16:30 final-quotation timestamp;
+  all Toss availability dates remain null and predictive use stays blocked.
   Per-symbol historical APIs are blocked from full-universe
   backfill because a canonical delisted symbol returned `stock-not-found` in each
   operation; this prevents survivorship-safe coverage.
