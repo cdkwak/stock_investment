@@ -37,6 +37,7 @@ official continuous coverage.
 | `kr_stock_lending_market_daily` | FSC stock-lending public API | DATA_COMPLETE, 2021-04-01..2026-08-10; 1,254 rows/source dates | 63 source-absent dates versus detail intentionally preserved |
 | `kr_stock_lending_participant_daily` | FSC stock-lending public API | DATA_COMPLETE, 2021-04-01..2026-08-10; 11,472 rows, 1,290 source dates | 27 source-absent dates versus detail intentionally preserved |
 | `kr_equity_dividend` | FSC dividend public API | one current snapshot complete, 71,652 source events; no historical point-in-time series | define versioned incremental snapshot policy |
+| `kr_equity_dividend_source_observation` | retained FSC dividend Landing snapshot | ARTIFACT_COMPLETE, 71,652 immutable source observations at `basDt=2026-08-08` | non-PIT/non-predictive; append future independently captured snapshots by Landing hash |
 | `kr_equity_rights_schedule` | FSC rights public API | source diagnostic complete; canonical event dataset BLOCKED, 0 rows | source-observation contract is implementable; economic adjustment terms and a canonical event key remain unverified |
 | Corporate-action source boundary | FSC/data.go.kr local official guides | analysis complete; no new dataset | verify split/merger/reduction economic-term source before deriving adjustments |
 | Adjusted price / total return | none selected | not started | define corporate-action accounting policy and source |
@@ -132,6 +133,12 @@ layer does not shift either date.
   current master would drop 23,305 rows across 3,533 ISINs. Rights, issuance,
   split, merger, and capital-reduction terms require separate verified sources
   and versioned observation contracts before any adjustment-factor derivation.
+- The retained dividend Landing file was rebuilt offline into 71,652 immutable
+  source-observation rows keyed by Landing SHA-256 and source item ordinal.
+  Its projection exactly reproduces `kr_equity_dividend`, but it is one current
+  snapshot with no capture timestamp, prior snapshot, or correction history.
+  It is therefore artifact-complete only and remains ineligible for historical
+  PIT, predictive, adjusted-price, or total-return use.
 - Official OpenDART discovery found 2015+ filing APIs for paid/free capital
   increases, capital reductions, mergers, divisions, and division-mergers. The
   responses carry filing receipt identity and decision/economic schedule fields,
