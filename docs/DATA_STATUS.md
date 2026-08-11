@@ -24,7 +24,7 @@ official continuous coverage.
 | `fred_usd_fx_daily` | FRED | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 14,500 weekdays, 1971-01-04..2026-07-31 | source-series nulls are preserved; retained state is only a coarse completion marker |
 | `kr_market_investor_trading_daily` | Toss Securities | DATA_COMPLETE; 2014-07-01..2026-08-11, KOSPI/KOSDAQ, 5,946 rows | historical secondary; preserve the source `updatedAt`-derived `availability_date` |
 | `kr_treasury_yield_daily` | Toss Securities | ARTIFACT_COMPLETE / PREDICTIVE_USE_BLOCKED; 2019-01-02..2026-08-10, six tenors, 11,162 rows | percent yield semantics verified; source volume unit and observation availability are unknown |
-| Toss per-symbol short/program/lending/credit | Toss Securities | not survivorship safe; delisted sample returned `stock-not-found` for all four operations | do not run full-universe historical backfill |
+| Toss per-symbol short/program/lending/credit | Toss Securities | not survivorship safe; delisted sample returned `stock-not-found` for all four operations | official program screen `MDCSTAT02601` needs a post-A007 request-contract pilot; official credit market aggregates do not replace per-symbol shares/ratios |
 | KB realtime | KB Securities | earlier OAuth success reported; 2026-08-11 fresh check failed with HTTP 500, result `9999`, process `E021`; IVSA0070 not called | verify app-key authorization externally, then authorize a new one-shot validation |
 | Market breadth | canonical universe + Korean equity prices | complete, 1995-05-03..2026-08-07 | daily incremental |
 | `us_treasury_spread_daily` | FRED yields | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 16,853 rows, 1962-01-02..2026-08-06 | exact local parity with retained yields; no independent state file |
@@ -187,6 +187,12 @@ layer does not shift either date.
   identity, returned fields, historical start, and revision/cutoff policy still
   require the post-A007 bounded pilot documented in `VKOSPI200_SOURCE_AUDIT.md`.
   Toss per-symbol program/lending/credit history remains survivorship blocked.
+  Program trading is no longer source-unknown: local KRX metadata identifies
+  `MDCSTAT02601`, but parameters, grain, fields, and units require the bounded
+  post-A007 discovery gate in `KRX_PROGRAM_TRADING_SOURCE_READINESS.md`.
+  `kr_credit_balance_daily` remains DATA_COMPLETE at market-aggregate grain;
+  `OFFICIAL_CREDIT_BALANCE_SOURCE_AUDIT.md` shows that its monetary FreeSIS
+  series cannot substitute for Toss per-symbol share quantities and ratios.
   KOSPI200 PCR is linked through 2026-08-07. The combined atomic writer
   preserved all ten 2010-2019 Parquet files byte-for-byte and added seven
   official 2020-2026 partitions. The 4,227-row result has zero PK duplicates or
