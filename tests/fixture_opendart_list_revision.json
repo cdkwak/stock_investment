@@ -1,0 +1,2 @@
+{"status":"000","message":"정상","page_no":1,"page_count":100,"total_count":2,"total_page":1,"list":[{"corp_cls":"Y","corp_name":"Fixture Corp","corp_code":"00123456","stock_code":"123456","report_nm":"주요사항보고서","rcept_no":"20240102000001","flr_nm":"Fixture Corp","rcept_dt":"20240102","rm":"정"},{"corp_cls":"Y","corp_name":"Fixture Corp","corp_code":"00123456","stock_code":"123456","report_nm":"[기재정정]주요사항보고서","rcept_no":"20240103000002","flr_nm":"Fixture Corp","rcept_dt":"20240103","rm":""}]}
+
