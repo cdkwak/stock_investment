@@ -14,6 +14,7 @@ from pathlib import Path
 from stock_data.pipelines.short_selling_backfill import (
     AppendOnlyRedactedLedger,
     AuthenticatedPykrxRawClient,
+    ConservativeThrottle,
     calculate_backfill_estimate,
     load_canonical_trading_dates,
     run_short_selling_batch,
@@ -32,6 +33,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--end", type=_day)
     parser.add_argument("--max-business-calls", type=int)
     parser.add_argument("--max-raw-calls", type=int)
+    parser.add_argument("--min-interval-seconds", type=float, default=8.0)
+    parser.add_argument("--max-jitter-seconds", type=float, default=2.0)
     parser.add_argument("--confirm-live-collection", action="store_true")
     parser.add_argument("--estimate-only", action="store_true")
     parser.add_argument("--pilot-run", type=Path)
@@ -61,6 +64,13 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(f"bounded live collection is disabled without explicit {suffix}")
     if args.max_business_calls < 1 or args.max_raw_calls < args.max_business_calls:
         raise SystemExit("request budgets are invalid")
+    try:
+        throttle = ConservativeThrottle(
+            min_interval_seconds=args.min_interval_seconds,
+            max_jitter_seconds=args.max_jitter_seconds,
+        )
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
     trading_dates = load_canonical_trading_dates(canonical, start=args.start, end=args.end)
 
     def client_factory(ledger: AppendOnlyRedactedLedger):
@@ -72,6 +82,7 @@ def main(argv: list[str] | None = None) -> int:
         dataset=args.dataset, trading_dates=trading_dates,
         max_business_calls=args.max_business_calls, project_root=root,
         client_factory=client_factory,
+        throttle=throttle,
     )
     print(json.dumps(asdict(result), indent=2, default=str, sort_keys=True))
     return 0

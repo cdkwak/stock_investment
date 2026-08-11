@@ -267,8 +267,8 @@ class ConservativeThrottle:
         monotonic_fn: Callable[[], float] = time.monotonic,
         jitter_fn: Callable[[float, float], float] = random.uniform,
     ) -> None:
-        if min_interval_seconds < 8 or not (0 < max_jitter_seconds <= 2):
-            raise ValueError("production throttle requires >=8 seconds and 0<jitter<=2 seconds")
+        if min_interval_seconds < 6 or not (0 < max_jitter_seconds <= 2):
+            raise ValueError("production throttle requires >=6 seconds and 0<jitter<=2 seconds")
         self.min_interval_seconds = min_interval_seconds
         self.max_jitter_seconds = max_jitter_seconds
         self.sleep_fn = sleep_fn

@@ -76,6 +76,30 @@ def no_sleep_throttle():
     )
 
 
+def test_adaptive_throttle_allows_bounded_six_second_floor_with_jitter():
+    throttle = ConservativeThrottle(
+        min_interval_seconds=6.5,
+        max_jitter_seconds=1.0,
+        sleep_fn=lambda _: None,
+        monotonic_fn=lambda: 0.0,
+        jitter_fn=lambda *_: 0.5,
+    )
+    assert throttle.min_interval_seconds == 6.5
+    assert throttle.max_jitter_seconds == 1.0
+    with pytest.raises(ValueError, match=">=6 seconds"):
+        ConservativeThrottle(min_interval_seconds=5.99, max_jitter_seconds=1.0)
+
+
+def test_cli_exposes_explicit_adaptive_throttle_parameters():
+    args = cli.build_parser().parse_args([
+        "--project-root", ".",
+        "--min-interval-seconds", "6.5",
+        "--max-jitter-seconds", "1.0",
+    ])
+    assert args.min_interval_seconds == 6.5
+    assert args.max_jitter_seconds == 1.0
+
+
 def run(tmp_path, responses, seen, *, max_calls, enter_error=False):
     return run_short_selling_batch(
         dataset="trading", trading_dates=(date(2026, 8, 10),),
