@@ -1,0 +1,56 @@
+# D001 Deterministic Dataset Inventory Contract
+
+## Purpose and classification boundary
+
+This audit inventories retained Data-layer files and verifies bounded physical
+properties. It never assigns `DATA_COMPLETE`; every result is an observation of
+the local filesystem at invocation time. Missing registered datasets and
+unregistered artifacts are reported, not silently classified as defects.
+
+The command performs no provider or network calls and never reads Landing raw
+bodies. Landing is summarized only by file extension, count, and bytes.
+
+## Report identity
+
+- report schema: `stock_data.dataset_inventory`
+- schema version: `1`
+- deterministic key for an artifact root: `(layer, relative_root)`
+- registered dataset association: exact contract name from Parquet schema
+  metadata when present, otherwise exact artifact-root directory name
+- file ordering: normalized repository-relative POSIX path
+- no generated timestamp, hostname, secret, environment value, or raw payload
+
+## Artifact-root discovery
+
+Parquet files are discovered below `data/landing`, `data/normalized`,
+`data/derived`, and `data/published`. The root is the directory immediately
+before the first Hive-style `key=value` partition component; an unpartitioned
+file uses its parent. Hidden, temporary, and quarantine path components are
+listed as ignored and excluded from issue counts.
+
+Nested Published bundles therefore retain their full relative root while still
+associating to the exact leaf dataset name or Parquet `dataset` metadata.
+
+## Verification levels
+
+- files, repository-relative file manifest, partitions, bytes, and rows: exact
+  Parquet metadata (no Parquet body hash/read required)
+- physical schema: exact per-file footer schema; every distinct schema retained
+- date coverage: exact row-group statistics, with date-column batch fallback
+- contract schema/nullability: exact when required footer statistics exist or
+  the dataset is within the configured scan-row bound
+- primary-key duplicates: exact only when row count is within `max_key_rows`
+- infinity count: exact only when row count is within `max_scan_rows`
+- skipped checks carry an explicit reason and never imply PASS
+
+State JSON is summarized using a fixed allowlist (`dataset`, `status`, task id,
+and counts of operational collections). Error text, credentials, request
+parameters, tokens, and arbitrary values are never emitted.
+
+## Output and mutation
+
+Default operation prints deterministic JSON and concise Markdown to stdout and
+does not create a file. JSON/Markdown files are written atomically only when an
+explicit output path is supplied. The audit never changes datasets, states,
+checkpoints, registries, or Landing.
+
