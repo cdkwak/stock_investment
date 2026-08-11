@@ -171,8 +171,10 @@ layer does not shift either date.
   Recovery requires immutable HTTP-200 provenance plus an exact same-run
   ledger/scope correlation and Normalized row reconciliation; non-200, forged,
   missing, or path-escaping evidence fails closed. Production rows remain zero
-  until a separately bounded batch is run. VKOSPI and futures-basis roll
-  definitions remain deferred.
+  until a separately bounded batch is run. V-KOSPI 200 is PILOT_READY through
+  an official authenticated KRX daily-index candidate, but exact source index
+  identity, returned fields, historical start, and revision/cutoff policy still
+  require the post-A007 bounded pilot documented in `VKOSPI200_SOURCE_AUDIT.md`.
   Toss per-symbol program/lending/credit history remains survivorship blocked.
   KOSPI200 PCR is linked through 2026-08-07. The combined atomic writer
   preserved all ten 2010-2019 Parquet files byte-for-byte and added seven
@@ -186,6 +188,11 @@ layer does not shift either date.
   and legacy price/volume/open-interest units are not inferred. These datasets
   are not continuous contracts and must not be used as one without a separately
   specified and tested roll rule.
+- The Derived nearest-source-listed futures series selects the minimum retained
+  maturity month independently within each provider/session segment. It has
+  6,538 rows and 106 observed contract transitions; regular-session source-native
+  settlement basis exists on 4,086 rows, while 2,452 night rows remain null.
+  Exact expiry, normalized units, calendar roll, and back-adjustment are not inferred.
 - The retained Yahoo/FRED artifacts passed a deterministic 2026-08-11 audit.
   Global indices contain 49,051 rows: S&P 500 24,766
   (1928-01-03..2026-08-07), NASDAQ Composite 13,993
