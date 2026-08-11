@@ -57,6 +57,8 @@ class KBSecResponse:
     data_body: dict[str, Any]
     raw_payload: dict[str, Any]
     http_status: int = 200
+    result_message: str | None = None
+    process_message: str | None = None
 
 
 class KBSecClient:
@@ -161,5 +163,17 @@ class KBSecClient:
     def market_summary(self):
         payload, http_status = self._post(MARKET_SUMMARY_PATH, headers={"Authorization": f"Bearer {self.access_token()}", "Content-Type": "application/json", "Accept": "application/json"}, body={})
         header = payload["dataHeader"]
-        if str(header.get("resultCode", "")) != "200": raise KBSecBusinessError("KB market summary rejected")
-        return KBSecResponse(str(header["resultCode"]), str(header.get("processCode", "")), dict(payload["dataBody"]), payload, http_status)
+        result_code = self._safe(header.get("resultCode")) or ""
+        process_code = self._safe(header.get("processCode")) or ""
+        result_message = self._safe(header.get("resultMessage"))
+        process_message = self._safe(header.get("processMessage"))
+        if result_code != "200":
+            raise KBSecBusinessError(
+                "KB market summary rejected", http_status=http_status,
+                result_code=result_code, result_message=result_message,
+                process_code=process_code, process_message=process_message,
+            )
+        return KBSecResponse(
+            result_code, process_code, dict(payload["dataBody"]), payload, http_status,
+            result_message=result_message, process_message=process_message,
+        )

@@ -5,46 +5,35 @@ canonical-universe rule, normalized/derived/published Parquet, or checkpoint may
 change without a separately approved task. The supported CLI is
 `scripts/run_data_v1.py`; KRX is skipped by default.
 
-## Public API backfill call estimate
+## Verified operating coverage
 
-These are planning estimates only; no backfill was run. Trading-date counts use
-the stored KOSPI calendar. Page counts use verified landing responses with
-`numOfRows=9999`. The public portal user's daily quota is **UNKNOWN**.
-
-| Source group | Planning/confirmed window | Dates | Calls/date | Total | Checkpoint calls complete | Estimated remaining |
-|---|---|---:|---:|---:|---:|---:|
-| Equity price + market cap (shared response) | 2020-01-02..2026-08-06 confirmed | 1,619 | 1 | 1,619 | 1 | 1,618 |
-| Listed universe | 2020-01-02..2026-08-06 confirmed | 1,619 | 1 | 1,619 | 1 | 1,618 |
-| Futures | 2020-01-02..2026-08-06 planning cutoff; latest availability unknown | 1,619 | 1 observed | 1,619 | 1 | 1,618 |
-| Options | same planning cutoff; latest availability unknown | 1,619 | 2 observed | 3,238 | 2 | 3,236 |
-| Stock lending, three independent operations | 2021-04-01 conservative month boundary..2026-08-05 confirmed | 1,310 | 3 | 3,930 | 6 | 3,924 |
-| Canonical universe + market breadth | source-date intersection | 1,619 after source completion | 0 | 0 | 0 | 0 |
-
-Recommended conservative caps while quota is unknown: equity 50 calls/run,
-universe 50, futures 50, options 40 (about 20 dates), and stock lending 30
-(10 dates across three operations). Run sequentially, keep independent source
-checkpoints, skip completed/valid-empty dates, stop immediately on code 22, and
-allow at most one retry only for transient transport/server errors.
+This table reflects the current Parquet and checkpoint state, not a planning
+estimate. Provider-specific legacy samples and smoke fixtures are not counted as
+official continuous coverage.
 
 | Area | Provider | Status | Next gate |
 |---|---|---|---|
 | Korean equity history 1995-2009 | FinanceData/marcap secondary | complete, 1995-05-02..2009-12-30; 22 rows quarantined | immutable annual-file/checksum audit only |
 | Korean equity history 2010-2019 | KRX Open API primary | complete, 2010-01-04..2019-12-30 | no resume required |
 | Korean source verification | pykrx | manual-only | explicit short smoke test only |
-| Korean equity price/cap | Financial Services Commission data.go.kr | partial, 2026-08-06 validated | resumable 2020+ backfill under a documented call budget |
+| Korean equity price/cap/universe | marcap + KRX Open API + FSC data.go.kr | complete, 1995-05-02..2026-08-07 | daily incremental |
 | Korean Open API history | KRX Open API | complete, 2010-01-04..2019-12-30 | daily ledger/checkpoint retained |
 | Korean short selling | unassigned/pykrx contract reference | draft blocked | live schema verification after restriction |
 | Global index | Yahoo | available | routine validation |
 | US macro | FRED | available | routine validation |
-| KB realtime | KB Securities | blocked | official credential variable contract and fixtures |
-| Market breadth | canonical universe + Korean equity prices | 2026-08-06 recalculated, 2 market rows | extend only after point-in-time canonical coverage exists |
+| Toss market data | Toss Securities | probe/fixture complete; no operational Dataset | define contracts and source policy before integration |
+| KB realtime | KB Securities | earlier OAuth success reported; 2026-08-11 fresh check failed with HTTP 500, result `9999`, process `E021`; IVSA0070 not called | verify app-key authorization externally, then authorize a new one-shot validation |
+| Market breadth | canonical universe + Korean equity prices | complete, 1995-05-03..2026-08-07 | daily incremental |
 | Treasury spread | FRED yields | implemented | recalculate after yield updates |
 | `kr_market_liquidity_daily` | FSC/KOFIA public API | complete, 2021-10-26..2026-08-05 | daily incremental |
 | `kr_credit_balance_daily` | FSC/KOFIA public API | complete, 2021-11-09..2026-08-05 | daily incremental |
-| Futures/options normalized | FSC derivatives public API | partial, 2022-09-19 sample stored | approve multi-thousand-call backfill plan |
+| `kr_kospi200_futures_daily` | FSC derivatives public API | complete, 2020-01-02..2026-08-07; 1,620 dates | daily incremental |
+| `kr_kospi200_options_daily` | FSC derivatives public API | complete, 2020-01-02..2026-08-07; 1,620 dates | daily incremental |
+| Legacy general futures/options sample | FSC derivatives public API | partial, 2022-09-19 only | keep separate from KOSPI200 operational datasets |
 | Stock lending datasets | FSC stock-lending public API | partial, 2023-10-05 and 2026-08-05 snapshots | approve resumable backfill plan |
 | `kr_equity_dividend` | FSC dividend public API | current snapshot complete, 71,652 source events | define incremental snapshot policy |
-| `kr_equity_rights_schedule` | FSC rights public API | contract verified; no normalized backfill | confirm snapshot/event dedup policy before collection |
+| `kr_equity_rights_schedule` | FSC rights public API | blocked/partial; contract verified, no normalized backfill | resolve failed probe and snapshot/event dedup policy |
+| Adjusted price / total return | none selected | not started | define corporate-action accounting policy and source |
 | 2020+ official equity | FSC stock price/listed APIs | complete, 2020-01-02..2026-08-07 | daily incremental |
 | `kr_equity_canonical_universe_daily` | listed-info + price union; master metadata | complete, 1995-05-02..2026-08-07 | daily incremental for primary sources |
 | `kr_equity_master` | FSC issuance + observed daily identity | active, 2,770 rows; 2,754 issuance-enriched | increment current snapshot without dropping unmatched identities |
@@ -89,9 +78,12 @@ layer does not shift either date.
 - Automated `data.krx.co.kr` and pykrx collection are disabled. pykrx remains
   only for explicitly requested short manual smoke/comparison/fixture checks,
   with no historical, scheduled, polling, or repair automation.
-- KB Securities remains read-only and blocked pending a confirmed credential
-  contract. Order, correction, cancellation, transfer, and withdrawal APIs are
-  out of scope.
+- Legacy pykrx failed checkpoint entries are preserved for audit but do not
+  indicate a gap in the completed official 1995-2026 equity datasets.
+- KB Securities remains read-only. An earlier OAuth success was reported, but the
+  2026-08-11 fresh token check returned HTTP 500/result `9999`/process `E021`, so
+  IVSA0070 was not called and no live snapshot was stored. Order, correction,
+  cancellation, transfer, and withdrawal APIs are out of scope.
 - Deferred source/definition work: short selling, VKOSPI, program trading,
   PCR aggregation, and futures-basis roll
   rules. These are not active Data v1 implementation tasks.

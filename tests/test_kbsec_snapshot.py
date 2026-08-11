@@ -60,19 +60,26 @@ def test_client_uses_nested_read_only_request_and_process_code_is_diagnostic():
     client.access_token = Mock(return_value="token")
     result = client.market_summary()
     assert result.process_code == "0024"
+    assert result.result_message == "success" and result.process_message == "done"
     call = session.post.call_args
     assert call.args[0] == "https://example.test/api/v1/ivsa0070"
     assert call.kwargs["json"] == {"dataHeader": {"ipAddr": "127.0.0.1", "macAddr": "00:00:00:00:00:00"}, "dataBody": {}}
 
 
 def test_client_rejects_business_failure_without_exposing_payload():
-    payload = response().raw_payload.copy(); payload["dataHeader"] = {"resultCode": "400", "processCode": "1001"}
+    payload = response().raw_payload.copy(); payload["dataHeader"] = {
+        "resultCode": "400", "resultMessage": "rejected",
+        "processCode": "1001", "processMessage": "invalid request",
+    }
     http = Mock(status_code=200); http.json.return_value = payload
     session = Mock(); session.post.return_value = http
     client = KBSecClient(base_url="https://example.test", app_key="key", app_secret="secret", session=session)
     client.access_token = Mock(return_value="token")
     try: client.market_summary()
-    except KBSecBusinessError as error: assert str(error) == "KB market summary rejected"
+    except KBSecBusinessError as error:
+        assert str(error) == "KB market summary rejected"
+        assert error.http_status == 200 and error.result_code == "400"
+        assert error.result_message == "rejected" and error.process_message == "invalid request"
     else: raise AssertionError("business failure was accepted")
 
 
