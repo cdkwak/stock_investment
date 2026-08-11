@@ -6,13 +6,20 @@ scope and must preserve Dataset Contracts, Parquet data, and checkpoints.
 
 ## Environment
 
-- Python: project-local `.venv` (currently Python 3.13.14)
-- Dependencies: `pyproject.toml`
-- Install: `.\.venv\Scripts\python.exe -m pip install -e ".[test]"`
-- Tests: `.\.venv\Scripts\python.exe -m pytest`
+- Python: 3.11 or newer; use a project-local `.venv` (currently tested with
+  Python 3.13.14)
+- Dependencies: [`pyproject.toml`](pyproject.toml)
 
-Secrets belong only in `.env`; never commit or print them. `.env.example`
-contains variable names without values.
+From PowerShell at the repository root:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[test]"
+.\.venv\Scripts\python.exe -m pytest
+```
+
+Secrets belong only in `.env`; never commit or print them.
+[`.env.example`](.env.example) contains variable names without values.
 
 ## Data layout
 
@@ -39,11 +46,21 @@ The only supported CLI entry point is `scripts/run_data_v1.py`.
 ```
 
 Live collection requires the explicit `--live` flag and approved provider
-access. KRX is skipped by default. Automated `data.krx.co.kr` access and pykrx
-historical automation are prohibited. Authenticated pykrx 1.2.8 passed a bounded
-manual feasibility test; this does not enable automation. See
-`docs/runbooks/PYKRX_AUTHENTICATED_HISTORICAL_PLAN.md` for the gates required
-before any separately approved historical pilot or backfill.
+access. KRX is skipped by default. Authenticated pykrx/KRX collection is allowed
+only through an explicitly bounded, D-authorized manual run with one request
+stream, a D-owned lock, Landing-first capture, and exact ledger/checkpoint gates.
+Passing a feasibility pilot does not authorize a bulk backfill.
 
-See `docs/DATA_API_INVENTORY.md` for provider contracts and
-`docs/DATA_STATUS.md` for verified coverage, blockers, and availability rules.
+## Repository map
+
+- [`src/stock_data/`](src/stock_data/) contains the data-layer implementation.
+- [`scripts/run_data_v1.py`](scripts/run_data_v1.py) is the supported regular
+  runner; [`scripts/manual/`](scripts/manual/) contains approval-gated
+  diagnostics, pilots, migrations, and backfills.
+- [`tests/`](tests/) contains the offline unit test suite and fixtures.
+- [`docs/DATA_API_INVENTORY.md`](docs/DATA_API_INVENTORY.md) describes provider
+  contracts, while [`docs/DATA_STATUS.md`](docs/DATA_STATUS.md) records verified
+  coverage, blockers, and availability rules.
+- [`docs/runbooks/`](docs/runbooks/) contains reproducible, approval-gated
+  operating procedures, including the
+  [authenticated pykrx historical plan](docs/runbooks/PYKRX_AUTHENTICATED_HISTORICAL_PLAN.md).
