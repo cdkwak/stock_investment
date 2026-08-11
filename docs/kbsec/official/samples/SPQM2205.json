@@ -1,0 +1,76 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "fcrncy_fee_p4": "",
+            "frgn_krx_ccd": "US",
+            "stnd_is_cd": "",
+            "strt_ordr_dt": "20260620",
+            "b_stmt_amt_sum_p4": "",
+            "krw_unty_mgn_rqst_f": "0",
+            "nxt_key": "",
+            "trd_clsf": "99",
+            "s_stmt_amt_sum_p4": "",
+            "iso_cd": "",
+            "dl_clsf": "0",
+            "tl_s_ccls_q_p6": "",
+            "tl_b_ccls_q_p6": "",
+            "end_ordr_dt": "20260622"
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "",
+            "processCode": "0223",
+            "processTime": "20260622170558977"
+        },
+        "dataBody": {
+            "fcrncy_fee_p4": "0000000003.9500",
+            "b_stmt_amt_sum_p4": "0000000790.5600",
+            "nxt_key": "                                                                                                    ",
+            "grid_cnt": "0001",
+            "s_stmt_amt_sum_p4": "0000000000.0000",
+            "tl_s_ccls_q_p6": "00000000000.000000",
+            "tl_b_ccls_q_p6": "00000000002.000000",
+            "o_msg": "조회 완료, 더 이상 조회할 자료가 없습니다.",
+            "ac_nm": "Prime고객지원부 김규",
+            "o_lngth": "00598",
+            "o_clsf": "SC",
+            "Record1": [
+                {
+                    "ordr_md_nm": "지점단말",
+                    "frgn_stmt_amt_p4": "0000000794.5100",
+                    "frgn_krx_ccd": "US",
+                    "stmt_q_p6": "00000002.000000",
+                    "mkt_clsf_nm": "미국",
+                    "aplc_exch_r": "00000000000.0000",
+                    "ordr_dt": "20260622",
+                    "crdt_dl_amt": "000000000000000000",
+                    "etc_trd_ccd": "02",
+                    "ptp_tx_amt": "0.000000",
+                    "shrt_is_cd": "TSLA",
+                    "frgn_agr_amt_p4": "0000000790.5600",
+                    "frgn_stmt_prc_p6": "00000395.280000",
+                    "frgn_krx_clsf_nm": "    ",
+                    "frgn_dl_tx_p4": "0000000000.0000",
+                    "ordr_md_cd": "  ",
+                    "stnd_is_cd": "US88160R1014",
+                    "stmt_amt_p4": "0000000794.5100",
+                    "frgn_trd_fee_p4": "0000000003.9500",
+                    "trd_clsf_nm": "매수",
+                    "crncy_cd": "USD",
+                    "shrt_is_nm": "테슬라",
+                    "stmt_dt": "20260624",
+                    "stmt_f": " ",
+                    "dcml_dl_f": "0"
+                }
+            ]
+        }
+    }
+}

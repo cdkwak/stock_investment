@@ -1,0 +1,58 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "dummy": ""
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "",
+            "processCode": "0011",
+            "processTime": "20260622094216930"
+        },
+        "dataBody": {
+            "on_clsng_f": " ",
+            "nxt_ordr_std_dt": "20260623",
+            "jb_clsng_f": "영업중",
+            "bnd_mkoprt_ccd": "61",
+            "stk_mkoprt_ccd": "159",
+            "now_tm": "094216",
+            "b3dt": "20260619",
+            "wd": "월",
+            "b2dt": "20260621",
+            "next_biz_dt": "20260623",
+            "fnlssn_dy_f": "0",
+            "dt": "20260622",
+            "now_dt": "20260622",
+            "bfr2_ordr_std_dt": "20260618",
+            "o_lngth": "00389",
+            "fts_mkoprt_ccd": "01",
+            "o_clsf": "SC",
+            "ordr_std_dt": "20260622",
+            "n2dt": "20260624",
+            "n3dt": "20260625",
+            "bfr_ordr_std_dt": "20260619",
+            "bfr3_ordr_std_dt": "20260617",
+            "nxt2_ordr_std_dt": "20260624",
+            "wd_ccd": "1",
+            "std_bsnss_dt": "20260622",
+            "bsnss_dt": "20260622",
+            "rtl_bnd_mkoprt_ccd": "61",
+            "nxt3_ordr_std_dt": "20260625",
+            "ksdq_mkoprt_ccd": "159",
+            "bdt": "20260621",
+            "bfr_bsns_dt": "20260621",
+            "frbrd_mkoprt_ccd": "98",
+            "o_msg": "정상적으로 조회되었습니다.",
+            "opt_mkoprt_ccd": "01",
+            "ndt": "20260623"
+        }
+    }
+}

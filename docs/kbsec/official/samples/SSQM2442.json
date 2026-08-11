@@ -1,0 +1,73 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "nxt_key": "",
+            "inq_strt_dt": "20260611",
+            "md_clsf": "2",
+            "inq_end_dt": "20260623",
+            "is_cd": "",
+            "gds_no": "01",
+            "gnl_ac_no": "400277078"
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "",
+            "processCode": "0011",
+            "processTime": "20260623092001859"
+        },
+        "dataBody": {
+            "tl_s_svrl_tx": "000000000000",
+            "trd_fee_sum": "000000000000000050",
+            "svrl_tx_tl_sum": "000000000000000000",
+            "nxt_key": "                        ",
+            "s_q_sum": "000000000000000000",
+            "b_q_sum": "000000000000000001",
+            "tl_b_svrl_tx": "000000000000",
+            "tl_trd_q_p6\t": "00000001.000000",
+            "tl_b_fee": "000000000050",
+            "Record1": [
+                {
+                    "s_amt": "0000000000000",
+                    "trd_dt": "20260622",
+                    "b_uprc": "000000000",
+                    "fee": "000000050",
+                    "rlztn_pl": "0000000000000",
+                    "ccls_q": "000000001",
+                    "b_amt": "0000000360000",
+                    "svrl_tx": "000000000",
+                    "stnd_is_cd": "KR7005930003",
+                    "dcml_dl_f": "0",
+                    "dtls_ccls_q": "1",
+                    "trd_dl_ccd": "02",
+                    "ccls_uprc": "000360000",
+                    "is_nm": "삼성전자",
+                    "crdt_typ_cd": "00",
+                    "ern_r": "000000.00",
+                    "shrt_is_cd": "A005930"
+                }
+            ],
+            "o_msg": "정상적으로 조회되었습니다.",
+            "tl_s_fee": "000000000000",
+            "trd_q_sum": "000000000000000001",
+            "tl_b_ec_amt": "000000360050",
+            "grid_cnt1": "0001",
+            "o_lngth": "00585",
+            "b_amt_sum": "000000000000360000",
+            "tl_s_ec_amt": "000000000000000",
+            "tl_ec_amt": "000000000000000000",
+            "tl_b_q_p6": "00000001.000000",
+            "trd_amt_sum": "000000000000360000",
+            "o_clsf": "SC",
+            "tl_s_q_p6": "00000000.000000",
+            "s_amt_sum": "000000000000000000"
+        }
+    }
+}

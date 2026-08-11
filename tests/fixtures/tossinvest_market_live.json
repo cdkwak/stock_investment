@@ -1,0 +1,403 @@
+{
+  "fixture_version": 1,
+  "collected_at": "2026-08-10T16:25:01.522438+00:00",
+  "source": "toss_securities_open_api",
+  "operations": {
+    "market_indicator_prices": {
+      "endpoint": "/api/v1/market-indicators/prices",
+      "params": {
+        "symbols": "KOSPI,KOSDAQ,KR_BOND_2Y,KR_BOND_3Y,KR_BOND_5Y,KR_BOND_10Y,KR_BOND_20Y,KR_BOND_30Y"
+      },
+      "http_status": 200,
+      "rate_limit": {
+        "group": "MARKET_INDICATOR",
+        "limit": 10,
+        "remaining": 9,
+        "reset_seconds": 1,
+        "retry_after_seconds": null
+      },
+      "response": {
+        "result": [
+          {
+            "symbol": "KOSPI",
+            "timestamp": null,
+            "lastPrice": "6299.66"
+          },
+          {
+            "symbol": "KOSDAQ",
+            "timestamp": null,
+            "lastPrice": "854.47"
+          },
+          {
+            "symbol": "KR_BOND_2Y",
+            "timestamp": null,
+            "lastPrice": "3.571"
+          },
+          {
+            "symbol": "KR_BOND_3Y",
+            "timestamp": null,
+            "lastPrice": "3.744"
+          },
+          {
+            "symbol": "KR_BOND_5Y",
+            "timestamp": null,
+            "lastPrice": "3.963"
+          },
+          {
+            "symbol": "KR_BOND_10Y",
+            "timestamp": null,
+            "lastPrice": "4.204"
+          },
+          {
+            "symbol": "KR_BOND_20Y",
+            "timestamp": null,
+            "lastPrice": "4.494"
+          },
+          {
+            "symbol": "KR_BOND_30Y",
+            "timestamp": null,
+            "lastPrice": "4.521"
+          }
+        ]
+      }
+    },
+    "market_indicator_daily_candles": {
+      "endpoint": "/api/v1/market-indicators/KOSPI/candles",
+      "params": {
+        "interval": "1d",
+        "count": 2
+      },
+      "http_status": 200,
+      "rate_limit": {
+        "group": "MARKET_INDICATOR_CHART",
+        "limit": 5,
+        "remaining": 4,
+        "reset_seconds": 1,
+        "retry_after_seconds": null
+      },
+      "response": {
+        "result": {
+          "candles": [
+            {
+              "timestamp": "2026-08-10T00:00:00.000+09:00",
+              "openPrice": "6306.33",
+              "highPrice": "6394.06",
+              "lowPrice": "6232.45",
+              "closePrice": "6299.66",
+              "volume": "293734000"
+            },
+            {
+              "timestamp": "2026-08-07T00:00:00.000+09:00",
+              "openPrice": "6365.07",
+              "highPrice": "6415.6",
+              "lowPrice": "6158.73",
+              "closePrice": "6258.77",
+              "volume": "299377000"
+            }
+          ],
+          "nextBefore": "2026-08-06T00:00:00.000+09:00"
+        }
+      }
+    },
+    "market_investor_trading": {
+      "endpoint": "/api/v1/market-indicators/KOSPI/investor-trading",
+      "params": {
+        "interval": "1d",
+        "count": 2
+      },
+      "http_status": 200,
+      "rate_limit": {
+        "group": "MARKET_INDICATOR",
+        "limit": 10,
+        "remaining": 9,
+        "reset_seconds": 1,
+        "retry_after_seconds": null
+      },
+      "response": {
+        "result": {
+          "nextUntil": "2026-08-06",
+          "records": [
+            {
+              "date": "2026-08-10",
+              "updatedAt": "2026-08-10T20:00:02.000+09:00",
+              "individual": {
+                "buyAmount": "15038923080875",
+                "sellAmount": "13903375781602"
+              },
+              "foreigner": {
+                "buyAmount": "8085223898742",
+                "sellAmount": "9523242070643"
+              },
+              "institution": {
+                "buyAmount": "5711892794102",
+                "sellAmount": "5465620038644",
+                "breakdown": {
+                  "financialInvestment": {
+                    "buyAmount": "1616630132485",
+                    "sellAmount": "1280852311875"
+                  },
+                  "insurance": {
+                    "buyAmount": "135195298889",
+                    "sellAmount": "66021987389"
+                  },
+                  "trust": {
+                    "buyAmount": "464165122067",
+                    "sellAmount": "517534080267"
+                  },
+                  "privateEquityFund": {
+                    "buyAmount": "383479403437",
+                    "sellAmount": "356908996617"
+                  },
+                  "bank": {
+                    "buyAmount": "7368589810",
+                    "sellAmount": "9990658985"
+                  },
+                  "otherFinancialInstitution": {
+                    "buyAmount": "20080454100",
+                    "sellAmount": "4411624665"
+                  },
+                  "pensionFund": {
+                    "buyAmount": "3084973793314",
+                    "sellAmount": "3229900378846"
+                  }
+                }
+              },
+              "otherCorporation": {
+                "buyAmount": "342117810034",
+                "sellAmount": "285919692864"
+              }
+            },
+            {
+              "date": "2026-08-07",
+              "updatedAt": "2026-08-07T20:00:02.000+09:00",
+              "individual": {
+                "buyAmount": "19377986972129",
+                "sellAmount": "19244268301508"
+              },
+              "foreigner": {
+                "buyAmount": "11602435842690",
+                "sellAmount": "12545144515891"
+              },
+              "institution": {
+                "buyAmount": "7404034329301",
+                "sellAmount": "6621485038093",
+                "breakdown": {
+                  "financialInvestment": {
+                    "buyAmount": "2181701221332",
+                    "sellAmount": "1316909908296"
+                  },
+                  "insurance": {
+                    "buyAmount": "154279998400",
+                    "sellAmount": "101623970134"
+                  },
+                  "trust": {
+                    "buyAmount": "579150424527",
+                    "sellAmount": "616160583359"
+                  },
+                  "privateEquityFund": {
+                    "buyAmount": "406763762370",
+                    "sellAmount": "395582956347"
+                  },
+                  "bank": {
+                    "buyAmount": "2645729747",
+                    "sellAmount": "10413151785"
+                  },
+                  "otherFinancialInstitution": {
+                    "buyAmount": "18934106150",
+                    "sellAmount": "3645813705"
+                  },
+                  "pensionFund": {
+                    "buyAmount": "4060559086775",
+                    "sellAmount": "4177148654467"
+                  }
+                }
+              },
+              "otherCorporation": {
+                "buyAmount": "675357912775",
+                "sellAmount": "648917201403"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "stock_program_trades": {
+      "endpoint": "/api/v1/stocks/005930/program-trades",
+      "params": {
+        "count": 2
+      },
+      "http_status": 200,
+      "rate_limit": {
+        "group": "STOCK_TRADING_TREND",
+        "limit": 10,
+        "remaining": 9,
+        "reset_seconds": 1,
+        "retry_after_seconds": null
+      },
+      "response": {
+        "result": {
+          "nextUntil": "2026-08-06",
+          "records": [
+            {
+              "date": "2026-08-10",
+              "arbitrage": {
+                "buyVolume": "828859",
+                "sellVolume": "588981",
+                "netBuyVolume": "239878"
+              },
+              "nonArbitrage": {
+                "buyVolume": "3333940",
+                "sellVolume": "6867177",
+                "netBuyVolume": "-3533237"
+              }
+            },
+            {
+              "date": "2026-08-07",
+              "arbitrage": {
+                "buyVolume": "535341",
+                "sellVolume": "416353",
+                "netBuyVolume": "118988"
+              },
+              "nonArbitrage": {
+                "buyVolume": "6283971",
+                "sellVolume": "7405678",
+                "netBuyVolume": "-1121707"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "stock_short_selling": {
+      "endpoint": "/api/v1/stocks/005930/short-selling",
+      "params": {
+        "count": 2
+      },
+      "http_status": 200,
+      "rate_limit": {
+        "group": "STOCK_TRADING_TREND",
+        "limit": 10,
+        "remaining": 8,
+        "reset_seconds": 1,
+        "retry_after_seconds": null
+      },
+      "response": {
+        "result": {
+          "nextUntil": "2026-08-06",
+          "records": [
+            {
+              "date": "2026-08-10",
+              "updatedAt": "2026-08-10T18:14:05.000+09:00",
+              "shortSellingVolume": "1166600",
+              "shortSellingAmount": "270259447500",
+              "shortSellingVolumeRate": "0.07145",
+              "shortSellingAmountRate": "0.0714"
+            },
+            {
+              "date": "2026-08-07",
+              "updatedAt": "2026-08-07T18:14:10.000+09:00",
+              "shortSellingVolume": "2339705",
+              "shortSellingAmount": "545549399000",
+              "shortSellingVolumeRate": "0.11388",
+              "shortSellingAmountRate": "0.1139"
+            }
+          ]
+        }
+      }
+    },
+    "stock_credit_trades": {
+      "endpoint": "/api/v1/stocks/005930/credit-trades",
+      "params": {
+        "count": 2
+      },
+      "http_status": 200,
+      "rate_limit": {
+        "group": "STOCK_TRADING_TREND",
+        "limit": 10,
+        "remaining": 7,
+        "reset_seconds": 1,
+        "retry_after_seconds": null
+      },
+      "response": {
+        "result": {
+          "nextUntil": "2026-08-05",
+          "records": [
+            {
+              "date": "2026-08-07",
+              "updatedAt": "2026-08-10T04:00:27.000+09:00",
+              "marginLoan": {
+                "newQuantity": "3239001",
+                "returnQuantity": "3283145",
+                "balanceQuantity": "23406198",
+                "balanceRate": "0.0039",
+                "tradingRate": "0.1434"
+              },
+              "stockLoan": {
+                "newQuantity": "3893",
+                "returnQuantity": "4074",
+                "balanceQuantity": "7583",
+                "balanceRate": "0",
+                "tradingRate": "0.0001"
+              }
+            },
+            {
+              "date": "2026-08-06",
+              "updatedAt": "2026-08-07T04:00:29.000+09:00",
+              "marginLoan": {
+                "newQuantity": "4760755",
+                "returnQuantity": "3888288",
+                "balanceQuantity": "23480418",
+                "balanceRate": "0.0039",
+                "tradingRate": "0.1617"
+              },
+              "stockLoan": {
+                "newQuantity": "8624",
+                "returnQuantity": "7916",
+                "balanceQuantity": "7764",
+                "balanceRate": "0",
+                "tradingRate": "0.0002"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "stock_securities_lending": {
+      "endpoint": "/api/v1/stocks/005930/securities-lending",
+      "params": {
+        "count": 2
+      },
+      "http_status": 200,
+      "rate_limit": {
+        "group": "STOCK_TRADING_TREND",
+        "limit": 10,
+        "remaining": 6,
+        "reset_seconds": 1,
+        "retry_after_seconds": null
+      },
+      "response": {
+        "result": {
+          "nextUntil": "2026-08-06",
+          "records": [
+            {
+              "date": "2026-08-10",
+              "updatedAt": "2026-08-10T19:00:28.000+09:00",
+              "executionQuantity": "1434593",
+              "repaymentQuantity": "2148293",
+              "balanceQuantity": "89671695",
+              "balanceAmount": "20624489850000"
+            },
+            {
+              "date": "2026-08-07",
+              "updatedAt": "2026-08-09T19:00:28.000+09:00",
+              "executionQuantity": "3320820",
+              "repaymentQuantity": "738944",
+              "balanceQuantity": "90385395",
+              "balanceAmount": "20879026245000"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

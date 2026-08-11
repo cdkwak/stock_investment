@@ -14,6 +14,8 @@ from stock_data.contracts.kr_short_selling import (
     KR_SHORT_SELLING_TRADING_DAILY,
 )
 from stock_data.contracts.data_v1 import DATA_V1_CONTRACTS
+from stock_data.contracts.kr_derivatives import KR_DERIVATIVE_CONTRACTS
+from stock_data.contracts.kbsec_snapshot import KBSEC_SNAPSHOT_CONTRACTS
 
 
 CONTRACTS = {contract.name: contract for contract in (
@@ -25,7 +27,9 @@ CONTRACTS = {contract.name: contract for contract in (
     KR_SHORT_SELLING_TRADING_DAILY, KR_SHORT_SELLING_BALANCE_DAILY,
     KR_SHORT_SELLING_INVESTOR_DAILY,
     *DATA_V1_CONTRACTS,
+    *KR_DERIVATIVE_CONTRACTS,
+    *KBSEC_SNAPSHOT_CONTRACTS,
 )}
 
-if len(CONTRACTS) != 15 + len(DATA_V1_CONTRACTS):
+if len(CONTRACTS) != 15 + len(DATA_V1_CONTRACTS) + len(KR_DERIVATIVE_CONTRACTS) + len(KBSEC_SNAPSHOT_CONTRACTS):
     raise RuntimeError("duplicate Dataset Contract name")

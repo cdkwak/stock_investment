@@ -1,0 +1,26 @@
+{
+    "input": {
+        "dataHeader": {
+            "ipAddr" : "127.0.0.1",
+            "macAddr" : "00:00:00:00:00:00"
+        },
+        "dataBody": {
+            "appKey" : "{{발급된 appKey}}",
+            "appSecret" : "{{발급된 appSecret}}",
+            "token" : "{{발급된 토큰}}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processCode": "0000",
+            "processMessage": "정상 처리되었습니다.",
+            "processTime": "20260720145959533"
+        },
+        "dataBody": {
+            "tokenRevoke": "Y"
+        }
+    }
+}

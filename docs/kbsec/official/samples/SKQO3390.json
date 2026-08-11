@@ -1,0 +1,291 @@
+﻿{
+    "input": {
+        "dataBody": {},
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "",
+            "processCode": "0024",
+            "processTime": "20260622165939177"
+        },
+        "dataBody": {
+            "o_msg": "정상적으로 조회가 완료되었습니다.",
+            "grid_cnt": "0024",
+            "o_lngth": "07982",
+            "o_clsf": "SC",
+            "Record1": [
+                {
+                    "crncy_cd": "USD",
+                    "item_eng_nm": "STMT_DT",
+                    "item_data1": "2026/06/23",
+                    "item_hngl_nm": "결제일자",
+                    "item_data4": "                              ",
+                    "item_data3": "                              ",
+                    "item_data2": "2026/06/24",
+                    "idx": "0000",
+                    "iso_cd": "US"
+                },
+                {
+                    "crncy_cd": "USD",
+                    "item_eng_nm": "B_EC_AMT",
+                    "item_data1": "                          0.00",
+                    "item_hngl_nm": "매수정산",
+                    "item_data4": "                        794.51",
+                    "item_data3": "                              ",
+                    "item_data2": "                        794.51",
+                    "idx": "0001",
+                    "iso_cd": "US"
+                },
+                {
+                    "crncy_cd": "USD",
+                    "item_eng_nm": "S_EC_AMT",
+                    "item_data1": "                          0.00",
+                    "item_hngl_nm": "매도정산",
+                    "item_data4": "                          0.00",
+                    "item_data3": "                              ",
+                    "item_data2": "                          0.00",
+                    "idx": "0002",
+                    "iso_cd": "US"
+                },
+                {
+                    "crncy_cd": "USD",
+                    "item_eng_nm": "NET_EC_AMT",
+                    "item_data1": "                          0.00",
+                    "item_hngl_nm": "매도정산-매수정산",
+                    "item_data4": "                       -794.51",
+                    "item_data3": "                              ",
+                    "item_data2": "                       -794.51",
+                    "idx": "0003",
+                    "iso_cd": "US"
+                },
+                {
+                    "crncy_cd": "CNY",
+                    "item_eng_nm": "STMT_DT",
+                    "item_data1": "2026/06/23",
+                    "item_hngl_nm": "결제일자",
+                    "item_data4": "                              ",
+                    "item_data3": "                              ",
+                    "item_data2": "                              ",
+                    "idx": "0004",
+                    "iso_cd": "CN"
+                },
+                {
+                    "crncy_cd": "CNY",
+                    "item_eng_nm": "B_EC_AMT",
+                    "item_data1": "                          0.00",
+                    "item_hngl_nm": "매수정산",
+                    "item_data4": "                          0.00",
+                    "item_data3": "                              ",
+                    "item_data2": "                              ",
+                    "idx": "0005",
+                    "iso_cd": "CN"
+                },
+                {
+                    "crncy_cd": "CNY",
+                    "item_eng_nm": "S_EC_AMT",
+                    "item_data1": "                          0.00",
+                    "item_hngl_nm": "매도정산",
+                    "item_data4": "                          0.00",
+                    "item_data3": "                              ",
+                    "item_data2": "                              ",
+                    "idx": "0006",
+                    "iso_cd": "CN"
+                },
+                {
+                    "crncy_cd": "CNY",
+                    "item_eng_nm": "NET_EC_AMT",
+                    "item_data1": "                          0.00",
+                    "item_hngl_nm": "매도정산-매수정산",
+                    "item_data4": "                          0.00",
+                    "item_data3": "                              ",
+                    "item_data2": "                              ",
+                    "idx": "0007",
+                    "iso_cd": "CN"
+                },
+                {
+                    "crncy_cd": "HKD",
+                    "item_eng_nm": "STMT_DT",
+                    "item_data1": "2026/06/23",
+                    "item_hngl_nm": "결제일자",
+                    "item_data4": "                              ",
+                    "item_data3": "                              ",
+                    "item_data2": "2026/06/24",
+                    "idx": "0008",
+                    "iso_cd": "HK"
+                },
+                {
+                    "crncy_cd": "HKD",
+                    "item_eng_nm": "B_EC_AMT",
+                    "item_data1": "                          0.00",
+                    "item_hngl_nm": "매수정산",
+                    "item_data4": "                          0.00",
+                    "item_data3": "                              ",
+                    "item_data2": "                          0.00",
+                    "idx": "0009",
+                    "iso_cd": "HK"
+                },
+                {
+                    "crncy_cd": "HKD",
+                    "item_eng_nm": "S_EC_AMT",
+                    "item_data1": "                          0.00",
+                    "item_hngl_nm": "매도정산",
+                    "item_data4": "                          0.00",
+                    "item_data3": "                              ",
+                    "item_data2": "                          0.00",
+                    "idx": "0010",
+                    "iso_cd": "HK"
+                },
+                {
+                    "crncy_cd": "HKD",
+                    "item_eng_nm": "NET_EC_AMT",
+                    "item_data1": "                          0.00",
+                    "item_hngl_nm": "매도정산-매수정산",
+                    "item_data4": "                          0.00",
+                    "item_data3": "                              ",
+                    "item_data2": "                          0.00",
+                    "idx": "0011",
+                    "iso_cd": "HK"
+                },
+                {
+                    "crncy_cd": "CNY",
+                    "item_eng_nm": "STMT_DT",
+                    "item_data1": "2026/06/23",
+                    "item_hngl_nm": "결제일자",
+                    "item_data4": "                              ",
+                    "item_data3": "                              ",
+                    "item_data2": "2026/06/24",
+                    "idx": "0012",
+                    "iso_cd": "HK"
+                },
+                {
+                    "crncy_cd": "CNY",
+                    "item_eng_nm": "B_EC_AMT",
+                    "item_data1": "                          0.00",
+                    "item_hngl_nm": "매수정산",
+                    "item_data4": "                          0.00",
+                    "item_data3": "                              ",
+                    "item_data2": "                          0.00",
+                    "idx": "0013",
+                    "iso_cd": "HK"
+                },
+                {
+                    "crncy_cd": "CNY",
+                    "item_eng_nm": "S_EC_AMT",
+                    "item_data1": "                          0.00",
+                    "item_hngl_nm": "매도정산",
+                    "item_data4": "                          0.00",
+                    "item_data3": "                              ",
+                    "item_data2": "                          0.00",
+                    "idx": "0014",
+                    "iso_cd": "HK"
+                },
+                {
+                    "crncy_cd": "CNY",
+                    "item_eng_nm": "NET_EC_AMT",
+                    "item_data1": "                          0.00",
+                    "item_hngl_nm": "매도정산-매수정산",
+                    "item_data4": "                          0.00",
+                    "item_data3": "                              ",
+                    "item_data2": "                          0.00",
+                    "idx": "0015",
+                    "iso_cd": "HK"
+                },
+                {
+                    "crncy_cd": "JPY",
+                    "item_eng_nm": "STMT_DT",
+                    "item_data1": "2026/06/23",
+                    "item_hngl_nm": "결제일자",
+                    "item_data4": "                              ",
+                    "item_data3": "                              ",
+                    "item_data2": "2026/06/24",
+                    "idx": "0016",
+                    "iso_cd": "JP"
+                },
+                {
+                    "crncy_cd": "JPY",
+                    "item_eng_nm": "B_EC_AMT",
+                    "item_data1": "0",
+                    "item_hngl_nm": "매수정산",
+                    "item_data4": "0",
+                    "item_data3": "                              ",
+                    "item_data2": "0",
+                    "idx": "0017",
+                    "iso_cd": "JP"
+                },
+                {
+                    "crncy_cd": "JPY",
+                    "item_eng_nm": "S_EC_AMT",
+                    "item_data1": "0",
+                    "item_hngl_nm": "매도정산",
+                    "item_data4": "0",
+                    "item_data3": "                              ",
+                    "item_data2": "0",
+                    "idx": "0018",
+                    "iso_cd": "JP"
+                },
+                {
+                    "crncy_cd": "JPY",
+                    "item_eng_nm": "NET_EC_AMT",
+                    "item_data1": "0",
+                    "item_hngl_nm": "매도정산-매수정산",
+                    "item_data4": "0",
+                    "item_data3": "                              ",
+                    "item_data2": "0",
+                    "idx": "0019",
+                    "iso_cd": "JP"
+                },
+                {
+                    "crncy_cd": "VND",
+                    "item_eng_nm": "STMT_DT",
+                    "item_data1": "2026/06/23",
+                    "item_hngl_nm": "결제일자",
+                    "item_data4": "                              ",
+                    "item_data3": "2026/06/25",
+                    "item_data2": "2026/06/24",
+                    "idx": "0020",
+                    "iso_cd": "VN"
+                },
+                {
+                    "crncy_cd": "VND",
+                    "item_eng_nm": "B_EC_AMT",
+                    "item_data1": "0",
+                    "item_hngl_nm": "매수정산",
+                    "item_data4": "0",
+                    "item_data3": "0",
+                    "item_data2": "0",
+                    "idx": "0021",
+                    "iso_cd": "VN"
+                },
+                {
+                    "crncy_cd": "VND",
+                    "item_eng_nm": "S_EC_AMT",
+                    "item_data1": "0",
+                    "item_hngl_nm": "매도정산",
+                    "item_data4": "0",
+                    "item_data3": "0",
+                    "item_data2": "0",
+                    "idx": "0022",
+                    "iso_cd": "VN"
+                },
+                {
+                    "crncy_cd": "VND",
+                    "item_eng_nm": "NET_EC_AMT",
+                    "item_data1": "0",
+                    "item_hngl_nm": "매도정산-매수정산",
+                    "item_data4": "0",
+                    "item_data3": "0",
+                    "item_data2": "0",
+                    "idx": "0023",
+                    "iso_cd": "VN"
+                }
+            ]
+        }
+    }
+}

@@ -1,0 +1,123 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "excg_clsf": "0",
+            "is_cd": "005930",
+            "amt_q_clsf": "1",
+            "prd_clsf": "2",
+            "inq_cnt": "5"
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "정상적으로 조회가 완료되었습니다.",
+            "processCode": "0024",
+            "processTime": "20260622101124956"
+        },
+        "dataBody": {
+            "msg": "정상적으로 조회가 완료되었습니다.",
+            "clsfP": "SC",
+            "out_RecordSize": "00001055",
+            "lngth": "01145",
+            "out": [
+                {
+                    "acml_vlm": "0",
+                    "s_q": "0",
+                    "now_prc": "368500",
+                    "dt": "20260622",
+                    "nt_b_amt": "0",
+                    "bdy_cmpr": "0",
+                    "b_q": "0",
+                    "excg_cd": "   ",
+                    "tm": "      ",
+                    "bdy_cmpr_ccd": "3",
+                    "b_amt": "0",
+                    "up_dwn_r_p2": "   0.00",
+                    "nt_b_amt_incrs_dcrs": "-1475225",
+                    "s_amt": "0",
+                    "nt_b_q_incrs_dcrs": "-2915",
+                    "nt_b_q": "0"
+                },
+                {
+                    "acml_vlm": "156073",
+                    "s_q": "1080",
+                    "now_prc": "368500",
+                    "dt": "20260619",
+                    "nt_b_amt": "1475225",
+                    "bdy_cmpr": "500",
+                    "b_q": "3995",
+                    "excg_cd": "   ",
+                    "tm": "      ",
+                    "bdy_cmpr_ccd": "2",
+                    "b_amt": "1873162",
+                    "up_dwn_r_p2": "   0.14",
+                    "nt_b_amt_incrs_dcrs": "193021185",
+                    "s_amt": "397937",
+                    "nt_b_q_incrs_dcrs": "575480",
+                    "nt_b_q": "2915"
+                },
+                {
+                    "acml_vlm": "35351728",
+                    "s_q": "7926694",
+                    "now_prc": "356250",
+                    "dt": "20260618",
+                    "nt_b_amt": "-191545960",
+                    "bdy_cmpr": "9750",
+                    "b_q": "7354129",
+                    "excg_cd": "   ",
+                    "tm": "      ",
+                    "bdy_cmpr_ccd": "2",
+                    "b_amt": "2575491975",
+                    "up_dwn_r_p2": "   2.81",
+                    "nt_b_amt_incrs_dcrs": "-177765648",
+                    "s_amt": "2767037935",
+                    "nt_b_q_incrs_dcrs": "-535360",
+                    "nt_b_q": "-572565"
+                },
+                {
+                    "acml_vlm": "35704177",
+                    "s_q": "221541",
+                    "now_prc": "346500",
+                    "dt": "20260617",
+                    "nt_b_amt": "-13780312",
+                    "bdy_cmpr": "3500",
+                    "b_q": "184336",
+                    "excg_cd": "   ",
+                    "tm": "      ",
+                    "bdy_cmpr_ccd": "2",
+                    "b_amt": "64103145",
+                    "up_dwn_r_p2": "   1.02",
+                    "nt_b_amt_incrs_dcrs": "-1116490",
+                    "s_amt": "77883458",
+                    "nt_b_q_incrs_dcrs": "-3362",
+                    "nt_b_q": "-37205"
+                },
+                {
+                    "acml_vlm": "36121675",
+                    "s_q": "34368",
+                    "now_prc": "343000",
+                    "dt": "20260616",
+                    "nt_b_amt": "-12663822",
+                    "bdy_cmpr": "6000",
+                    "b_q": "525",
+                    "excg_cd": "   ",
+                    "tm": "      ",
+                    "bdy_cmpr_ccd": "2",
+                    "b_amt": "172458",
+                    "up_dwn_r_p2": "   1.78",
+                    "nt_b_amt_incrs_dcrs": "9561407",
+                    "s_amt": "12836280",
+                    "nt_b_q_incrs_dcrs": "35841",
+                    "nt_b_q": "-33843"
+                }
+            ]
+        }
+    }
+}

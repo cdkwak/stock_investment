@@ -59,16 +59,19 @@ def normalize_stock_price_items(
             raise ValueError(f"unsupported data.go.kr market: {market}")
         if not symbol:
             raise ValueError("data.go.kr srtnCd is empty")
-        common = {"date": parsed_date.strftime("%Y-%m-%d"), "market": market, "symbol": symbol}
+        source_date = parsed_date.strftime("%Y-%m-%d")
+        common = {"date": source_date, "market": market, "symbol": symbol}
+        provenance = {"source": "data_go_kr", "source_operation": "getStockPriceInfo",
+                      "source_date": source_date}
         price_rows.append({
             **common, "open": _integer(item, "mkp"), "high": _integer(item, "hipr"),
             "low": _integer(item, "lopr"), "close": _integer(item, "clpr"),
             "volume": _integer(item, "trqu"),
-            "trading_value": _integer(item, "trPrc"),
+            "trading_value": _integer(item, "trPrc"), **provenance,
         })
         cap_rows.append({
             **common, "market_cap": _integer(item, "mrktTotAmt"),
-            "shares_outstanding": _integer(item, "lstgStCnt"),
+            "shares_outstanding": _integer(item, "lstgStCnt"), **provenance,
         })
     price = pd.DataFrame(price_rows, columns=KR_EQUITY_PRICE_DAILY.column_names)
     cap = pd.DataFrame(cap_rows, columns=KR_EQUITY_MARKET_CAP_DAILY.column_names)

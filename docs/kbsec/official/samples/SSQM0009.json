@@ -1,0 +1,44 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "inq_micro_ttm": "",
+            "lstng_dscnt_is_xcl_f": "",
+            "inq_clsf": "3",
+            "scrts_ccd": "1",
+            "inq_dt": "",
+            "inq_std_clsf": "4",
+            "sum_cd": "",
+            "emp_no": "",
+            "q_typ": "",
+            "rnmcno": "H007135050590"
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "",
+            "processCode": "I804",
+            "processTime": "20260622162028293"
+        },
+        "dataBody": {
+            "inq_micro_ttm": "162028183712",
+            "invst_rcmnd_psbl_f_nm": "불원",
+            "info_ofr_clsf_nm": "정보미제공",
+            "grid_cnt": "000",
+            "inq_dt": "20260622",
+            "title": "홍길동               고객님 상세 자산현황",
+            "cs_grd_nm": "                    ",
+            "o_msg": "조회할 내역이 없습니다.",
+            "o_lngth": "00255",
+            "o_clsf": "SC",
+            "cs_invst_dspstn_nm": "                    ",
+            "Record1": []
+        }
+    }
+}

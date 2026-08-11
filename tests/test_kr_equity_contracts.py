@@ -16,10 +16,11 @@ def test_equity_contracts_are_separate_normalized_parquet_datasets() -> None:
     assert all(contract.storage_format == "parquet" for contract in contracts)
     assert KR_EQUITY_PRICE_DAILY.column_names == (
         "date", "market", "symbol", "open", "high", "low", "close",
-        "volume", "trading_value",
+        "volume", "trading_value", "source", "source_operation", "source_date",
     )
     assert KR_EQUITY_MARKET_CAP_DAILY.column_names == (
         "date", "market", "symbol", "market_cap", "shares_outstanding",
+        "source", "source_operation", "source_date",
     )
     assert KR_EQUITY_MASTER.column_names == (
         "symbol", "name", "market", "isin", "corp_no", "company_name",

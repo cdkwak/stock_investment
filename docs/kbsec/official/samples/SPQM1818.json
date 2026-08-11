@@ -1,0 +1,45 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "frgn_krx_ccd": "US",
+            "stnd_is_cd": "TSLA",
+            "strt_ordr_dt": "20260622",
+            "ccls_clsf": "0",
+            "krw_unty_mgn_rqst_f": "0",
+            "nxt_key": "",
+            "trd_clsf": "99",
+            "start_tm": "090000",
+            "end_tm": "170000",
+            "iso_cd": "US",
+            "dl_clsf": "0",
+            "end_ordr_dt": "20260622"
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "B",
+            "processMessage": "",
+            "processCode": "I742",
+            "processTime": "20260622174333835"
+        },
+        "dataBody": {
+            "tl_s_ccls_q_p6": "00000000000.000000",
+            "tl_b_ccls_q_p6": "00000000000.000000",
+            "o_msg": "해외주식 주문체결 내역이 없습니다.",
+            "ccls_cnt": "000000000000000000",
+            "nxt_key": "                                                  ",
+            "rfsl_cnt": "00000000",
+            "ordr_cnt": "000000000000000000",
+            "grid_cnt1": "0000",
+            "o_lngth": "00216",
+            "o_clsf": "SC",
+            "Record1": []
+        }
+    }
+}

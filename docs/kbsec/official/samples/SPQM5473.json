@@ -1,0 +1,62 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "frgn_krx_ccd": "",
+            "trd_strt_dt": "20260621",
+            "nxt_key": "",
+            "trd_clsf": "99",
+            "inq_clsf": "1",
+            "is_cd": "",
+            "dprt_clsf": "1",
+            "mngr_eno": "",
+            "trd_end_dt": "20260623",
+            "krw_fcrncy_ccd": "1",
+            "brn_no": "999",
+            "sum_clsf": "",
+            "ordr_st": "3"
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "",
+            "processCode": "1861",
+            "processTime": "20260623124944944"
+        },
+        "dataBody": {
+            "o_msg": "조회할 자료가 없습니다.",
+            "nxt_key": "                                                  ",
+            "grid_cnt2": "0000",
+            "grid_cnt1": "0002",
+            "o_lngth": "00356",
+            "Record2": [],
+            "o_clsf": "SC",
+            "Record1": [
+                {
+                    "trd_clsf_nm": "매수",
+                    "trd_amt": "0",
+                    "clt_expt_fee": "0",
+                    "dcml_sum_q_p6": "000000000.000000",
+                    "ordr_cnt": "000000000000000000",
+                    "tl_ac_c": "000000000000000000",
+                    "is_c": "0000000000"
+                },
+                {
+                    "trd_clsf_nm": "매도",
+                    "trd_amt": "0",
+                    "clt_expt_fee": "0",
+                    "dcml_sum_q_p6": "000000000.000000",
+                    "ordr_cnt": "000000000000000000",
+                    "tl_ac_c": "000000000000000000",
+                    "is_c": "0000000000"
+                }
+            ]
+        }
+    }
+}

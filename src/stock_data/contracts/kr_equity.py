@@ -5,10 +5,10 @@ from stock_data.contracts.base import ColumnContract, DatasetContract
 
 KR_EQUITY_PRICE_DAILY = DatasetContract(
     name="kr_equity_price_daily",
-    version=1,
+    version=2,
     status="draft",
     description="Daily source prices and trading activity for Korean equities.",
-    source="data_go_kr:GetStockSecuritiesInfoService/getStockPriceInfo",
+    source="financedata_marcap(1995-2009)+krx_open_api(2010-2019)+data_go_kr(2020+)",
     layer="normalized",
     storage_format="parquet",
     frequency="daily",
@@ -26,15 +26,18 @@ KR_EQUITY_PRICE_DAILY = DatasetContract(
         ColumnContract("close", "int64", False),
         ColumnContract("volume", "int64", False),
         ColumnContract("trading_value", "int64", False),
+        ColumnContract("source", "string", False),
+        ColumnContract("source_operation", "string", False),
+        ColumnContract("source_date", "date32", False),
     ),
 )
 
 KR_EQUITY_MARKET_CAP_DAILY = DatasetContract(
     name="kr_equity_market_cap_daily",
-    version=1,
+    version=2,
     status="draft",
     description="Daily market capitalization facts for Korean equities.",
-    source="data_go_kr:GetStockSecuritiesInfoService/getStockPriceInfo",
+    source="financedata_marcap(1995-2009)+krx_open_api(2010-2019)+data_go_kr(2020+)",
     layer="normalized",
     storage_format="parquet",
     frequency="daily",
@@ -48,6 +51,9 @@ KR_EQUITY_MARKET_CAP_DAILY = DatasetContract(
         ColumnContract("symbol", "string", False),
         ColumnContract("market_cap", "int64", False),
         ColumnContract("shares_outstanding", "int64", False),
+        ColumnContract("source", "string", False),
+        ColumnContract("source_operation", "string", False),
+        ColumnContract("source_date", "date32", False),
     ),
 )
 
@@ -85,17 +91,22 @@ KR_EQUITY_MASTER = DatasetContract(
 )
 
 KR_EQUITY_UNIVERSE_DAILY = DatasetContract(
-    name="kr_equity_universe_daily", version=1, status="draft",
+    name="kr_equity_universe_daily", version=2, status="active",
     description="Point-in-time KOSPI/KOSDAQ listed-equity universe and identity.",
-    source="data_go_kr:GetKrxListedInfoService/getItemInfo", layer="normalized",
+    source="financedata_marcap(1995-2009)+krx_open_api_basic_info(2010-2019)+data_go_kr_listed_info(2020+)", layer="normalized",
     storage_format="parquet", frequency="daily", timezone="Asia/Seoul",
     primary_key=("date", "market", "symbol"), sort_key=("date", "market", "symbol"),
     partition_by=("market", "year"),
     columns=(
         ColumnContract("date", "date32", False), ColumnContract("market", "string", False),
-        ColumnContract("symbol", "string", False), ColumnContract("isin", "string", False),
-        ColumnContract("name", "string", False), ColumnContract("corporate_number", "string", True),
-        ColumnContract("corporate_name", "string", False),
+        ColumnContract("symbol", "string", False), ColumnContract("isin", "string", True),
+        ColumnContract("name", "string", True), ColumnContract("short_name", "string", True),
+        ColumnContract("english_name", "string", True), ColumnContract("security_group", "string", True),
+        ColumnContract("security_type", "string", True), ColumnContract("listing_date", "string", True),
+        ColumnContract("listed_shares", "int64", True), ColumnContract("par_value", "string", True),
+        ColumnContract("corporate_number", "string", True), ColumnContract("corporate_name", "string", True),
+        ColumnContract("source", "string", False), ColumnContract("source_operation", "string", False),
+        ColumnContract("source_date", "date32", False),
     ),
 )
 
@@ -108,7 +119,7 @@ KR_EQUITY_CANONICAL_UNIVERSE_DAILY = DatasetContract(
     partition_by=("market", "year"),
     columns=(
         ColumnContract("date", "date32", False), ColumnContract("market", "string", False),
-        ColumnContract("symbol", "string", False), ColumnContract("isin", "string", False),
+        ColumnContract("symbol", "string", False), ColumnContract("isin", "string", True),
         ColumnContract("name", "string", False), ColumnContract("listed_info_present", "bool", False),
         ColumnContract("price_present", "bool", False), ColumnContract("master_present", "bool", False),
         ColumnContract("universe_source", "string", False), ColumnContract("security_type", "string", False),

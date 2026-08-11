@@ -1,0 +1,63 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "rcrd_c": "1",
+            "krx_cd": "NAS",
+            "is_cd": "NVDA"
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "정상적으로 조회가 완료되었습니다.",
+            "processCode": "0024",
+            "processTime": "20260622152755540"
+        },
+        "dataBody": {
+            "msg": "정상적으로 조회가 완료되었습니다.",
+            "mrkt_prc_clsf": "15분지연",
+            "out2": [
+                {
+                    "now_prc_p4": " 209.6700",
+                    "mkt_aft_ccls_prc_krw_p2": "            ",
+                    "kor_dt": "20260622",
+                    "ccls_clsf": "2",
+                    "mkt_aft_up_dwn_r_p2": "         ",
+                    "ccls_q": "4",
+                    "mkt_aft_ccls_prc_p4": "         ",
+                    "b_askprc_p4": " 209.6800",
+                    "dt": "20260622",
+                    "bdy_cmpr_ccd": "5",
+                    "now_prc_krw_p2": "   321004.76",
+                    "kor_tm": "15275200",
+                    "bdy_cmpr_p4": "   1.0200",
+                    "s_rv": "207",
+                    "b_rv": "1",
+                    "bsnss_dt": "20260622",
+                    "mkt_aft_cmpr_p4": "         ",
+                    "s_askprc_p4": " 209.6900",
+                    "bdy_cmpr_krw_p2": "     1561.62",
+                    "mkt_aft_cmpr_ccd": " ",
+                    "mkt_clsf": "4",
+                    "vlm": "638363",
+                    "mkt_aft_cmpr_krw_p2": "            ",
+                    "tm": "022752",
+                    "up_dwn_r_p2": "    -0.48"
+                }
+            ],
+            "clsfP": "SC",
+            "out2_RecordSize": "00000223",
+            "rcrd_c": "  1",
+            "krx_cd": "NAS",
+            "is_cd": "NVDA",
+            "lngth": "00355",
+            "RecordSize": "00000034"
+        }
+    }
+}

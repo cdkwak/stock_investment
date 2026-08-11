@@ -65,10 +65,14 @@ def test_official_sample_maps_to_separate_contracts() -> None:
         "date": "2022-09-19", "market": "KOSDAQ", "symbol": "900110",
         "open": 173, "high": 176, "low": 167, "close": 167,
         "volume": 2788311, "trading_value": 475708047,
+        "source": "data_go_kr", "source_operation": "getStockPriceInfo",
+        "source_date": "2022-09-19",
     }]
     assert result.market_cap.to_dict("records") == [{
         "date": "2022-09-19", "market": "KOSDAQ", "symbol": "900110",
         "market_cap": 36728652350, "shares_outstanding": 219932050,
+        "source": "data_go_kr", "source_operation": "getStockPriceInfo",
+        "source_date": "2022-09-19",
     }]
 
 

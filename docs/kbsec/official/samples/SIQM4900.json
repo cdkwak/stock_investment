@@ -1,0 +1,55 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "stnd_is_cd": "005930"
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "",
+            "processCode": "0011",
+            "processTime": "20260622093603966"
+        },
+        "dataBody": {
+            "rsk_grd_nm": "미지정",
+            "eng_shrt_nm": "SamsungElec",
+            "hngl_shrt_nm2": "삼성전자",
+            "rsk_grd_clsf_cd": "0",
+            "io_rstn_end_dt": "20180510",
+            "dl_crncy_clsf_nm": "한국",
+            "hngl_is_nm2": "삼성전자보통주",
+            "is_typ_nm": "주식",
+            "shrt_is_cd": "A005930",
+            "slf_is_cd": "            ",
+            "is_dtl_typ_cd": "11",
+            "io_rstn_strt_dt": "20180430",
+            "o_lngth": "01055",
+            "o_clsf": "SC",
+            "hngl_shrt_nm": "삼성전자",
+            "trd_rstn_strt_dt": "        ",
+            "io_rstn_clsf_nm": "입출고불가(대 ",
+            "stnd_is_cd": "KR7005930003",
+            "eng_is_nm2": "SamsungElectronics",
+            "dmstc_clsf_nm": "국내물",
+            "lnd_clsf_nm": "한국",
+            "trd_rstn_clsf_nm": "정상",
+            "is_rgst_clsf_nm": "전문등록",
+            "symbl_is_cd": "SEC",
+            "eng_is_nm": "SamsungElectronics",
+            "hngl_is_nm": "삼성전자보통주",
+            "is_dtl_typ_nm": "상장주식",
+            "gds_rprst_cd": "11010100",
+            "is_typ_cd": "01",
+            "trd_rstn_end_dt": "        ",
+            "o_msg": "정상적으로 조회되었습니다.",
+            "eng_shrt_nm2": "SamsungElec"
+        }
+    }
+}

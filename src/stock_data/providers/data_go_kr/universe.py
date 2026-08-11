@@ -22,9 +22,14 @@ def normalize_universe_items(items: Sequence[Mapping[str, object]]) -> pd.DataFr
         if not symbol or any(not str(item.get(field, "")).strip() for field in required):
             raise ValueError("data.go.kr universe identity field is missing")
         corporate_number = str(item.get("crno", "")).strip() or None
-        rows.append({"date":parsed.strftime("%Y-%m-%d"), "market":market, "symbol":symbol,
+        source_date = parsed.strftime("%Y-%m-%d")
+        rows.append({"date":source_date, "market":market, "symbol":symbol,
                      "isin":str(item["isinCd"]).strip(), "name":str(item["itmsNm"]).strip(),
-                     "corporate_number":corporate_number, "corporate_name":str(item["corpNm"]).strip()})
+                     "short_name":None, "english_name":None, "security_group":None,
+                     "security_type":None, "listing_date":None, "listed_shares":None,
+                     "par_value":None, "corporate_number":corporate_number,
+                     "corporate_name":str(item["corpNm"]).strip(), "source":"data_go_kr",
+                     "source_operation":"getItemInfo", "source_date":source_date})
     frame = pd.DataFrame(rows, columns=KR_EQUITY_UNIVERSE_DAILY.column_names)
     frame = frame.sort_values(list(KR_EQUITY_UNIVERSE_DAILY.sort_key), kind="stable").reset_index(drop=True)
     validate_data_v1(frame, KR_EQUITY_UNIVERSE_DAILY)

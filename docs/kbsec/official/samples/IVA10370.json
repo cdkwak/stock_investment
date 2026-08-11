@@ -1,0 +1,69 @@
+﻿{
+    "input": {
+        "dataBody": {},
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "정상적으로 조회가 완료되었습니다.",
+            "processCode": "0024",
+            "processTime": "20260622104749732"
+        },
+        "dataBody": {
+            "msg": "정상적으로 조회가 완료되었습니다.",
+            "kepco_bnd_yr3_yld_cmpr_p5": "   0.04200",
+            "cpbnd_yr3_aa_yld_cmpr_p5": "   0.03800",
+            "fts_tfnd_cmpr_amt": "3664",
+            "ntnbnd_yr3_thng_yld_cmpr_p5": "   0.03400",
+            "cpbnd_yr3_aa_yld_p5": "   4.41900",
+            "RecordSize": "00000560",
+            "dt": "20260618",
+            "bnd_typ_bnf_amt": "215274",
+            "mmf_cmpr_amt": "-1530",
+            "rcvamt_cmpr_amt": "-1",
+            "ntnbnd_yr10_thng_yld_cmpr_p5": "   0.05300",
+            "ntl_hsng_typ1_yld_cmpr_p5": "   0.05000",
+            "cp_dy91_thng_yld_cmpr_p5": "   0.00000",
+            "mmf_amt": "250442",
+            "ntnbnd_yr10_thng_yld_p5": "   4.17100",
+            "dt2": "20260619",
+            "crdt_blnc_cmpr_amt": "179",
+            "msbnd_yr2_yld_cmpr_p5": "   0.02900",
+            "msbnd_yr1_yld_cmpr_p5": "   0.01900",
+            "ntnbnd_yr5_thng_yld_cmpr_p5": "   0.05600",
+            "bnd_typ_bnf_cmpr_amt": "-591",
+            "mix_typ_bnf_amt": "46590",
+            "cs_dpst_cmpr_amt": "3776",
+            "cd_dy91_thng_yld_cmpr_p5": "   0.00000",
+            "cpbnd_yr3_bbb_yld_cmpr_p5": "   0.03600",
+            "kepco_bnd_yr3_yld_p5": "   4.13000",
+            "cd_dy91_thng_yld_p5": "   2.92000",
+            "msbnd_yr1_yld_p5": "   3.02400",
+            "stk_typ_bnf_cmpr_amt": "3129",
+            "msbnd_yr2_yld_p5": "   3.67800",
+            "stk_typ_bnf_amt": "388124",
+            "ifb_yr1_yld_cmpr_p5": "   0.02300",
+            "ntnbnd_yr3_thng_yld_p5": "   3.78400",
+            "ntl_hsng_typ1_yld_p5": "   4.23200",
+            "cs_dpst": "128408",
+            "ntnbnd_yr1_thng_yld_cmpr_p5": "   0.01700",
+            "ntnbnd_yr5_thng_yld_p5": "   4.00500",
+            "cp_dy91_thng_yld_p5": "   3.12000",
+            "clsfP": "SC",
+            "rcvamt": "1229",
+            "cpbnd_yr3_bbb_yld_p5": "  10.24300",
+            "ifb_yr1_yld_p5": "   3.55700",
+            "mix_typ_bnf_cmpr_amt": "224",
+            "crdt_blnc": "37979",
+            "fts_tfnd": "56620",
+            "lngth": "00650",
+            "ntnbnd_yr1_thng_yld_p5": "   3.30000"
+        }
+    }
+}

@@ -1,0 +1,2677 @@
+{
+  "report_version": 1,
+  "collected_at": "2026-08-10T16:31:33.133562+00:00",
+  "source": "toss_securities_open_api",
+  "symbol_note": "005930 is the requested long-listed representative symbol.",
+  "anchors": [
+    "2025-01-02",
+    "2023-01-02",
+    "2020-01-02",
+    "2018-01-02",
+    "2015-01-02",
+    "2010-01-02"
+  ],
+  "series": {
+    "market_index_kospi": {
+      "endpoint": "/api/v1/market-indicators/KOSPI/candles",
+      "cursor_parameter": "before",
+      "probes": [
+        {
+          "anchor": "2025-01-02",
+          "params": {
+            "interval": "1d",
+            "count": 1,
+            "before": "2025-01-02T23:59:59+09:00"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2025-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2024-12-30T00:00:00.000+09:00",
+          "rate_limit": {
+            "group": "MARKET_INDICATOR_CHART",
+            "limit": 5,
+            "remaining": 4,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "timestamp": "2025-01-02T00:00:00.000+09:00",
+            "openPrice": "2400.87",
+            "highPrice": "2410.99",
+            "lowPrice": "2386.84",
+            "closePrice": "2398.94",
+            "volume": "350692000"
+          }
+        },
+        {
+          "anchor": "2023-01-02",
+          "params": {
+            "interval": "1d",
+            "count": 1,
+            "before": "2023-01-02T23:59:59+09:00"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2023-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2022-12-29T00:00:00.000+09:00",
+          "rate_limit": {
+            "group": "MARKET_INDICATOR_CHART",
+            "limit": 5,
+            "remaining": 3,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "timestamp": "2023-01-02T00:00:00.000+09:00",
+            "openPrice": "2249.95",
+            "highPrice": "2259.88",
+            "lowPrice": "2222.37",
+            "closePrice": "2225.67",
+            "volume": "346344700"
+          }
+        },
+        {
+          "anchor": "2020-01-02",
+          "params": {
+            "interval": "1d",
+            "count": 1,
+            "before": "2020-01-02T23:59:59+09:00"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2020-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2019-12-30T00:00:00.000+09:00",
+          "rate_limit": {
+            "group": "MARKET_INDICATOR_CHART",
+            "limit": 5,
+            "remaining": 4,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "timestamp": "2020-01-02T00:00:00.000+09:00",
+            "openPrice": "2201.21",
+            "highPrice": "2202.32",
+            "lowPrice": "2171.84",
+            "closePrice": "2175.17",
+            "volume": "494677700"
+          }
+        },
+        {
+          "anchor": "2018-01-02",
+          "params": {
+            "interval": "1d",
+            "count": 1,
+            "before": "2018-01-02T23:59:59+09:00"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2018-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2017-12-28T00:00:00.000+09:00",
+          "rate_limit": {
+            "group": "MARKET_INDICATOR_CHART",
+            "limit": 5,
+            "remaining": 3,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "timestamp": "2018-01-02T00:00:00.000+09:00",
+            "openPrice": "2474.86",
+            "highPrice": "2481.02",
+            "lowPrice": "2465.94",
+            "closePrice": "2479.65",
+            "volume": "262205000"
+          }
+        },
+        {
+          "anchor": "2015-01-02",
+          "params": {
+            "interval": "1d",
+            "count": 1,
+            "before": "2015-01-02T23:59:59+09:00"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2015-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2014-12-30T00:00:00.000+09:00",
+          "rate_limit": {
+            "group": "MARKET_INDICATOR_CHART",
+            "limit": 5,
+            "remaining": 2,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "timestamp": "2015-01-02T00:00:00.000+09:00",
+            "openPrice": "1914.24",
+            "highPrice": "1929.15",
+            "lowPrice": "1909.67",
+            "closePrice": "1926.44",
+            "volume": "258775000"
+          }
+        },
+        {
+          "anchor": "2010-01-02",
+          "params": {
+            "interval": "1d",
+            "count": 1,
+            "before": "2010-01-02T23:59:59+09:00"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "MARKET_INDICATOR_CHART",
+            "limit": 5,
+            "remaining": 4,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        }
+      ],
+      "refinement_probes": [
+        {
+          "year_end": 2012,
+          "params": {
+            "interval": "1d",
+            "count": 1,
+            "before": "2012-12-31T23:59:59+09:00"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "MARKET_INDICATOR_CHART",
+            "limit": 5,
+            "remaining": 4,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        },
+        {
+          "year_end": 2014,
+          "params": {
+            "interval": "1d",
+            "count": 1,
+            "before": "2014-12-31T23:59:59+09:00"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2014-12-30"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2014-12-29T00:00:00.000+09:00",
+          "rate_limit": {
+            "group": "MARKET_INDICATOR_CHART",
+            "limit": 5,
+            "remaining": 4,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "timestamp": "2014-12-30T00:00:00.000+09:00",
+            "openPrice": "1934.51",
+            "highPrice": "1937.55",
+            "lowPrice": "1910.78",
+            "closePrice": "1915.59",
+            "volume": "256436000"
+          }
+        },
+        {
+          "year_end": 2013,
+          "params": {
+            "interval": "1d",
+            "count": 1,
+            "before": "2013-12-31T23:59:59+09:00"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "MARKET_INDICATOR_CHART",
+            "limit": 5,
+            "remaining": 3,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        }
+      ],
+      "first_data_year": 2014
+    },
+    "market_index_kosdaq": {
+      "endpoint": "/api/v1/market-indicators/KOSDAQ/candles",
+      "cursor_parameter": "before",
+      "probes": [
+        {
+          "anchor": "2025-01-02",
+          "params": {
+            "interval": "1d",
+            "count": 1,
+            "before": "2025-01-02T23:59:59+09:00"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2025-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2024-12-30T00:00:00.000+09:00",
+          "rate_limit": {
+            "group": "MARKET_INDICATOR_CHART",
+            "limit": 5,
+            "remaining": 3,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "timestamp": "2025-01-02T00:00:00.000+09:00",
+            "openPrice": "678.98",
+            "highPrice": "687.25",
+            "lowPrice": "675.96",
+            "closePrice": "686.63",
+            "volume": "741587000"
+          }
+        },
+        {
+          "anchor": "2023-01-02",
+          "params": {
+            "interval": "1d",
+            "count": 1,
+            "before": "2023-01-02T23:59:59+09:00"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2023-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2022-12-29T00:00:00.000+09:00",
+          "rate_limit": {
+            "group": "MARKET_INDICATOR_CHART",
+            "limit": 5,
+            "remaining": 2,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "timestamp": "2023-01-02T00:00:00.000+09:00",
+            "openPrice": "683.84",
+            "highPrice": "688.77",
+            "lowPrice": "670.38",
+            "closePrice": "671.51",
+            "volume": "742766900"
+          }
+        },
+        {
+          "anchor": "2020-01-02",
+          "params": {
+            "interval": "1d",
+            "count": 1,
+            "before": "2020-01-02T23:59:59+09:00"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2020-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2019-12-30T00:00:00.000+09:00",
+          "rate_limit": {
+            "group": "MARKET_INDICATOR_CHART",
+            "limit": 5,
+            "remaining": 4,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "timestamp": "2020-01-02T00:00:00.000+09:00",
+            "openPrice": "672.53",
+            "highPrice": "674.3",
+            "lowPrice": "666.62",
+            "closePrice": "674.02",
+            "volume": "783730800"
+          }
+        },
+        {
+          "anchor": "2018-01-02",
+          "params": {
+            "interval": "1d",
+            "count": 1,
+            "before": "2018-01-02T23:59:59+09:00"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2018-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2017-12-28T00:00:00.000+09:00",
+          "rate_limit": {
+            "group": "MARKET_INDICATOR_CHART",
+            "limit": 5,
+            "remaining": 3,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "timestamp": "2018-01-02T00:00:00.000+09:00",
+            "openPrice": "803.63",
+            "highPrice": "813.4",
+            "lowPrice": "800.54",
+            "closePrice": "812.45",
+            "volume": "989203000"
+          }
+        },
+        {
+          "anchor": "2015-01-02",
+          "params": {
+            "interval": "1d",
+            "count": 1,
+            "before": "2015-01-02T23:59:59+09:00"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2015-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2014-12-30T00:00:00.000+09:00",
+          "rate_limit": {
+            "group": "MARKET_INDICATOR_CHART",
+            "limit": 5,
+            "remaining": 2,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "timestamp": "2015-01-02T00:00:00.000+09:00",
+            "openPrice": "546.01",
+            "highPrice": "553.78",
+            "lowPrice": "546.01",
+            "closePrice": "553.73",
+            "volume": "364059000"
+          }
+        },
+        {
+          "anchor": "2010-01-02",
+          "params": {
+            "interval": "1d",
+            "count": 1,
+            "before": "2010-01-02T23:59:59+09:00"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "MARKET_INDICATOR_CHART",
+            "limit": 5,
+            "remaining": 4,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        }
+      ],
+      "refinement_probes": [
+        {
+          "year_end": 2012,
+          "params": {
+            "interval": "1d",
+            "count": 1,
+            "before": "2012-12-31T23:59:59+09:00"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "MARKET_INDICATOR_CHART",
+            "limit": 5,
+            "remaining": 2,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        },
+        {
+          "year_end": 2014,
+          "params": {
+            "interval": "1d",
+            "count": 1,
+            "before": "2014-12-31T23:59:59+09:00"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2014-12-30"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2014-12-29T00:00:00.000+09:00",
+          "rate_limit": {
+            "group": "MARKET_INDICATOR_CHART",
+            "limit": 5,
+            "remaining": 4,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "timestamp": "2014-12-30T00:00:00.000+09:00",
+            "openPrice": "540.58",
+            "highPrice": "543.08",
+            "lowPrice": "540.28",
+            "closePrice": "542.97",
+            "volume": "388705000"
+          }
+        },
+        {
+          "year_end": 2013,
+          "params": {
+            "interval": "1d",
+            "count": 1,
+            "before": "2013-12-31T23:59:59+09:00"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "MARKET_INDICATOR_CHART",
+            "limit": 5,
+            "remaining": 3,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        }
+      ],
+      "first_data_year": 2014
+    },
+    "investor_kospi": {
+      "endpoint": "/api/v1/market-indicators/KOSPI/investor-trading",
+      "cursor_parameter": "until",
+      "probes": [
+        {
+          "anchor": "2025-01-02",
+          "params": {
+            "count": 1,
+            "until": "2025-01-02",
+            "interval": "1d"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2025-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2024-12-30",
+          "rate_limit": {
+            "group": "MARKET_INDICATOR",
+            "limit": 10,
+            "remaining": 9,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "date": "2025-01-02",
+            "updatedAt": "2025-01-02T18:06:03.000+09:00",
+            "individual": {
+              "buyAmount": "3857683700328",
+              "sellAmount": "3443369688346"
+            },
+            "foreigner": {
+              "buyAmount": "1669313592949",
+              "sellAmount": "1908121749543"
+            },
+            "institution": {
+              "buyAmount": "1296133602721",
+              "sellAmount": "1555008012955",
+              "breakdown": {
+                "financialInvestment": {
+                  "buyAmount": "278129772323",
+                  "sellAmount": "545768193251"
+                },
+                "insurance": {
+                  "buyAmount": "45941089795",
+                  "sellAmount": "48038389545"
+                },
+                "trust": {
+                  "buyAmount": "138114892652",
+                  "sellAmount": "128340281006"
+                },
+                "privateEquityFund": {
+                  "buyAmount": "95831744220",
+                  "sellAmount": "104968000881"
+                },
+                "bank": {
+                  "buyAmount": "2823757850",
+                  "sellAmount": "2059308641"
+                },
+                "otherFinancialInstitution": {
+                  "buyAmount": "3991923970",
+                  "sellAmount": "3693286920"
+                },
+                "pensionFund": {
+                  "buyAmount": "731300421911",
+                  "sellAmount": "722140552711"
+                }
+              }
+            },
+            "otherCorporation": {
+              "buyAmount": "135517854082",
+              "sellAmount": "52149299236"
+            }
+          }
+        },
+        {
+          "anchor": "2023-01-02",
+          "params": {
+            "count": 1,
+            "until": "2023-01-02",
+            "interval": "1d"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2023-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2022-12-29",
+          "rate_limit": {
+            "group": "MARKET_INDICATOR",
+            "limit": 10,
+            "remaining": 8,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "date": "2023-01-02",
+            "updatedAt": "2023-10-24T15:58:24.000+09:00",
+            "individual": {
+              "buyAmount": "2874563252134",
+              "sellAmount": "2651593721906"
+            },
+            "foreigner": {
+              "buyAmount": "1035325270012",
+              "sellAmount": "1028723960973"
+            },
+            "institution": {
+              "buyAmount": "1227924025295",
+              "sellAmount": "1494344409657",
+              "breakdown": {
+                "financialInvestment": {
+                  "buyAmount": "267751826588",
+                  "sellAmount": "434420629168"
+                },
+                "insurance": {
+                  "buyAmount": "60252611845",
+                  "sellAmount": "108870890867"
+                },
+                "trust": {
+                  "buyAmount": "168339304867",
+                  "sellAmount": "155169900149"
+                },
+                "privateEquityFund": {
+                  "buyAmount": "129327712049",
+                  "sellAmount": "169950200713"
+                },
+                "bank": {
+                  "buyAmount": "3540783000",
+                  "sellAmount": "4306828605"
+                },
+                "otherFinancialInstitution": {
+                  "buyAmount": "4333977790",
+                  "sellAmount": "3535048680"
+                },
+                "pensionFund": {
+                  "buyAmount": "594377809156",
+                  "sellAmount": "618090911475"
+                }
+              }
+            },
+            "otherCorporation": {
+              "buyAmount": "62325039377",
+              "sellAmount": "25475494282"
+            }
+          }
+        },
+        {
+          "anchor": "2020-01-02",
+          "params": {
+            "count": 1,
+            "until": "2020-01-02",
+            "interval": "1d"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2020-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2019-12-30",
+          "rate_limit": {
+            "group": "MARKET_INDICATOR",
+            "limit": 10,
+            "remaining": 9,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "date": "2020-01-02",
+            "updatedAt": "2023-10-24T15:58:23.000+09:00",
+            "individual": {
+              "buyAmount": "2480048542341",
+              "sellAmount": "1949591015778"
+            },
+            "foreigner": {
+              "buyAmount": "1062438736886",
+              "sellAmount": "1066835136806"
+            },
+            "institution": {
+              "buyAmount": "1047263595959",
+              "sellAmount": "1587333813216",
+              "breakdown": {
+                "financialInvestment": {
+                  "buyAmount": "290900842359",
+                  "sellAmount": "705451214866"
+                },
+                "insurance": {
+                  "buyAmount": "74267014350",
+                  "sellAmount": "76979315852"
+                },
+                "trust": {
+                  "buyAmount": "98921616068",
+                  "sellAmount": "141325574151"
+                },
+                "privateEquityFund": {
+                  "buyAmount": "74079098179",
+                  "sellAmount": "69768881432"
+                },
+                "bank": {
+                  "buyAmount": "4550028930",
+                  "sellAmount": "2301234835"
+                },
+                "otherFinancialInstitution": {
+                  "buyAmount": "6069763777",
+                  "sellAmount": "2613614800"
+                },
+                "pensionFund": {
+                  "buyAmount": "498475232296",
+                  "sellAmount": "588893977280"
+                }
+              }
+            },
+            "otherCorporation": {
+              "buyAmount": "48416434393",
+              "sellAmount": "34407343779"
+            }
+          }
+        },
+        {
+          "anchor": "2018-01-02",
+          "params": {
+            "count": 1,
+            "until": "2018-01-02",
+            "interval": "1d"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2018-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2017-12-28",
+          "rate_limit": {
+            "group": "MARKET_INDICATOR",
+            "limit": 10,
+            "remaining": 8,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "date": "2018-01-02",
+            "updatedAt": "2023-10-24T15:58:22.000+09:00",
+            "individual": {
+              "buyAmount": "2459377869907",
+              "sellAmount": "2486126426028"
+            },
+            "foreigner": {
+              "buyAmount": "1307253163125",
+              "sellAmount": "1043819957158"
+            },
+            "institution": {
+              "buyAmount": "938015539824",
+              "sellAmount": "1214247362985",
+              "breakdown": {
+                "financialInvestment": {
+                  "buyAmount": "211561813974",
+                  "sellAmount": "396285499734"
+                },
+                "insurance": {
+                  "buyAmount": "101819248200",
+                  "sellAmount": "86899173252"
+                },
+                "trust": {
+                  "buyAmount": "147379580980",
+                  "sellAmount": "181459687211"
+                },
+                "privateEquityFund": {
+                  "buyAmount": "103224306450",
+                  "sellAmount": "143722140913"
+                },
+                "bank": {
+                  "buyAmount": "19254373350",
+                  "sellAmount": "25722142470"
+                },
+                "otherFinancialInstitution": {
+                  "buyAmount": "9936222130",
+                  "sellAmount": "2698171300"
+                },
+                "pensionFund": {
+                  "buyAmount": "344839994740",
+                  "sellAmount": "377460548105"
+                }
+              }
+            },
+            "otherCorporation": {
+              "buyAmount": "81740113309",
+              "sellAmount": "42192939994"
+            }
+          }
+        },
+        {
+          "anchor": "2015-01-02",
+          "params": {
+            "count": 1,
+            "until": "2015-01-02",
+            "interval": "1d"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2015-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2014-12-30",
+          "rate_limit": {
+            "group": "MARKET_INDICATOR",
+            "limit": 10,
+            "remaining": 7,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "date": "2015-01-02",
+            "updatedAt": "2023-10-24T15:58:22.000+09:00",
+            "individual": {
+              "buyAmount": "2093842369602",
+              "sellAmount": "1967424325126"
+            },
+            "foreigner": {
+              "buyAmount": "792397031637",
+              "sellAmount": "763823172601"
+            },
+            "institution": {
+              "buyAmount": "716247935655",
+              "sellAmount": "920261993060",
+              "breakdown": {
+                "financialInvestment": {
+                  "buyAmount": "127815672495",
+                  "sellAmount": "325309064030"
+                },
+                "insurance": {
+                  "buyAmount": "135165905840",
+                  "sellAmount": "116193697690"
+                },
+                "trust": {
+                  "buyAmount": "226260612330",
+                  "sellAmount": "215075380970"
+                },
+                "privateEquityFund": {
+                  "buyAmount": "52039428405",
+                  "sellAmount": "71133905395"
+                },
+                "bank": {
+                  "buyAmount": "15227087090",
+                  "sellAmount": "10098306660"
+                },
+                "otherFinancialInstitution": {
+                  "buyAmount": "5470767630",
+                  "sellAmount": "7265127005"
+                },
+                "pensionFund": {
+                  "buyAmount": "154268461865",
+                  "sellAmount": "175186511310"
+                }
+              }
+            },
+            "otherCorporation": {
+              "buyAmount": "93541462985",
+              "sellAmount": "44519309092"
+            }
+          }
+        },
+        {
+          "anchor": "2010-01-02",
+          "params": {
+            "count": 1,
+            "until": "2010-01-02",
+            "interval": "1d"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "MARKET_INDICATOR",
+            "limit": 10,
+            "remaining": 9,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        }
+      ],
+      "refinement_probes": [
+        {
+          "year_end": 2012,
+          "params": {
+            "count": 1,
+            "until": "2012-12-31",
+            "interval": "1d"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "MARKET_INDICATOR",
+            "limit": 10,
+            "remaining": 9,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        },
+        {
+          "year_end": 2014,
+          "params": {
+            "count": 1,
+            "until": "2014-12-31",
+            "interval": "1d"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2014-12-30"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2014-12-29",
+          "rate_limit": {
+            "group": "MARKET_INDICATOR",
+            "limit": 10,
+            "remaining": 9,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "date": "2014-12-30",
+            "updatedAt": "2023-10-24T15:58:22.000+09:00",
+            "individual": {
+              "buyAmount": "1902470080009",
+              "sellAmount": "1754554374012"
+            },
+            "foreigner": {
+              "buyAmount": "838269220698",
+              "sellAmount": "937432225357"
+            },
+            "institution": {
+              "buyAmount": "763346265430",
+              "sellAmount": "965948570496",
+              "breakdown": {
+                "financialInvestment": {
+                  "buyAmount": "117106816420",
+                  "sellAmount": "285611955126"
+                },
+                "insurance": {
+                  "buyAmount": "125065745150",
+                  "sellAmount": "169648835425"
+                },
+                "trust": {
+                  "buyAmount": "176453619375",
+                  "sellAmount": "123786146907"
+                },
+                "privateEquityFund": {
+                  "buyAmount": "38110026500",
+                  "sellAmount": "72629887000"
+                },
+                "bank": {
+                  "buyAmount": "15128387610",
+                  "sellAmount": "61490444523"
+                },
+                "otherFinancialInstitution": {
+                  "buyAmount": "5552707310",
+                  "sellAmount": "8092170200"
+                },
+                "pensionFund": {
+                  "buyAmount": "285928963065",
+                  "sellAmount": "244689131315"
+                }
+              }
+            },
+            "otherCorporation": {
+              "buyAmount": "190930543669",
+              "sellAmount": "37080939941"
+            }
+          }
+        },
+        {
+          "year_end": 2013,
+          "params": {
+            "count": 1,
+            "until": "2013-12-31",
+            "interval": "1d"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "MARKET_INDICATOR",
+            "limit": 10,
+            "remaining": 8,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        }
+      ],
+      "first_data_year": 2014
+    },
+    "investor_kosdaq": {
+      "endpoint": "/api/v1/market-indicators/KOSDAQ/investor-trading",
+      "cursor_parameter": "until",
+      "probes": [
+        {
+          "anchor": "2025-01-02",
+          "params": {
+            "count": 1,
+            "until": "2025-01-02",
+            "interval": "1d"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2025-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2024-12-30",
+          "rate_limit": {
+            "group": "MARKET_INDICATOR",
+            "limit": 10,
+            "remaining": 8,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "date": "2025-01-02",
+            "updatedAt": "2025-01-02T18:06:04.000+09:00",
+            "individual": {
+              "buyAmount": "4648006877838",
+              "sellAmount": "4541526425697"
+            },
+            "foreigner": {
+              "buyAmount": "949142526086",
+              "sellAmount": "1079712035918"
+            },
+            "institution": {
+              "buyAmount": "254268527777",
+              "sellAmount": "230950594197",
+              "breakdown": {
+                "financialInvestment": {
+                  "buyAmount": "77363871843",
+                  "sellAmount": "120909944259"
+                },
+                "insurance": {
+                  "buyAmount": "10876336955",
+                  "sellAmount": "4959416455"
+                },
+                "trust": {
+                  "buyAmount": "54746736700",
+                  "sellAmount": "32317086204"
+                },
+                "privateEquityFund": {
+                  "buyAmount": "54361087423",
+                  "sellAmount": "28775217606"
+                },
+                "bank": {
+                  "buyAmount": "750798720",
+                  "sellAmount": "567856845"
+                },
+                "otherFinancialInstitution": {
+                  "buyAmount": "752372293",
+                  "sellAmount": "4836621359"
+                },
+                "pensionFund": {
+                  "buyAmount": "55417323843",
+                  "sellAmount": "38584451469"
+                }
+              }
+            },
+            "otherCorporation": {
+              "buyAmount": "60942214237",
+              "sellAmount": "60171090126"
+            }
+          }
+        },
+        {
+          "anchor": "2023-01-02",
+          "params": {
+            "count": 1,
+            "until": "2023-01-02",
+            "interval": "1d"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2023-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2022-12-29",
+          "rate_limit": {
+            "group": "MARKET_INDICATOR",
+            "limit": 10,
+            "remaining": 7,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "date": "2023-01-02",
+            "updatedAt": "2023-10-24T15:59:56.000+09:00",
+            "individual": {
+              "buyAmount": "3549935203871",
+              "sellAmount": "3474178670541"
+            },
+            "foreigner": {
+              "buyAmount": "549572481202",
+              "sellAmount": "605417316627"
+            },
+            "institution": {
+              "buyAmount": "226217845179",
+              "sellAmount": "255150776732",
+              "breakdown": {
+                "financialInvestment": {
+                  "buyAmount": "81791623254",
+                  "sellAmount": "135868318336"
+                },
+                "insurance": {
+                  "buyAmount": "8498563415",
+                  "sellAmount": "12005199220"
+                },
+                "trust": {
+                  "buyAmount": "51657731658",
+                  "sellAmount": "42132430026"
+                },
+                "privateEquityFund": {
+                  "buyAmount": "50584537467",
+                  "sellAmount": "39292775975"
+                },
+                "bank": {
+                  "buyAmount": "1029846500",
+                  "sellAmount": "1766277830"
+                },
+                "otherFinancialInstitution": {
+                  "buyAmount": "1362627950",
+                  "sellAmount": "842857620"
+                },
+                "pensionFund": {
+                  "buyAmount": "31292914935",
+                  "sellAmount": "23242917725"
+                }
+              }
+            },
+            "otherCorporation": {
+              "buyAmount": "42365144776",
+              "sellAmount": "33343911128"
+            }
+          }
+        },
+        {
+          "anchor": "2020-01-02",
+          "params": {
+            "count": 1,
+            "until": "2020-01-02",
+            "interval": "1d"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2020-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2019-12-30",
+          "rate_limit": {
+            "group": "MARKET_INDICATOR",
+            "limit": 10,
+            "remaining": 9,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "date": "2020-01-02",
+            "updatedAt": "2023-10-24T15:59:55.000+09:00",
+            "individual": {
+              "buyAmount": "3804197539100",
+              "sellAmount": "3620760856362"
+            },
+            "foreigner": {
+              "buyAmount": "458894365589",
+              "sellAmount": "524001733614"
+            },
+            "institution": {
+              "buyAmount": "184650908229",
+              "sellAmount": "301712180576",
+              "breakdown": {
+                "financialInvestment": {
+                  "buyAmount": "54929509513",
+                  "sellAmount": "145651226400"
+                },
+                "insurance": {
+                  "buyAmount": "12102959295",
+                  "sellAmount": "11175360775"
+                },
+                "trust": {
+                  "buyAmount": "41459418506",
+                  "sellAmount": "39115088460"
+                },
+                "privateEquityFund": {
+                  "buyAmount": "47559045620",
+                  "sellAmount": "65375173481"
+                },
+                "bank": {
+                  "buyAmount": "1109835650",
+                  "sellAmount": "1449966280"
+                },
+                "otherFinancialInstitution": {
+                  "buyAmount": "442360480",
+                  "sellAmount": "1595364930"
+                },
+                "pensionFund": {
+                  "buyAmount": "27047779165",
+                  "sellAmount": "37350000250"
+                }
+              }
+            },
+            "otherCorporation": {
+              "buyAmount": "28762044606",
+              "sellAmount": "30030086972"
+            }
+          }
+        },
+        {
+          "anchor": "2018-01-02",
+          "params": {
+            "count": 1,
+            "until": "2018-01-02",
+            "interval": "1d"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2018-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2017-12-28",
+          "rate_limit": {
+            "group": "MARKET_INDICATOR",
+            "limit": 10,
+            "remaining": 8,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "date": "2018-01-02",
+            "updatedAt": "2023-10-24T15:59:55.000+09:00",
+            "individual": {
+              "buyAmount": "5889385164266",
+              "sellAmount": "5869702245386"
+            },
+            "foreigner": {
+              "buyAmount": "458416661011",
+              "sellAmount": "371680740989"
+            },
+            "institution": {
+              "buyAmount": "263395665236",
+              "sellAmount": "355098420272",
+              "breakdown": {
+                "financialInvestment": {
+                  "buyAmount": "74239749996",
+                  "sellAmount": "107681460455"
+                },
+                "insurance": {
+                  "buyAmount": "22383441093",
+                  "sellAmount": "17363430410"
+                },
+                "trust": {
+                  "buyAmount": "54792437107",
+                  "sellAmount": "66374929781"
+                },
+                "privateEquityFund": {
+                  "buyAmount": "60372351610",
+                  "sellAmount": "118022316307"
+                },
+                "bank": {
+                  "buyAmount": "4775314960",
+                  "sellAmount": "4362107140"
+                },
+                "otherFinancialInstitution": {
+                  "buyAmount": "5371306875",
+                  "sellAmount": "4387104476"
+                },
+                "pensionFund": {
+                  "buyAmount": "41461063595",
+                  "sellAmount": "36907071703"
+                }
+              }
+            },
+            "otherCorporation": {
+              "buyAmount": "37762786988",
+              "sellAmount": "52478870854"
+            }
+          }
+        },
+        {
+          "anchor": "2015-01-02",
+          "params": {
+            "count": 1,
+            "until": "2015-01-02",
+            "interval": "1d"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2015-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2014-12-30",
+          "rate_limit": {
+            "group": "MARKET_INDICATOR",
+            "limit": 10,
+            "remaining": 7,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "date": "2015-01-02",
+            "updatedAt": "2023-10-24T15:59:55.000+09:00",
+            "individual": {
+              "buyAmount": "1667538204083",
+              "sellAmount": "1701964064436"
+            },
+            "foreigner": {
+              "buyAmount": "86139310019",
+              "sellAmount": "81154480072"
+            },
+            "institution": {
+              "buyAmount": "148264212787",
+              "sellAmount": "108493316549",
+              "breakdown": {
+                "financialInvestment": {
+                  "buyAmount": "37978010800",
+                  "sellAmount": "36845535175"
+                },
+                "insurance": {
+                  "buyAmount": "16758333875",
+                  "sellAmount": "10125582570"
+                },
+                "trust": {
+                  "buyAmount": "49968497208",
+                  "sellAmount": "28517311514"
+                },
+                "privateEquityFund": {
+                  "buyAmount": "16972493694",
+                  "sellAmount": "6894520880"
+                },
+                "bank": {
+                  "buyAmount": "2971555285",
+                  "sellAmount": "3065423295"
+                },
+                "otherFinancialInstitution": {
+                  "buyAmount": "3523143150",
+                  "sellAmount": "4426156745"
+                },
+                "pensionFund": {
+                  "buyAmount": "20092178775",
+                  "sellAmount": "18618786370"
+                }
+              }
+            },
+            "otherCorporation": {
+              "buyAmount": "19282842333",
+              "sellAmount": "29612708165"
+            }
+          }
+        },
+        {
+          "anchor": "2010-01-02",
+          "params": {
+            "count": 1,
+            "until": "2010-01-02",
+            "interval": "1d"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "MARKET_INDICATOR",
+            "limit": 10,
+            "remaining": 9,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        }
+      ],
+      "refinement_probes": [
+        {
+          "year_end": 2012,
+          "params": {
+            "count": 1,
+            "until": "2012-12-31",
+            "interval": "1d"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "MARKET_INDICATOR",
+            "limit": 10,
+            "remaining": 7,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        },
+        {
+          "year_end": 2014,
+          "params": {
+            "count": 1,
+            "until": "2014-12-31",
+            "interval": "1d"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2014-12-30"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2014-12-29",
+          "rate_limit": {
+            "group": "MARKET_INDICATOR",
+            "limit": 10,
+            "remaining": 9,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "date": "2014-12-30",
+            "updatedAt": "2023-10-24T15:59:55.000+09:00",
+            "individual": {
+              "buyAmount": "1476109166334",
+              "sellAmount": "1529607018882"
+            },
+            "foreigner": {
+              "buyAmount": "100747777650",
+              "sellAmount": "89679112057"
+            },
+            "institution": {
+              "buyAmount": "97035738859",
+              "sellAmount": "52600600417",
+              "breakdown": {
+                "financialInvestment": {
+                  "buyAmount": "20820889284",
+                  "sellAmount": "13121710909"
+                },
+                "insurance": {
+                  "buyAmount": "18205980250",
+                  "sellAmount": "4642652290"
+                },
+                "trust": {
+                  "buyAmount": "26352043895",
+                  "sellAmount": "14850158795"
+                },
+                "privateEquityFund": {
+                  "buyAmount": "7916841060",
+                  "sellAmount": "3576468005"
+                },
+                "bank": {
+                  "buyAmount": "2865477640",
+                  "sellAmount": "2276830660"
+                },
+                "otherFinancialInstitution": {
+                  "buyAmount": "2475023855",
+                  "sellAmount": "4122274278"
+                },
+                "pensionFund": {
+                  "buyAmount": "18399482875",
+                  "sellAmount": "10010505480"
+                }
+              }
+            },
+            "otherCorporation": {
+              "buyAmount": "13789154284",
+              "sellAmount": "15795105771"
+            }
+          }
+        },
+        {
+          "year_end": 2013,
+          "params": {
+            "count": 1,
+            "until": "2013-12-31",
+            "interval": "1d"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "MARKET_INDICATOR",
+            "limit": 10,
+            "remaining": 8,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        }
+      ],
+      "first_data_year": 2014
+    },
+    "program_005930": {
+      "endpoint": "/api/v1/stocks/005930/program-trades",
+      "cursor_parameter": "until",
+      "probes": [
+        {
+          "anchor": "2025-01-02",
+          "params": {
+            "count": 1,
+            "until": "2025-01-02"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2025-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2024-12-30",
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 9,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "date": "2025-01-02",
+            "arbitrage": {
+              "buyVolume": "207774",
+              "sellVolume": "514346",
+              "netBuyVolume": "-306572"
+            },
+            "nonArbitrage": {
+              "buyVolume": "3137906",
+              "sellVolume": "4004807",
+              "netBuyVolume": "-866901"
+            }
+          }
+        },
+        {
+          "anchor": "2023-01-02",
+          "params": {
+            "count": 1,
+            "until": "2023-01-02"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2023-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2022-12-29",
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 8,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "date": "2023-01-02",
+            "arbitrage": {
+              "buyVolume": "125658",
+              "sellVolume": "309610",
+              "netBuyVolume": "-183952"
+            },
+            "nonArbitrage": {
+              "buyVolume": "1554360",
+              "sellVolume": "760453",
+              "netBuyVolume": "793907"
+            }
+          }
+        },
+        {
+          "anchor": "2020-01-02",
+          "params": {
+            "count": 1,
+            "until": "2020-01-02"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2020-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2019-12-30",
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 9,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "date": "2020-01-02",
+            "arbitrage": {
+              "buyVolume": "989420",
+              "sellVolume": "1549258",
+              "netBuyVolume": "-559838"
+            },
+            "nonArbitrage": {
+              "buyVolume": "1669429",
+              "sellVolume": "3801386",
+              "netBuyVolume": "-2131957"
+            }
+          }
+        },
+        {
+          "anchor": "2018-01-02",
+          "params": {
+            "count": 1,
+            "until": "2018-01-02"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 8,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        },
+        {
+          "anchor": "2015-01-02",
+          "params": {
+            "count": 1,
+            "until": "2015-01-02"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 7,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        },
+        {
+          "anchor": "2010-01-02",
+          "params": {
+            "count": 1,
+            "until": "2010-01-02"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 9,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        }
+      ],
+      "refinement_probes": [
+        {
+          "year_end": 2019,
+          "params": {
+            "count": 1,
+            "until": "2019-12-31"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2019-12-30"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2019-12-27",
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 9,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "date": "2019-12-30",
+            "arbitrage": {
+              "buyVolume": "256731",
+              "sellVolume": "132584",
+              "netBuyVolume": "124147"
+            },
+            "nonArbitrage": {
+              "buyVolume": "1875931",
+              "sellVolume": "4352981",
+              "netBuyVolume": "-2477050"
+            }
+          }
+        },
+        {
+          "year_end": 2018,
+          "params": {
+            "count": 1,
+            "until": "2018-12-31"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 9,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        }
+      ],
+      "first_data_year": 2019
+    },
+    "short_selling_005930": {
+      "endpoint": "/api/v1/stocks/005930/short-selling",
+      "cursor_parameter": "until",
+      "probes": [
+        {
+          "anchor": "2025-01-02",
+          "params": {
+            "count": 1,
+            "until": "2025-01-02"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2025-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2024-12-30",
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 8,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "date": "2025-01-02",
+            "updatedAt": "2025-01-02T18:13:38.000+09:00",
+            "shortSellingVolume": "46427",
+            "shortSellingAmount": "2473622000",
+            "shortSellingVolumeRate": "0.00279",
+            "shortSellingAmountRate": "0.0028"
+          }
+        },
+        {
+          "anchor": "2023-01-02",
+          "params": {
+            "count": 1,
+            "until": "2023-01-02"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2023-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2022-12-29",
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 7,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "date": "2023-01-02",
+            "updatedAt": "2023-02-23T21:39:21.000+09:00",
+            "shortSellingVolume": "108675",
+            "shortSellingAmount": "6060787200",
+            "shortSellingVolumeRate": "0.01083",
+            "shortSellingAmountRate": "0.0109"
+          }
+        },
+        {
+          "anchor": "2020-01-02",
+          "params": {
+            "count": 1,
+            "until": "2020-01-02"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2020-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2019-12-30",
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 9,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "date": "2020-01-02",
+            "updatedAt": "2023-02-23T21:22:47.000+09:00",
+            "shortSellingVolume": "39485",
+            "shortSellingAmount": "2186007900",
+            "shortSellingVolumeRate": "0.00304",
+            "shortSellingAmountRate": "0.003"
+          }
+        },
+        {
+          "anchor": "2018-01-02",
+          "params": {
+            "count": 1,
+            "until": "2018-01-02"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 8,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        },
+        {
+          "anchor": "2015-01-02",
+          "params": {
+            "count": 1,
+            "until": "2015-01-02"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 7,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        },
+        {
+          "anchor": "2010-01-02",
+          "params": {
+            "count": 1,
+            "until": "2010-01-02"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 9,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        }
+      ],
+      "refinement_probes": [
+        {
+          "year_end": 2019,
+          "params": {
+            "count": 1,
+            "until": "2019-12-31"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2019-12-30"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2019-12-27",
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 8,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "date": "2019-12-30",
+            "updatedAt": "2023-02-23T21:22:46.000+09:00",
+            "shortSellingVolume": "291675",
+            "shortSellingAmount": "16369775300",
+            "shortSellingVolumeRate": "0.0349",
+            "shortSellingAmountRate": "0.035"
+          }
+        },
+        {
+          "year_end": 2018,
+          "params": {
+            "count": 1,
+            "until": "2018-12-31"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 7,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        }
+      ],
+      "first_data_year": 2019
+    },
+    "credit_005930": {
+      "endpoint": "/api/v1/stocks/005930/credit-trades",
+      "cursor_parameter": "until",
+      "probes": [
+        {
+          "anchor": "2025-01-02",
+          "params": {
+            "count": 1,
+            "until": "2025-01-02"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2025-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2024-12-31",
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 8,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "date": "2025-01-02",
+            "updatedAt": "2025-01-03T04:00:42.000+09:00",
+            "marginLoan": {
+              "newQuantity": "282847",
+              "returnQuantity": "530979",
+              "balanceQuantity": "15605588",
+              "balanceRate": "0.0025",
+              "tradingRate": "0.0262"
+            },
+            "stockLoan": {
+              "newQuantity": "0",
+              "returnQuantity": "0",
+              "balanceQuantity": "34",
+              "balanceRate": "0",
+              "tradingRate": "0"
+            }
+          }
+        },
+        {
+          "anchor": "2023-01-02",
+          "params": {
+            "count": 1,
+            "until": "2023-01-02"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 7,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        },
+        {
+          "anchor": "2020-01-02",
+          "params": {
+            "count": 1,
+            "until": "2020-01-02"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 9,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        },
+        {
+          "anchor": "2018-01-02",
+          "params": {
+            "count": 1,
+            "until": "2018-01-02"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 8,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        },
+        {
+          "anchor": "2015-01-02",
+          "params": {
+            "count": 1,
+            "until": "2015-01-02"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 7,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        },
+        {
+          "anchor": "2010-01-02",
+          "params": {
+            "count": 1,
+            "until": "2010-01-02"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 9,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        }
+      ],
+      "refinement_probes": [
+        {
+          "year_end": 2024,
+          "params": {
+            "count": 1,
+            "until": "2024-12-31"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2024-12-31"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2024-12-30",
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 9,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "date": "2024-12-31",
+            "updatedAt": "2025-01-01T04:00:41.000+09:00",
+            "marginLoan": {
+              "newQuantity": "0",
+              "returnQuantity": "16576",
+              "balanceQuantity": "15860507",
+              "balanceRate": "0.0026",
+              "tradingRate": "0"
+            },
+            "stockLoan": {
+              "newQuantity": "0",
+              "returnQuantity": "0",
+              "balanceQuantity": "34",
+              "balanceRate": "0",
+              "tradingRate": "0"
+            }
+          }
+        },
+        {
+          "year_end": 2023,
+          "params": {
+            "count": 1,
+            "until": "2023-12-31"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2023-12-29"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2023-12-28",
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 8,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "date": "2023-12-29",
+            "updatedAt": "2023-12-30T04:00:39.000+09:00",
+            "marginLoan": {
+              "newQuantity": "0",
+              "returnQuantity": "1005",
+              "balanceQuantity": "4295761",
+              "balanceRate": "0.0006",
+              "tradingRate": "0"
+            },
+            "stockLoan": {
+              "newQuantity": "0",
+              "returnQuantity": "0",
+              "balanceQuantity": "10993",
+              "balanceRate": "0",
+              "tradingRate": "0"
+            }
+          }
+        }
+      ],
+      "first_data_year": 2023
+    },
+    "securities_lending_005930": {
+      "endpoint": "/api/v1/stocks/005930/securities-lending",
+      "cursor_parameter": "until",
+      "probes": [
+        {
+          "anchor": "2025-01-02",
+          "params": {
+            "count": 1,
+            "until": "2025-01-02"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2025-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2024-12-31",
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 8,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "date": "2025-01-02",
+            "updatedAt": "2025-01-02T19:00:41.000+09:00",
+            "executionQuantity": "4766066",
+            "repaymentQuantity": "854538",
+            "balanceQuantity": "125251528",
+            "balanceAmount": "6688431595200"
+          }
+        },
+        {
+          "anchor": "2023-01-02",
+          "params": {
+            "count": 1,
+            "until": "2023-01-02"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2023-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2022-12-30",
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 7,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "date": "2023-01-02",
+            "updatedAt": "2024-08-08T22:10:28.000+09:00",
+            "executionQuantity": "3595941",
+            "repaymentQuantity": "649438",
+            "balanceQuantity": "121856309",
+            "balanceAmount": "6763025149500"
+          }
+        },
+        {
+          "anchor": "2020-01-02",
+          "params": {
+            "count": 1,
+            "until": "2020-01-02"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 9,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        },
+        {
+          "anchor": "2018-01-02",
+          "params": {
+            "count": 1,
+            "until": "2018-01-02"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 8,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        },
+        {
+          "anchor": "2015-01-02",
+          "params": {
+            "count": 1,
+            "until": "2015-01-02"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 7,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        },
+        {
+          "anchor": "2010-01-02",
+          "params": {
+            "count": 1,
+            "until": "2010-01-02"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 9,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        }
+      ],
+      "refinement_probes": [
+        {
+          "year_end": 2021,
+          "params": {
+            "count": 1,
+            "until": "2021-12-31"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2021-12-31"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2021-12-30",
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 7,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "date": "2021-12-31",
+            "updatedAt": "2024-08-08T22:03:08.000+09:00",
+            "executionQuantity": "0",
+            "repaymentQuantity": "1115000",
+            "balanceQuantity": "67463615",
+            "balanceAmount": "5282401054500"
+          }
+        },
+        {
+          "year_end": 2020,
+          "params": {
+            "count": 1,
+            "until": "2020-12-31"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "STOCK_TRADING_TREND",
+            "limit": 10,
+            "remaining": 9,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        }
+      ],
+      "first_data_year": 2021
+    },
+    "treasury_10y": {
+      "endpoint": "/api/v1/market-indicators/KR_BOND_10Y/candles",
+      "cursor_parameter": "before",
+      "probes": [
+        {
+          "anchor": "2025-01-02",
+          "params": {
+            "interval": "1d",
+            "count": 1,
+            "before": "2025-01-02T23:59:59+09:00"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2025-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2024-12-30T00:00:00.000+09:00",
+          "rate_limit": {
+            "group": "MARKET_INDICATOR_CHART",
+            "limit": 5,
+            "remaining": 4,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "timestamp": "2025-01-02T00:00:00.000+09:00",
+            "openPrice": "2.86",
+            "highPrice": "2.86",
+            "lowPrice": "2.728",
+            "closePrice": "2.755",
+            "volume": "221000000000"
+          }
+        },
+        {
+          "anchor": "2023-01-02",
+          "params": {
+            "interval": "1d",
+            "count": 1,
+            "before": "2023-01-02T23:59:59+09:00"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2023-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2022-12-29T00:00:00.000+09:00",
+          "rate_limit": {
+            "group": "MARKET_INDICATOR_CHART",
+            "limit": 5,
+            "remaining": 3,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "timestamp": "2023-01-02T00:00:00.000+09:00",
+            "openPrice": "3.794",
+            "highPrice": "3.831",
+            "lowPrice": "3.788",
+            "closePrice": "3.813",
+            "volume": "210000000"
+          }
+        },
+        {
+          "anchor": "2020-01-02",
+          "params": {
+            "interval": "1d",
+            "count": 1,
+            "before": "2020-01-02T23:59:59+09:00"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2020-01-02"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2019-12-30T00:00:00.000+09:00",
+          "rate_limit": {
+            "group": "MARKET_INDICATOR_CHART",
+            "limit": 5,
+            "remaining": 4,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "timestamp": "2020-01-02T00:00:00.000+09:00",
+            "openPrice": "1.7",
+            "highPrice": "1.704",
+            "lowPrice": "1.612",
+            "closePrice": "1.638",
+            "volume": "676000000"
+          }
+        },
+        {
+          "anchor": "2018-01-02",
+          "params": {
+            "interval": "1d",
+            "count": 1,
+            "before": "2018-01-02T23:59:59+09:00"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "MARKET_INDICATOR_CHART",
+            "limit": 5,
+            "remaining": 3,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        },
+        {
+          "anchor": "2015-01-02",
+          "params": {
+            "interval": "1d",
+            "count": 1,
+            "before": "2015-01-02T23:59:59+09:00"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "MARKET_INDICATOR_CHART",
+            "limit": 5,
+            "remaining": 2,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        },
+        {
+          "anchor": "2010-01-02",
+          "params": {
+            "interval": "1d",
+            "count": 1,
+            "before": "2010-01-02T23:59:59+09:00"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "MARKET_INDICATOR_CHART",
+            "limit": 5,
+            "remaining": 4,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        }
+      ],
+      "refinement_probes": [
+        {
+          "year_end": 2019,
+          "params": {
+            "interval": "1d",
+            "count": 1,
+            "before": "2019-12-31T23:59:59+09:00"
+          },
+          "http_status": 200,
+          "row_count": 1,
+          "returned_dates": [
+            "2019-12-30"
+          ],
+          "no_future_rows": true,
+          "valid_empty": false,
+          "next_cursor": "2019-12-27T00:00:00.000+09:00",
+          "rate_limit": {
+            "group": "MARKET_INDICATOR_CHART",
+            "limit": 5,
+            "remaining": 4,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": {
+            "timestamp": "2019-12-30T00:00:00.000+09:00",
+            "openPrice": "1.672",
+            "highPrice": "1.695",
+            "lowPrice": "1.672",
+            "closePrice": "1.687",
+            "volume": "55000000"
+          }
+        },
+        {
+          "year_end": 2018,
+          "params": {
+            "interval": "1d",
+            "count": 1,
+            "before": "2018-12-31T23:59:59+09:00"
+          },
+          "http_status": 200,
+          "row_count": 0,
+          "returned_dates": [],
+          "no_future_rows": true,
+          "valid_empty": true,
+          "next_cursor": null,
+          "rate_limit": {
+            "group": "MARKET_INDICATOR_CHART",
+            "limit": 5,
+            "remaining": 3,
+            "reset_seconds": 1,
+            "retry_after_seconds": null
+          },
+          "sample": null
+        }
+      ],
+      "first_data_year": 2019
+    }
+  },
+  "token_calls": 1,
+  "market_calls": 54,
+  "stopped_on_429": false,
+  "refined_at": "2026-08-10T16:34:20.273440+00:00",
+  "refinement_token_calls": 1,
+  "refinement_market_calls": 22,
+  "total_token_calls": 2,
+  "total_market_calls": 76
+}

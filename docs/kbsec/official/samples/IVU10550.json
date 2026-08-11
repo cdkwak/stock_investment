@@ -1,0 +1,104 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "cptl_amt_inpt_end": "",
+            "pr_vl_prc_inpt_ccd": "0",
+            "vlm_inpt_ccd": "0",
+            "vlm_inpt_strt": "",
+            "pr_vl_prc_inpt_strt": "",
+            "prc_stn_inpt_ccd": "0",
+            "opn_prc_tl_amt_inpt_end": "",
+            "inq_cnt": "4",
+            "std_clsf": "",
+            "excd_clsf": "",
+            "cptl_amt_inpt_strt": "",
+            "excg_clsf": "0",
+            "opn_prc_tl_amt_inpt_strt": "",
+            "nw_stk_lw_ccd": "0",
+            "trgt_xcl": "",
+            "cptl_amt_inpt_ccd": "0",
+            "prd_clsf": "",
+            "pr_vl_prc_inpt_end": "",
+            "opn_prc_tl_amt_inpt_ccd": "0",
+            "vlm_inpt_end": "",
+            "mkt_clsf": "1",
+            "prc_stn_inpt_end": "",
+            "prc_stn_inpt_strt": "",
+            "crdt_clsf": ""
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "정상적으로 조회가 완료되었습니다.",
+            "processCode": "0024",
+            "processTime": "20260622160359039"
+        },
+        "dataBody": {
+            "msg": "정상적으로 조회가 완료되었습니다.",
+            "clsfP": "SC",
+            "out_RecordSize": "00000572",
+            "lngth": "00662",
+            "out": [
+                {
+                    "s_askprc": "0",
+                    "bdy_cmpr": "2",
+                    "b_askprc": "396",
+                    "vlm": "19401",
+                    "lw_prc": "296",
+                    "is_nm": "KR모터스",
+                    "now_prc": "407",
+                    "bdy_cmpr_ccd": "2",
+                    "hgh_prc": "407",
+                    "is_cd": "000040",
+                    "up_dwn_r_p2": "   0.49"
+                },
+                {
+                    "s_askprc": "0",
+                    "bdy_cmpr": "2100",
+                    "b_askprc": "75800",
+                    "vlm": "109",
+                    "lw_prc": "76600",
+                    "is_nm": "유한양행",
+                    "now_prc": "79100",
+                    "bdy_cmpr_ccd": "5",
+                    "hgh_prc": "86100",
+                    "is_cd": "000100",
+                    "up_dwn_r_p2": "  -2.59"
+                },
+                {
+                    "s_askprc": "0",
+                    "bdy_cmpr": "4500",
+                    "b_askprc": "316500",
+                    "vlm": "2131",
+                    "lw_prc": "158500",
+                    "is_nm": "기아",
+                    "now_prc": "248000",
+                    "bdy_cmpr_ccd": "2",
+                    "hgh_prc": "254000",
+                    "is_cd": "000270",
+                    "up_dwn_r_p2": "   1.85"
+                },
+                {
+                    "s_askprc": "0",
+                    "bdy_cmpr": "0",
+                    "b_askprc": "0",
+                    "vlm": "1",
+                    "lw_prc": "17040",
+                    "is_nm": "노루홀딩스",
+                    "now_prc": "20300",
+                    "bdy_cmpr_ccd": "3",
+                    "hgh_prc": "20300",
+                    "is_cd": "000320",
+                    "up_dwn_r_p2": "   0.00"
+                }
+            ]
+        }
+    }
+}

@@ -1,0 +1,93 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "cptl_amt_inpt_end": "",
+            "pr_vl_prc_inpt_ccd": "0",
+            "vlm_inpt_ccd": "0",
+            "srt_clsf": "",
+            "vlm_inpt_strt": "",
+            "pr_vl_prc_inpt_strt": "",
+            "prc_stn_inpt_ccd": "0",
+            "opn_prc_tl_amt_inpt_end": "",
+            "inq_cnt": "3",
+            "cptl_amt_inpt_strt": "",
+            "excg_clsf": "2",
+            "opn_prc_tl_amt_inpt_strt": "",
+            "trgt_xcl": "0",
+            "cptl_amt_inpt_ccd": "0",
+            "pr_vl_prc_inpt_end": "",
+            "opn_prc_tl_amt_inpt_ccd": "0",
+            "vlm_inpt_end": "",
+            "mkt_clsf": "3",
+            "prc_stn_inpt_end": "",
+            "prc_stn_inpt_strt": "",
+            "crdt_clsf": ""
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "정상적으로 조회가 완료되었습니다.",
+            "processCode": "0024",
+            "processTime": "20260622154949689"
+        },
+        "dataBody": {
+            "msg": "정상적으로 조회가 완료되었습니다.",
+            "out2": [
+                {
+                    "bdy_cmpr": "3920",
+                    "s_rv": "29",
+                    "vlm": "21",
+                    "dy_c": "1",
+                    "is_nm": "동국제약",
+                    "now_prc": "18920",
+                    "bdy_cmpr_ccd": "2",
+                    "is_st": "  ",
+                    "is_cd": "086450",
+                    "up_dwn_r_p2": "  26.13",
+                    "b_rv": "1",
+                    "rnk": "   1"
+                },
+                {
+                    "bdy_cmpr": "1080",
+                    "s_rv": "309682",
+                    "vlm": "2021256",
+                    "dy_c": "1",
+                    "is_nm": "아이티엠반도체",
+                    "now_prc": "11390",
+                    "bdy_cmpr_ccd": "2",
+                    "is_st": "  ",
+                    "is_cd": "084850",
+                    "up_dwn_r_p2": "  10.48",
+                    "b_rv": "628079",
+                    "rnk": "   2"
+                },
+                {
+                    "bdy_cmpr": "1200",
+                    "s_rv": "0",
+                    "vlm": "10",
+                    "dy_c": "1",
+                    "is_nm": "골프존",
+                    "now_prc": "42700",
+                    "bdy_cmpr_ccd": "2",
+                    "is_st": "  ",
+                    "is_cd": "215000",
+                    "up_dwn_r_p2": "   2.89",
+                    "b_rv": "11",
+                    "rnk": "   3"
+                }
+            ],
+            "clsfP": "SC",
+            "out2_RecordSize": "00000402",
+            "lngth": "00505",
+            "RecordSize": "00000005",
+            "is_c": "8"
+        }
+    }
+}

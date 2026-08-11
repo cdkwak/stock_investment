@@ -1,0 +1,39 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "md_clsf": "2",
+            "inq_strt_dt": "20260621",
+            "inq_end_dt": "26260623",
+            "ac_pwd": "",
+            "nxt_key": "TDqrKMsDAsJHYF9a4vdN5HFGyEMSUvTn6Y8ILGI94nk="
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "B",
+            "processMessage": "",
+            "processCode": "1861",
+            "processTime": "20260623151205933"
+        },
+        "dataBody": {
+            "rlztn_pl_sum": "000000000000000000",
+            "trd_fee_sum": "000000000000000",
+            "nxt_key": "            ",
+            "grid_cnt1": "0000",
+            "s_amt_sum": "0000000000000",
+            "trd_yld": "000.00",
+            "o_msg": "조회할 자료가 없습니다.",
+            "b_amt_sum": "0000000000000",
+            "o_lngth": "00176",
+            "o_clsf": "SC",
+            "ec_amt_sum": "0000000000000",
+            "Record1": []
+        }
+    }
+}

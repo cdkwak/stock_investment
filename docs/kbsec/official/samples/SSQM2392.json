@@ -1,0 +1,54 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "trd_svrl_cst": "",
+            "trd_pl": "",
+            "trd_nt_pl": "",
+            "ordr_dt_from": "20260622",
+            "nxt_key": "",
+            "inq_clsf": "",
+            "is_no": "005930",
+            "ordr_dt_to": "20260623"
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "",
+            "processCode": "0011",
+            "processTime": "20260623091804020"
+        },
+        "dataBody": {
+            "trd_pl": "000000000000000000",
+            "trd_svrl_cst": "000000000000000050",
+            "trd_nt_pl": "-00000000000000050",
+            "o_msg": "정상적으로 조회되었습니다.",
+            "nxt_key": "                              ",
+            "grid_cnt": "0001",
+            "o_lngth": "00342",
+            "o_clsf": "SC",
+            "Record1": [
+                {
+                    "byng_prc": "000000000000000",
+                    "trd_pl": "000000000000000000",
+                    "trd_svrl_cst": "000000000000000050",
+                    "trd_nt_pl": "-00000000000000050",
+                    "s_prc": "000000000000000",
+                    "b_q": "000000000000000",
+                    "is_nm": "                    ",
+                    "is_no": "            ",
+                    "crdt_typ_nm": "                ",
+                    "ordr_dt": "20260622",
+                    "ccls_q": "000000000000000",
+                    "crdt_typ_cd": "  "
+                }
+            ]
+        }
+    }
+}

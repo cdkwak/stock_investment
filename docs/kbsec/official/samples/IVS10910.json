@@ -1,0 +1,102 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "cptl_amt_inpt_end": "",
+            "pr_vl_prc_inpt_ccd": "0",
+            "vlm_inpt_ccd": "0",
+            "srt_clsf": "",
+            "vlm_inpt_strt": "",
+            "pr_vl_prc_inpt_strt": "",
+            "prc_stn_inpt_ccd": "0",
+            "opn_prc_tl_amt_inpt_end": "",
+            "inq_cnt": "3",
+            "cptl_amt_inpt_strt": "",
+            "opn_prc_tl_amt_inpt_strt": "",
+            "trgt_xcl": "0",
+            "cptl_amt_inpt_ccd": "0",
+            "pr_vl_prc_inpt_end": "",
+            "opn_prc_tl_amt_inpt_ccd": "0",
+            "vlm_inpt_end": "",
+            "mkt_clsf": "1",
+            "prc_stn_inpt_end": "",
+            "prc_stn_inpt_strt": "",
+            "crdt_cndt": ""
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "정상적으로 조회가 완료되었습니다.",
+            "processCode": "0024",
+            "processTime": "20260622155050617"
+        },
+        "dataBody": {
+            "msg": "정상적으로 조회가 완료되었습니다.",
+            "out2": [
+                {
+                    "opn_prc": "296",
+                    "opn_prc_cmpr_r_p2": "  37.50",
+                    "lw_prc": "296",
+                    "is_nm": "KR모터스",
+                    "now_prc": "407",
+                    "is_st": "08",
+                    "is_cd": "000040",
+                    "rnk": "   1",
+                    "bdy_cmpr": "2",
+                    "vlm": "19401",
+                    "bdy_cmpr_ccd": "2",
+                    "hgh_prc": "407",
+                    "up_dwn_r_p2": "   0.49",
+                    "bdy_cls_prc": "405"
+                },
+                {
+                    "opn_prc": "30000",
+                    "opn_prc_cmpr_r_p2": "  28.00",
+                    "lw_prc": "29950",
+                    "is_nm": "한국전력",
+                    "now_prc": "38400",
+                    "is_st": "  ",
+                    "is_cd": "015760",
+                    "rnk": "   2",
+                    "bdy_cmpr": "8400",
+                    "vlm": "1025",
+                    "bdy_cmpr_ccd": "2",
+                    "hgh_prc": "38400",
+                    "up_dwn_r_p2": "  28.00",
+                    "bdy_cls_prc": "30000"
+                },
+                {
+                    "opn_prc": "1419",
+                    "opn_prc_cmpr_r_p2": "  26.85",
+                    "lw_prc": "1419",
+                    "is_nm": "TIGER 인버스",
+                    "now_prc": "1800",
+                    "is_st": "08",
+                    "is_cd": "123310",
+                    "rnk": "   3",
+                    "bdy_cmpr": "381",
+                    "vlm": "110",
+                    "bdy_cmpr_ccd": "2",
+                    "hgh_prc": "1800",
+                    "up_dwn_r_p2": "  26.85",
+                    "bdy_cls_prc": "1419"
+                }
+            ],
+            "clsfP": "SC",
+            "out1_RecordSize": "00000005",
+            "out2_RecordSize": "00000477",
+            "out1": [
+                {
+                    "is_c": "26"
+                }
+            ],
+            "lngth": "00580"
+        }
+    }
+}

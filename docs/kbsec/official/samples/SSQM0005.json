@@ -1,0 +1,57 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "tl_tfnd_amt": "",
+            "ccls_stmt_clsf": "",
+            "nxt_key": "",
+            "gds_grp_cd": "",
+            "inq_clsf": "1",
+            "rnmcno": "H007135050590",
+            "tl_val_amt": "",
+            "tl_o_amt_psbl_amt": ""
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "",
+            "processCode": "0011",
+            "processTime": "20260622105807417"
+        },
+        "dataBody": {
+            "tl_tfnd_amt": "000000000000000000",
+            "o_msg": "정상적으로 조회되었습니다.",
+            "nxt_key": "           ",
+            "tl_val_amt": "000000000000000000",
+            "tl_o_amt_psbl_amt": "000000000000000000",
+            "grid_cnt1": "0001",
+            "o_lngth": "00416",
+            "o_clsf": "SC",
+            "Record1": [
+                {
+                    "cmd_val_amt": "000000000000000000",
+                    "gds_st_ccd": "0",
+                    "val_amt": "000000000000000000",
+                    "bnd_val_amt": "000000000000000000",
+                    "ac_ncknm": "                                        ",
+                    "nxt2_dy_tfnd": "000000000000000000",
+                    "ln_amt": "000000000000000000",
+                    "gds_typ_cd": "210",
+                    "o_amt_psbl_amt": "000000000000000000",
+                    "etc_val_amt": "000000000000000000",
+                    "tfnd_amt": "000000000000000000",
+                    "gds_typ_dtls_nm": "01 종합위탁",
+                    "fnl_dl_dt": "        ",
+                    "ac_no": "40027707801",
+                    "crdt_fncng_amt": "000000000000000000"
+                }
+            ]
+        }
+    }
+}

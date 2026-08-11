@@ -1,0 +1,33 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "std_dt": "20260623",
+            "hd_pin_no": "",
+            "nxt_key": "",
+            "is_cd": "005930",
+            "jb_ccd": "1"
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "",
+            "processCode": "2149",
+            "processTime": "20260623154407665"
+        },
+        "dataBody": {
+            "o_msg": "해당자료가 없습니다.",
+            "nxt_key": "                                                  ",
+            "grid_cnt1": "0000",
+            "o_lngth": "00136",
+            "o_clsf": "SC",
+            "Record1": []
+        }
+    }
+}

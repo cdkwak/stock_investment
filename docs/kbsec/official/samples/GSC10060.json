@@ -1,0 +1,93 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "chrt_clsf": "1",
+            "mdfy_stk_prc_use_f": "",
+            "is_cd": "NVDA",
+            "clsf": "1",
+            "srch_strt_dy": "20260611",
+            "rcrd_c": "2",
+            "bndl": "",
+            "krx_cd": "NAS"
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "정상적으로 조회가 완료되었습니다.",
+            "processCode": "0024",
+            "processTime": "20260622153020996"
+        },
+        "dataBody": {
+            "msg": "정상적으로 조회가 완료되었습니다.",
+            "now_prc_p4": " 209.6500",
+            "inq_tm": "153021",
+            "out2_RecordSize": "00000214",
+            "hgh_prc_p4": " 209.7900",
+            "bdy_opn_prc_p4": " 207.3300",
+            "bdy_cls_prc_p4": " 210.6900",
+            "chrt_clsf": "1",
+            "wt_avr_prc_p4": " 208.6363",
+            "RecordSize": "00000385",
+            "b_askprc_p4": " 209.5800",
+            "out2": [
+                {
+                    "dt": "20260611",
+                    "bdy_cmpr_p4": "   0.2000",
+                    "hgh_prc_p4": " 200.2200",
+                    "dl_tw_amt": "5525855279",
+                    "vlm": "1041",
+                    "cls_prc_p4": " 200.2200",
+                    "lw_prc_p4": " 200.2200",
+                    "tm": "105959",
+                    "opn_prc_p4": " 200.2200",
+                    "bdy_cmpr_ccd": "5",
+                    "up_dwn_r_p2": "         "
+                },
+                {
+                    "dt": "20260611",
+                    "bdy_cmpr_p4": "   0.1900",
+                    "hgh_prc_p4": " 200.2300",
+                    "dl_tw_amt": "5525646850",
+                    "vlm": "866",
+                    "cls_prc_p4": " 200.2300",
+                    "lw_prc_p4": " 200.2300",
+                    "tm": "105959",
+                    "opn_prc_p4": " 200.2300",
+                    "bdy_cmpr_ccd": "5",
+                    "up_dwn_r_p2": "         "
+                }
+            ],
+            "clsd_mrkt_f": "N",
+            "sprc_p4": " 210.6900",
+            "lw_prc_p4": " 207.7000",
+            "bdy_cmpr_ccd": "5",
+            "llmt_prc_p4": "   0.0000",
+            "mrkt_prc_clsf": "15분지연",
+            "bdy_cmpr_p4": "   1.0400",
+            "bdy_hgh_prc_p4": " 211.3900",
+            "is_cd": "NVDA",
+            "eng_is_nm": "NVIDIA CORP",
+            "s_askprc_p4": " 209.6500",
+            "clsfP": "SC",
+            "hngl_is_nm": "엔비디아",
+            "bdy_vlm": "241272013",
+            "ulmt_prc_p4": "   0.0000",
+            "dl_tw_amt": "134236805",
+            "vlm": "643401",
+            "rcrd_c": "   2",
+            "opn_prc_p4": " 208.2800",
+            "fnl_bndl_tck_c_c": "",
+            "bdy_lw_prc_p4": " 206.5000",
+            "krx_cd": "NAS",
+            "up_dwn_r_p2": "    -0.49",
+            "lngth": "00697"
+        }
+    }
+}

@@ -1,0 +1,57 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "std_dt": "20260623",
+            "krw_fcrncy_ccd": "1",
+            "frgn_krx_ccd": "US",
+            "nxt_key": "",
+            "is_cd": "TSLA"
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "",
+            "processCode": "0223",
+            "processTime": "20260623125225544"
+        },
+        "dataBody": {
+            "o_msg": "조회 완료, 더 이상 조회할 자료가 없습니다.",
+            "nxt_key": "                                                  ",
+            "grid_cnt1": "0001",
+            "o_lngth": "00428",
+            "o_clsf": "SC",
+            "Record1": [
+                {
+                    "ordr_psbl_amt": "2970",
+                    "mkt_clsf_nm": "미국나스닥",
+                    "avr_uprc": "619175",
+                    "fee": "15",
+                    "is_nm": "테슬라",
+                    "val_amt": "2970",
+                    "fee_r_p10": "00000.2520600000",
+                    "is_cd": "TSLA",
+                    "byng_amt": "3016",
+                    "aplc_exch_r": "00000001531.0000",
+                    "val_pl_r": "-1.52",
+                    "cnvr_rqst_psbl_q": "000000000000000000",
+                    "iso_cd": "US",
+                    "val_sprc": "610516",
+                    "crncy_cd": "USD",
+                    "mkt_clsf": "NAS",
+                    "ordr_q": "0.000000",
+                    "cnvr_rqst_q": "000000000000000000",
+                    "ordr_psbl_q": "0.004871",
+                    "hld_q": "0.004871",
+                    "val_pl": "-46"
+                }
+            ]
+        }
+    }
+}

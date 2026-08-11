@@ -1,0 +1,39 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "ordr_uprc": "290000",
+            "end_dt": "",
+            "ordr_jb_clsf": "2",
+            "ln_dt": "",
+            "is_cd": "005930",
+            "mkt_tm_ccd": "",
+            "ordr_ccd": "00",
+            "tv_rv_ccd": "",
+            "strt_dt": "",
+            "cncl_ordr_no": "",
+            "ordr_q": "2",
+            "crdt_typ_cd": "00"
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "",
+            "processCode": "0389",
+            "processTime": "20260623151653573"
+        },
+        "dataBody": {
+            "o_msg": "예약주문이 정상접수되었습니다.",
+            "o_lngth": "00192",
+            "ordr_no": "0000000005",
+            "o_clsf": "SC",
+            "inpt_vl": "                                                                                                    "
+        }
+    }
+}

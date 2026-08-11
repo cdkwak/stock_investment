@@ -1,0 +1,55 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "cn_key": "",
+            "stnd_is_cd": "",
+            "krw_unty_mgn_rqst_f": "",
+            "trd_clsf": "",
+            "rsrv_dt": "",
+            "bskt_ordr_no": ""
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "",
+            "processCode": "0011",
+            "processTime": "20260623140630902"
+        },
+        "dataBody": {
+            "cn_key": "                                                  ",
+            "o_msg": "정상적으로 조회되었습니다.",
+            "grid_cnt1": "0001",
+            "o_lngth": "00377",
+            "o_clsf": "SC",
+            "Record1": [
+                {
+                    "msg": "예약취소",
+                    "hndl_p_eno": "BaaS 플 ",
+                    "cncl_tm": "140538",
+                    "is_nm": "테슬라",
+                    "trd_clsf": "매도",
+                    "snd_tms_clsf": "프리마켓",
+                    "rsrv_ordr_sq": "0001673101",
+                    "is_no": "TSLA",
+                    "aplc_exch_r": "00000000000.0000",
+                    "end_tm": "      ",
+                    "strt_tm": "      ",
+                    "frgn_ordr_prc_p4": "0000000002.0000",
+                    "rsrv_tm": "140509",
+                    "mkt_clsf": "NAS",
+                    "ordr_q": "000000000000001",
+                    "frgn_stp_prc_p4": "00000000000.0000",
+                    "bskt_ordr_no": "000000",
+                    "ordr_typ_nm": "지정가"
+                }
+            ]
+        }
+    }
+}

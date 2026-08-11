@@ -1,0 +1,76 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "mkt_clsf": "2"
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "정상적으로 조회가 완료되었습니다.",
+            "processCode": "0024",
+            "processTime": "20260622103349495"
+        },
+        "dataBody": {
+            "msg": "정상적으로 조회가 완료되었습니다.",
+            "bdy_cmpr_p2": "      0.00",
+            "out2_RecordSize": "00000400",
+            "now_indx_p2": "    999.33",
+            "RecordSize": "00000080",
+            "out2": [
+                {
+                    "bdy_cmpr_p2": "      0.00",
+                    "now_indx_p2": "   4821.25",
+                    "indx_nm": "코스닥 일반서비스",
+                    "bdy_cmpr_ccd": " ",
+                    "up_dwn_r_p2": "   0.00",
+                    "indx_id": "QGS01P"
+                },
+                {
+                    "bdy_cmpr_p2": "      0.00",
+                    "now_indx_p2": "    777.07",
+                    "indx_nm": "코스닥 IT 서비스",
+                    "bdy_cmpr_ccd": " ",
+                    "up_dwn_r_p2": "   0.00",
+                    "indx_id": "QGS96P"
+                },
+                {
+                    "bdy_cmpr_p2": "      0.00",
+                    "now_indx_p2": "   3451.11",
+                    "indx_nm": "코스닥 제조",
+                    "bdy_cmpr_ccd": " ",
+                    "up_dwn_r_p2": "   0.00",
+                    "indx_id": "QGS02P"
+                },
+                {
+                    "bdy_cmpr_p2": "      0.00",
+                    "now_indx_p2": "     75.40",
+                    "indx_nm": "코스닥 건설",
+                    "bdy_cmpr_ccd": " ",
+                    "up_dwn_r_p2": "   0.00",
+                    "indx_id": "QGS03P"
+                },
+                {
+                    "bdy_cmpr_p2": "      0.00",
+                    "now_indx_p2": "    538.76",
+                    "indx_nm": "코스닥 유통",
+                    "bdy_cmpr_ccd": " ",
+                    "up_dwn_r_p2": "   0.00",
+                    "indx_id": "QGS04P"
+                }
+            ],
+            "clsfP": "SC",
+            "indx_nm": "코스닥 종합",
+            "bdy_cmpr_ccd": " ",
+            "up_dwn_r_p2": "   0.00",
+            "lngth": "00578",
+            "indx_id": "QGG01P"
+        }
+    }
+}

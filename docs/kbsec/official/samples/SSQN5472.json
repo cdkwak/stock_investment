@@ -1,0 +1,33 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "ordr_amt": "",
+            "is_cd": "005930"
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "",
+            "processCode": "0011",
+            "processTime": "20260623135458187"
+        },
+        "dataBody": {
+            "expct_fee": "000000000000000000",
+            "val_sprc_p8": "0426500.00000000",
+            "mx_ordr_psbl_amt": "000000000059720854",
+            "o_msg": "정상적으로 조회되었습니다.",
+            "pcnt100_ordr_psbl_amt": "000000000059720854",
+            "fee_r_p10": "00000.0000000000",
+            "expct_stk_q_p6": "000000000.000000",
+            "o_lngth": "00184",
+            "o_clsf": "SC"
+        }
+    }
+}

@@ -41,6 +41,17 @@ def _dates(dataframe: pd.DataFrame) -> None:
         raise EquityValidationError("date must be valid YYYY-MM-DD")
 
 
+def _provenance(dataframe: pd.DataFrame) -> None:
+    for column in ("source", "source_operation", "source_date"):
+        if dataframe[column].fillna("").astype(str).str.strip().eq("").any():
+            raise EquityValidationError(f"{column} must not be empty")
+    source_dates = pd.to_datetime(dataframe["source_date"], errors="coerce")
+    if source_dates.isna().any():
+        raise EquityValidationError("source_date must be valid")
+    if not source_dates.dt.strftime("%Y-%m-%d").equals(dataframe["date"].astype(str)):
+        raise EquityValidationError("daily source_date must equal date")
+
+
 def _numeric(dataframe: pd.DataFrame, columns: tuple[str, ...]) -> pd.DataFrame:
     numeric = dataframe[list(columns)].apply(pd.to_numeric, errors="coerce")
     if numeric.isna().any().any():
@@ -57,6 +68,7 @@ def validate_equity_price(dataframe: pd.DataFrame, *, allow_empty: bool = False)
     if dataframe.empty:
         return
     _dates(dataframe)
+    _provenance(dataframe)
     numeric = _numeric(
         dataframe, ("open", "high", "low", "close", "volume", "trading_value")
     )
@@ -80,6 +92,7 @@ def validate_equity_market_cap(dataframe: pd.DataFrame, *, allow_empty: bool = F
     if dataframe.empty:
         return
     _dates(dataframe)
+    _provenance(dataframe)
     _numeric(dataframe, ("market_cap", "shares_outstanding"))
 
 

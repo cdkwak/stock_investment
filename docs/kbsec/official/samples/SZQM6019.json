@@ -1,0 +1,29 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "st_clsf": "0",
+            "rprst_cs_no": ""
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "B",
+            "processMessage": "",
+            "processCode": "I720",
+            "processTime": "20260622125800087"
+        },
+        "dataBody": {
+            "o_msg": "보유하신 쿠폰이 없습니다.",
+            "grid_cnt": "0000",
+            "o_lngth": "00086",
+            "o_clsf": "SC",
+            "Record1": []
+        }
+    }
+}

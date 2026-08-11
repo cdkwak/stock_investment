@@ -1,0 +1,115 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "cptl_amt_inpt_end": "",
+            "pr_vl_prc_inpt_ccd": "0",
+            "vlm_inpt_ccd": "0",
+            "srt_clsf": "1",
+            "vlm_clsf": "1",
+            "trgt_xcl_cd": "1",
+            "vlm_inpt_strt": "",
+            "pr_vl_prc_inpt_strt": "",
+            "prc_stn_inpt_ccd": "0",
+            "opn_prc_tl_amt_inpt_end": "",
+            "inq_cnt": "3",
+            "cptl_amt_inpt_strt": "",
+            "opn_prc_tl_amt_inpt_strt": "",
+            "trgt_xcl": "2",
+            "cptl_amt_inpt_ccd": "0",
+            "pr_vl_prc_inpt_end": "",
+            "opn_prc_tl_amt_inpt_ccd": "0",
+            "vlm_inpt_end": "",
+            "mkt_clsf": "1",
+            "prc_stn_inpt_end": "",
+            "prc_stn_inpt_strt": "",
+            "thdy_bdy_clsf": "1"
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "정상적으로 조회가 완료되었습니다.",
+            "processCode": "0024",
+            "processTime": "20260622102952219"
+        },
+        "dataBody": {
+            "msg": "정상적으로 조회가 완료되었습니다.",
+            "out2": [
+                {
+                    "expct_bdy_cmpr": "-14160",
+                    "rgr_mkt_up_dwn_r_p2": "   0.00",
+                    "s_rv": "0",
+                    "is_nm": "에코프로",
+                    "now_prc": "116200",
+                    "is_cd": "086520",
+                    "b_rv": "2900",
+                    "s_askprc": "0",
+                    "rgr_mkt_cls_prc": "116200",
+                    "expct_ccls_prc": "0",
+                    "bdy_cmpr": "26800",
+                    "expct_bdy_cmpr_ccd": " ",
+                    "b_askprc": "116200",
+                    "dl_tw_amt": "11",
+                    "vlm": "100",
+                    "rgr_mkt_vlm": "0",
+                    "bdy_cmpr_ccd": "1",
+                    "expct_up_dwn_r_p2": "-100.00",
+                    "up_dwn_r_p2": "  29.98"
+                },
+                {
+                    "expct_bdy_cmpr": "-46250",
+                    "rgr_mkt_up_dwn_r_p2": "   0.00",
+                    "s_rv": "0",
+                    "is_nm": "우리기술",
+                    "now_prc": "14840",
+                    "is_cd": "032820",
+                    "b_rv": "10",
+                    "s_askprc": "0",
+                    "rgr_mkt_cls_prc": "14160",
+                    "expct_ccls_prc": "0",
+                    "bdy_cmpr": "1940",
+                    "expct_bdy_cmpr_ccd": " ",
+                    "b_askprc": "14160",
+                    "dl_tw_amt": "1",
+                    "vlm": "100",
+                    "rgr_mkt_vlm": "0",
+                    "bdy_cmpr_ccd": "2",
+                    "expct_up_dwn_r_p2": "-100.00",
+                    "up_dwn_r_p2": "  15.04"
+                },
+                {
+                    "expct_bdy_cmpr": "-11250",
+                    "rgr_mkt_up_dwn_r_p2": "   0.00",
+                    "s_rv": "0",
+                    "is_nm": "하이브",
+                    "now_prc": "375000",
+                    "is_cd": "352820",
+                    "b_rv": "4",
+                    "s_askprc": "0",
+                    "rgr_mkt_cls_prc": "375000",
+                    "expct_ccls_prc": "0",
+                    "bdy_cmpr": "42000",
+                    "expct_bdy_cmpr_ccd": " ",
+                    "b_askprc": "375000",
+                    "dl_tw_amt": "0",
+                    "vlm": "1",
+                    "rgr_mkt_vlm": "0",
+                    "bdy_cmpr_ccd": "2",
+                    "expct_up_dwn_r_p2": "-100.00",
+                    "up_dwn_r_p2": "  12.61"
+                }
+            ],
+            "clsfP": "SC",
+            "out2_RecordSize": "00000705",
+            "lngth": "00808",
+            "RecordSize": "00000005",
+            "is_c": "5"
+        }
+    }
+}

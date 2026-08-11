@@ -1,0 +1,101 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "cptl_amt_inpt_end": "",
+            "pr_vl_prc_inpt_ccd": "",
+            "vlm_inpt_ccd": "",
+            "srt_clsf": "",
+            "vlm_inpt_strt": "",
+            "pr_vl_prc_inpt_strt": "",
+            "prc_stn_inpt_ccd": "0",
+            "opn_prc_tl_amt_inpt_end": "",
+            "inq_cnt": "3",
+            "cptl_amt_inpt_strt": "",
+            "excg_clsf": "0",
+            "opn_prc_tl_amt_inpt_strt": "",
+            "crdt_grp_clsf": "",
+            "trgt_xcl": "2",
+            "cptl_amt_inpt_ccd": "0",
+            "pr_vl_prc_inpt_end": "",
+            "opn_prc_tl_amt_inpt_ccd": "0",
+            "vlm_inpt_end": "",
+            "mkt_clsf": "1",
+            "prc_stn_inpt_end": "",
+            "prc_stn_inpt_strt": "",
+            "thdy_bdy_clsf": ""
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "정상적으로 조회가 완료되었습니다.",
+            "processCode": "0024",
+            "processTime": "20260622154830356"
+        },
+        "dataBody": {
+            "msg": "정상적으로 조회가 완료되었습니다.",
+            "out2": [
+                {
+                    "bdy_dl_tw_amt": "1397695645750",
+                    "is_nm": "삼천당제약",
+                    "now_prc": "250500",
+                    "is_st": "08",
+                    "is_cd": "000250",
+                    "dl_tw_amt_bdy_cmpr_p2": "      38.09",
+                    "rnk": "   1",
+                    "bdy_cmpr": "1000",
+                    "dl_tw_amt": "532339582750",
+                    "vlm": "2125067",
+                    "bdy_cmpr_ccd": "2",
+                    "bdy_rnk": "   1",
+                    "up_dwn_r_p2": "   0.40"
+                },
+                {
+                    "bdy_dl_tw_amt": "16498989600",
+                    "is_nm": "NAVER",
+                    "now_prc": "223000",
+                    "is_st": "08",
+                    "is_cd": "035420",
+                    "dl_tw_amt_bdy_cmpr_p2": "    2126.57",
+                    "rnk": "   2",
+                    "bdy_cmpr": "40100",
+                    "dl_tw_amt": "350863350000",
+                    "vlm": "1572783",
+                    "bdy_cmpr_ccd": "2",
+                    "bdy_rnk": "  18",
+                    "up_dwn_r_p2": "  21.92"
+                },
+                {
+                    "bdy_dl_tw_amt": "980458615900",
+                    "is_nm": "영원무역홀딩스",
+                    "now_prc": "188000",
+                    "is_st": "08",
+                    "is_cd": "009970",
+                    "dl_tw_amt_bdy_cmpr_p2": "      35.03",
+                    "rnk": "   3",
+                    "bdy_cmpr": "500",
+                    "dl_tw_amt": "343482815950",
+                    "vlm": "1815004",
+                    "bdy_cmpr_ccd": "5",
+                    "bdy_rnk": "   2",
+                    "up_dwn_r_p2": "  -0.27"
+                }
+            ],
+            "clsfP": "SC",
+            "out1_RecordSize": "00000005",
+            "out2_RecordSize": "00000498",
+            "out1": [
+                {
+                    "is_c": "258"
+                }
+            ],
+            "lngth": "00601"
+        }
+    }
+}

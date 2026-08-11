@@ -1,0 +1,380 @@
+﻿{
+    "input": {
+        "dataBody": {},
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "정상적으로 조회가 완료되었습니다.",
+            "processCode": "0024",
+            "processTime": "20260622103225459"
+        },
+        "dataBody": {
+            "msg": "정상적으로 조회가 완료되었습니다.",
+            "cs_dpst_5": "128408",
+            "cs_dpst_bdy_cmpr_5": "2",
+            "nmp_nt_b": "1115",
+            "ksdq_unchng_is_c": "0",
+            "out2_RecordSize": "00000912",
+            "RecordSize_5": "00000177",
+            "out5_RecordSize": "00000642",
+            "fts_tfnd_cmpr_amt_5": "3664",
+            "crdt_blnc_5": "37979",
+            "RecordSize": "00000091",
+            "rcvamt_5": "1229",
+            "ksdq_dwn_is_c": "0",
+            "crdt_blnc_up_dwn_r_p2_5": "   0.47",
+            "fts_tfnd_up_dwn_r_p2_5": "   6.92",
+            "kspi_ulmt_is_c": "0",
+            "out2": [
+                {
+                    "bdy_cmpr_p2": "     0.00",
+                    "dl_tw_amt": "0",
+                    "vlm": "0",
+                    "now_indx_p2": "  9097.18",
+                    "indx_nm": "KOSPI종합",
+                    "bdy_cmpr_ccd": " ",
+                    "up_dwn_r_p2": "   0.00",
+                    "indx_id": "KGG01P"
+                },
+                {
+                    "bdy_cmpr_p2": "     0.00",
+                    "dl_tw_amt": "0",
+                    "vlm": "0",
+                    "now_indx_p2": " 11472.32",
+                    "indx_nm": "KOSPI100",
+                    "bdy_cmpr_ccd": " ",
+                    "up_dwn_r_p2": "   0.00",
+                    "indx_id": "K2G02P"
+                },
+                {
+                    "bdy_cmpr_p2": "     0.00",
+                    "dl_tw_amt": "0",
+                    "vlm": "0",
+                    "now_indx_p2": "  1460.40",
+                    "indx_nm": "KOSPI200",
+                    "bdy_cmpr_ccd": " ",
+                    "up_dwn_r_p2": "   0.00",
+                    "indx_id": "K2G01P"
+                },
+                {
+                    "bdy_cmpr_p2": "     0.00",
+                    "dl_tw_amt": "0",
+                    "vlm": "0",
+                    "now_indx_p2": "   999.33",
+                    "indx_nm": "KOSDAQ종합",
+                    "bdy_cmpr_ccd": " ",
+                    "up_dwn_r_p2": "   0.00",
+                    "indx_id": "QGG01P"
+                },
+                {
+                    "bdy_cmpr_p2": "     0.00",
+                    "dl_tw_amt": "0",
+                    "vlm": "0",
+                    "now_indx_p2": "  2496.15",
+                    "indx_nm": "KOSDAQ100",
+                    "bdy_cmpr_ccd": " ",
+                    "up_dwn_r_p2": "   0.00",
+                    "indx_id": "QGZ01P"
+                },
+                {
+                    "bdy_cmpr_p2": "     0.00",
+                    "dl_tw_amt": "0",
+                    "vlm": "0",
+                    "now_indx_p2": "  1722.85",
+                    "indx_nm": "KOSDAQ150",
+                    "bdy_cmpr_ccd": " ",
+                    "up_dwn_r_p2": "   0.00",
+                    "indx_id": "Q5G01P"
+                },
+                {
+                    "bdy_cmpr_p2": "     0.00",
+                    "dl_tw_amt": "0",
+                    "vlm": "0",
+                    "now_indx_p2": " 23172.51",
+                    "indx_nm": "KRX100",
+                    "bdy_cmpr_ccd": " ",
+                    "up_dwn_r_p2": "   0.00",
+                    "indx_id": "XGG01P"
+                },
+                {
+                    "bdy_cmpr_p2": "     0.00",
+                    "dl_tw_amt": "0",
+                    "vlm": "0",
+                    "now_indx_p2": "  6326.87",
+                    "indx_nm": "KRX300",
+                    "bdy_cmpr_ccd": " ",
+                    "up_dwn_r_p2": "   0.00",
+                    "indx_id": "X3G01P"
+                }
+            ],
+            "kspi_llmt_is_c": "0",
+            "out3": [
+                {
+                    "bdy_cmpr_p2": "       0.00",
+                    "now_prc_p2": "    1552.05",
+                    "vlm": "317",
+                    "is_nm": "F 202609",
+                    "bdy_cmpr_ccd": "3",
+                    "is_cd": "A0169000",
+                    "up_dwn_r_p2": "   0.00",
+                    "nstmt_agr_q": "39105"
+                },
+                {
+                    "bdy_cmpr_p2": "       0.00",
+                    "now_prc_p2": "     143.05",
+                    "vlm": "0",
+                    "is_nm": "C 202607 1,460.0",
+                    "bdy_cmpr_ccd": "3",
+                    "is_cd": "B0167B86",
+                    "up_dwn_r_p2": "   0.00",
+                    "nstmt_agr_q": "167"
+                },
+                {
+                    "bdy_cmpr_p2": "       0.00",
+                    "now_prc_p2": "       0.97",
+                    "vlm": "0",
+                    "is_nm": "P 202607 1,460.0",
+                    "bdy_cmpr_ccd": "3",
+                    "is_cd": "C0167B86",
+                    "up_dwn_r_p2": "   0.00",
+                    "nstmt_agr_q": "6"
+                },
+                {
+                    "bdy_cmpr_p2": "           ",
+                    "now_prc_p2": "           ",
+                    "vlm": "",
+                    "is_nm": "                                        ",
+                    "bdy_cmpr_ccd": " ",
+                    "is_cd": "        ",
+                    "up_dwn_r_p2": "       ",
+                    "nstmt_agr_q": ""
+                }
+            ],
+            "out4": [
+                {
+                    "bdy_cmpr_p2": "    17.75",
+                    "now_prc": "  7553.00",
+                    "bdy_cmpr_ccd": "5",
+                    "up_dwn_r_p2": "  -0.23",
+                    "symbl_nm": "S&P500선물",
+                    "symbl_cd": "CME@ES",
+                    "dt_tm": "20260621202224"
+                },
+                {
+                    "bdy_cmpr_p2": "    82.00",
+                    "now_prc": " 30637.75",
+                    "bdy_cmpr_ccd": "5",
+                    "up_dwn_r_p2": "  -0.27",
+                    "symbl_nm": "NASDAQ선물",
+                    "symbl_cd": "CME@NQ",
+                    "dt_tm": "20260621202222"
+                },
+                {
+                    "bdy_cmpr_p2": "  1294.93",
+                    "now_prc": " 72544.99",
+                    "bdy_cmpr_ccd": "2",
+                    "up_dwn_r_p2": "   1.82",
+                    "symbl_nm": "니케이225",
+                    "symbl_cd": "NII@NI225",
+                    "dt_tm": "20260622101725"
+                },
+                {
+                    "bdy_cmpr_p2": "    17.59",
+                    "now_prc": "  4090.48",
+                    "bdy_cmpr_ccd": "5",
+                    "up_dwn_r_p2": "  -0.43",
+                    "symbl_nm": "상해종합",
+                    "symbl_cd": "SHS@000001",
+                    "dt_tm": "20260618150025"
+                },
+                {
+                    "bdy_cmpr_p2": "    45.37",
+                    "now_prc": " 16573.47",
+                    "bdy_cmpr_ccd": "2",
+                    "up_dwn_r_p2": "   0.27",
+                    "symbl_nm": "DOWJONES",
+                    "symbl_cd": "DJI@DJC",
+                    "dt_tm": "20260618160422"
+                },
+                {
+                    "bdy_cmpr_p2": "    80.48",
+                    "now_prc": "  7500.58",
+                    "bdy_cmpr_ccd": "2",
+                    "up_dwn_r_p2": "   1.08",
+                    "symbl_nm": "S&P500",
+                    "symbl_cd": "SPI@SPX",
+                    "dt_tm": "20260618160527"
+                },
+                {
+                    "bdy_cmpr_p2": "   496.28",
+                    "now_prc": " 26517.93",
+                    "bdy_cmpr_ccd": "2",
+                    "up_dwn_r_p2": "   1.91",
+                    "symbl_nm": "NASDAQ",
+                    "symbl_cd": "NAS@IXIC",
+                    "dt_tm": "20260618160002"
+                },
+                {
+                    "bdy_cmpr_p2": "   864.71",
+                    "now_prc": " 14341.78",
+                    "bdy_cmpr_ccd": "2",
+                    "up_dwn_r_p2": "   6.42",
+                    "symbl_nm": "필, 반도체",
+                    "symbl_cd": "NAS@SOX",
+                    "dt_tm": "20260618160004"
+                },
+                {
+                    "bdy_cmpr_p2": "     0.00",
+                    "now_prc": "     0.07",
+                    "bdy_cmpr_ccd": "5",
+                    "up_dwn_r_p2": "  -0.47",
+                    "symbl_nm": "원/달러",
+                    "symbl_cd": "KRWUSDCOMP",
+                    "dt_tm": "20260622013224"
+                },
+                {
+                    "bdy_cmpr_p2": "     0.00",
+                    "now_prc": "     0.01",
+                    "bdy_cmpr_ccd": "3",
+                    "up_dwn_r_p2": "   0.00",
+                    "symbl_nm": "엔/달러",
+                    "symbl_cd": "JPYUSDCOMP",
+                    "dt_tm": "20260619"
+                },
+                {
+                    "bdy_cmpr_p2": "         ",
+                    "now_prc": "         ",
+                    "bdy_cmpr_ccd": " ",
+                    "up_dwn_r_p2": "       ",
+                    "symbl_nm": "                    ",
+                    "symbl_cd": "          ",
+                    "dt_tm": "              "
+                },
+                {
+                    "bdy_cmpr_p2": "         ",
+                    "now_prc": "         ",
+                    "bdy_cmpr_ccd": " ",
+                    "up_dwn_r_p2": "       ",
+                    "symbl_nm": "                    ",
+                    "symbl_cd": "          ",
+                    "dt_tm": "              "
+                },
+                {
+                    "bdy_cmpr_p2": "     0.94",
+                    "now_prc": "    77.54",
+                    "bdy_cmpr_ccd": "2",
+                    "up_dwn_r_p2": "   1.23",
+                    "symbl_nm": "WTI 근월",
+                    "symbl_cd": "NYM@CL",
+                    "dt_tm": "20260622"
+                },
+                {
+                    "bdy_cmpr_p2": "  1110.09",
+                    "now_prc": " 47575.29",
+                    "bdy_cmpr_ccd": "2",
+                    "up_dwn_r_p2": "   2.39",
+                    "symbl_nm": "대만, Weighted",
+                    "symbl_cd": "TWS@TI01",
+                    "dt_tm": "20260622091225"
+                }
+            ],
+            "out5": [
+                {
+                    "kspi_nt_b": "0",
+                    "ksdq_nt_b": "0",
+                    "call_opt_nt_b": "0",
+                    "put_opt_nt_b": "0",
+                    "star_fts_nt_b": "0",
+                    "stk_fts_nt_b": "0",
+                    "fts_nt_b": "0",
+                    "invstr_cd": "0008",
+                    "invstr_clsf_nm": "개인"
+                },
+                {
+                    "kspi_nt_b": "0",
+                    "ksdq_nt_b": "0",
+                    "call_opt_nt_b": "0",
+                    "put_opt_nt_b": "0",
+                    "star_fts_nt_b": "0",
+                    "stk_fts_nt_b": "0",
+                    "fts_nt_b": "0",
+                    "invstr_cd": "0009",
+                    "invstr_clsf_nm": "외국인"
+                },
+                {
+                    "kspi_nt_b": "0",
+                    "ksdq_nt_b": "0",
+                    "call_opt_nt_b": "0",
+                    "put_opt_nt_b": "0",
+                    "star_fts_nt_b": "0",
+                    "stk_fts_nt_b": "0",
+                    "fts_nt_b": "0",
+                    "invstr_cd": "0018",
+                    "invstr_clsf_nm": "기관계"
+                },
+                {
+                    "kspi_nt_b": "0",
+                    "ksdq_nt_b": "0",
+                    "call_opt_nt_b": "0",
+                    "put_opt_nt_b": "0",
+                    "star_fts_nt_b": "0",
+                    "stk_fts_nt_b": "0",
+                    "fts_nt_b": "0",
+                    "invstr_cd": "0001",
+                    "invstr_clsf_nm": "금융투자"
+                },
+                {
+                    "kspi_nt_b": "0",
+                    "ksdq_nt_b": "0",
+                    "call_opt_nt_b": "0",
+                    "put_opt_nt_b": "0",
+                    "star_fts_nt_b": "0",
+                    "stk_fts_nt_b": "0",
+                    "fts_nt_b": "0",
+                    "invstr_cd": "0003",
+                    "invstr_clsf_nm": "투신"
+                },
+                {
+                    "kspi_nt_b": "0",
+                    "ksdq_nt_b": "0",
+                    "call_opt_nt_b": "0",
+                    "put_opt_nt_b": "0",
+                    "star_fts_nt_b": "0",
+                    "stk_fts_nt_b": "0",
+                    "fts_nt_b": "0",
+                    "invstr_cd": "0004",
+                    "invstr_clsf_nm": "은행"
+                }
+            ],
+            "kspi_up_is_c": "0",
+            "rcvamt_up_dwn_r_p2_5": "  -0.08",
+            "inq_dy_tm": "20260622",
+            "rcvamt_bdy_cmpr_5": "5",
+            "ksdq_up_is_c": "0",
+            "crdt_blnc_cmpr_amt_5": "179",
+            "cs_dpst_cmpr_amt_5": "3776",
+            "kspi_unchng_is_c": "0",
+            "fts_tfnd_bdy_cmpr_5": "2",
+            "fts_tfnd_5": "56620",
+            "dt_5": "20260618",
+            "cs_dpst_up_dwn_r_p2_5": "   3.03",
+            "out3_RecordSize": "00000432",
+            "kspi_dwn_is_c": "0",
+            "clsfP": "SC",
+            "ksdq_ulmt_is_c": "0",
+            "ksdq_llmt_is_c": "0",
+            "out4_RecordSize": "00001078",
+            "lngth": "03462",
+            "mprft_nt_b": "-194",
+            "rcvamt_cmpr_amt_5": "-1",
+            "crdt_blnc_bdy_cmpr_5": "2"
+        }
+    }
+}

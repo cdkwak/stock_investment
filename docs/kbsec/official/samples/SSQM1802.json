@@ -1,0 +1,38 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "bnd_mktio_ccd": "1",
+            "is_no": ""
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "",
+            "processCode": "0011",
+            "processTime": "20260622150037234"
+        },
+        "dataBody": {
+            "sbt_tl_amt": "000000000000000000",
+            "ordr_psbl_sbt": "000000000000000000",
+            "do_psbl_csh": "000000000000339901",
+            "mx_ordr_psbl_amt_b_grp": "000000000000000000",
+            "ordr_psbl_csh": "000000000000339901",
+            "mx_ordr_psbl_amt_a_grp": "000000000000000000",
+            "mx_ordr_psbl_amt": "000000000000000000",
+            "o_msg": "정상적으로 조회되었습니다.",
+            "pcnt100_ordr_psbl_amt": "000000000000339850",
+            "o_lngth": "00280",
+            "tfnd": "000000000001000000",
+            "mx_ordr_psbl_amt_c_grp": "000000000000000000",
+            "o_clsf": "SC",
+            "ordr_psbl_tl_amt": "000000000000339901"
+        }
+    }
+}

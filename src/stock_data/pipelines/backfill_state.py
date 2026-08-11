@@ -34,28 +34,47 @@ class BackfillState:
         return [str(value) for value in partitions if str(value) not in done]
 
     def mark_completed(self, partition: str) -> None:
-        self.completed_partitions.add(partition)
+        self.mark_completed_many((partition,))
+
+    def mark_completed_many(self, partitions) -> None:
+        values = {str(value) for value in partitions}
+        self.completed_partitions.update(values)
         if self.staged_partitions is not None:
-            self.staged_partitions.discard(partition)
-        self.failed_partitions.pop(partition, None)
+            self.staged_partitions.difference_update(values)
+        for value in values:
+            self.failed_partitions.pop(value, None)
         self.save()
 
     def mark_valid_empty(self, partition: str) -> None:
-        self.valid_empty_partitions.add(partition)
+        self.mark_valid_empty_many((partition,))
+
+    def mark_valid_empty_many(self, partitions) -> None:
+        values = {str(value) for value in partitions}
+        self.valid_empty_partitions.update(values)
         if self.staged_partitions is not None:
-            self.staged_partitions.discard(partition)
-        self.failed_partitions.pop(partition, None)
+            self.staged_partitions.difference_update(values)
+        for value in values:
+            self.failed_partitions.pop(value, None)
         self.save()
 
     def mark_failed(self, partition: str, error_type: str) -> None:
-        self.failed_partitions[partition] = error_type
+        self.mark_failed_many((partition,), error_type)
+
+    def mark_failed_many(self, partitions, error_type: str) -> None:
+        for value in partitions:
+            self.failed_partitions[str(value)] = error_type
         self.save()
 
     def mark_staged(self, partition: str) -> None:
+        self.mark_staged_many((partition,))
+
+    def mark_staged_many(self, partitions) -> None:
         if self.staged_partitions is None:
             self.staged_partitions = set()
-        self.staged_partitions.add(partition)
-        self.failed_partitions.pop(partition, None)
+        values = {str(value) for value in partitions}
+        self.staged_partitions.update(values)
+        for value in values:
+            self.failed_partitions.pop(value, None)
         self.save()
 
     def save(self) -> None:

@@ -1,0 +1,34 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "trd_end_dt": "20260623",
+            "trd_strt_dt": "20260622",
+            "nxt_key": "",
+            "ordr_clsf": "0",
+            "trd_clsf": "0",
+            "is_cd": "005930"
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "",
+            "processCode": "2149",
+            "processTime": "20260623140220426"
+        },
+        "dataBody": {
+            "o_msg": "해당자료가 없습니다.",
+            "nxt_key": "                                                                          ",
+            "grid_cnt1": "0000",
+            "o_lngth": "00160",
+            "o_clsf": "SC",
+            "Record1": []
+        }
+    }
+}

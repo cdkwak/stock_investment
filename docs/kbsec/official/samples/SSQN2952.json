@@ -1,0 +1,75 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "nxt2_dy_tfnd_xcl_f": "",
+            "sum_clsf": "1",
+            "spclz_ordr_ccd": "",
+            "is_cd": "",
+            "excg_mktpr_ccd": ""
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "",
+            "processCode": "0011",
+            "processTime": "20260622162522942"
+        },
+        "dataBody": {
+            "crdt_ln_amt_dctn_ccd": " ",
+            "is_addup_ccd": " ",
+            "cnt": "0001",
+            "byng_amt_sum": "000000000000360050",
+            "nxt2_dy_tfnd": "000000000000639950",
+            "thdy_rlztn_pl": "000000000000000000",
+            "val_pl_xcl_inq_ccd": "0",
+            "brwg_mrtg_csh_est_amt": "000000000000000000",
+            "tl_crdt_ln_amt": "000000000000000000",
+            "o_msg": "정상적으로 조회되었습니다.",
+            "o_lngth": "00574",
+            "o_clsf": "SC",
+            "ndy_tfnd": "000000000001000000",
+            "Record1": [
+                {
+                    "nccls_s_q_p6": "00000000.000000",
+                    "crdt_itst": "000000000000",
+                    "fee": "000000000000050",
+                    "ln_dt": "        ",
+                    "dcml_blnc_f": "0",
+                    "is_nm": "삼성전자",
+                    "addt_amt": "000000000000",
+                    "byng_amt": "000000000000360000",
+                    "s_q_p6": "00000000.000000",
+                    "ordr_psbl_q_p6": "00000001.000000",
+                    "crdt_dl_amt": "000000000000000000",
+                    "s_asmp_itst": "000000000000000000",
+                    "hndl_dt": "20260622",
+                    "tdy_trd_pl_amt": "000000000000000000",
+                    "shrt_is_cd": "A005930",
+                    "val_yld": "018.46",
+                    "fee_r_p9": "00.000150000",
+                    "crdt_typ_nm": "현금",
+                    "byng_avr_prc": "00360050",
+                    "hndl_sq": "1350511856",
+                    "stnd_is_cd": "KR7005930003",
+                    "svrl_tx": "000000000000",
+                    "val_amt": "000000000000426500",
+                    "now_prc": "0000426500",
+                    "blnc_q_p6": "00000001.000000",
+                    "fnl_ccls_excg_cd": "KRX",
+                    "invst_sgrvt_rt_p5": "100.00000",
+                    "nxtd_lstng_ccd": "1",
+                    "crdt_typ_cd": "00",
+                    "s_amt": "000000000000000000",
+                    "val_pl": "000000000000066450"
+                }
+            ]
+        }
+    }
+}

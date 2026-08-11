@@ -1,0 +1,182 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "end_dt": "20260622",
+            "nxt_stlmt_dt": "",
+            "dr_dt": "20260601",
+            "nxt_bsnss_dy": "",
+            "hldy_ccd": "",
+            "frgn_stk_ordr_psbl_f": "",
+            "iso_cd": "US",
+            "hndl_clsf": "4"
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "",
+            "processCode": "0011",
+            "processTime": "20260622151640450"
+        },
+        "dataBody": {
+            "nxt_stlmt_dt": "        ",
+            "o_msg": "정상적으로 조회되었습니다.",
+            "nxt_bsnss_dy": "        ",
+            "grid_cnt": "0016",
+            "o_lngth": "00790",
+            "o_clsf": "SC",
+            "Record1": [
+                {
+                    "mm": "06",
+                    "nxt_stlmt_dt": "        ",
+                    "bsnss_dy": "20260601",
+                    "stmt_dy": "20260603",
+                    "nxt_bsnss_dy": "        ",
+                    "hldy": "        ",
+                    "frgn_stk_ordr_psbl_f": "Y"
+                },
+                {
+                    "mm": "06",
+                    "nxt_stlmt_dt": "        ",
+                    "bsnss_dy": "20260602",
+                    "stmt_dy": "20260604",
+                    "nxt_bsnss_dy": "        ",
+                    "hldy": "        ",
+                    "frgn_stk_ordr_psbl_f": "Y"
+                },
+                {
+                    "mm": "06",
+                    "nxt_stlmt_dt": "        ",
+                    "bsnss_dy": "20260603",
+                    "stmt_dy": "20260605",
+                    "nxt_bsnss_dy": "        ",
+                    "hldy": "        ",
+                    "frgn_stk_ordr_psbl_f": "Y"
+                },
+                {
+                    "mm": "06",
+                    "nxt_stlmt_dt": "        ",
+                    "bsnss_dy": "20260604",
+                    "stmt_dy": "20260608",
+                    "nxt_bsnss_dy": "        ",
+                    "hldy": "        ",
+                    "frgn_stk_ordr_psbl_f": "Y"
+                },
+                {
+                    "mm": "06",
+                    "nxt_stlmt_dt": "        ",
+                    "bsnss_dy": "20260605",
+                    "stmt_dy": "20260609",
+                    "nxt_bsnss_dy": "        ",
+                    "hldy": "        ",
+                    "frgn_stk_ordr_psbl_f": "Y"
+                },
+                {
+                    "mm": "06",
+                    "nxt_stlmt_dt": "        ",
+                    "bsnss_dy": "20260608",
+                    "stmt_dy": "20260610",
+                    "nxt_bsnss_dy": "        ",
+                    "hldy": "        ",
+                    "frgn_stk_ordr_psbl_f": "Y"
+                },
+                {
+                    "mm": "06",
+                    "nxt_stlmt_dt": "        ",
+                    "bsnss_dy": "20260609",
+                    "stmt_dy": "20260611",
+                    "nxt_bsnss_dy": "        ",
+                    "hldy": "        ",
+                    "frgn_stk_ordr_psbl_f": "Y"
+                },
+                {
+                    "mm": "06",
+                    "nxt_stlmt_dt": "        ",
+                    "bsnss_dy": "20260610",
+                    "stmt_dy": "20260612",
+                    "nxt_bsnss_dy": "        ",
+                    "hldy": "        ",
+                    "frgn_stk_ordr_psbl_f": "Y"
+                },
+                {
+                    "mm": "06",
+                    "nxt_stlmt_dt": "        ",
+                    "bsnss_dy": "20260611",
+                    "stmt_dy": "20260615",
+                    "nxt_bsnss_dy": "        ",
+                    "hldy": "        ",
+                    "frgn_stk_ordr_psbl_f": "Y"
+                },
+                {
+                    "mm": "06",
+                    "nxt_stlmt_dt": "        ",
+                    "bsnss_dy": "20260612",
+                    "stmt_dy": "20260616",
+                    "nxt_bsnss_dy": "        ",
+                    "hldy": "        ",
+                    "frgn_stk_ordr_psbl_f": "Y"
+                },
+                {
+                    "mm": "06",
+                    "nxt_stlmt_dt": "        ",
+                    "bsnss_dy": "20260615",
+                    "stmt_dy": "20260617",
+                    "nxt_bsnss_dy": "        ",
+                    "hldy": "        ",
+                    "frgn_stk_ordr_psbl_f": "Y"
+                },
+                {
+                    "mm": "06",
+                    "nxt_stlmt_dt": "        ",
+                    "bsnss_dy": "20260616",
+                    "stmt_dy": "20260618",
+                    "nxt_bsnss_dy": "        ",
+                    "hldy": "        ",
+                    "frgn_stk_ordr_psbl_f": "Y"
+                },
+                {
+                    "mm": "06",
+                    "nxt_stlmt_dt": "        ",
+                    "bsnss_dy": "20260617",
+                    "stmt_dy": "20260622",
+                    "nxt_bsnss_dy": "        ",
+                    "hldy": "        ",
+                    "frgn_stk_ordr_psbl_f": "Y"
+                },
+                {
+                    "mm": "06",
+                    "nxt_stlmt_dt": "        ",
+                    "bsnss_dy": "20260618",
+                    "stmt_dy": "20260623",
+                    "nxt_bsnss_dy": "        ",
+                    "hldy": "        ",
+                    "frgn_stk_ordr_psbl_f": "Y"
+                },
+                {
+                    "mm": "06",
+                    "nxt_stlmt_dt": "20260622",
+                    "bsnss_dy": "        ",
+                    "stmt_dy": "        ",
+                    "nxt_bsnss_dy": "20260622",
+                    "hldy": "20260619",
+                    "frgn_stk_ordr_psbl_f": "N"
+                },
+                {
+                    "mm": "06",
+                    "nxt_stlmt_dt": "        ",
+                    "bsnss_dy": "20260622",
+                    "stmt_dy": "20260624",
+                    "nxt_bsnss_dy": "        ",
+                    "hldy": "        ",
+                    "frgn_stk_ordr_psbl_f": "Y"
+                }
+            ]
+        }
+    }
+}

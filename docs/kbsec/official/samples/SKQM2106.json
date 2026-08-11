@@ -1,0 +1,45 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "crncy_cd": "USD",
+            "ordr_prc": "",
+            "stnd_is_cd": "TSLA",
+            "iso_cd": "US",
+            "frgn_ordr_prc_p4": ""
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "",
+            "processCode": "0011",
+            "processTime": "20260623135200393"
+        },
+        "dataBody": {
+            "krw_exch_unty_ordr_psbl_amt": "000000000059766236",
+            "dmstc_ordr_psbl_amt": "000000000000000000",
+            "ordr_psbl_q1": "000000000000000000",
+            "ordr_psbl_q2": "000000000000000000",
+            "fcrncy_rcvbl_ordr_psbl_amt_p2": "0000000039024.64",
+            "is_mgn_r_p4": "00001.0000",
+            "krw_exch_fcrncy_ordr_psbl_amt": "000000000000762717",
+            "rcvbl_psbl_f": "0",
+            "fcrncy_unty_ordr_psbl_amt_p2": "0000000039024.64",
+            "frgn_ordr_prc_p4": "0000000000.0000",
+            "fcrncy_ordr_psbl_amt": "0000000000498.02",
+            "mx_ordr_psbl_amt": "000000000059766236",
+            "o_msg": "정상적으로 조회되었습니다.",
+            "aplc_mgn_r_p4": "00001.0000",
+            "o_lngth": "00307",
+            "ordr_psbl_q": "000000000000000000",
+            "aplc_exch_r_p8": "001531.50000000",
+            "o_clsf": "SC"
+        }
+    }
+}

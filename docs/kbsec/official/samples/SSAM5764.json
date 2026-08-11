@@ -1,0 +1,66 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "rsv_typ_ordr_f": "",
+            "rsv_typ_ordr_acpt_dt": "",
+            "spclz_ordr_ccd": "",
+            "is_cd": "005930",
+            "rsv_typ_ordr_sqc": "",
+            "dmstc_stk_dcml_evnt_ccd": "",
+            "ordr_dt": "20260623",
+            "dmstc_stk_dcml_trd_jb_ccd": "01",
+            "trd_dl_ccd": "",
+            "rsv_amt": "",
+            "cpn_cd": "",
+            "tv_s_est_f": "1",
+            "ordr_sqc": "3",
+            "bnf_is_cd": "02",
+            "ordr_amt": "6000",
+            "ordr_q_p6": "",
+            "acpt_sq": "",
+            "rsv_typ_ordr_sq": "",
+            "dmstc_stk_dcml_ordr_sq": "000000000000000003",
+            "dcml_ordr_std_ccd": "1"
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "B",
+            "processMessage": "",
+            "processCode": "C093",
+            "processTime": "20260623131132686"
+        },
+        "dataBody": {
+            "dmstc_stk_dcml_evnt_ccd": " ",
+            "ordr_dt": "        ",
+            "dmstc_stk_dcml_trd_jb_ccd": "01",
+            "tv_s_est_f": "1",
+            "acpt_sq": "000000000000000000",
+            "o_lngth": "00440",
+            "dmstc_stk_dcml_ordr_sq": "000000000000000000",
+            "rsv_typ_ordr_sq": "000000000000000000",
+            "o_clsf": "SC",
+            "dcml_ordr_std_ccd": "1",
+            "stnd_is_cd": "            ",
+            "rsv_typ_ordr_f": " ",
+            "rsv_typ_ordr_acpt_dt": "        ",
+            "spclz_ordr_ccd": "  ",
+            "is_cd": "005930",
+            "rsv_typ_ordr_sqc": "000000000000000000",
+            "trd_dl_ccd": "  ",
+            "rsv_amt": "000000000000000000",
+            "cpn_cd": "            ",
+            "ordr_sqc": "000000000000000003",
+            "o_msg": "입력한 매매거래구분코드를 확인하세요 .",
+            "bnf_is_cd": "            ",
+            "ordr_amt": "000000000000006000",
+            "ordr_q_p6": "00000000.000000"
+        }
+    }
+}

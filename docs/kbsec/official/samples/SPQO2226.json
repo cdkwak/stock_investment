@@ -1,0 +1,78 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "tl_asts_exch_val_amt": "",
+            "tl_scrts_exch_val_amt": "",
+            "tl_krw_val_amt": "",
+            "tl_tfnd_exch_val_amt": "",
+            "tl_krw_val_pl_amt": "",
+            "std_crncy_f": "1",
+            "cn_f": "",
+            "exch_r_aplc_f": ""
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "",
+            "processCode": "0011",
+            "processTime": "20260622171322918"
+        },
+        "dataBody": {
+            "krw_o_amt_psbl_amt": "000000099119535",
+            "etc_lndng_amt": "000000000000000",
+            "grid_cnt2": "0002",
+            "chck_amt": "0000000000000",
+            "tl_asts_exch_val_amt": "000000000000000",
+            "krw_tfnd": "000000101000000",
+            "tl_scrts_exch_val_amt": "000000000000000",
+            "tl_krw_val_amt": "000000000000000000",
+            "mrtg_ln_amt": "000000000000000",
+            "o_msg": "정상적으로 조회되었습니다.",
+            "tl_tfnd_exch_val_amt": "000000000000000",
+            "tl_krw_val_pl_amt": "000000000000000000",
+            "asts_val_amt": "-00000000001219573",
+            "krw_mgn": "000000000660099",
+            "o_lngth": "00637",
+            "o_clsf": "SC",
+            "Record1": [
+                {
+                    "rus_use_amt_p3": "000000000000.000",
+                    "rus_psbl_ra_p3": "00000000000.000",
+                    "otr_ogn_fcrncy_tfnd_p2": "000000000000.00",
+                    "tfnd_val_amt": "000000000000000",
+                    "cnvr_exch_r_p4": "0000.0000",
+                    "crncy_clsf_nm": "KRW",
+                    "o_amt_psbl_amt_p2": "0000099119535.00",
+                    "std_exch_r": "0000.0000",
+                    "mgn_p2": "0000000000000.00",
+                    "mrtg_ln_amt": "000000000000000",
+                    "fcrncy_dl_fee": "000000000000.00",
+                    "ordr_psbl_amt_p2": "000000000000.00",
+                    "tfnd": "0000101000000.00"
+                },
+                {
+                    "rus_use_amt_p3": "-00000000794.510",
+                    "rus_psbl_ra_p3": "00000000000.000",
+                    "otr_ogn_fcrncy_tfnd_p2": "000000000000.00",
+                    "tfnd_val_amt": "000000000000000",
+                    "cnvr_exch_r_p4": "0000.0000",
+                    "crncy_clsf_nm": "USD",
+                    "o_amt_psbl_amt_p2": "0000000000000.00",
+                    "std_exch_r": "0000.0000",
+                    "mgn_p2": "0000000000000.00",
+                    "mrtg_ln_amt": "000000000000000",
+                    "fcrncy_dl_fee": "000000000000.00",
+                    "ordr_psbl_amt_p2": "000000000000.00",
+                    "tfnd": "0000000000000.00"
+                }
+            ]
+        }
+    }
+}

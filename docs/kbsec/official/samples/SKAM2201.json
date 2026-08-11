@@ -1,0 +1,41 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "frgn_krx_ccd": "US",
+            "dcml_ordr_q_p6": "",
+            "spclz_ordr_ccd": "",
+            "is_cd": "TSLA",
+            "amt_q_clsf": "0",
+            "trd_dl_ccd": "02",
+            "frgn_ordr_prc_p4": "",
+            "frgn_ordr_typ_cd": "E",
+            "cutn_mtr_cnfr_f": "",
+            "cpn_cd": "",
+            "tv_s_est_f": "",
+            "crncy_ccd": "1",
+            "ordr_amt": "2"
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "",
+            "processCode": "0743",
+            "processTime": "20260623124522466"
+        },
+        "dataBody": {
+            "o_msg": "정상적으로 매수 주문신청 완료되었습니다.",
+            "rsrv_ordr_f": "1",
+            "o_lngth": "00094",
+            "ordr_no": "0000000026",
+            "cutn_mtr_err_cd": " ",
+            "o_clsf": "SC"
+        }
+    }
+}

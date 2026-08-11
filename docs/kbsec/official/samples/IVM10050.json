@@ -1,0 +1,51 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "is_cd": "005930"
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "정상적으로 조회가 완료되었습니다.",
+            "processCode": "0024",
+            "processTime": "20260622154011526"
+        },
+        "dataBody": {
+            "msg": "정상적으로 조회가 완료되었습니다.",
+            "dvdnd_yld_p2": "            1.39",
+            "eps_p2": "     0.00",
+            "opn_prc_tl_amt_rnk": "1",
+            "fgnr_hld_q": "2780421758",
+            "bps_p2": "     0.00",
+            "brwg_blnc_q": "76992639",
+            "clsac_mm": "12",
+            "RecordSize": "00000322",
+            "lstng_stk_c": "5846278608",
+            "sbt_prc": "261960",
+            "opn_prc_tl_amt": "24934378",
+            "pr_vl_prc_p3": "      100.000",
+            "crdt_blnc_rt_p2": "   0.39",
+            "pbr_p2": "     0.00",
+            "crdt_blnc_stk_c": "23260895",
+            "indx_nm": "코스피 전기 전자",
+            "wk52_max_prc": "441500",
+            "per": "     0.00",
+            "wk52_min_prc": "56900",
+            "clsfP": "SC",
+            "cptl_amt": "778046",
+            "fgnr_hld_sgrvt_p2": "  47.56",
+            "dl_tw_amt": "3322182500",
+            "wk52_min_dt": "20250616",
+            "lngth": "00412",
+            "bdy_cls_prc": "368500",
+            "wk52_max_dt": "20260622"
+        }
+    }
+}

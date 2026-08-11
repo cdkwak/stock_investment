@@ -1,0 +1,56 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "excg_clsf": "0",
+            "ovtm_mkt_clsf": "0",
+            "is_cd": "005930",
+            "inq_cnt": "2"
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "정상적으로 조회가 완료되었습니다.",
+            "processCode": "0024",
+            "processTime": "20260622153936639"
+        },
+        "dataBody": {
+            "msg": "정상적으로 조회가 완료되었습니다.",
+            "clsfP": "SC",
+            "out_RecordSize": "00000158",
+            "lngth": "00248",
+            "out": [
+                {
+                    "ccls_tm": "153935",
+                    "bdy_cmpr": "23500",
+                    "ccls_prc": "345000",
+                    "acml_vlm": "10181",
+                    "excg_cd": "NXT",
+                    "bdy_cmpr_ccd": "5",
+                    "ccls_strn_p2": " 576.03",
+                    "up_dwn_r_p2": "  -6.38",
+                    "ccls_q": "1",
+                    "sell_buy_ccd": "+"
+                },
+                {
+                    "ccls_tm": "153847",
+                    "bdy_cmpr": "23500",
+                    "ccls_prc": "345000",
+                    "acml_vlm": "10180",
+                    "excg_cd": "NXT",
+                    "bdy_cmpr_ccd": "5",
+                    "ccls_strn_p2": " 575.96",
+                    "up_dwn_r_p2": "  -6.38",
+                    "ccls_q": "2",
+                    "sell_buy_ccd": "+"
+                }
+            ]
+        }
+    }
+}

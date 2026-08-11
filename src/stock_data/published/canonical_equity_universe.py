@@ -23,12 +23,12 @@ def price_identity_from_items(items: Sequence[Mapping[str, object]]) -> pd.DataF
         name = str(item.get("itmsNm", "")).strip()
         if pd.isna(parsed) or not symbol or not isin or not name:
             raise CanonicalUniverseError("price identity is incomplete")
-        rows.append({"date":parsed.strftime("%Y-%m-%d"), "market":market, "symbol":symbol,
-                     "isin":isin, "name":name})
-    result = pd.DataFrame(rows, columns=["date","market","symbol","isin","name"])
-    if result.duplicated(["date","market","symbol"]).any():
+        rows.append({"date": parsed.strftime("%Y-%m-%d"), "market": market, "symbol": symbol,
+                     "isin": isin, "name": name})
+    result = pd.DataFrame(rows, columns=["date", "market", "symbol", "isin", "name"])
+    if result.duplicated(["date", "market", "symbol"]).any():
         raise CanonicalUniverseError("price identity has duplicate keys")
-    return result.sort_values(["date","market","symbol"], kind="stable").reset_index(drop=True)
+    return result.sort_values(["date", "market", "symbol"], kind="stable").reset_index(drop=True)
 
 
 def _metadata(master: pd.DataFrame) -> pd.DataFrame:
@@ -48,12 +48,14 @@ def _metadata(master: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
-def _observed_security_type(name: str, isin: str, master_value) -> str:
+def _observed_security_type(name: str | None, isin: str | None, master_value) -> str:
     if master_value is not None and not pd.isna(master_value) and str(master_value).strip():
         return str(master_value).strip()
-    if "우" in name:
+    observed_name = "" if name is None or pd.isna(name) else str(name)
+    observed_isin = "" if isin is None or pd.isna(isin) else str(isin)
+    if "우" in observed_name:
         return "preferred_observed_name"
-    if not isin.startswith("KR"):
+    if observed_isin and not observed_isin.startswith("KR"):
         return "foreign_equity_observed_isin"
     return "unclassified"
 
@@ -64,11 +66,12 @@ def validate_canonical_universe(frame: pd.DataFrame) -> None:
         raise CanonicalUniverseError("canonical universe schema is invalid or empty")
     if frame.duplicated(list(contract.primary_key)).any():
         raise CanonicalUniverseError("canonical universe duplicate key")
-    if frame[["date","market","symbol","isin","name","universe_source","security_type"]].isna().any().any():
+    required = ["date", "market", "symbol", "name", "universe_source", "security_type"]
+    if frame[required].isna().any().any():
         raise CanonicalUniverseError("canonical universe required value is missing")
-    if not frame["market"].isin({"KOSPI","KOSDAQ"}).all():
+    if not frame["market"].isin({"KOSPI", "KOSDAQ"}).all():
         raise CanonicalUniverseError("canonical universe market is invalid")
-    for column in ("listed_info_present","price_present","master_present"):
+    for column in ("listed_info_present", "price_present", "master_present"):
         if frame[column].dtype != bool:
             raise CanonicalUniverseError(f"{column} must be boolean")
     if (~(frame["listed_info_present"] | frame["price_present"])).any():
@@ -77,7 +80,8 @@ def validate_canonical_universe(frame: pd.DataFrame) -> None:
                            else "listed_info" if row.listed_info_present else "price_only", axis=1)
     if not expected.equals(frame["universe_source"]):
         raise CanonicalUniverseError("provenance does not match presence flags")
-    if frame.duplicated(["date","isin"]).any():
+    populated_isin = frame.loc[frame["isin"].notna() & frame["isin"].astype(str).str.strip().ne("")]
+    if populated_isin.duplicated(["date", "isin"]).any():
         raise CanonicalUniverseError("ISIN collision within date")
     ordered = frame.sort_values(list(contract.sort_key), kind="stable").reset_index(drop=True)
     if not ordered.equals(frame.reset_index(drop=True)):
@@ -86,24 +90,25 @@ def validate_canonical_universe(frame: pd.DataFrame) -> None:
 
 def build_canonical_universe(listed: pd.DataFrame, price_identity: pd.DataFrame,
                              master: pd.DataFrame) -> pd.DataFrame:
-    keys = ["date","market","symbol"]
-    listed_required = keys + ["isin","name"]
+    keys = ["date", "market", "symbol"]
+    listed_required = keys + ["isin", "name"]
     if not set(listed_required).issubset(listed.columns):
         raise CanonicalUniverseError("listed universe identity columns are missing")
     if listed.duplicated(keys).any() or price_identity.duplicated(keys).any():
         raise CanonicalUniverseError("daily source duplicate key")
-    left = listed[listed_required].rename(columns={"isin":"listed_isin","name":"listed_name"})
-    right = price_identity[listed_required].rename(columns={"isin":"price_isin","name":"price_name"})
+    left = listed[listed_required].rename(columns={"isin": "listed_isin", "name": "listed_name"})
+    right = price_identity[listed_required].rename(columns={"isin": "price_isin", "name": "price_name"})
     merged = left.merge(right, on=keys, how="outer", validate="one_to_one", indicator=True)
     both = merged["_merge"].eq("both")
-    conflict = both & merged["listed_isin"].ne(merged["price_isin"])
+    comparable = both & merged["listed_isin"].notna() & merged["price_isin"].notna()
+    conflict = comparable & merged["listed_isin"].ne(merged["price_isin"])
     if conflict.any():
         raise CanonicalUniverseError("daily sources disagree on ISIN")
-    merged["listed_info_present"] = merged["_merge"].isin(["left_only","both"])
-    merged["price_present"] = merged["_merge"].isin(["right_only","both"])
+    merged["listed_info_present"] = merged["_merge"].isin(["left_only", "both"])
+    merged["price_present"] = merged["_merge"].isin(["right_only", "both"])
     merged["isin"] = merged["listed_isin"].fillna(merged["price_isin"])
     merged["name"] = merged["listed_name"].fillna(merged["price_name"])
-    merged = merged.merge(_metadata(master), on=["market","symbol"], how="left", validate="many_to_one")
+    merged = merged.merge(_metadata(master), on=["market", "symbol"], how="left", validate="many_to_one")
     merged["master_present"] = merged["master_present"].eq(True)
     merged["universe_source"] = merged.apply(
         lambda row: "listed_info+price" if row.listed_info_present and row.price_present

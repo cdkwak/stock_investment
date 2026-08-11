@@ -1,0 +1,53 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "b_ccls_amt": "",
+            "ccls_clsf": "0",
+            "nxt_key": "",
+            "s_ccls_q": "",
+            "is_nm": "",
+            "inq_clsf": "9",
+            "is_cd": "",
+            "ordr_dt": "20260623",
+            "orgn_ordr_no": "",
+            "b_ccls_q": "",
+            "s_ccls_amt": "",
+            "mthr_ordr_no": "",
+            "cn_clsf": "",
+            "ac_nm": "",
+            "ordr_no": ""
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "B",
+            "processMessage": "",
+            "processCode": "2564",
+            "processTime": "20260623135822090"
+        },
+        "dataBody": {
+            "b_ccls_amt": "000000000000000000",
+            "stnd_is_cd": "            ",
+            "nxt_key": "                                        ",
+            "s_ccls_q": "000000000000000000",
+            "inq_clsf": " ",
+            "grid_cnt1": "0000",
+            "ordr_dt": "        ",
+            "b_ccls_q": "000000000000000000",
+            "s_ccls_amt": "000000000000000000",
+            "cn_clsf": " ",
+            "o_msg": "지점번호를 확인하십시오.",
+            "ac_nm": "                    ",
+            "o_lngth": "00269",
+            "ordr_no": "0000000000",
+            "o_clsf": "SC",
+            "Record1": []
+        }
+    }
+}

@@ -126,7 +126,9 @@ def _fetch_once(
     price_symbols = set(prices["symbol"])
     if set(caps["symbol"]) != price_symbols or not price_symbols.issubset(set(identities["symbol"])):
         raise EquityCollectionError(f"{requested} {market} source symbol sets do not match")
-    common = {"date": requested.isoformat(), "market": market}
+    common = {"date": requested.isoformat(), "market": market,
+              "source": "pykrx", "source_operation": "manual_fixture_validation",
+              "source_date": requested.isoformat()}
     price = prices.assign(**common)[list(KR_EQUITY_PRICE_DAILY.column_names)]
     cap = caps.assign(**common)[list(KR_EQUITY_MARKET_CAP_DAILY.column_names)]
     master = identities.loc[identities["symbol"].isin(price_symbols)].assign(market=market)

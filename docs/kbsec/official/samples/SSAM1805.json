@@ -1,0 +1,66 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "gds_no1": "",
+            "ordr_uprc": "370000",
+            "gnl_ac_no1": "",
+            "ordr_jb_clsf": "3",
+            "ordr_mng_no": "",
+            "ln_dt": "",
+            "acct_cd": "",
+            "crct_clsf": "2",
+            "hts_pwd": "",
+            "gtc_ccd": "",
+            "spclz_ordr_ccd": "",
+            "is_cd": "005930",
+            "s_clsf": "",
+            "orgn_ordr_no": "0040000638",
+            "sor_ordr_ccd": "N",
+            "stpd_prc": "",
+            "ordr_ccd": "00",
+            "mkt_tm_clsf": "1",
+            "ordr_q": "5",
+            "crdt_typ_cd": "00"
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "B",
+            "processMessage": "",
+            "processCode": "2329",
+            "processTime": "20260623102057253"
+        },
+        "dataBody": {
+            "gds_no1": "  ",
+            "ordr_uprc": "000370000",
+            "gnl_ac_no1": "         ",
+            "ordr_jb_clsf": "3",
+            "ordr_mng_no": "            ",
+            "ln_dt": "        ",
+            "acct_cd": "   ",
+            "crct_clsf": "2",
+            "o_lngth": "00302",
+            "ordr_no": "0000000000",
+            "hts_pwd": "        ",
+            "o_clsf": "SC",
+            "gtc_ccd": " ",
+            "spclz_ordr_ccd": "  ",
+            "is_cd": "005930",
+            "s_clsf": " ",
+            "orgn_ordr_no": "0040000638",
+            "sor_ordr_ccd": "N",
+            "stpd_prc": "000000000",
+            "ordr_ccd": "00",
+            "o_msg": "주문수량을 확인하십시오.",
+            "mkt_tm_clsf": "1",
+            "ordr_q": "0000000002",
+            "crdt_typ_cd": "00"
+        }
+    }
+}

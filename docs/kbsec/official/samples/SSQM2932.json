@@ -1,0 +1,71 @@
+﻿{
+    "input": {
+        "dataBody": {
+            "inq_clsf": "1",
+            "scrts_ccd": "0",
+            "excg_mktpr_ccd": "0",
+            "bnd_val_wy_cd": "1"
+        },
+        "dataHeader": {
+            "ipAddr": "{아이피주소}",
+            "macAddr": "{MAC주소}"
+        }
+    },
+    "output": {
+        "dataHeader": {
+            "resultCode": "200",
+            "resultMessage": "성공",
+            "processFlag": "A",
+            "processMessage": "",
+            "processCode": "0011",
+            "processTime": "20260622124311832"
+        },
+        "dataBody": {
+            "scrts_sbt_amt": "000000000000000000",
+            "rgt_sbt_amt": "000000000000000000",
+            "fncng_amt_sum": "000000000000000000",
+            "mrtg_shrtg_amt": "000000000000000000",
+            "etc_lndng_amt": "000000000000000000",
+            "fncng_amt": "000000000000000000",
+            "mgn_csh": "000000000000660099",
+            "cma_mrtg_ln_amt": "000000000000000000",
+            "s_sbs_ln_amt": "000000000000000000",
+            "cma_pldg_est_amt": "000000000000000",
+            "grid_cnt1": "0000",
+            "pl_amt_sum": "000000000000000000",
+            "val_amt_sum": "000000000000000000",
+            "brwg_mrtg_csh_est_amt": "000000000000000000",
+            "mrtg_amt": "000000000000000000",
+            "o_amt_psbl_amt": "000000000000339901",
+            "add_mrtgg_csh": "000000000000000000",
+            "tl_data_cnt": "0000",
+            "crdt_gamt_csh": "000000000000000000",
+            "tl_crdt_ln_amt": "000000000000000000",
+            "fcrncy_tfnd_krw_exch_amt": "000000000000.00",
+            "csh_rcvbl_amt": "000000000000000000",
+            "o_lngth": "00775",
+            "tfnd": "000000000001000000",
+            "o_clsf": "SC",
+            "mgn_sbt": "000000000000000000",
+            "Record1": [],
+            "rtpnsn_pldg_est_amt": "000000000000000000",
+            "byng_amt_sum": "000000000000000000",
+            "crdt_gamt_sbt": "000000000000000000",
+            "dpstn_byng_fnds_ln_amt": "000000000000000000",
+            "elw_excs_mgn": "000000000000000000",
+            "rcvbl_npamt_amt": "000000000000000000",
+            "crdt_itst_npamt_amt": "000000000000000000",
+            "mrtg_rt": "0000000000",
+            "pcnt30_mx_ordr_psbl_amt": "000000000000339850",
+            "ordr_psbl_csh": "000000000000339901",
+            "nrfnd_fncng_amt": "000000000000000000",
+            "yld_sum": "000000000000.00",
+            "o_msg": "정상적으로 조회되었습니다.",
+            "pcnt100_ordr_psbl_amt": "000000000000339850",
+            "brwg_nd_mrtg_amt": "000000000000000000",
+            "sl_amt": "000000000000000000",
+            "ln_itst_npamt_amt": "000000000000000000",
+            "pcnt40_mx_ordr_psbl_amt": "000000000000339850"
+        }
+    }
+}
