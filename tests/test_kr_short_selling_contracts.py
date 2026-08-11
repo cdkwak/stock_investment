@@ -4,13 +4,16 @@ from stock_data.contracts.kr_short_selling import (
 )
 
 
-def test_short_selling_contracts_remain_separate_and_blocked() -> None:
+def test_short_selling_v2_contracts_remain_separate_and_policy_gated() -> None:
     contracts = (
         KR_SHORT_SELLING_TRADING_DAILY,
         KR_SHORT_SELLING_BALANCE_DAILY,
         KR_SHORT_SELLING_INVESTOR_DAILY,
     )
-    assert all(item.status == "draft_blocked" for item in contracts)
+    assert contracts[0].status == "implementation_ready_t_plus_1_minimum"
+    assert contracts[1].status == "implementation_ready_predictive_use_blocked"
+    assert contracts[2].status == "implementation_ready_t_plus_1_minimum"
+    assert all(item.version == 2 for item in contracts)
     assert all(item.layer == "normalized" for item in contracts)
     assert all(item.partition_by == ("market", "year") for item in contracts)
     assert len({item.name for item in contracts}) == 3
@@ -20,3 +23,6 @@ def test_short_selling_source_and_derived_values_are_not_mixed() -> None:
     assert "short_balance_ratio" in KR_SHORT_SELLING_BALANCE_DAILY.column_names
     assert "metric" in KR_SHORT_SELLING_INVESTOR_DAILY.column_names
     assert "trading_value" not in KR_SHORT_SELLING_BALANCE_DAILY.column_names
+    assert "source_name" in KR_SHORT_SELLING_TRADING_DAILY.column_names
+    assert "source_security_type" in KR_SHORT_SELLING_TRADING_DAILY.column_names
+    assert "total_trading_volume" in KR_SHORT_SELLING_TRADING_DAILY.column_names

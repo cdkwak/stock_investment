@@ -18,7 +18,7 @@ official continuous coverage.
 | Korean source verification | authenticated pykrx 1.2.8 | bounded manual smoke passed; 5/5 public probes, 12 raw HTTP requests | historical automation remains disabled pending per-dataset contract and budgeted pilot |
 | Korean equity price/cap/universe | marcap + KRX Open API + FSC data.go.kr | complete, 1995-05-02..2026-08-07 | daily incremental |
 | Korean Open API history | KRX Open API | complete, 2010-01-04..2019-12-30 | daily ledger/checkpoint retained |
-| Korean short selling | authenticated pykrx 1.2.8 | SOURCE_FEASIBILITY_CONFIRMED; 25/25 bounded pilot probes complete | implement v2 contracts and execute only checkpointed, bounded, single-stream historical batches |
+| Korean short selling | authenticated pykrx 1.2.8 | IMPLEMENTATION_READY; 25/25 pilot probes and fail-closed v2 collector review complete | execute only checkpointed, bounded, single-stream historical batches; no production rows yet |
 | `global_index_price_daily` | Yahoo chart API | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 49,051 rows through 2026-08-07 | canonical read, PK, OHLC, null, infinity, and gap audit pass; retained collection has no lossless Landing or call ledger |
 | `fred_treasury_yield_daily` | FRED | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 16,853 weekdays, 1962-01-02..2026-08-06 | source-series nulls are preserved; retained state is only a coarse completion marker |
 | `fred_usd_fx_daily` | FRED | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 14,500 weekdays, 1971-01-04..2026-07-31 | source-series nulls are preserved; retained state is only a coarse completion marker |
@@ -158,9 +158,13 @@ layer does not shift either date.
   KOSDAQ `030270`. Weekend trading/balance returned empty arrays; the investor
   endpoint returned its source-specific blank-date, all-zero placeholder, which
   is retained and classified separately as valid-empty. These sentinels prove
-  feasibility, not the earliest possible source date. Production collection
-  remains disabled until the v2 contracts and bounded single-stream collector
-  pass D review. VKOSPI and futures-basis roll definitions remain deferred.
+  feasibility, not the earliest possible source date. The v2 contracts and
+  bounded single-stream collector passed D and independent offline review.
+  Recovery requires immutable HTTP-200 provenance plus an exact same-run
+  ledger/scope correlation and Normalized row reconciliation; non-200, forged,
+  missing, or path-escaping evidence fails closed. Production rows remain zero
+  until a separately bounded batch is run. VKOSPI and futures-basis roll
+  definitions remain deferred.
   Toss per-symbol program/lending/credit history remains survivorship blocked.
   KOSPI200 PCR is linked through 2026-08-07. The combined atomic writer
   preserved all ten 2010-2019 Parquet files byte-for-byte and added seven
