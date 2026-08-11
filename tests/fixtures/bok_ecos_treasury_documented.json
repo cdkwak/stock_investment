@@ -1,0 +1,27 @@
+{
+  "metadata": {
+    "StatisticItemList": {
+      "list_total_count": 6,
+      "row": [
+        {"STAT_CODE":"LOCAL001","STAT_NAME":"Reviewed daily government bond yields","ITEM_CODE":"LOCAL2Y","ITEM_NAME":"Government bond 2Y","CYCLE":"D","UNIT_NAME":"percent","START_TIME":"20210310","END_TIME":"20260811"},
+        {"STAT_CODE":"LOCAL001","STAT_NAME":"Reviewed daily government bond yields","ITEM_CODE":"LOCAL3Y","ITEM_NAME":"Government bond 3Y","CYCLE":"D","UNIT_NAME":"percent","START_TIME":"20000104","END_TIME":"20260811"},
+        {"STAT_CODE":"LOCAL001","STAT_NAME":"Reviewed daily government bond yields","ITEM_CODE":"LOCAL5Y","ITEM_NAME":"Government bond 5Y","CYCLE":"D","UNIT_NAME":"percent","START_TIME":"20000104","END_TIME":"20260811"},
+        {"STAT_CODE":"LOCAL001","STAT_NAME":"Reviewed daily government bond yields","ITEM_CODE":"LOCAL10Y","ITEM_NAME":"Government bond 10Y","CYCLE":"D","UNIT_NAME":"percent","START_TIME":"20000104","END_TIME":"20260811"},
+        {"STAT_CODE":"LOCAL001","STAT_NAME":"Reviewed daily government bond yields","ITEM_CODE":"LOCAL20Y","ITEM_NAME":"Government bond 20Y","CYCLE":"D","UNIT_NAME":"percent","START_TIME":"20000104","END_TIME":"20260811"},
+        {"STAT_CODE":"LOCAL001","STAT_NAME":"Reviewed daily government bond yields","ITEM_CODE":"LOCAL30Y","ITEM_NAME":"Government bond 30Y","CYCLE":"D","UNIT_NAME":"percent","START_TIME":"20000104","END_TIME":"20260811"}
+      ]
+    }
+  },
+  "value": {
+    "StatisticSearch": {
+      "list_total_count": 1,
+      "row": [
+        {"STAT_CODE":"LOCAL001","STAT_NAME":"Reviewed daily government bond yields","ITEM_CODE1":"LOCAL2Y","ITEM_NAME1":"Government bond 2Y","UNIT_NAME":"percent","TIME":"20260807","DATA_VALUE":"3.125"}
+      ]
+    }
+  },
+  "valid_empty": {
+    "RESULT": {"CODE":"INFO-200","MESSAGE":"No data"}
+  }
+}
+
