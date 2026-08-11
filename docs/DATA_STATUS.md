@@ -15,10 +15,10 @@ official continuous coverage.
 |---|---|---|---|
 | Korean equity history 1995-2009 | FinanceData/marcap secondary | complete, 1995-05-02..2009-12-30; 22 rows quarantined | immutable annual-file/checksum audit only |
 | Korean equity history 2010-2019 | KRX Open API primary | complete, 2010-01-04..2019-12-30 | no resume required |
-| Korean source verification | pykrx | manual-only | explicit short smoke test only |
+| Korean source verification | authenticated pykrx 1.2.8 | bounded manual smoke passed; 5/5 public probes, 12 raw HTTP requests | historical automation remains disabled pending per-dataset contract and budgeted pilot |
 | Korean equity price/cap/universe | marcap + KRX Open API + FSC data.go.kr | complete, 1995-05-02..2026-08-07 | daily incremental |
 | Korean Open API history | KRX Open API | complete, 2010-01-04..2019-12-30 | daily ledger/checkpoint retained |
-| Korean short selling | unassigned/pykrx contract reference | draft blocked | live schema verification after restriction |
+| Korean short selling | authenticated pykrx candidate | source feasibility confirmed for delisted `003410` on 2024-07-08; dataset not implemented | reconcile status endpoint with trading/balance/investor contracts, then run a separately budgeted pilot |
 | Global index | Yahoo | available | routine validation |
 | US macro | FRED | available | routine validation |
 | `kr_market_investor_trading_daily` | Toss Securities | DATA_COMPLETE; 2014-07-01..2026-08-11, KOSPI/KOSDAQ, 5,946 rows | historical secondary; preserve the source `updatedAt`-derived `availability_date` |
@@ -48,8 +48,10 @@ official continuous coverage.
 | `kr_kospi200_option_pcr_daily` | derived from migrated options | DATA_COMPLETE, 2010-01-04..2019-12-31; 2,607 rows = 2,466 observed + 141 valid-empty weekdays | volume/open-interest PCR only; zero denominators remain null |
 | `kr_market_investor_net_purchase_daily` | KRX via PyKRX 1.2.8 legacy artifact | DATA_COMPLETE, 1999-01-04..2014-06-30; 3,834 KOSPI rows | checksum-fixed pre-A001 dataset; signed source integers retain `unit_unknown` and must not be concatenated with A001 without an explicit bridge |
 
-Automated access to `data.krx.co.kr` is disabled. Existing pykrx Parquet data and
-checkpoints remain preserved. KB work remains read-only; order APIs are out of scope.
+Unauthenticated/standalone automated access to `data.krx.co.kr` remains disabled.
+Authenticated pykrx 1.2.8 access passed a bounded manual smoke test, but historical
+automation is not enabled. Existing pykrx Parquet data and checkpoints remain
+preserved. KB work remains read-only; order APIs are out of scope.
 
 Point-in-time rule: normalized source observations keep their source date unchanged.
 Research features/signals observed on trading day T may only be executed from T+1;
@@ -85,9 +87,13 @@ layer does not shift either date.
 - KRX Open API stock trade/basic-info products are approved and smoke-verified.
   Historical backfill remains gated only by an explicit call budget and checkpointed
   operating plan.
-- Automated `data.krx.co.kr` and pykrx collection are disabled. pykrx remains
-  only for explicitly requested short manual smoke/comparison/fixture checks,
-  with no historical, scheduled, polling, or repair automation.
+- The pre-login KRX failure is no longer a sufficient source blocker. Installed
+  pykrx 1.2.8 has authenticated session support, and the 2026-08-11 manual test
+  authenticated successfully. Five sequential probes covered recent/historical,
+  listed/delisted, short selling, investor flow, valuation, ETF, and foreign
+  ownership observations; all succeeded in 12/14 permitted raw requests with
+  zero retries. Historical, scheduled, polling, and repair automation remain
+  disabled until the authenticated collection runbook gates are satisfied.
 - Legacy pykrx failed checkpoint entries are preserved for audit but do not
   indicate a gap in the completed official 1995-2026 equity datasets.
 - KB Securities remains read-only. An earlier OAuth success was reported, but the
@@ -130,10 +136,10 @@ layer does not shift either date.
   provide ratios, share quantities, issue price, adjustment factors, or a safe
   field-only canonical event identity. No economic Rights event dataset or
   adjusted-price input is therefore marked complete.
-- Deferred source/definition work: short selling, VKOSPI, and futures-basis roll
-  rules. Toss per-symbol program/lending/credit history remains survivorship
-  blocked. KOSPI200 PCR for 2010-2019 is implemented; later-period linkage is a
-  separate task.
+- Short-selling source feasibility is confirmed but its dataset contract/coverage
+  pilot remains gated. VKOSPI and futures-basis roll definitions remain deferred.
+  Toss per-symbol program/lending/credit history remains survivorship blocked.
+  KOSPI200 PCR for 2010-2019 is implemented; later-period linkage is separate.
 
 ## Artifact and execution classifications
 

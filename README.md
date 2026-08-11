@@ -40,7 +40,10 @@ The only supported CLI entry point is `scripts/run_data_v1.py`.
 
 Live collection requires the explicit `--live` flag and approved provider
 access. KRX is skipped by default. Automated `data.krx.co.kr` access and pykrx
-historical automation are prohibited.
+historical automation are prohibited. Authenticated pykrx 1.2.8 passed a bounded
+manual feasibility test; this does not enable automation. See
+`docs/runbooks/PYKRX_AUTHENTICATED_HISTORICAL_PLAN.md` for the gates required
+before any separately approved historical pilot or backfill.
 
 See `docs/DATA_API_INVENTORY.md` for provider contracts and
 `docs/DATA_STATUS.md` for verified coverage, blockers, and availability rules.
