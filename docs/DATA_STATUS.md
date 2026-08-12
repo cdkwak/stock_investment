@@ -32,7 +32,9 @@ official continuous coverage.
 | `kr_credit_balance_daily` | FSC/KOFIA public API | complete, 2021-11-09..2026-08-05 | daily incremental |
 | `kr_kospi200_futures_daily` | FSC derivatives public API | complete, 2020-01-02..2026-08-07; 1,620 dates | daily incremental |
 | `kr_kospi200_options_daily` | FSC derivatives public API | complete, 2020-01-02..2026-08-07; 1,620 dates | daily incremental |
-| Legacy general futures/options sample | FSC derivatives public API | partial, 2022-09-19 only | keep separate from KOSPI200 operational datasets |
+| `kr_kosdaq150_futures_daily` | retained FSC derivatives Landing | DATA_COMPLETE_WITH_LIMITS; 2022-09-19 only, 7 outright rows | six source calendar-spread rows remain Landing-only; no historical-continuity claim |
+| `kr_kosdaq150_options_daily` | retained FSC derivatives Landing | DATA_COMPLETE_WITH_LIMITS; 2022-09-19 only, 316 rows | retained one-day snapshot only; no historical-continuity claim |
+| Other legacy general futures/options sample | FSC derivatives public API | partial, 2022-09-19 only | keep separate from KOSPI200 and KOSDAQ150 operational datasets |
 | `kr_stock_lending_daily` | FSC stock-lending public API | DATA_COMPLETE, 2021-04-01..2026-08-10; 3,236,815 rows, 1,317 source dates | preserve source gaps; execution audit remains REVIEW_REQUIRED |
 | `kr_stock_lending_market_daily` | FSC stock-lending public API | DATA_COMPLETE, 2021-04-01..2026-08-10; 1,254 rows/source dates | 63 source-absent dates versus detail intentionally preserved |
 | `kr_stock_lending_participant_daily` | FSC stock-lending public API | DATA_COMPLETE, 2021-04-01..2026-08-10; 11,472 rows, 1,290 source dates | 27 source-absent dates versus detail intentionally preserved |
