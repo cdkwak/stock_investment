@@ -15,10 +15,10 @@ official continuous coverage.
 |---|---|---|---|
 | Korean equity history 1995-2009 | FinanceData/marcap secondary | complete, 1995-05-02..2009-12-30; 22 rows quarantined | immutable annual-file/checksum audit only |
 | Korean equity history 2010-2019 | KRX Open API primary | complete, 2010-01-04..2019-12-30 | no resume required |
-| Korean source verification | authenticated pykrx 1.2.8 | bounded manual smoke passed; 5/5 public probes, 12 raw HTTP requests | historical automation remains disabled pending per-dataset contract and budgeted pilot |
+| Korean source verification | authenticated pykrx 1.2.8 | bounded manual smoke passed; 5/5 public probes, 12 raw HTTP requests | automation remains dataset-specific; only the reviewed A007 single-stream collector is currently enabled |
 | Korean equity price/cap/universe | marcap + KRX Open API + FSC data.go.kr | complete, 1995-05-02..2026-08-07 | daily incremental |
 | Korean Open API history | KRX Open API | complete, 2010-01-04..2019-12-30 | daily ledger/checkpoint retained |
-| Korean short selling | authenticated pykrx 1.2.8 | IMPLEMENTATION_READY; 25/25 pilot probes and fail-closed v2 collector review complete | execute only checkpointed, bounded, single-stream historical batches; no production rows yet |
+| Korean short selling | authenticated pykrx 1.2.8 | RUNNING; trading history has 2,494/9,174 completed scopes (1,247/4,587 dates), 2,442,227 rows through 2012-12-28; next bounded batch active | preserve the single authenticated stream; then collect balance and investor scopes sequentially |
 | `global_index_price_daily` | Yahoo chart API | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 49,051 rows through 2026-08-07 | canonical read, PK, OHLC, null, infinity, and gap audit pass; retained collection has no lossless Landing or call ledger |
 | `fred_treasury_yield_daily` | FRED | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 16,853 weekdays, 1962-01-02..2026-08-06 | source-series nulls are preserved; retained state is only a coarse completion marker |
 | `fred_usd_fx_daily` | FRED | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 14,500 weekdays, 1971-01-04..2026-07-31 | source-series nulls are preserved; retained state is only a coarse completion marker |
@@ -55,9 +55,11 @@ official continuous coverage.
 | `kr_market_investor_net_purchase_bridge_daily` | legacy investor + Toss A001 | DATA_COMPLETE, 1999-01-04..2026-08-11; 9,780 rows | Published provider-boundary bridge; legacy rows retain `unit_unknown`, null availability, and predictive-use block; cross-segment numeric comparison is prohibited |
 
 Unauthenticated/standalone automated access to `data.krx.co.kr` remains disabled.
-Authenticated pykrx 1.2.8 access passed a bounded manual smoke test, but historical
-automation is not enabled. Existing pykrx Parquet data and checkpoints remain
-preserved. KB work remains read-only; order APIs are out of scope.
+Authenticated pykrx 1.2.8 access passed a bounded manual smoke test. A007 historical
+short-selling collection is now enabled only as D-owned, bounded, sequential batches
+with immutable Landing, call ledger, and checkpoint reconciliation. No second KRX
+stream is permitted while A007 runs. Existing pykrx Parquet data and checkpoints
+remain preserved. KB work remains read-only; order APIs are out of scope.
 
 Point-in-time rule: normalized source observations keep their source date unchanged.
 Research features/signals observed on trading day T may only be executed from T+1;
@@ -108,6 +110,12 @@ layer does not shift either date.
   It is capped at three sequential zero-retry requests and preserves filings as
   immutable observations; it does not infer supersession, canonical events,
   adjustment factors, prices, or predictive availability.
+- BOK ECOS table `817Y002` (`시장금리(일별)`) and the six official government-bond
+  tenor identities are reviewed. The bounded A010 metadata phase is ready, but this
+  process has no `BOK_ECOS_API_KEY`; the value phase remains blocked until the one-call
+  immutable metadata response is captured and its exact SHA-256 is independently
+  approved. KOFIA remains the upstream final-quotation-yield source and BOK ECOS the
+  official distributor; these values are not assumed identical to Toss OHLC candles.
 - Legacy pykrx failed checkpoint entries are preserved for audit but do not
   indicate a gap in the completed official 1995-2026 equity datasets.
 - KB Securities remains read-only. An earlier OAuth success was reported, but the
@@ -181,8 +189,9 @@ layer does not shift either date.
   bounded single-stream collector passed D and independent offline review.
   Recovery requires immutable HTTP-200 provenance plus an exact same-run
   ledger/scope correlation and Normalized row reconciliation; non-200, forged,
-  missing, or path-escaping evidence fails closed. Production rows remain zero
-  until a separately bounded batch is run. V-KOSPI 200 is PILOT_READY through
+  missing, or path-escaping evidence fails closed. A007 has completed 2,494 trading
+  scopes and 2,442,227 production rows through 2012-12-28, with the next bounded
+  batch active. V-KOSPI 200 is PILOT_READY through
   an official authenticated KRX daily-index candidate, but exact source index
   identity, returned fields, historical start, and revision/cutoff policy still
   require the post-A007 bounded pilot documented in `VKOSPI200_SOURCE_AUDIT.md`.
