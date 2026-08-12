@@ -199,6 +199,17 @@ def test_startup_finishes_verified_retired_backup_cleanup(tmp_path: Path) -> Non
     assert not stage.exists() and not backup.exists() and not retired.exists() and not marker.exists()
 
 
+def test_startup_clears_root_only_backup_retired_marker(tmp_path: Path) -> None:
+    root = _write_legacy_root(tmp_path)
+    before = _bytes(root)
+    stage, backup, retired, marker = _crash_paths(root, phase="BACKUP_RETIRED")
+
+    action = recover_interrupted_transaction(project_root=tmp_path, dataset=DATASET)
+    assert action == "CLEARED_MARKER"
+    assert _bytes(root) == before
+    assert not stage.exists() and not backup.exists() and not retired.exists() and not marker.exists()
+
+
 def test_startup_refuses_ambiguous_and_unmarked_orphans(tmp_path: Path) -> None:
     root = _write_legacy_root(tmp_path)
     stage, backup, retired, marker = _crash_paths(root, phase="PROMOTED")

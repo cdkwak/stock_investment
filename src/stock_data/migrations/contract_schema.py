@@ -292,7 +292,7 @@ def recover_interrupted_transaction(*, project_root: Path, dataset: str) -> str:
         if root_exists and not stage_exists and not backup_exists:
             if payload["phase"] not in {
                 "PREPARING", "STAGED", "PROMOTION_PENDING", "VERIFIED",
-                "RECOVERED_ORIGINAL",
+                "BACKUP_RETIRED", "RECOVERED_ORIGINAL",
             }:
                 raise SchemaMigrationError("transaction paths contradict marker phase")
             marker.unlink()
