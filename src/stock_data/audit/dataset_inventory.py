@@ -32,6 +32,7 @@ STATE_COUNT_FIELDS = (
     "failed_targets",
     "progress",
 )
+STATE_REPORT_DIRECTORY = "audits"
 
 
 def _relative(path: Path, root: Path) -> str:
@@ -404,7 +405,11 @@ def _states(project_root: Path) -> list[dict[str, object]]:
     state_root = project_root / "data" / "state"
     if not state_root.exists():
         return []
-    return [_safe_state_summary(path, project_root) for path in sorted(state_root.rglob("*.json"))]
+    return [
+        _safe_state_summary(path, project_root)
+        for path in sorted(state_root.rglob("*.json"))
+        if path.relative_to(state_root).parts[0] != STATE_REPORT_DIRECTORY
+    ]
 
 
 def _landing_summary(project_root: Path) -> dict[str, object]:

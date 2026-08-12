@@ -186,3 +186,25 @@ def test_report_is_deterministic_and_ignores_documented_quarantine(tmp_path):
     assert first["ignored_artifacts"][0]["reason"].startswith(
         "documented_ignored_component"
     )
+
+
+def test_saved_audit_output_is_not_reingested_as_operational_state(tmp_path):
+    _write(tmp_path / "data/normalized/registered", _rows())
+    operational_state = tmp_path / "data/state/registered.json"
+    operational_state.parent.mkdir(parents=True)
+    operational_state.write_text(
+        json.dumps({"dataset": "registered", "status": "complete"}),
+        encoding="utf-8",
+    )
+    first = build_inventory(tmp_path, contracts={"registered": _contract()}, max_key_rows=10)
+
+    json_path = tmp_path / "data/state/audits/dataset_inventory.json"
+    markdown_path = tmp_path / "data/state/audits/dataset_inventory.md"
+    write_outputs(first, json_output=json_path, markdown_output=markdown_path)
+
+    second = build_inventory(tmp_path, contracts={"registered": _contract()}, max_key_rows=10)
+    assert second == first
+    assert [state["path"] for state in second["states"]] == [
+        "data/state/registered.json"
+    ]
+    assert all(not state["path"].startswith("data/state/audits/") for state in second["states"])

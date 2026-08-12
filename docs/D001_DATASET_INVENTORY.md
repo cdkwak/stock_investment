@@ -53,6 +53,11 @@ State JSON is summarized using a fixed allowlist (`dataset`, `status`, task id,
 and counts of operational collections). Error text, credentials, request
 parameters, tokens, and arbitrary values are never emitted.
 
+Generated reports below `data/state/audits/` are excluded from operational
+state discovery. This prevents a saved inventory JSON from ingesting its own
+previous SHA-256 on the next run, so repeated runs over unchanged datasets and
+operational state remain byte-for-byte deterministic.
+
 ## Output and mutation
 
 Default operation prints deterministic JSON and concise Markdown to stdout and
