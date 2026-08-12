@@ -18,7 +18,7 @@ official continuous coverage.
 | Korean source verification | authenticated pykrx 1.2.8 | bounded manual smoke passed; 5/5 public probes, 12 raw HTTP requests | automation remains dataset-specific; only the reviewed A007 single-stream collector is currently enabled |
 | Korean equity price/cap/universe | marcap + KRX Open API + FSC data.go.kr | complete, 1995-05-02..2026-08-07 | daily incremental |
 | Korean Open API history | KRX Open API | complete, 2010-01-04..2019-12-30 | daily ledger/checkpoint retained |
-| Korean short selling | authenticated pykrx 1.2.8 | RUNNING; trading history has 6,974/9,174 completed scopes (3,487/4,587 dates), 7,233,722 rows through 2022-02-09; 75% milestone validated and next bounded batch active | preserve the single authenticated stream; then collect balance and investor scopes sequentially |
+| Korean short selling | authenticated pykrx 1.2.8 | Trading DATA_COMPLETE; 9,174/9,174 scopes (4,587/4,587 dates), 10,161,884 rows, 2008-01-02..2026-08-07; PK/null/infinity/hash reconciliation passed | retain the single authenticated stream and collect balance, then investor, in audited bounded batches |
 | `global_index_price_daily` | Yahoo chart API | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 49,051 rows through 2026-08-07 | canonical read, PK, OHLC, null, infinity, and gap audit pass; retained collection has no lossless Landing or call ledger |
 | `fred_treasury_yield_daily` | FRED | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 16,853 weekdays, 1962-01-02..2026-08-06 | source-series nulls are preserved; retained state is only a coarse completion marker |
 | `fred_usd_fx_daily` | FRED | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 14,500 weekdays, 1971-01-04..2026-07-31 | source-series nulls are preserved; retained state is only a coarse completion marker |
@@ -191,9 +191,15 @@ layer does not shift either date.
   bounded single-stream collector passed D and independent offline review.
   Recovery requires immutable HTTP-200 provenance plus an exact same-run
   ledger/scope correlation and Normalized row reconciliation; non-200, forged,
-  missing, or path-escaping evidence fails closed. A007 has completed 6,974 trading
-  scopes and 7,233,722 production rows through 2022-02-09, with the next bounded
-  batch active. V-KOSPI 200 is PILOT_READY through
+  missing, or path-escaping evidence fails closed. A007 Trading is DATA_COMPLETE:
+  9,174 unique scopes across 4,587 dates produced 10,161,884 rows for
+  2008-01-02..2026-08-07. All 9,174 Landing hashes reconcile with the checkpoint;
+  PK duplicates, PK nulls, and numeric infinities are zero. The retained ledgers
+  contain exactly 9,174 successful business responses, 255 authentication
+  responses, no non-200 response, no duplicate completed scope, and one local
+  pre-response socket error from the interrupted Windows session. Balance and
+  investor remain the sequential A007 follow-on phases documented in
+  `runbooks/A007_FOLLOWON_BALANCE_INVESTOR.md`. V-KOSPI 200 is PILOT_READY through
   an official authenticated KRX daily-index candidate, but exact source index
   identity, returned fields, historical start, and revision/cutoff policy still
   require the post-A007 bounded pilot documented in `VKOSPI200_SOURCE_AUDIT.md`.
