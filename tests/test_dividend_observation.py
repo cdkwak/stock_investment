@@ -216,7 +216,11 @@ def test_append_commit_failure_rolls_back_dataset_and_state(tmp_path: Path, monk
 
     def fail_installing_staged_state(path: Path, target: Path):
         target = Path(target)
-        if path.parent == state_path.parent and path.name.startswith(".state.json.") and target == state_path:
+        if (
+            path.parent == state_path.parent
+            and ".dividend-append.stage." in path.name
+            and target == state_path
+        ):
             raise OSError("injected state commit failure")
         return original_replace(path, target)
 
@@ -284,6 +288,242 @@ def test_existing_v2_state_detects_normalized_artifact_tampering(tmp_path: Path)
         )
     assert state_path.read_bytes() == state_before
     assert parquet.read_bytes() == data_before
+
+
+@pytest.mark.parametrize("rename_boundary", range(1, 7))
+def test_startup_recovery_models_hard_crash_after_each_rename_boundary(
+    tmp_path: Path, monkeypatch, rename_boundary: int,
+):
+    first = _landing(tmp_path / "first.json")
+    second = _landing(tmp_path / "second.json", snapshot_date="20260809")
+    output_root = tmp_path / "normalized"
+    state_path = tmp_path / "state.json"
+    result = build_dividend_observation(
+        landing_path=first, output_root=output_root, state_path=state_path,
+    )
+    old_hash = observation_module._dataset_sha256(
+        result.output_root,
+        lambda value: validate_data_v1(
+            value, KR_EQUITY_DIVIDEND_SOURCE_OBSERVATION, allow_empty=False
+        ),
+    )
+    original_replace = Path.replace
+    original_recover = observation_module.recover_dividend_observation_transaction
+    counter = {"value": 0}
+
+    class HardCrash(BaseException):
+        pass
+
+    def crash_after_boundary(path: Path, target: Path):
+        target = Path(target)
+        result_path = original_replace(path, target)
+        if ".dividend-append." in path.name or ".dividend-append." in target.name:
+            counter["value"] += 1
+            if counter["value"] == rename_boundary:
+                raise HardCrash(f"hard crash boundary {rename_boundary}")
+        return result_path
+
+    monkeypatch.setattr(Path, "replace", crash_after_boundary)
+    recovery_calls = {"value": 0}
+
+    def terminate_in_exception_recovery(**kwargs):
+        recovery_calls["value"] += 1
+        if recovery_calls["value"] == 1:
+            return original_recover(**kwargs)
+        raise HardCrash("process terminated")
+
+    monkeypatch.setattr(
+        observation_module, "recover_dividend_observation_transaction",
+        terminate_in_exception_recovery,
+    )
+    with pytest.raises(DividendObservationError, match="durable transaction recovery"):
+        build_dividend_observation(
+            landing_path=second, output_root=output_root, state_path=state_path,
+        )
+    assert counter["value"] == rename_boundary
+
+    monkeypatch.setattr(Path, "replace", original_replace)
+    monkeypatch.setattr(
+        observation_module, "recover_dividend_observation_transaction", original_recover
+    )
+    validator = lambda value: validate_data_v1(
+        value, KR_EQUITY_DIVIDEND_SOURCE_OBSERVATION, allow_empty=False
+    )
+    action = original_recover(
+        dataset_root=result.output_root, state_path=state_path, validator=validator
+    )
+    restored = read_dataset(result.output_root, KR_EQUITY_DIVIDEND_SOURCE_OBSERVATION, validator)
+    if rename_boundary <= 4:
+        assert action == "RESTORED_ORIGINAL_ARTIFACT"
+        assert len(restored) == 3
+        assert observation_module._frame_sha256(restored) == old_hash
+    else:
+        assert action == "FINALIZED_NEW_ARTIFACT"
+        assert len(restored) == 6
+    assert not observation_module._transaction_marker(result.output_root).exists()
+    assert observation_module._transaction_orphans(result.output_root, state_path) == set()
+
+
+@pytest.mark.parametrize("interrupt", [KeyboardInterrupt, SystemExit])
+def test_base_exception_during_promotion_recovers_before_propagating(
+    tmp_path: Path, monkeypatch, interrupt,
+):
+    first = _landing(tmp_path / "first.json")
+    second = _landing(tmp_path / "second.json", snapshot_date="20260809")
+    output_root = tmp_path / "normalized"
+    state_path = tmp_path / "state.json"
+    result = build_dividend_observation(
+        landing_path=first, output_root=output_root, state_path=state_path,
+    )
+    before_state = state_path.read_bytes()
+    before_data = {
+        path.relative_to(result.output_root): path.read_bytes()
+        for path in result.output_root.rglob("data.parquet")
+    }
+    original_replace = Path.replace
+
+    def interrupt_state_promotion(path: Path, target: Path):
+        if ".dividend-append.stage." in path.name and Path(target) == state_path:
+            raise interrupt("injected interruption")
+        return original_replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", interrupt_state_promotion)
+    with pytest.raises(interrupt):
+        build_dividend_observation(
+            landing_path=second, output_root=output_root, state_path=state_path,
+        )
+    assert state_path.read_bytes() == before_state
+    assert {
+        path.relative_to(result.output_root): path.read_bytes()
+        for path in result.output_root.rglob("data.parquet")
+    } == before_data
+    assert observation_module._transaction_orphans(result.output_root, state_path) == set()
+
+
+def test_cleanup_interruption_is_finalized_from_journal(tmp_path: Path, monkeypatch):
+    first = _landing(tmp_path / "first.json")
+    second = _landing(tmp_path / "second.json", snapshot_date="20260809")
+    output_root = tmp_path / "normalized"
+    state_path = tmp_path / "state.json"
+    result = build_dividend_observation(
+        landing_path=first, output_root=output_root, state_path=state_path,
+    )
+    original_remove = observation_module._remove_path
+    original_recover = observation_module.recover_dividend_observation_transaction
+    calls = {"value": 0}
+
+    class HardCrash(BaseException):
+        pass
+
+    def crash_after_first_cleanup(path: Path):
+        original_remove(path)
+        calls["value"] += 1
+        if calls["value"] == 1:
+            raise HardCrash("cleanup power loss")
+
+    monkeypatch.setattr(observation_module, "_remove_path", crash_after_first_cleanup)
+    recovery_calls = {"value": 0}
+
+    def terminate_in_exception_recovery(**kwargs):
+        recovery_calls["value"] += 1
+        if recovery_calls["value"] == 1:
+            return original_recover(**kwargs)
+        raise HardCrash("process terminated")
+
+    monkeypatch.setattr(
+        observation_module, "recover_dividend_observation_transaction",
+        terminate_in_exception_recovery,
+    )
+    with pytest.raises(DividendObservationError, match="durable transaction recovery"):
+        build_dividend_observation(
+            landing_path=second, output_root=output_root, state_path=state_path,
+        )
+    monkeypatch.setattr(observation_module, "_remove_path", original_remove)
+    monkeypatch.setattr(
+        observation_module, "recover_dividend_observation_transaction", original_recover
+    )
+    validator = lambda value: validate_data_v1(
+        value, KR_EQUITY_DIVIDEND_SOURCE_OBSERVATION, allow_empty=False
+    )
+    assert original_recover(
+        dataset_root=result.output_root, state_path=state_path, validator=validator
+    ) == "FINALIZED_NEW_ARTIFACT"
+    assert len(read_dataset(
+        result.output_root, KR_EQUITY_DIVIDEND_SOURCE_OBSERVATION, validator
+    )) == 6
+    assert observation_module._transaction_orphans(result.output_root, state_path) == set()
+
+
+def test_rollback_failure_retains_journal_for_later_recovery(tmp_path: Path, monkeypatch):
+    first = _landing(tmp_path / "first.json")
+    second = _landing(tmp_path / "second.json", snapshot_date="20260809")
+    output_root = tmp_path / "normalized"
+    state_path = tmp_path / "state.json"
+    result = build_dividend_observation(
+        landing_path=first, output_root=output_root, state_path=state_path,
+    )
+    original_replace = Path.replace
+
+    def fail_promotion_and_rollback(path: Path, target: Path):
+        target = Path(target)
+        if ".dividend-append.stage." in path.name and target == state_path:
+            raise OSError("promotion failure")
+        if ".dividend-append.backup." in path.name and target == result.output_root:
+            raise OSError("rollback failure")
+        return original_replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", fail_promotion_and_rollback)
+    with pytest.raises(DividendObservationError, match="recovery did not complete"):
+        build_dividend_observation(
+            landing_path=second, output_root=output_root, state_path=state_path,
+        )
+    assert observation_module._transaction_marker(result.output_root).is_file()
+    monkeypatch.setattr(Path, "replace", original_replace)
+    validator = lambda value: validate_data_v1(
+        value, KR_EQUITY_DIVIDEND_SOURCE_OBSERVATION, allow_empty=False
+    )
+    assert observation_module.recover_dividend_observation_transaction(
+        dataset_root=result.output_root, state_path=state_path, validator=validator
+    ) == "RESTORED_ORIGINAL_ARTIFACT"
+    assert len(read_dataset(
+        result.output_root, KR_EQUITY_DIVIDEND_SOURCE_OBSERVATION, validator
+    )) == 3
+
+
+def test_orphan_transaction_path_without_marker_is_refused(tmp_path: Path):
+    output_root = tmp_path / "normalized"
+    dataset_root = output_root / KR_EQUITY_DIVIDEND_SOURCE_OBSERVATION.name
+    state_path = tmp_path / "state.json"
+    output_root.mkdir()
+    orphan = output_root / (
+        f".{KR_EQUITY_DIVIDEND_SOURCE_OBSERVATION.name}.dividend-append.stage."
+        + "a" * 32
+    )
+    orphan.mkdir()
+    validator = lambda value: validate_data_v1(
+        value, KR_EQUITY_DIVIDEND_SOURCE_OBSERVATION, allow_empty=False
+    )
+    with pytest.raises(DividendObservationError, match="orphan"):
+        observation_module.recover_dividend_observation_transaction(
+            dataset_root=dataset_root, state_path=state_path, validator=validator
+        )
+
+
+def test_multiple_temporary_transaction_markers_are_refused(tmp_path: Path):
+    output_root = tmp_path / "normalized"
+    dataset_root = output_root / KR_EQUITY_DIVIDEND_SOURCE_OBSERVATION.name
+    state_path = tmp_path / "state.json"
+    output_root.mkdir()
+    marker = observation_module._transaction_marker(dataset_root)
+    for suffix in ("a", "b"):
+        marker.with_name(f"{marker.name}.{suffix * 32}.tmp").write_text("{}", encoding="utf-8")
+    validator = lambda value: validate_data_v1(
+        value, KR_EQUITY_DIVIDEND_SOURCE_OBSERVATION, allow_empty=False
+    )
+    with pytest.raises(DividendObservationError, match="multiple orphan"):
+        observation_module.recover_dividend_observation_transaction(
+            dataset_root=dataset_root, state_path=state_path, validator=validator
+        )
 
 
 def test_manual_entrypoint_import_is_side_effect_free_and_explicit_call_builds(

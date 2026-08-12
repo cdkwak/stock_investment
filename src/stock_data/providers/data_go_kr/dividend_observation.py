@@ -17,6 +17,7 @@ from pathlib import Path
 import shutil
 import tempfile
 from typing import Any
+from uuid import uuid4
 
 import pandas as pd
 
@@ -157,17 +158,34 @@ def _write_json_atomic(path: Path, payload: dict[str, object]) -> None:
     try:
         with tempfile.NamedTemporaryFile(
             mode="w", encoding="utf-8", suffix=".json.tmp", prefix=path.stem + "_",
-            dir=path.parent, delete=False,
+            dir=path.parent, delete=False, newline="\n",
         ) as handle:
             json.dump(payload, handle, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
             handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
             temporary = Path(handle.name)
         if json.loads(temporary.read_text(encoding="utf-8")) != payload:
             raise RuntimeError("state JSON read-back differs")
         os.replace(temporary, path)
+        _fsync_directory(path.parent)
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
+
+
+def _fsync_directory(path: Path) -> None:
+    """Best-effort directory durability (unsupported by standard Windows handles)."""
+    try:
+        descriptor = os.open(path, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(descriptor)
+    except OSError:
+        pass
+    finally:
+        os.close(descriptor)
 
 
 def _json_value(value: object) -> object:
@@ -357,54 +375,429 @@ def _state_payload(manifests: list[dict[str, object]], row_count: int) -> dict[s
     }
 
 
+_TRANSACTION_PHASES = {
+    "PREPARING", "STAGED", "PROMOTION_PENDING", "DATASET_BACKED_UP",
+    "DATASET_PROMOTED", "STATE_BACKED_UP", "STATE_PROMOTED", "VERIFIED",
+    "DATASET_BACKUP_RETIRED", "BACKUPS_RETIRED", "CLEANUP_FINISHED",
+    "RECOVERED_ORIGINAL",
+}
+_FINAL_TRANSACTION_PHASES = {
+    "VERIFIED", "DATASET_BACKUP_RETIRED", "BACKUPS_RETIRED", "CLEANUP_FINISHED",
+}
+
+
+def _transaction_marker(dataset_root: Path) -> Path:
+    return dataset_root.parent / (
+        f".{KR_EQUITY_DIVIDEND_SOURCE_OBSERVATION.name}.dividend-append.transaction.json"
+    )
+
+
+def _transaction_paths(
+    dataset_root: Path, state_path: Path, payload: dict[str, object],
+) -> dict[str, Path]:
+    transaction_id = str(payload.get("transaction_id", ""))
+    dataset = KR_EQUITY_DIVIDEND_SOURCE_OBSERVATION.name
+    names = {
+        "dataset_stage": f".{dataset}.dividend-append.stage.{transaction_id}",
+        "dataset_backup": f".{dataset}.dividend-append.backup.{transaction_id}",
+        "dataset_retired": f".{dataset}.dividend-append.retired.{transaction_id}",
+        "state_stage": f".{state_path.name}.dividend-append.stage.{transaction_id}",
+        "state_backup": f".{state_path.name}.dividend-append.backup.{transaction_id}",
+        "state_retired": f".{state_path.name}.dividend-append.retired.{transaction_id}",
+    }
+    had_dataset = payload.get("had_dataset")
+    old_dataset_hash = payload.get("old_dataset_sha256")
+    old_state_hash = payload.get("old_state_sha256")
+    new_dataset_hash = payload.get("new_dataset_sha256")
+    new_state_hash = payload.get("new_state_sha256")
+
+    def valid_hash(value: object) -> bool:
+        return (
+            isinstance(value, str) and len(value) == 64
+            and all(character in "0123456789abcdef" for character in value)
+        )
+
+    if (
+        len(transaction_id) != 32
+        or any(character not in "0123456789abcdef" for character in transaction_id)
+        or payload.get("dataset") != dataset
+        or payload.get("dataset_root_name") != dataset_root.name
+        or payload.get("state_name") != state_path.name
+        or payload.get("dataset_parent_resolved") != str(dataset_root.parent.resolve())
+        or payload.get("state_parent_resolved") != str(state_path.parent.resolve())
+        or payload.get("phase") not in _TRANSACTION_PHASES
+        or any(payload.get(key + "_name") != value for key, value in names.items())
+        or not isinstance(had_dataset, bool)
+        or not isinstance(payload.get("had_state"), bool)
+        or had_dataset != payload.get("had_state")
+        or (had_dataset and (not valid_hash(old_dataset_hash) or not valid_hash(old_state_hash)))
+        or (not had_dataset and (old_dataset_hash is not None or old_state_hash is not None))
+        or not valid_hash(new_dataset_hash)
+        or not valid_hash(new_state_hash)
+    ):
+        raise DividendObservationError("dividend append transaction marker is invalid or unsafe")
+    return {
+        "dataset_stage": dataset_root.parent / names["dataset_stage"],
+        "dataset_backup": dataset_root.parent / names["dataset_backup"],
+        "dataset_retired": dataset_root.parent / names["dataset_retired"],
+        "state_stage": state_path.parent / names["state_stage"],
+        "state_backup": state_path.parent / names["state_backup"],
+        "state_retired": state_path.parent / names["state_retired"],
+    }
+
+
+def _transaction_orphans(dataset_root: Path, state_path: Path) -> set[Path]:
+    dataset = KR_EQUITY_DIVIDEND_SOURCE_OBSERVATION.name
+    result = set(dataset_root.parent.glob(f".{dataset}.dividend-append.stage.*"))
+    result.update(dataset_root.parent.glob(f".{dataset}.dividend-append.backup.*"))
+    result.update(dataset_root.parent.glob(f".{dataset}.dividend-append.retired.*"))
+    result.update(state_path.parent.glob(f".{state_path.name}.dividend-append.stage.*"))
+    result.update(state_path.parent.glob(f".{state_path.name}.dividend-append.backup.*"))
+    result.update(state_path.parent.glob(f".{state_path.name}.dividend-append.retired.*"))
+    result.update(dataset_root.parent.glob(f".{dataset}.dividend-append.transaction.json.*.tmp"))
+    return result
+
+
+def _read_marker_payload(path: Path) -> dict[str, object]:
+    try:
+        raw = path.read_bytes()
+    except OSError as error:
+        raise DividendObservationError("dividend append transaction marker is unreadable") from error
+    complete_lines = raw.splitlines(keepends=True)
+    payloads: list[dict[str, object]] = []
+    try:
+        for line in complete_lines:
+            if not line.endswith((b"\n", b"\r")):
+                break
+            value = json.loads(line.decode("utf-8"))
+            if not isinstance(value, dict):
+                raise ValueError("journal record is not an object")
+            payloads.append(value)
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
+        raise DividendObservationError("dividend append transaction marker is unreadable") from error
+    if not payloads:
+        raise DividendObservationError("dividend append transaction marker is invalid")
+    return payloads[-1]
+
+
+def _write_transaction_marker(path: Path, payload: dict[str, object]) -> None:
+    with path.open("ab") as stream:
+        stream.write(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+        stream.write(b"\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
+def _create_transaction_marker(path: Path, payload: dict[str, object]) -> None:
+    """Create the initial journal exclusively to prevent marker replacement races."""
+    try:
+        with path.open("xb") as stream:
+            stream.write(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+            stream.write(b"\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        _fsync_directory(path.parent)
+    except FileExistsError as error:
+        raise DividendObservationError("another dividend append transaction owns the marker") from error
+
+
+def _set_transaction_phase(
+    marker: Path, payload: dict[str, object], phase: str,
+) -> None:
+    updated = {**payload, "phase": phase}
+    _write_transaction_marker(marker, updated)
+    payload.clear()
+    payload.update(updated)
+
+
+def _file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _dataset_sha256(dataset_root: Path, validator) -> str:
+    restored = read_dataset(
+        dataset_root, KR_EQUITY_DIVIDEND_SOURCE_OBSERVATION, validator
+    )
+    return _frame_sha256(restored)
+
+
+def _remove_path(path: Path) -> None:
+    if path.is_dir():
+        shutil.rmtree(path)
+    else:
+        path.unlink(missing_ok=True)
+
+
+def _rollback_component(
+    *, canonical: Path, stage: Path, backup: Path, retired: Path,
+    had_original: bool, is_directory: bool,
+) -> None:
+    if retired.exists():
+        raise DividendObservationError("retired backup exists before transaction verification")
+    canonical_exists = canonical.is_dir() if is_directory else canonical.is_file()
+    stage_exists = stage.is_dir() if is_directory else stage.is_file()
+    backup_exists = backup.is_dir() if is_directory else backup.is_file()
+    for path in (canonical, stage, backup):
+        if path.exists() and (
+            (is_directory and not path.is_dir()) or (not is_directory and not path.is_file())
+        ):
+            raise DividendObservationError("transaction component has an unsafe path type")
+
+    if backup_exists:
+        if canonical_exists:
+            if stage_exists:
+                raise DividendObservationError("transaction rollback paths are ambiguous")
+            canonical.replace(stage)
+            _fsync_directory(canonical.parent)
+            stage_exists = True
+        backup.replace(canonical)
+        _fsync_directory(canonical.parent)
+        canonical_exists = True
+    elif stage_exists:
+        if had_original and not canonical_exists:
+            raise DividendObservationError("original transaction component is missing")
+        if not had_original and canonical_exists:
+            raise DividendObservationError("new transaction component identity is ambiguous")
+    elif not had_original and canonical_exists:
+        canonical.replace(stage)
+        _fsync_directory(canonical.parent)
+        stage_exists = True
+        canonical_exists = False
+    elif had_original and not canonical_exists:
+        raise DividendObservationError("original transaction component is missing")
+
+    if stage_exists:
+        _remove_path(stage)
+        _fsync_directory(stage.parent)
+
+
+def _verify_transaction_artifacts(
+    *, dataset_root: Path, state_path: Path, payload: dict[str, object],
+    validator, expected: str,
+) -> None:
+    dataset_hash = payload.get(f"{expected}_dataset_sha256")
+    state_hash = payload.get(f"{expected}_state_sha256")
+    if dataset_hash is None and state_hash is None:
+        if dataset_root.exists() or state_path.exists():
+            raise DividendObservationError(f"{expected} transaction artifacts should be absent")
+        return
+    if not dataset_root.is_dir() or not state_path.is_file():
+        raise DividendObservationError(f"{expected} transaction artifact pair is incomplete")
+    if _dataset_sha256(dataset_root, validator) != dataset_hash:
+        raise DividendObservationError(f"{expected} transaction dataset fingerprint differs")
+    if _file_sha256(state_path) != state_hash:
+        raise DividendObservationError(f"{expected} transaction state fingerprint differs")
+
+
+def recover_dividend_observation_transaction(
+    *, dataset_root: Path, state_path: Path, validator,
+) -> str:
+    """Recover a journaled append or refuse any state that is not unambiguous."""
+    marker = _transaction_marker(dataset_root)
+    marker_temporaries = sorted(
+        dataset_root.parent.glob(f"{marker.name}.*.tmp")
+    )
+    if not marker.exists() and marker_temporaries:
+        if len(marker_temporaries) != 1:
+            raise DividendObservationError("multiple orphan transaction markers exist")
+        candidate = marker_temporaries[0]
+        other_orphans = _transaction_orphans(dataset_root, state_path) - {candidate}
+        if not other_orphans:
+            candidate.unlink()
+            _fsync_directory(candidate.parent)
+            return "DISCARDED_UNINSTALLED_MARKER"
+        payload = _read_marker_payload(candidate)
+        _transaction_paths(dataset_root, state_path, payload)
+        candidate.replace(marker)
+        _fsync_directory(marker.parent)
+        marker_temporaries = []
+    orphans = _transaction_orphans(dataset_root, state_path)
+    if not marker.exists():
+        if orphans:
+            raise DividendObservationError("orphan dividend append paths exist without a marker")
+        return "NONE"
+    if marker_temporaries:
+        if len(marker_temporaries) != 1:
+            raise DividendObservationError("ambiguous temporary transaction markers exist")
+        marker_temporaries[0].unlink()
+        _fsync_directory(marker.parent)
+    try:
+        payload = _read_marker_payload(marker)
+    except DividendObservationError:
+        non_marker_orphans = _transaction_orphans(dataset_root, state_path)
+        pair_is_intact = (
+            (dataset_root.is_dir() and state_path.is_file())
+            or (not dataset_root.exists() and not state_path.exists())
+        )
+        if non_marker_orphans or not pair_is_intact:
+            raise
+        marker.unlink()
+        _fsync_directory(marker.parent)
+        return "DISCARDED_INCOMPLETE_INITIAL_MARKER"
+    paths = _transaction_paths(dataset_root, state_path, payload)
+    unexpected = orphans - set(paths.values())
+    if unexpected:
+        raise DividendObservationError("ambiguous orphan dividend append paths exist")
+    for key in ("dataset_stage", "dataset_backup", "dataset_retired"):
+        if paths[key].exists() and not paths[key].is_dir():
+            raise DividendObservationError("dataset transaction path is not a directory")
+    for key in ("state_stage", "state_backup", "state_retired"):
+        if paths[key].exists() and not paths[key].is_file():
+            raise DividendObservationError("state transaction path is not a file")
+
+    phase = str(payload["phase"])
+    if phase in _FINAL_TRANSACTION_PHASES:
+        if paths["dataset_stage"].exists() or paths["state_stage"].exists():
+            raise DividendObservationError("verified transaction still has staged artifacts")
+        _verify_transaction_artifacts(
+            dataset_root=dataset_root, state_path=state_path, payload=payload,
+            validator=validator, expected="new",
+        )
+        for original, retired in (
+            (paths["dataset_backup"], paths["dataset_retired"]),
+            (paths["state_backup"], paths["state_retired"]),
+        ):
+            if original.exists() and retired.exists():
+                raise DividendObservationError("duplicate backup and retired paths exist")
+            if original.exists():
+                original.replace(retired)
+                _fsync_directory(original.parent)
+        _set_transaction_phase(marker, payload, "BACKUPS_RETIRED")
+        for retired in (paths["dataset_retired"], paths["state_retired"]):
+            _remove_path(retired)
+            _fsync_directory(retired.parent)
+        _set_transaction_phase(marker, payload, "CLEANUP_FINISHED")
+        marker.unlink()
+        _fsync_directory(marker.parent)
+        return "FINALIZED_NEW_ARTIFACT"
+
+    try:
+        _rollback_component(
+            canonical=dataset_root, stage=paths["dataset_stage"],
+            backup=paths["dataset_backup"], retired=paths["dataset_retired"],
+            had_original=bool(payload["had_dataset"]), is_directory=True,
+        )
+        _rollback_component(
+            canonical=state_path, stage=paths["state_stage"],
+            backup=paths["state_backup"], retired=paths["state_retired"],
+            had_original=bool(payload["had_state"]), is_directory=False,
+        )
+        _verify_transaction_artifacts(
+            dataset_root=dataset_root, state_path=state_path, payload=payload,
+            validator=validator, expected="old",
+        )
+        _set_transaction_phase(marker, payload, "RECOVERED_ORIGINAL")
+        marker.unlink()
+        _fsync_directory(marker.parent)
+        return "RESTORED_ORIGINAL_ARTIFACT"
+    except DividendObservationError:
+        raise
+    except BaseException as error:
+        raise DividendObservationError(
+            "transaction recovery failed; journal and recoverable paths were retained"
+        ) from error
+
+
 def _commit_dataset_and_state(
     frame: pd.DataFrame, dataset_root: Path, state_path: Path,
     state: dict[str, object], validator,
 ) -> None:
-    """Stage and commit the complete dataset/state pair, rolling back on failure."""
+    """Journal, stage and durably commit the complete dataset/state pair."""
     dataset_root.parent.mkdir(parents=True, exist_ok=True)
     state_path.parent.mkdir(parents=True, exist_ok=True)
-    transaction_root = Path(tempfile.mkdtemp(
-        prefix=f".{dataset_root.name}_append_", dir=dataset_root.parent
-    ))
-    staged_dataset = transaction_root / "dataset"
-    staged_state = state_path.parent / f".{state_path.name}.{transaction_root.name}.tmp"
-    dataset_backup = transaction_root / "dataset.backup"
-    state_backup = transaction_root / "state.backup"
     old_dataset = dataset_root.exists()
     old_state = state_path.exists()
-    installed_dataset = False
-    installed_state = False
+    if old_dataset != old_state:
+        raise DividendObservationError("existing dataset/state pair is incomplete")
+    transaction_id = uuid4().hex
+    dataset = KR_EQUITY_DIVIDEND_SOURCE_OBSERVATION.name
+    marker = _transaction_marker(dataset_root)
+    names = {
+        "dataset_stage_name": f".{dataset}.dividend-append.stage.{transaction_id}",
+        "dataset_backup_name": f".{dataset}.dividend-append.backup.{transaction_id}",
+        "dataset_retired_name": f".{dataset}.dividend-append.retired.{transaction_id}",
+        "state_stage_name": f".{state_path.name}.dividend-append.stage.{transaction_id}",
+        "state_backup_name": f".{state_path.name}.dividend-append.backup.{transaction_id}",
+        "state_retired_name": f".{state_path.name}.dividend-append.retired.{transaction_id}",
+    }
+    payload: dict[str, object] = {
+        "transaction_id": transaction_id,
+        "dataset": dataset,
+        "dataset_root_name": dataset_root.name,
+        "state_name": state_path.name,
+        "dataset_parent_resolved": str(dataset_root.parent.resolve()),
+        "state_parent_resolved": str(state_path.parent.resolve()),
+        "phase": "PREPARING",
+        "had_dataset": old_dataset,
+        "had_state": old_state,
+        "old_dataset_sha256": _dataset_sha256(dataset_root, validator) if old_dataset else None,
+        "old_state_sha256": _file_sha256(state_path) if old_state else None,
+        "new_dataset_sha256": _frame_sha256(frame),
+        "new_state_sha256": hashlib.sha256(
+            (json.dumps(state, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+        ).hexdigest(),
+        **names,
+    }
+    paths = _transaction_paths(dataset_root, state_path, payload)
+    _create_transaction_marker(marker, payload)
     try:
-        write_dataset_atomic(frame, staged_dataset, KR_EQUITY_DIVIDEND_SOURCE_OBSERVATION, validator)
-        restored = read_dataset(staged_dataset, KR_EQUITY_DIVIDEND_SOURCE_OBSERVATION, validator)
+        write_dataset_atomic(
+            frame, paths["dataset_stage"],
+            KR_EQUITY_DIVIDEND_SOURCE_OBSERVATION, validator,
+        )
+        restored = read_dataset(
+            paths["dataset_stage"], KR_EQUITY_DIVIDEND_SOURCE_OBSERVATION, validator
+        )
         if not restored.equals(frame):
             raise RuntimeError("staged observation Parquet differs from combined frame")
-        _write_json_atomic(staged_state, state)
-        if json.loads(staged_state.read_text(encoding="utf-8")) != state:
+        _write_json_atomic(paths["state_stage"], state)
+        if json.loads(paths["state_stage"].read_text(encoding="utf-8")) != state:
             raise RuntimeError("staged observation state differs")
-
+        _set_transaction_phase(marker, payload, "STAGED")
+        _set_transaction_phase(marker, payload, "PROMOTION_PENDING")
         if old_dataset:
-            dataset_root.replace(dataset_backup)
-        staged_dataset.replace(dataset_root)
-        installed_dataset = True
+            dataset_root.replace(paths["dataset_backup"])
+            _fsync_directory(dataset_root.parent)
+        _set_transaction_phase(marker, payload, "DATASET_BACKED_UP")
+        paths["dataset_stage"].replace(dataset_root)
+        _fsync_directory(dataset_root.parent)
+        _set_transaction_phase(marker, payload, "DATASET_PROMOTED")
         if old_state:
-            state_path.replace(state_backup)
-        staged_state.replace(state_path)
-        installed_state = True
-    except Exception:
-        if installed_state:
-            state_path.unlink(missing_ok=True)
-        if state_backup.exists():
-            state_backup.replace(state_path)
-        if installed_dataset and dataset_root.exists():
-            shutil.rmtree(dataset_root)
-        if dataset_backup.exists():
-            dataset_backup.replace(dataset_root)
+            state_path.replace(paths["state_backup"])
+            _fsync_directory(state_path.parent)
+        _set_transaction_phase(marker, payload, "STATE_BACKED_UP")
+        paths["state_stage"].replace(state_path)
+        _fsync_directory(state_path.parent)
+        _set_transaction_phase(marker, payload, "STATE_PROMOTED")
+        _verify_transaction_artifacts(
+            dataset_root=dataset_root, state_path=state_path, payload=payload,
+            validator=validator, expected="new",
+        )
+        _set_transaction_phase(marker, payload, "VERIFIED")
+        if paths["dataset_backup"].exists():
+            paths["dataset_backup"].replace(paths["dataset_retired"])
+            _fsync_directory(dataset_root.parent)
+        _set_transaction_phase(marker, payload, "DATASET_BACKUP_RETIRED")
+        if paths["state_backup"].exists():
+            paths["state_backup"].replace(paths["state_retired"])
+            _fsync_directory(state_path.parent)
+        _set_transaction_phase(marker, payload, "BACKUPS_RETIRED")
+        for retired in (paths["dataset_retired"], paths["state_retired"]):
+            _remove_path(retired)
+            _fsync_directory(retired.parent)
+        _set_transaction_phase(marker, payload, "CLEANUP_FINISHED")
+        marker.unlink()
+        _fsync_directory(marker.parent)
+    except BaseException:
+        try:
+            recover_dividend_observation_transaction(
+                dataset_root=dataset_root, state_path=state_path, validator=validator
+            )
+        except BaseException as recovery_error:
+            raise DividendObservationError(
+                "append failed and durable transaction recovery did not complete"
+            ) from recovery_error
         raise
-    finally:
-        staged_state.unlink(missing_ok=True)
-        shutil.rmtree(transaction_root, ignore_errors=True)
 
 
 def build_dividend_observation(
@@ -414,6 +807,9 @@ def build_dividend_observation(
     frame, metadata = load_dividend_observation(landing_path)
     dataset_root = output_root / KR_EQUITY_DIVIDEND_SOURCE_OBSERVATION.name
     validator = lambda value: validate_data_v1(value, KR_EQUITY_DIVIDEND_SOURCE_OBSERVATION, allow_empty=False)
+    recover_dividend_observation_transaction(
+        dataset_root=dataset_root, state_path=state_path, validator=validator
+    )
     incoming_manifest = _manifest_from_landing(frame, metadata)
     existing, manifests, is_v2 = _load_existing(dataset_root, state_path, validator)
     if existing is None:
