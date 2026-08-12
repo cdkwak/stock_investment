@@ -3,9 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 import hashlib
+import json
+import os
 from pathlib import Path
 import shutil
-import tempfile
 from typing import Callable
 from uuid import uuid4
 
@@ -87,6 +88,11 @@ MIGRATION_SPECS = {
             validate_investor_bridge,
         ),
     )
+}
+
+_TRANSACTION_PHASES = {
+    "PREPARING", "STAGED", "PROMOTION_PENDING", "ROOT_BACKED_UP", "PROMOTED", "VERIFIED",
+    "BACKUP_RETIRED", "RECOVERED_ORIGINAL",
 }
 
 
@@ -173,9 +179,174 @@ def _fingerprint(frame: pd.DataFrame, contract: DatasetContract) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _marker_path(root: Path, dataset: str) -> Path:
+    return root.parent / f".{dataset}.schema-migration.transaction.json"
+
+
+def _write_marker(path: Path, payload: dict[str, str]) -> None:
+    temporary = path.with_name(f"{path.name}.{uuid4().hex}.tmp")
+    try:
+        with temporary.open("xb") as stream:
+            stream.write(json.dumps(payload, indent=2, sort_keys=True).encode("utf-8"))
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _transaction_paths(
+    root: Path, dataset: str, payload: dict[str, object]
+) -> tuple[Path, Path, Path]:
+    transaction_id = str(payload.get("transaction_id", ""))
+    expected_stage = f".{dataset}.schema-migration.stage.{transaction_id}"
+    expected_backup = f".{dataset}.schema-migration.backup.{transaction_id}"
+    expected_retired = f".{dataset}.schema-migration.retired.{transaction_id}"
+    if (
+        len(transaction_id) != 32
+        or any(character not in "0123456789abcdef" for character in transaction_id)
+        or payload.get("dataset") != dataset
+        or payload.get("root_name") != root.name
+        or payload.get("stage_name") != expected_stage
+        or payload.get("backup_name") != expected_backup
+        or payload.get("retired_name") != expected_retired
+        or payload.get("phase") not in _TRANSACTION_PHASES
+        or payload.get("mode") not in {"dry-run", "apply"}
+    ):
+        raise SchemaMigrationError("transaction marker is invalid or unsafe")
+    return (
+        root.parent / expected_stage,
+        root.parent / expected_backup,
+        root.parent / expected_retired,
+    )
+
+
+def _transaction_orphans(root: Path, dataset: str) -> set[Path]:
+    parent = root.parent
+    result = set(parent.glob(f".{dataset}.schema-migration.stage.*"))
+    result.update(parent.glob(f".{dataset}.schema-migration.backup.*"))
+    result.update(parent.glob(f".{dataset}.schema-migration.retired.*"))
+    result.update(parent.glob(f".{dataset}.schema-migration.transaction.json.*.tmp"))
+    return result
+
+
+def recover_interrupted_transaction(*, project_root: Path, dataset: str) -> str:
+    if dataset not in MIGRATION_SPECS:
+        raise SchemaMigrationError(f"dataset is not allowlisted: {dataset}")
+    spec = MIGRATION_SPECS[dataset]
+    root = project_root.resolve() / spec.relative_root
+    marker = _marker_path(root, dataset)
+    orphans = _transaction_orphans(root, dataset)
+    if not marker.exists():
+        if orphans:
+            raise SchemaMigrationError("orphan schema-migration paths exist without a marker")
+        if not root.is_dir():
+            raise SchemaMigrationError(f"canonical dataset root is missing: {root}")
+        return "NONE"
+    try:
+        payload = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise SchemaMigrationError("transaction marker is unreadable") from error
+    if not isinstance(payload, dict):
+        raise SchemaMigrationError("transaction marker is invalid")
+    stage, backup, retired = _transaction_paths(root, dataset, payload)
+    unexpected = orphans - {stage, backup, retired}
+    if unexpected:
+        raise SchemaMigrationError("ambiguous orphan schema-migration paths exist")
+    for path in (stage, backup, retired):
+        if path.exists() and not path.is_dir():
+            raise SchemaMigrationError("transaction path is not a directory")
+
+    root_exists = root.is_dir()
+    stage_exists, backup_exists, retired_exists = (
+        stage.is_dir(), backup.is_dir(), retired.is_dir()
+    )
+    try:
+        if retired_exists:
+            if (
+                root_exists and not stage_exists and not backup_exists
+                and payload["phase"] in {"VERIFIED", "BACKUP_RETIRED"}
+            ):
+                shutil.rmtree(retired)
+                marker.unlink()
+                return "FINALIZED_VERIFIED_ROOT"
+            raise SchemaMigrationError("retired backup state is ambiguous")
+        if not root_exists and backup_exists:
+            backup.replace(root)
+            _set_phase(marker, payload, "RECOVERED_ORIGINAL")
+            if stage_exists:
+                shutil.rmtree(stage)
+            marker.unlink()
+            return "RESTORED_BACKUP"
+        if root_exists and stage_exists and not backup_exists:
+            shutil.rmtree(stage)
+            marker.unlink()
+            return "DISCARDED_UNPROMOTED_STAGE"
+        if root_exists and backup_exists and not stage_exists:
+            root.replace(stage)
+            backup.replace(root)
+            _set_phase(marker, payload, "RECOVERED_ORIGINAL")
+            shutil.rmtree(stage)
+            marker.unlink()
+            return "ROLLED_BACK_PROMOTED_ROOT"
+        if root_exists and not stage_exists and not backup_exists:
+            if payload["phase"] not in {
+                "PREPARING", "STAGED", "PROMOTION_PENDING", "VERIFIED",
+                "RECOVERED_ORIGINAL",
+            }:
+                raise SchemaMigrationError("transaction paths contradict marker phase")
+            marker.unlink()
+            return "CLEARED_MARKER"
+    except SchemaMigrationError:
+        raise
+    except Exception as error:
+        raise SchemaMigrationError(
+            "automatic transaction recovery failed; marker and recoverable paths were retained"
+        ) from error
+    raise SchemaMigrationError(
+        "ambiguous interrupted transaction; canonical root was not modified"
+    )
+
+
+def _begin_transaction(
+    root: Path, dataset: str, mode: str
+) -> tuple[Path, Path, Path, Path, dict[str, str]]:
+    transaction_id = uuid4().hex
+    stage = root.parent / f".{dataset}.schema-migration.stage.{transaction_id}"
+    backup = root.parent / f".{dataset}.schema-migration.backup.{transaction_id}"
+    retired = root.parent / f".{dataset}.schema-migration.retired.{transaction_id}"
+    marker = _marker_path(root, dataset)
+    payload = {
+        "transaction_id": transaction_id,
+        "dataset": dataset,
+        "root_name": root.name,
+        "stage_name": stage.name,
+        "backup_name": backup.name,
+        "retired_name": retired.name,
+        "mode": mode,
+        "phase": "PREPARING",
+    }
+    _write_marker(marker, payload)
+    try:
+        stage.mkdir()
+    except Exception:
+        marker.unlink(missing_ok=True)
+        raise
+    return stage, backup, retired, marker, payload
+
+
+def _set_phase(marker: Path, payload: dict[str, str], phase: str) -> None:
+    updated = {**payload, "phase": phase}
+    _write_marker(marker, updated)
+    payload.clear()
+    payload.update(updated)
+
+
 def inspect_dataset(root: Path, spec: MigrationSpec, *, require_schema: bool) -> dict[str, object]:
     contract = spec.contract
     _verify_disjoint_partition_contract(contract)
+    if not root.is_dir():
+        raise SchemaMigrationError(f"canonical dataset root is missing: {root}")
     unexpected_files = sorted(
         path.relative_to(root).as_posix()
         for path in root.rglob("*")
@@ -189,6 +360,15 @@ def inspect_dataset(root: Path, spec: MigrationSpec, *, require_schema: bool) ->
     if not paths:
         raise SchemaMigrationError(f"dataset has no Parquet files: {root}")
     expected_schema = contract_arrow_schema(contract)
+    for path in paths:
+        relative = path.relative_to(root).as_posix()
+        schema = pq.ParquetFile(path).schema_arrow
+        if tuple(schema.names) != contract.column_names:
+            raise SchemaMigrationError(
+                f"physical columns/order differ from contract before projection: {relative}"
+            )
+        if require_schema and not schema.equals(expected_schema, check_metadata=False):
+            raise SchemaMigrationError(f"physical schema differs from contract: {relative}")
     partitions = []
     total_rows = 0
     null_counts = {column.name: 0 for column in contract.columns}
@@ -197,9 +377,6 @@ def inspect_dataset(root: Path, spec: MigrationSpec, *, require_schema: bool) ->
     for path in paths:
         relative = path.relative_to(root).as_posix()
         partition_values = _partition_values(path, root, contract)
-        parquet = pq.ParquetFile(path)
-        if require_schema and not parquet.schema_arrow.equals(expected_schema, check_metadata=False):
-            raise SchemaMigrationError(f"physical schema differs from contract: {relative}")
         frame = restore_contract_dates(pd.read_parquet(path), contract)
         frame = frame[list(contract.column_names)].reset_index(drop=True)
         duplicate_rows = int(frame.duplicated(list(contract.primary_key)).sum())
@@ -268,18 +445,6 @@ def _rewrite_to_stage(source: Path, stage: Path, spec: MigrationSpec) -> None:
         pq.write_table(dataframe_to_contract_table(frame, contract), target)
 
 
-def _promote_root(root: Path, stage: Path) -> Path:
-    backup = root.with_name(f".{root.name}.schema-migration.backup.{uuid4().hex}")
-    root.replace(backup)
-    try:
-        stage.replace(root)
-    except Exception:
-        if not root.exists() and backup.exists():
-            backup.replace(root)
-        raise
-    return backup
-
-
 def run_schema_migration(
     *, project_root: Path, dataset: str, mode: str, confirmation: str | None = None
 ) -> dict[str, object]:
@@ -291,32 +456,53 @@ def run_schema_migration(
         raise SchemaMigrationError("apply requires exact dataset confirmation")
     spec = MIGRATION_SPECS[dataset]
     root = project_root.resolve() / spec.relative_root
+    startup_recovery = recover_interrupted_transaction(
+        project_root=project_root, dataset=dataset
+    )
     if mode == "verify":
         manifest = inspect_dataset(root, spec, require_schema=True)
-        return {"mode": mode, "status": "VERIFIED", "manifest": manifest}
+        return {
+            "mode": mode, "status": "VERIFIED", "startup_recovery": startup_recovery,
+            "manifest": manifest,
+        }
 
     pre = inspect_dataset(root, spec, require_schema=False)
-    stage = Path(tempfile.mkdtemp(prefix=f".{dataset}.schema-migration.stage.", dir=root.parent))
+    stage, backup, retired, marker, transaction = _begin_transaction(root, dataset, mode)
     try:
         _rewrite_to_stage(root, stage, spec)
         post = inspect_dataset(stage, spec, require_schema=True)
         if _comparable(pre) != _comparable(post):
             raise SchemaMigrationError("staged data differs from source manifest")
+        _set_phase(marker, transaction, "STAGED")
         if mode == "dry-run":
-            return {"mode": mode, "status": "DRY_RUN_PASS", "pre": pre, "post": post}
-        backup = _promote_root(root, stage)
-        try:
-            final = inspect_dataset(root, spec, require_schema=True)
-            if _comparable(post) != _comparable(final):
-                raise SchemaMigrationError("promoted data differs from staged manifest")
-        except Exception:
-            if root.exists():
-                root.replace(stage)
-            if backup.exists():
-                backup.replace(root)
-            raise
-        shutil.rmtree(backup)
-        return {"mode": mode, "status": "MIGRATED", "pre": pre, "post": final}
-    finally:
-        if stage.exists():
             shutil.rmtree(stage)
+            marker.unlink()
+            return {
+                "mode": mode, "status": "DRY_RUN_PASS", "startup_recovery": startup_recovery,
+                "pre": pre, "post": post,
+            }
+        _set_phase(marker, transaction, "PROMOTION_PENDING")
+        root.replace(backup)
+        _set_phase(marker, transaction, "ROOT_BACKED_UP")
+        stage.replace(root)
+        _set_phase(marker, transaction, "PROMOTED")
+        final = inspect_dataset(root, spec, require_schema=True)
+        if _comparable(post) != _comparable(final):
+            raise SchemaMigrationError("promoted data differs from staged manifest")
+        _set_phase(marker, transaction, "VERIFIED")
+        backup.replace(retired)
+        _set_phase(marker, transaction, "BACKUP_RETIRED")
+        shutil.rmtree(retired)
+        marker.unlink()
+        return {
+            "mode": mode, "status": "MIGRATED", "startup_recovery": startup_recovery,
+            "pre": pre, "post": final,
+        }
+    except Exception:
+        try:
+            recover_interrupted_transaction(project_root=project_root, dataset=dataset)
+        except Exception as recovery_error:
+            raise SchemaMigrationError(
+                "migration failed and automatic recovery did not complete"
+            ) from recovery_error
+        raise
