@@ -17,6 +17,7 @@ from stock_data.audit.a007_short_selling import (
 )
 from stock_data.pipelines.short_selling_backfill import (
     ConservativeThrottle,
+    MINIMUM_SOURCE_DATES,
     RawResponse,
     plan_scopes,
     run_short_selling_batch,
@@ -61,6 +62,30 @@ class _Client:
         return RawResponse(200, body, "application/json", self.raw_count)
 
 
+class _GeneratedClient:
+    def __init__(self, ledger, body_factory):
+        self.ledger = ledger
+        self.body_factory = body_factory
+        self.raw_count = 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return None
+
+    def fetch(self, scope):
+        self.raw_count += 1
+        body = self.body_factory(scope)
+        self.ledger.append(
+            "HTTP_RESPONSE", raw_sequence=self.raw_count, method="POST",
+            url="https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd",
+            status_code=200, elapsed_ms=1, response_bytes=len(body),
+            authentication=False, response_sha256=hashlib.sha256(body).hexdigest(),
+        )
+        return RawResponse(200, body, "application/json", self.raw_count)
+
+
 def _fixture(tmp_path):
     for market in ("KOSPI", "KOSDAQ"):
         canonical = (
@@ -80,17 +105,82 @@ def _fixture(tmp_path):
     )
 
 
+def _balance_body(scope) -> bytes:
+    symbol = "005930" if scope.market == "KOSPI" else "035720"
+    return json.dumps({"OutBlock_1": [{
+        "ISU_CD": symbol, "ISU_ABBRV": "name", "BAL_QTY": "3",
+        "LIST_SHRS": "30", "BAL_AMT": "300", "MKTCAP": "3000", "BAL_RTO": "10",
+    }]}, separators=(",", ":")).encode()
+
+
+def _investor_body_factory(days):
+    def body(scope):
+        start = date.fromisoformat(
+            f"{scope.start_date[:4]}-{scope.start_date[4:6]}-{scope.start_date[6:]}"
+        )
+        end = date.fromisoformat(
+            f"{scope.end_date[:4]}-{scope.end_date[4:6]}-{scope.end_date[6:]}"
+        )
+        rows = [{
+            "TRD_DD": day.strftime("%Y/%m/%d"), "STR_CONST_VAL1": "1",
+            "STR_CONST_VAL2": "2", "STR_CONST_VAL3": "3", "STR_CONST_VAL4": "4",
+            "STR_CONST_VAL5": "10",
+        } for day in days if start <= day <= end]
+        return json.dumps({"OutBlock_1": rows}, separators=(",", ":")).encode()
+    return body
+
+
+def _collect_generated(tmp_path, dataset, days, body_factory):
+    scopes = plan_scopes(dataset, tuple(days))
+    throttle = ConservativeThrottle(
+        min_interval_seconds=6, max_jitter_seconds=1,
+        sleep_fn=lambda _: None, monotonic_fn=lambda: 0.0,
+        jitter_fn=lambda *_: 0.1,
+    )
+    run_short_selling_batch(
+        dataset=dataset, trading_dates=tuple(days), max_business_calls=len(scopes),
+        project_root=tmp_path,
+        client_factory=lambda ledger: _GeneratedClient(ledger, body_factory),
+        throttle=throttle,
+    )
+
+
+def _canonical_default_fixture(tmp_path, dataset):
+    start = MINIMUM_SOURCE_DATES[dataset]
+    days = []
+    for year in range(start.year, 2027):
+        day = start if year == start.year else date(year, 1, 2)
+        if year == 2026:
+            day = DAY
+        days.append(day)
+        for market in ("KOSPI", "KOSDAQ"):
+            path = (
+                tmp_path / "data/normalized/kr_equity_universe_daily" /
+                f"market={market}/year={year}/data.parquet"
+            )
+            path.parent.mkdir(parents=True, exist_ok=True)
+            pd.DataFrame({"date": [day]}).to_parquet(path, index=False)
+    return tuple(days)
+
+
 def _plan(*days: date, statuses=("BATCH_COMPLETE",)) -> DatasetAuditPlan:
-    scopes = plan_scopes("trading", tuple(days))
+    return _dataset_plan("trading", *days, statuses=statuses)
+
+
+def _dataset_plan(dataset, *days: date, statuses=("BATCH_COMPLETE",)) -> DatasetAuditPlan:
+    scopes = plan_scopes(dataset, tuple(days))
     return DatasetAuditPlan(
-        dataset="trading", start=min(days), end=max(days), trading_dates=tuple(days),
+        dataset=dataset, start=min(days), end=max(days), trading_dates=tuple(days),
         expected_scope_ids=tuple(scope.scope_id for scope in scopes),
         acceptable_terminal_statuses=statuses,
     )
 
 
-def _audit(tmp_path, plan=None):
-    return audit_a007(tmp_path, ("trading",), plans={"trading": plan or _plan(DAY)})
+def _audit(tmp_path, plan=None, *, process_pids=()):
+    return audit_a007(
+        tmp_path, ("trading",), plans={"trading": plan or _plan(DAY)},
+        collector_process_probe=lambda: (tuple(process_pids), "TEST_COMMAND_LINE"),
+    )
 
 
 def _ledger_path(tmp_path):
@@ -185,6 +275,26 @@ def test_correlated_business_scope_without_checkpoint_is_not_terminal_integrity(
     )
 
 
+def test_malformed_or_unknown_http_response_classification_is_rejected(tmp_path):
+    _fixture(tmp_path)
+    path = _ledger_path(tmp_path)
+    base = next(
+        json.loads(line) for line in path.read_text().splitlines()
+        if json.loads(line)["event"] == "HTTP_RESPONSE"
+    )
+    missing_auth = {key: value for key, value in base.items() if key != "authentication"}
+    _append(path, {**missing_auth, "raw_sequence": 91})
+    _append(path, {**base, "raw_sequence": 92, "url": "https://example.invalid/unknown"})
+    _append(path, {**base, "raw_sequence": 93, "authentication": True})
+    report = _audit(tmp_path)
+    assert report["status"] == "FAIL"
+    assert report["artifact_integrity"]["ledger"]["status"] == "FAIL"
+    assert any(
+        item["code"] == "LEDGER_INVALID_RECORD" and item["detail"] == "3"
+        for item in report["artifact_integrity"]["findings"]
+    )
+
+
 def test_reparse_counts_and_exact_normalized_values_fail_closed(tmp_path):
     _fixture(tmp_path)
     checkpoint = tmp_path / "data/state/kr_short_selling_trading_daily_v2.json"
@@ -211,11 +321,21 @@ def test_runtime_readiness_fails_for_active_lock_owner(tmp_path):
     lock.write_text(json.dumps({
         "owner": "D", "run_id": "active", "pid": os.getpid(), "token": "test"
     }), encoding="utf-8")
-    report = _audit(tmp_path)
+    report = _audit(tmp_path, process_pids=(os.getpid(),))
     assert report["status"] == "NOT_READY"
     assert report["runtime_readiness"]["status"] == "FAIL"
     assert report["runtime_readiness"]["pid_status"] == "RUNNING"
-    assert report["runtime_readiness"]["active_owner_process_count"] == 1
+    assert report["runtime_readiness"]["owner_pid_matches_collector"] is True
+
+
+def test_runtime_readiness_is_unknown_when_command_lines_cannot_be_verified(tmp_path):
+    _fixture(tmp_path)
+    report = audit_a007(
+        tmp_path, ("trading",), plans={"trading": _plan(DAY)},
+        collector_process_probe=lambda: (None, "CIM_COMMAND_LINE_FAILED"),
+    )
+    assert report["status"] == "UNKNOWN"
+    assert report["runtime_readiness"]["status"] == "UNKNOWN"
 
 
 def test_scope_completed_must_be_exact_unique_and_consistent(tmp_path):
@@ -294,8 +414,16 @@ def test_nan_and_infinity_are_both_rejected(tmp_path):
     }
 
 
-def test_cli_plan_is_explicit_and_output_write_requires_path(tmp_path, capsys):
+def test_cli_plan_is_explicit_and_output_write_requires_path(tmp_path, capsys, monkeypatch):
     _fixture(tmp_path)
+    real_audit = cli.audit_a007
+    monkeypatch.setattr(
+        cli, "audit_a007",
+        lambda root, selected, plans: real_audit(
+            root, selected, plans=plans,
+            collector_process_probe=lambda: ((), "TEST_COMMAND_LINE"),
+        ),
+    )
     arguments = [
         "--project-root", str(tmp_path), "--dataset", "trading",
         "--plan", "trading:2026-08-10:2026-08-10", "--format", "markdown",
@@ -305,3 +433,63 @@ def test_cli_plan_is_explicit_and_output_write_requires_path(tmp_path, capsys):
     output = tmp_path / "reports/audit.md"
     assert cli.main([*arguments, "--output", str(output)]) == 0
     assert output.read_text(encoding="utf-8").startswith("# A007 Short-Selling Audit")
+
+
+def test_balance_terminal_exact_values_and_default_plan_incomplete(tmp_path):
+    boundary = date(2016, 6, 30)
+    _collect_generated(tmp_path, "balance", (boundary,), _balance_body)
+    exact = audit_a007(
+        tmp_path, ("balance",), plans={"balance": _dataset_plan("balance", boundary)},
+        collector_process_probe=lambda: ((), "TEST_COMMAND_LINE"),
+    )
+    item = exact["datasets"][0]
+    assert exact["status"] == item["status"] == "PASS"
+    assert item["checkpoint"]["completed_scopes"] == 2
+    assert item["normalized"]["rows"] == 2
+    assert item["normalized"]["exact_values"]["status"] == "PASS"
+
+    default_root = tmp_path / "default"
+    planned = _canonical_default_fixture(default_root, "balance")
+    _collect_generated(default_root, "balance", (planned[0],), _balance_body)
+    incomplete = audit_a007(
+        default_root, ("balance",),
+        collector_process_probe=lambda: ((), "TEST_COMMAND_LINE"),
+    )
+    result = incomplete["datasets"][0]
+    assert incomplete["status"] == result["status"] == "INCOMPLETE"
+    assert result["artifact_integrity"]["status"] == "PASS"
+    assert result["completeness"]["missing_scopes"]["count"] > 0
+
+
+def test_investor_chunk_ranges_exact_and_default_plan_incomplete(tmp_path):
+    days = (date(2020, 1, 2), date(2022, 1, 4))
+    assert len(plan_scopes("investor", days)) == 8  # two bounded chunks x 2 markets x 2 metrics
+    _collect_generated(tmp_path, "investor", days, _investor_body_factory(days))
+    exact = audit_a007(
+        tmp_path, ("investor",), plans={"investor": _dataset_plan("investor", *days)},
+        collector_process_probe=lambda: ((), "TEST_COMMAND_LINE"),
+    )
+    item = exact["datasets"][0]
+    assert exact["status"] == item["status"] == "PASS"
+    assert item["checkpoint"]["completed_scopes"] == 8
+    assert item["normalized"]["rows"] == 40
+    assert item["normalized"]["exact_values"] == {
+        "status": "PASS", "compared_rows": 40, "mismatched_partitions": 0,
+        "missing_partitions": [], "orphan_partitions": [],
+        "method": "EXACT_SORTED_STREAM_COMPARISON",
+    }
+
+    default_root = tmp_path / "default"
+    planned = _canonical_default_fixture(default_root, "investor")
+    _collect_generated(
+        default_root, "investor", (planned[0],), _investor_body_factory((planned[0],))
+    )
+    incomplete = audit_a007(
+        default_root, ("investor",),
+        collector_process_probe=lambda: ((), "TEST_COMMAND_LINE"),
+    )
+    result = incomplete["datasets"][0]
+    assert incomplete["status"] == result["status"] == "INCOMPLETE"
+    assert result["artifact_integrity"]["status"] == "PASS"
+    assert result["completeness"]["missing_scopes"]["count"] > 0
+    assert result["completeness"]["missing_dates"]["count"] > 0

@@ -10,7 +10,6 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import date
-import csv
 import hashlib
 import heapq
 import json
@@ -19,7 +18,8 @@ import os
 from pathlib import Path
 import re
 import subprocess
-from typing import Iterable, Iterator, Mapping
+from typing import Callable, Iterable, Iterator, Mapping
+from urllib.parse import urlsplit
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -27,6 +27,7 @@ import pyarrow.parquet as pq
 
 from stock_data.contracts.kr_short_selling import SHORT_SELLING_CONTRACTS
 from stock_data.pipelines.short_selling_backfill import (
+    AUTH_PATHS,
     MINIMUM_SOURCE_DATES,
     _scope_sha256,
     load_canonical_trading_dates,
@@ -204,14 +205,21 @@ def _load_ledgers(runs_root: Path) -> _LedgerIndex:
                 errors += 1
             if event == "HTTP_RESPONSE":
                 status_counts[str(record.get("status_code"))] += 1
-                if record.get("authentication") is True:
-                    auth += 1
-                elif record.get("url") == BUSINESS_URL:
+                authentication = record.get("authentication")
+                url = record.get("url")
+                if type(authentication) is not bool or not isinstance(url, str):
+                    invalid += 1
+                elif authentication is True:
+                    if urlsplit(url).path not in AUTH_PATHS:
+                        invalid += 1
+                    else:
+                        auth += 1
+                elif url == BUSINESS_URL:
                     if type(record.get("raw_sequence")) is int:
                         responses[(expected_run, record["raw_sequence"])].append(record)
                     else:
                         invalid += 1
-                elif record.get("authentication") is False:
+                else:
                     invalid += 1
             elif event == "SCOPE_HTTP_CORRELATED":
                 if type(record.get("raw_sequence")) is int:
@@ -446,25 +454,63 @@ def _actual_rows(path: Path, columns: tuple[str, ...], sort_key: tuple[str, ...]
             yield tuple(values[index] for index in positions), values
 
 
-def _expected_partition_rows(
+def _daily_partition_rows(
     artifacts: list[_Artifact], key: tuple[str, int], dataset: str,
 ):
+    """Yield one daily scope at a time; no partition-sized source materialization."""
     contract = SHORT_SELLING_CONTRACTS[dataset]
-    streams = []
     market, year = key
-    for artifact in artifacts:
-        if key not in artifact.partition_keys:
-            continue
-        scope = artifact.scope
-        if dataset == "investor":
-            parsed = PARSERS[dataset](artifact.body.read_bytes(), market=scope.market, metric=scope.metric)
-        else:
-            parsed = PARSERS[dataset](artifact.body.read_bytes(), date=scope.start_date, market=scope.market)
+    selected = sorted(
+        (artifact for artifact in artifacts if key in artifact.partition_keys),
+        key=lambda artifact: (artifact.scope.start_date, artifact.scope.scope_id),
+    )
+    for artifact in selected:
+        parsed = PARSERS[dataset](
+            artifact.body.read_bytes(), date=artifact.scope.start_date,
+            market=artifact.scope.market,
+        )
         frame = parsed.dataframe
         dates = frame["date"].astype(str)
         frame = frame.loc[(frame["market"] == market) & (dates.str[:4].astype(int) == year)]
-        streams.append(_frame_rows(frame, contract.column_names, contract.sort_key))
-    return heapq.merge(*streams, key=lambda item: item[0]) if streams else iter(())
+        yield from _frame_rows(frame, contract.column_names, contract.sort_key)
+
+
+def _investor_metric_rows(
+    artifacts: list[_Artifact], key: tuple[str, int], metric: str,
+):
+    """Yield sequential source chunks for one metric, retaining one chunk only."""
+    contract = SHORT_SELLING_CONTRACTS["investor"]
+    market, year = key
+    selected = sorted(
+        (
+            artifact for artifact in artifacts
+            if key in artifact.partition_keys and artifact.scope.metric == metric
+        ),
+        key=lambda artifact: (artifact.scope.start_date, artifact.scope.end_date),
+    )
+    for artifact in selected:
+        scope = artifact.scope
+        parsed = PARSERS["investor"](
+            artifact.body.read_bytes(), market=scope.market, metric=scope.metric
+        )
+        frame = parsed.dataframe
+        dates = frame["date"].astype(str)
+        frame = frame.loc[(frame["market"] == market) & (dates.str[:4].astype(int) == year)]
+        yield from _frame_rows(frame, contract.column_names, contract.sort_key)
+
+
+def _expected_partition_rows(
+    artifacts: list[_Artifact], key: tuple[str, int], dataset: str,
+):
+    if dataset in {"trading", "balance"}:
+        return _daily_partition_rows(artifacts, key, dataset)
+    # Contract order is date/market/metric/investor. At most the two current
+    # metric chunk streams are live, independent of historical range length.
+    streams = [
+        _investor_metric_rows(artifacts, key, metric)
+        for metric in ("trading_value", "volume")
+    ]
+    return heapq.merge(*streams, key=lambda item: item[0])
 
 
 def _exact_normalized_values(
@@ -551,42 +597,81 @@ def _pid_status(pid: object) -> str:
     return "RUNNING"
 
 
-def _python_process_count() -> tuple[int | None, str]:
+def _collector_processes() -> tuple[tuple[int, ...] | None, str]:
+    """Find only A007 collector processes from command lines, or return UNKNOWN."""
     if os.name != "nt":
-        return None, "UNAVAILABLE_NON_WINDOWS"
+        proc = Path("/proc")
+        if not proc.is_dir():
+            return None, "COMMAND_LINE_ENUMERATION_UNAVAILABLE"
+        found = []
+        try:
+            for entry in proc.iterdir():
+                if not entry.name.isdigit():
+                    continue
+                try:
+                    command = (entry / "cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8")
+                except (OSError, UnicodeError):
+                    continue
+                if "backfill_pykrx_short_selling.py" in command:
+                    found.append(int(entry.name))
+            return tuple(sorted(found)), "PROC_COMMAND_LINE"
+        except OSError:
+            return None, "COMMAND_LINE_ENUMERATION_FAILED"
     try:
+        command = (
+            "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[Text.UTF8Encoding]::new(); "
+            "Get-CimInstance Win32_Process | Where-Object { "
+            "($_.Name -eq 'python.exe' -or $_.Name -eq 'pythonw.exe') -and "
+            "$_.CommandLine -match 'backfill_pykrx_short_selling\\.py(?:\\s|[\"'']|$)' "
+            "} | ForEach-Object { $_.ProcessId }"
+        )
         result = subprocess.run(
-            ["tasklist.exe", "/FO", "CSV", "/NH"], capture_output=True,
-            text=True, timeout=5, check=False,
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
+            capture_output=True,
+            text=True, encoding="utf-8", errors="replace", timeout=5, check=False,
         )
         if result.returncode:
-            return None, "TASKLIST_FAILED"
-        rows = csv.reader(result.stdout.splitlines())
-        return sum(1 for row in rows if row and row[0].lower() in {"python.exe", "pythonw.exe"}), "TASKLIST"
+            return None, "CIM_COMMAND_LINE_FAILED"
+        pids = tuple(sorted(int(line.strip()) for line in result.stdout.splitlines() if line.strip()))
+        return pids, "CIM_COMMAND_LINE"
     except (OSError, subprocess.SubprocessError):
-        return None, "TASKLIST_UNAVAILABLE"
+        return None, "CIM_COMMAND_LINE_UNAVAILABLE"
 
 
-def _runtime_readiness(path: Path, root: Path) -> dict[str, object]:
-    count, method = _python_process_count()
+def _runtime_readiness(
+    path: Path, root: Path,
+    process_probe: Callable[[], tuple[tuple[int, ...] | None, str]] = _collector_processes,
+) -> dict[str, object]:
+    collector_pids, method = process_probe()
     result: dict[str, object] = {
         "path": _relative(path, root), "lock_exists": path.exists(),
-        "python_process_count": count, "process_count_method": method,
+        "collector_process_pids": list(collector_pids) if collector_pids is not None else None,
+        "collector_process_count": len(collector_pids) if collector_pids is not None else None,
+        "process_probe": method,
     }
     if not path.exists():
-        result.update({"status": "PASS", "lock_status": "RELEASED", "active_owner_process_count": 0})
+        if collector_pids is None:
+            result.update({"status": "UNKNOWN", "lock_status": "RELEASED", "reason": "collector command lines could not be verified"})
+        elif collector_pids:
+            result.update({"status": "FAIL", "lock_status": "RELEASED", "reason": "collector process exists without lock"})
+        else:
+            result.update({"status": "PASS", "lock_status": "RELEASED"})
         return result
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError):
-        result.update({"status": "FAIL", "lock_status": "PRESENT_INVALID", "active_owner_process_count": None})
+        result.update({"status": "FAIL", "lock_status": "PRESENT_INVALID", "owner_pid_matches_collector": None})
         return result
     pid_status = _pid_status(payload.get("pid"))
-    active = pid_status in {"RUNNING", "RUNNING_OR_INACCESSIBLE"}
+    owner_pid = payload.get("pid")
     result.update({
         "status": "FAIL", "lock_status": "HELD", "owner": payload.get("owner"),
-        "run_id": payload.get("run_id"), "pid": payload.get("pid"),
-        "pid_status": pid_status, "active_owner_process_count": 1 if active else 0,
+        "run_id": payload.get("run_id"), "pid": owner_pid,
+        "pid_status": pid_status,
+        "owner_pid_matches_collector": (
+            owner_pid in collector_pids if collector_pids is not None and type(owner_pid) is int
+            else None
+        ),
     })
     return result
 
@@ -860,6 +945,9 @@ def audit_a007(
     datasets: Iterable[str] = DATASETS,
     *,
     plans: Mapping[str, DatasetAuditPlan] | None = None,
+    collector_process_probe: Callable[
+        [], tuple[tuple[int, ...] | None, str]
+    ] = _collector_processes,
 ) -> dict[str, object]:
     root = project_root.resolve()
     selected = tuple(datasets)
@@ -875,7 +963,10 @@ def audit_a007(
         audit_dataset(root, dataset, plan=effective_plans[dataset], ledger=ledger)
         for dataset in selected
     ]
-    runtime = _runtime_readiness(root / "data/state/d_owned_krx_short_selling.lock", root)
+    runtime = _runtime_readiness(
+        root / "data/state/d_owned_krx_short_selling.lock", root,
+        collector_process_probe,
+    )
     artifact_status = "FAIL" if ledger_findings or any(
         result["artifact_integrity"]["status"] == "FAIL" for result in results
     ) else "PASS"
@@ -885,6 +976,7 @@ def audit_a007(
     overall = (
         "FAIL" if artifact_status == "FAIL" else
         "INCOMPLETE" if completeness_status == "FAIL" else
+        "UNKNOWN" if runtime["status"] == "UNKNOWN" else
         "NOT_READY" if runtime["status"] != "PASS" else "PASS"
     )
     return {
