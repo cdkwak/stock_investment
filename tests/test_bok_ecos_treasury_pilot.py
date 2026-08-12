@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import subprocess
+import sys
 from urllib.parse import unquote
 
 import pytest
@@ -14,6 +16,19 @@ FIXTURE = json.loads(
     (Path(__file__).parent / "fixtures/bok_ecos_treasury_documented.json").read_text()
 )
 TENORS = ("2Y", "3Y", "5Y", "10Y", "20Y", "30Y")
+
+
+def test_manual_entrypoint_help_runs_from_repository_root():
+    script = Path(__file__).parents[1] / "scripts/manual/pilot_bok_ecos_treasury.py"
+    result = subprocess.run(
+        [sys.executable, str(script), "--help"],
+        cwd=script.parents[2],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "--phase" in result.stdout
 
 
 def config_payload():
@@ -187,4 +202,3 @@ def test_wrong_metadata_approval_and_implicit_live_mode_are_rejected(tmp_path, m
             approve_metadata_sha256="0" * 64,
             session=NoCallSession(),
         )
-

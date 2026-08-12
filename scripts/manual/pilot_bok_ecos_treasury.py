@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import sys
 import tempfile
 import time
 from typing import Iterable
@@ -20,6 +21,11 @@ from uuid import uuid4
 
 import pandas as pd
 import requests
+
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from scripts.manual.bok_ecos_treasury_pilot_support import (
     EcosPilotError,
@@ -457,4 +463,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

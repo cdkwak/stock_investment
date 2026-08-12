@@ -1,0 +1,44 @@
+{
+  "table_code": "817Y002",
+  "table_name": "시장금리(일별)",
+  "cycle": "D",
+  "tenors": {
+    "2Y": {
+      "item_code": "010195000",
+      "item_name": "국고채(2년)",
+      "unit_name": "연%"
+    },
+    "3Y": {
+      "item_code": "010200000",
+      "item_name": "국고채(3년)",
+      "unit_name": "연%"
+    },
+    "5Y": {
+      "item_code": "010200001",
+      "item_name": "국고채(5년)",
+      "unit_name": "연%"
+    },
+    "10Y": {
+      "item_code": "010210000",
+      "item_name": "국고채(10년)",
+      "unit_name": "연%"
+    },
+    "20Y": {
+      "item_code": "010220000",
+      "item_name": "국고채(20년)",
+      "unit_name": "연%"
+    },
+    "30Y": {
+      "item_code": "010230000",
+      "item_name": "국고채(30년)",
+      "unit_name": "연%"
+    }
+  },
+  "dates": {
+    "recent_normal": "20260810",
+    "two_year_introduction_boundary": "20210310",
+    "retained_source_gap": "20211230",
+    "early_2019": "20190102"
+  }
+}
+
