@@ -21,9 +21,26 @@ def validate_data_v1(dataframe: pd.DataFrame, contract, *, allow_empty: bool = T
     dates = pd.to_datetime(dataframe[date_column], format="%Y-%m-%d", errors="coerce")
     if dates.isna().any():
         raise DataV1ValidationError(f"{contract.name}: invalid date")
-    numeric = dataframe.select_dtypes(include="number")
-    if numeric.isna().any().any() or np.isinf(numeric.to_numpy(dtype=float)).any():
-        raise DataV1ValidationError(f"{contract.name}: NaN or infinity")
+    numeric_columns = [
+        column.name
+        for column in contract.columns
+        if column.dtype in {"int64", "float64"} or column.dtype.startswith("decimal(")
+    ]
+    numeric = pd.DataFrame(index=dataframe.index)
+    for column in numeric_columns:
+        parsed = pd.to_numeric(dataframe[column], errors="coerce")
+        if (dataframe[column].notna() & parsed.isna()).any():
+            raise DataV1ValidationError(f"{contract.name}: invalid numeric value in {column}")
+        numeric[column] = parsed
+    required_numeric = [
+        column.name
+        for column in contract.columns
+        if not column.nullable and column.name in numeric_columns
+    ]
+    if required_numeric and dataframe[required_numeric].isna().any().any():
+        raise DataV1ValidationError(f"{contract.name}: NaN in required numeric column")
+    if np.isinf(numeric.to_numpy(dtype=float, na_value=np.nan)).any():
+        raise DataV1ValidationError(f"{contract.name}: infinity")
     signed_price_fields = {"open", "high", "low", "close", "spot_price", "settlement_price",
                            "next_day_base_price"}
     nonnegative = numeric[[column for column in numeric.columns if column not in signed_price_fields]]

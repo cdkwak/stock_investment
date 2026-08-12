@@ -6,8 +6,13 @@ import tempfile
 from typing import Callable
 
 import pandas as pd
+import pyarrow.parquet as pq
 
 from stock_data.contracts.base import DatasetContract
+from stock_data.storage.contract_arrow import (
+    dataframe_to_contract_table,
+    restore_contract_dates,
+)
 
 
 Validator = Callable[[pd.DataFrame], None]
@@ -15,8 +20,7 @@ Validator = Callable[[pd.DataFrame], None]
 
 def _restore(dataframe: pd.DataFrame, contract: DatasetContract, validator: Validator) -> pd.DataFrame:
     restored = dataframe[list(contract.column_names)].copy()
-    if "date" in restored:
-        restored["date"] = pd.to_datetime(restored["date"], errors="raise").dt.strftime("%Y-%m-%d")
+    restored = restore_contract_dates(restored, contract)
     restored = restored.sort_values(list(contract.sort_key), kind="stable").reset_index(drop=True)
     validator(restored)
     return restored
@@ -64,13 +68,10 @@ def write_partitioned_atomic(
             ) as temporary:
                 staged[target] = Path(temporary.name)
             stored = partition.drop(columns="_year", errors="ignore").copy()
-            if "date" in stored:
-                stored["date"] = pd.to_datetime(stored["date"], errors="raise").dt.date
-            stored.to_parquet(staged[target], index=False, engine="pyarrow")
+            table = dataframe_to_contract_table(stored, contract)
+            pq.write_table(table, staged[target])
             verified = _restore(pd.read_parquet(staged[target], engine="pyarrow"), contract, validator)
-            expected = partition.drop(columns="_year", errors="ignore").reset_index(drop=True)
-            if "date" in expected:
-                expected["date"] = expected["date"].astype(str)
+            expected = _restore(table.to_pandas(), contract, validator)
             if not verified.equals(expected):
                 raise ValueError(f"temporary {contract.name} partition differs from input")
         for target in staged:

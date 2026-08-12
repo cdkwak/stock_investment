@@ -4,6 +4,12 @@ import tempfile
 from typing import Callable
 
 import pandas as pd
+import pyarrow.parquet as pq
+
+from stock_data.storage.contract_arrow import (
+    dataframe_to_contract_table,
+    restore_contract_dates,
+)
 
 
 def _partition_date_column(contract) -> str:
@@ -19,9 +25,7 @@ def read_dataset(root: Path, contract, validator: Callable[[pd.DataFrame], None]
     if not paths:
         raise FileNotFoundError(root)
     result = pd.concat([pd.read_parquet(path) for path in paths], ignore_index=True)
-    for date_column in ("date", "source_snapshot_date"):
-        if date_column in result:
-            result[date_column] = pd.to_datetime(result[date_column], errors="raise").dt.strftime("%Y-%m-%d")
+    result = restore_contract_dates(result, contract)
     result = result[list(contract.column_names)].sort_values(
         list(contract.sort_key), kind="stable"
     ).reset_index(drop=True)
@@ -56,14 +60,9 @@ def write_dataset_atomic(dataframe: pd.DataFrame, root: Path, contract, validato
             ) as temporary:
                 temporary_path = Path(temporary.name)
             stored = partition.drop(columns="_year", errors="ignore").copy()
-            for date_column in ("date", "source_snapshot_date"):
-                if date_column in stored:
-                    stored[date_column] = pd.to_datetime(stored[date_column], errors="raise").dt.date
-            stored.to_parquet(temporary_path, index=False)
+            pq.write_table(dataframe_to_contract_table(stored, contract), temporary_path)
             verified = pd.read_parquet(temporary_path)
-            for date_column in ("date", "source_snapshot_date"):
-                if date_column in verified:
-                    verified[date_column] = pd.to_datetime(verified[date_column]).dt.strftime("%Y-%m-%d")
+            verified = restore_contract_dates(verified, contract)
             verified = verified[list(contract.column_names)].reset_index(drop=True)
             validator(verified)
             staged[target] = temporary_path

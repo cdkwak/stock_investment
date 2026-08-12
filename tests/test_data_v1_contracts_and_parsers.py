@@ -1,6 +1,7 @@
 import pandas as pd
 import pytest
 
+from stock_data.contracts.base import ColumnContract, DatasetContract
 from stock_data.contracts.data_v1 import DATA_V1_CONTRACTS, KR_EQUITY_RIGHTS_SCHEDULE
 from stock_data.providers.data_go_kr.data_v1 import (
     normalize_credit_balance, normalize_dividend, normalize_futures,
@@ -96,6 +97,31 @@ def test_validation_rejects_duplicates_and_bad_ohlc():
     frame = pd.DataFrame([row], columns=contract.column_names)
     with pytest.raises(DataV1ValidationError, match="OHLC"):
         validate_data_v1(frame, contract)
+
+
+def test_validation_preserves_nullable_numeric_but_rejects_required_numeric_null():
+    optional = DatasetContract(
+        name="nullable_numeric_fixture", version=1, status="active", description="fixture",
+        source="fixture", layer="normalized", storage_format="parquet", frequency="daily",
+        timezone="Asia/Seoul", primary_key=("date",), sort_key=("date",),
+        partition_by=("year",), columns=(
+            ColumnContract("date", "date32", False),
+            ColumnContract("required_value", "int64", False),
+            ColumnContract("optional_value", "int64", True),
+        ),
+    )
+    frame = pd.DataFrame([{"date": "2026-08-07", "required_value": 1, "optional_value": None}])
+    validate_data_v1(frame, optional)
+    frame.loc[0, "required_value"] = None
+    with pytest.raises(DataV1ValidationError, match="required numeric"):
+        validate_data_v1(frame, optional)
+    frame.loc[0, "required_value"] = 1
+    frame.loc[0, "optional_value"] = float("inf")
+    with pytest.raises(DataV1ValidationError, match="infinity"):
+        validate_data_v1(frame, optional)
+    frame.loc[0, "optional_value"] = -1
+    with pytest.raises(DataV1ValidationError, match="negative"):
+        validate_data_v1(frame, optional)
 
 
 def test_rights_observation_identity_is_provenance_backed():
