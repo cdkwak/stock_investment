@@ -35,9 +35,15 @@ associating to the exact leaf dataset name or Parquet `dataset` metadata.
 
 - files, repository-relative file manifest, partitions, bytes, and rows: exact
   Parquet metadata (no Parquet body hash/read required)
-- physical schema: exact per-file footer schema; every distinct schema retained
+- logical contract schema: column-name and dtype comparison against the contract;
+  physical Arrow nullability is reported separately and never by itself changes
+  this result
+- physical nullability: exact per-file footer nullability. A nullable physical
+  field can still satisfy a logical non-null contract when its exact observed
+  null count is zero; this is reported as `MISMATCH` plus a separate required-
+  value result rather than as a schema failure
 - date coverage: exact row-group statistics, with date-column batch fallback
-- contract schema/nullability: exact when required footer statistics exist or
+- required-value nullability: exact when required footer statistics exist or
   the dataset is within the configured scan-row bound
 - primary-key duplicates: exact only when row count is within `max_key_rows`
 - infinity count: exact only when row count is within `max_scan_rows`
@@ -53,4 +59,3 @@ Default operation prints deterministic JSON and concise Markdown to stdout and
 does not create a file. JSON/Markdown files are written atomically only when an
 explicit output path is supplied. The audit never changes datasets, states,
 checkpoints, registries, or Landing.
-

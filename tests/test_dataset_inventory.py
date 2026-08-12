@@ -79,7 +79,27 @@ def test_reports_unregistered_artifact(tmp_path):
     ]
 
 
-def test_reports_schema_mismatch_and_nullability(tmp_path):
+def test_physical_nullable_is_separate_from_logical_required_value_validation(tmp_path):
+    schema = pa.schema(
+        [
+            pa.field("date", pa.date32(), nullable=True),
+            pa.field("symbol", pa.string(), nullable=True),
+            pa.field("value", pa.float64(), nullable=True),
+        ]
+    )
+    _write(tmp_path / "data/normalized/registered", _rows(), schema=schema)
+    report = build_inventory(tmp_path, contracts={"registered": _contract()}, max_scan_rows=10)
+    artifact = report["artifacts"][0]
+    assert artifact["contract_schema"]["status"] == "PASS"
+    assert artifact["physical_nullability"]["status"] == "MISMATCH"
+    assert artifact["nullability"]["status"] == "PASS"
+    assert report["summary"]["issue_counts"] == {
+        "missing_registered_artifacts": 0,
+        "physical_nullability_mismatches": 1,
+    }
+
+
+def test_reports_real_dtype_mismatch_and_required_value_nullability(tmp_path):
     schema = pa.schema(
         [
             pa.field("date", pa.date32(), nullable=False),
@@ -95,6 +115,10 @@ def test_reports_schema_mismatch_and_nullability(tmp_path):
     report = build_inventory(tmp_path, contracts={"registered": _contract()}, max_scan_rows=10)
     artifact = report["artifacts"][0]
     assert artifact["contract_schema"]["status"] == "FAIL"
+    assert artifact["physical_nullability"]["status"] == "MISMATCH"
+    assert artifact["contract_schema"]["mismatches"][0]["dtype_mismatches"] == [
+        {"column": "value", "expected": "float64", "actual": "string"}
+    ]
     assert artifact["nullability"]["status"] == "FAIL"
     assert artifact["nullability"]["non_nullable_violations"] == {"value": 1}
 
@@ -162,4 +186,3 @@ def test_report_is_deterministic_and_ignores_documented_quarantine(tmp_path):
     assert first["ignored_artifacts"][0]["reason"].startswith(
         "documented_ignored_component"
     )
-

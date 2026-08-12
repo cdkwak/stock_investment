@@ -16,7 +16,7 @@ from stock_data.contracts.registry import CONTRACTS
 
 
 REPORT_SCHEMA = "stock_data.dataset_inventory"
-REPORT_VERSION = 1
+REPORT_VERSION = 2
 LAYERS = ("landing", "normalized", "derived", "published")
 IGNORED_COMPONENTS = {"quarantine", "_quarantine", "tmp", "temp"}
 STATE_SCALAR_FIELDS = ("dataset", "status", "task_id")
@@ -192,16 +192,11 @@ def _contract_schema_check(
             "missing_columns": sorted(set(expected) - set(actual)),
             "unexpected_columns": sorted(set(actual) - set(expected)),
             "dtype_mismatches": [],
-            "nullability_mismatches": [],
         }
         for name in sorted(set(expected).intersection(actual)):
             if expected[name]["dtype"] != actual[name]["dtype"]:
                 mismatch["dtype_mismatches"].append(
                     {"column": name, "expected": expected[name]["dtype"], "actual": actual[name]["dtype"]}
-                )
-            if expected[name]["nullable"] != actual[name]["nullable"]:
-                mismatch["nullability_mismatches"].append(
-                    {"column": name, "expected": expected[name]["nullable"], "actual": actual[name]["nullable"]}
                 )
         if any(mismatch[key] for key in mismatch if key != "schema_id"):
             mismatches.append(mismatch)
@@ -209,6 +204,42 @@ def _contract_schema_check(
         "status": "PASS" if not mismatches else "FAIL",
         "distinct_physical_schemas": len(schema_groups),
         "mismatches": mismatches,
+    }
+
+
+def _physical_nullability_check(
+    contract: DatasetContract | None,
+    schema_groups: list[dict[str, object]],
+) -> dict[str, object]:
+    """Report Arrow footer nullability separately from observed required values.
+
+    Arrow writers commonly retain nullable physical fields even when every
+    stored value satisfies a contract's logical non-null requirement.  That is
+    a storage-enforcement limitation, not a schema/type drift or proof of a
+    null-value violation; the latter is checked independently by
+    ``_nullability_check``.
+    """
+    if contract is None:
+        return {"status": "NOT_APPLICABLE_UNREGISTERED", "mismatches": []}
+    expected = {column.name: column.nullable for column in contract.columns}
+    mismatches = []
+    for group in schema_groups:
+        actual = {field["name"]: field for field in group["fields"]}
+        differences = [
+            {"column": name, "expected": expected[name], "actual": actual[name]["nullable"]}
+            for name in sorted(set(expected).intersection(actual))
+            if expected[name] != actual[name]["nullable"]
+        ]
+        if differences:
+            mismatches.append({"schema_id": group["schema_id"], "columns": differences})
+    return {
+        "status": "MATCH" if not mismatches else "MISMATCH",
+        "mismatches": mismatches,
+        "interpretation": (
+            "PHYSICAL_NULLABILITY_ONLY; consult nullability for actual required-value validation"
+            if mismatches
+            else "PHYSICAL_NULLABILITY_MATCHES_CONTRACT"
+        ),
     }
 
 
@@ -488,6 +519,7 @@ def _artifact_record(
         "coverage": _coverage(files, rows),
         "physical_schemas": schema_groups,
         "contract_schema": _contract_schema_check(contract, schema_groups),
+        "physical_nullability": _physical_nullability_check(contract, schema_groups),
         "primary_key": _pk_check(files, rows, contract, max_key_rows=max_key_rows),
         "nullability": _nullability_check(files, rows, contract, max_scan_rows=max_scan_rows),
         "infinity": _infinity_check(files, rows, max_scan_rows=max_scan_rows),
@@ -564,6 +596,8 @@ def build_inventory(
             issue_counts["metadata_dataset_conflicts"] += 1
         if artifact["contract_schema"]["status"] == "FAIL":
             issue_counts["schema_failures"] += 1
+        if artifact["physical_nullability"]["status"] == "MISMATCH":
+            issue_counts["physical_nullability_mismatches"] += 1
         if artifact["primary_key"]["status"] == "FAIL":
             issue_counts["primary_key_failures"] += 1
         if artifact["nullability"]["status"] == "FAIL":
@@ -618,8 +652,8 @@ def render_markdown(report: Mapping[str, object]) -> str:
         f"| Unregistered artifacts | {summary['unregistered_artifacts']} |",
         f"| State files | {summary['state_files']} |",
         "",
-        "| Layer / dataset | Registration | Files | Rows | Coverage | Schema | PK | State |",
-        "|---|---|---:|---:|---|---|---|---|",
+        "| Layer / dataset | Registration | Files | Rows | Coverage | Schema | Physical nullable | Required values | PK | State |",
+        "|---|---|---:|---:|---|---|---|---|---|---|",
     ]
     for artifact in report["artifacts"]:
         coverage = artifact["coverage"]
@@ -638,6 +672,8 @@ def render_markdown(report: Mapping[str, object]) -> str:
                     str(artifact["rows"]),
                     str(coverage_text),
                     artifact["contract_schema"]["status"],
+                    artifact["physical_nullability"]["status"],
+                    artifact["nullability"]["status"],
                     artifact["primary_key"]["status"],
                     artifact["state_presence"],
                 ]
@@ -685,4 +721,3 @@ def write_outputs(
         _write_text_atomic(json_output, serialize_json(report))
     if markdown_output is not None:
         _write_text_atomic(markdown_output, render_markdown(report) + "\n")
-
