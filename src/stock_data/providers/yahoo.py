@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
+from pathlib import Path
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
@@ -11,6 +12,7 @@ import requests
 from stock_data.contracts.global_market import GLOBAL_INDEX_PRICE_DAILY
 from stock_data.storage.contract_parquet import read_dataset, write_dataset_atomic
 from stock_data.validation.global_market import validate_global_index
+from stock_data.providers.public_http_capture import capture_public_response
 
 
 CONFIG = {"SP500": "^GSPC", "NASDAQ_COMPOSITE": "^IXIC", "NASDAQ100": "^NDX"}
@@ -26,14 +28,23 @@ def _epoch(value: date) -> int:
     return int(datetime.combine(value, time.min, tzinfo=NY).timestamp())
 
 
-def fetch_global_index(symbol: str, start: date, end: date, *, session=requests) -> pd.DataFrame:
+def fetch_global_index(
+    symbol: str, start: date, end: date, *, session=requests,
+    capture_root: Path | None = None,
+) -> pd.DataFrame:
     ticker = CONFIG[symbol]
+    params = {"period1": _epoch(start), "period2": _epoch(end + timedelta(days=1)),
+              "interval": "1d", "events": "history", "includeAdjustedClose": "false"}
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{quote(ticker, safe='')}"
     response = session.get(
-        f"https://query1.finance.yahoo.com/v8/finance/chart/{quote(ticker, safe='')}",
-        params={"period1": _epoch(start), "period2": _epoch(end + timedelta(days=1)),
-                "interval": "1d", "events": "history", "includeAdjustedClose": "false"},
+        url, params=params,
         headers={"User-Agent": "stock-investment-rev1/0.1"}, timeout=30,
     )
+    if capture_root is not None:
+        capture_public_response(
+            root=capture_root, provider="yahoo", operation="chart",
+            request_url=url, request_parameters={"symbol": symbol, **params}, response=response,
+        )
     response.raise_for_status()
     payload = response.json()
     chart = payload.get("chart")
@@ -67,7 +78,10 @@ def fetch_global_index(symbol: str, start: date, end: date, *, session=requests)
     return frame[list(GLOBAL_INDEX_PRICE_DAILY.column_names)]
 
 
-def collect_global_indices(start: date, end: date, *, root, overlap_days: int = 10) -> pd.DataFrame:
+def collect_global_indices(
+    start: date, end: date, *, root, overlap_days: int = 10,
+    capture_root: Path | None = None, session=requests,
+) -> pd.DataFrame:
     existing = (
         read_dataset(root, GLOBAL_INDEX_PRICE_DAILY, validate_global_index)
         if root.exists() and any(root.rglob("data.parquet"))
@@ -78,7 +92,9 @@ def collect_global_indices(start: date, end: date, *, root, overlap_days: int = 
     for symbol in CONFIG:
         try:
             symbol_start = max(fetch_start, SUPPORTED_START[symbol])
-            frames.append(fetch_global_index(symbol,symbol_start,end))
+            frames.append(fetch_global_index(
+                symbol, symbol_start, end, session=session, capture_root=capture_root,
+            ))
         except Exception as error:
             errors.append(f"{symbol}: {type(error).__name__}")
     if not frames:
