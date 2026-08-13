@@ -215,6 +215,7 @@ def _validate_items(items: tuple[dict[str, object], ...]) -> dict[str, object]:
     canonical_rows: set[str] = set()
     reasons: set[str] = set()
     issue_dates: list[str] = []
+    future_issue_dates: list[str] = []
     for item in items:
         if set(item) != SOURCE_FIELDS:
             raise PilotError("source field set differs from the official guide")
@@ -232,9 +233,9 @@ def _validate_items(items: tuple[dict[str, object], ...]) -> dict[str, object]:
                 parsed = datetime.strptime(issue_date, "%Y%m%d")
             except ValueError as error:
                 raise PilotError("stock issue date is invalid") from error
-            if parsed > datetime.strptime(BASE_DATE, "%Y%m%d"):
-                raise PilotError("stock issue date is after the source snapshot")
             issue_dates.append(issue_date)
+            if parsed > datetime.strptime(BASE_DATE, "%Y%m%d"):
+                future_issue_dates.append(issue_date)
         count = _optional_text(item, "issuStckCnt")
         if count is not None and (re.fullmatch(r"\d+", count) is None or int(count) < 0):
             raise PilotError("issued-share count is invalid")
@@ -248,9 +249,12 @@ def _validate_items(items: tuple[dict[str, object], ...]) -> dict[str, object]:
         "rows": len(items), "unique_exact_rows": len(canonical_rows),
         "issue_date_min": min(issue_dates) if issue_dates else None,
         "issue_date_max": max(issue_dates) if issue_dates else None,
+        "future_effective_rows": len(future_issue_dates),
+        "future_effective_date_min": min(future_issue_dates) if future_issue_dates else None,
+        "future_effective_date_max": max(future_issue_dates) if future_issue_dates else None,
         "issuance_reason_names": sorted(reasons),
         "unit_semantics": {"issuStckCnt": "shares"},
-        "frequency_semantics": "daily source snapshot keyed by basDt",
+        "frequency_semantics": "daily source snapshot keyed by basDt; effective dates may be future",
         "predictive_use": "BLOCKED_NO_ANNOUNCEMENT_OR_PUBLICATION_TIME",
     }
 
@@ -323,18 +327,22 @@ def verify_pilot_run(project_root: Path, run_root: Path) -> dict[str, object]:
         or re.fullmatch(r"\d{8}T\d{6}Z_[0-9a-f]{32}", run_root.name) is None
     ):
         raise PilotError("run is not an exact immediate pilot child")
-    expected_files = {
+    required_files = {
         "raw_response.body", "raw_call.json", "response.json",
         "call_ledger.json", "manifest.json",
     }
     files = {path.name: _assert_plain(path) for path in run_root.iterdir()}
-    if set(files) != expected_files or not all(path.is_file() for path in files.values()):
+    if set(files) not in (required_files, required_files | {"offline_audit.json"}) or not all(
+        path.is_file() for path in files.values()
+    ):
         raise PilotError("successful pilot evidence topology differs")
     before = {name: _sha(path) for name, path in files.items()}
     manifest = json.loads(files["manifest.json"].read_text(encoding="utf-8"))
     ledger = json.loads(files["call_ledger.json"].read_text(encoding="utf-8"))
     if (
-        manifest.get("status") != "PILOT_PASSED_KNOWN_POSITIVE_SCHEMA"
+        manifest.get("status") not in {
+            "PILOT_PASSED_KNOWN_POSITIVE_SCHEMA", "PILOT_STOPPED",
+        }
         or manifest.get("raw_requests") != 1
         or manifest.get("retry_count") != 0
         or manifest.get("production_checkpoint_writes") is not False
@@ -380,8 +388,13 @@ def verify_pilot_run(project_root: Path, run_root: Path) -> dict[str, object]:
         raw_items = body["items"]["item"]
     except (UnicodeError, json.JSONDecodeError, KeyError, TypeError) as error:
         raise PilotError("retained response JSON shape differs") from error
-    if landing != [raw_payload] or before["response.json"] != manifest["assessment"].get("landing_sha256"):
+    if landing != [raw_payload]:
         raise PilotError("parsed Landing differs from exact response")
+    if (
+        manifest["status"] == "PILOT_PASSED_KNOWN_POSITIVE_SCHEMA"
+        and before["response.json"] != manifest["assessment"].get("landing_sha256")
+    ):
+        raise PilotError("parsed Landing hash differs from the success manifest")
     if (
         header.get("resultCode") != "00"
         or body.get("pageNo") != PAGE_NO
@@ -391,11 +404,39 @@ def verify_pilot_run(project_root: Path, run_root: Path) -> dict[str, object]:
     ):
         raise PilotError("source envelope/count differs")
     rebuilt = _validate_items(tuple(dict(item) for item in raw_items))
+    original_status = str(manifest["status"])
     recorded = dict(manifest["assessment"])
-    recorded.pop("landing_file", None)
-    recorded.pop("landing_sha256", None)
-    if recorded != rebuilt:
-        raise PilotError("recorded assessment differs from offline rebuild")
+    if original_status == "PILOT_PASSED_KNOWN_POSITIVE_SCHEMA":
+        recorded.pop("landing_file", None)
+        recorded.pop("landing_sha256", None)
+        if recorded != rebuilt:
+            raise PilotError("recorded assessment differs from offline rebuild")
+        audit_status = "OFFLINE_AUDIT_PASS"
+    else:
+        if recorded != {"error_type": "PilotError"}:
+            raise PilotError("stopped pilot is not the exact future-effective-date case")
+        expected_audit = {
+            "version": 1,
+            "status": "OFFLINE_AUDIT_PASS_FUTURE_EFFECTIVE_EVENT",
+            "network_requests": 0,
+            "original_status": "PILOT_STOPPED",
+            "original_error_type": "PilotError",
+            "original_file_sha256": {
+                name: digest for name, digest in before.items() if name != "offline_audit.json"
+            },
+            "rebuilt_assessment": rebuilt,
+            "interpretation": (
+                "basDt is the source reference snapshot; stckIssuDt is an event effective date "
+                "and may be later. Historical predictive use remains blocked."
+            ),
+        }
+        if "offline_audit.json" not in files:
+            audit_status = "OFFLINE_RECLASSIFICATION_READY"
+        else:
+            audit = json.loads(files["offline_audit.json"].read_text(encoding="utf-8"))
+            if audit != expected_audit:
+                raise PilotError("offline reclassification audit differs")
+            audit_status = "OFFLINE_AUDIT_PASS_FUTURE_EFFECTIVE_EVENT"
     service_key = service_key_from_environment(project_root)
     if any(
         secret in path.read_bytes()
@@ -407,10 +448,43 @@ def verify_pilot_run(project_root: Path, run_root: Path) -> dict[str, object]:
     if after != before:
         raise PilotError("retained evidence changed during offline verification")
     return {
-        "status": "OFFLINE_AUDIT_PASS", "network_requests": 0,
+        "status": audit_status, "network_requests": 0,
         "run_id": run_root.name, "rows": rebuilt["rows"],
         "manifest_sha256": before["manifest.json"],
     }
+
+
+def finalize_stopped_pilot(project_root: Path, run_root: Path) -> dict[str, object]:
+    """Append a deterministic zero-network audit; never alter original evidence."""
+    project_root = project_root.resolve()
+    run_root = Path(os.path.abspath(run_root))
+    initial = verify_pilot_run(project_root, run_root)
+    if initial["status"] == "OFFLINE_AUDIT_PASS_FUTURE_EFFECTIVE_EVENT":
+        return initial
+    if initial["status"] != "OFFLINE_RECLASSIFICATION_READY":
+        raise PilotError("run does not require stopped-pilot finalization")
+    originals = {
+        path.name: _sha(path) for path in run_root.iterdir()
+        if path.is_file() and path.name != "offline_audit.json"
+    }
+    payload = json.loads((run_root / "raw_response.body").read_bytes())
+    rows = payload["response"]["body"]["items"]["item"]
+    rebuilt = _validate_items(tuple(dict(item) for item in rows))
+    audit = {
+        "version": 1,
+        "status": "OFFLINE_AUDIT_PASS_FUTURE_EFFECTIVE_EVENT",
+        "network_requests": 0,
+        "original_status": "PILOT_STOPPED",
+        "original_error_type": "PilotError",
+        "original_file_sha256": originals,
+        "rebuilt_assessment": rebuilt,
+        "interpretation": (
+            "basDt is the source reference snapshot; stckIssuDt is an event effective date "
+            "and may be later. Historical predictive use remains blocked."
+        ),
+    }
+    _atomic_json(run_root / "offline_audit.json", audit)
+    return verify_pilot_run(project_root, run_root)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -418,7 +492,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--project-root", type=Path, default=ROOT)
     parser.add_argument("--confirm-live-one-call-pilot", action="store_true")
     parser.add_argument("--verify-run", type=Path)
+    parser.add_argument("--finalize-stopped-run", type=Path)
     args = parser.parse_args(argv)
+    if args.finalize_stopped_run is not None:
+        if args.confirm_live_one_call_pilot or args.verify_run is not None:
+            raise SystemExit("live, verify, and finalize modes are mutually exclusive")
+        result = finalize_stopped_pilot(args.project_root, args.finalize_stopped_run)
+        print(json.dumps(result, ensure_ascii=False, sort_keys=True, indent=2))
+        return 0
     if args.verify_run is not None:
         if args.confirm_live_one_call_pilot:
             raise SystemExit("live and offline verification modes are mutually exclusive")

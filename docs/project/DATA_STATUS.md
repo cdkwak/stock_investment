@@ -79,7 +79,7 @@ complete, with zero additional network calls during adoption and rebuilding.
 | 1 | KOSPI200 futures | 1996-present | 2010-01-04..2026-08-07 | 1996-2009 | Evidence and license a historical source; preserve provider/session boundary |
 | 2 | KOSPI200 options | 1997-present | 2010-01-04..2026-08-07 | 1997-2009 | Evidence and license a historical source |
 | 3 | KOSPI200 PCR | 1997-present | 2010-01-04..2026-08-07 | 1997-2009 | Depends on historical options; deterministic rebuild afterward |
-| 4 | Corporate actions | Broad history with canonical events | Dividend snapshot + 13 Rights observations | Canonical split/merger/reduction/rights/dividend event history | Verify official economic terms and event identity before collection |
+| 4 | Corporate actions | Broad history with canonical events | Dividend snapshot + 13 Rights observations + 2-row issuance diagnostic | Canonical split/merger/reduction/rights/dividend/issuance event history | Determine bounded issuance snapshot scope; verify economic terms and event identity |
 | 5 | Adjusted price / total return | 1995-present | Not implemented | All periods | Define accounting policy only after corporate-action evidence |
 | 6 | Short-selling Investor | 2008-present | No accepted artifact | Full historical coverage/semantics | Keep access pause; redesign only with separately authorized evidence |
 | 7 | Valuation | Historical PIT series | Bounded source probes only | Production history | Review a bounded authenticated KRX plan after access safety clears |
@@ -116,7 +116,7 @@ roll, back adjustment, or continuous-contract accounting.
 | Dataset | Blocker | Required Resolution | Current Evidence |
 |---|---|---|---|
 | Futures/options/PCR target history | Current verified sources begin in 2010 | Verify a source for 1996/1997-2009 and retain Landing provenance | Current-contract artifacts and bridges validate from 2010 |
-| Corporate actions / adjusted returns | No complete canonical event identity or economic terms | Verify split/merger/reduction/rights/dividend source and accounting policy | Dividend snapshot and partial Rights observations only |
+| Corporate actions / adjusted returns | No complete canonical event identity or economic terms | Determine bounded issuance snapshot scope; verify split/merger/reduction/rights/dividend source and accounting policy | Dividend snapshot, partial Rights observations, and audited 2-row issuance diagnostic; future effective dates are valid source records |
 | Short-selling Investor | Historical range behavior unresolved; access-safety pause | No retry until new source/access evidence; then separately review a bounded plan | H1-H3 end-date collapse, H4 boundary-shaped response, parity HTTP 403 |
 | BOK/FRED/Toss rates | Historical knowledge/revision availability is incomplete | Establish availability/vintage policy before predictive use | Valid artifacts and bounded retained source observations |
 | Yahoo/FRED legacy provenance | Historical raw responses were not retained | Accept permanent limit; enforce capture on all future refreshes | Immutable local-artifact audits plus new refresh ledgers |

@@ -7,7 +7,7 @@ import pytest
 
 from scripts.manual.data_go_kr_stock_issuance_pilot import (
     BASE_DATE, ENDPOINT, EXPECTED_TOTAL, NUM_ROWS, PilotError, SOURCE_FIELDS,
-    run_pilot, verify_pilot_run,
+    finalize_stopped_pilot, run_pilot, verify_pilot_run,
 )
 
 
@@ -141,3 +141,37 @@ def test_offline_verifier_rejects_tamper(tmp_path, monkeypatch):
     raw.write_bytes(raw.read_bytes() + b" ")
     with pytest.raises(PilotError, match="raw call/body evidence differs"):
         verify_pilot_run(root, run)
+
+
+def test_future_effective_event_is_preserved(tmp_path, monkeypatch):
+    root = project(tmp_path, monkeypatch)
+    rows = [item(1), item(2)]
+    rows[1]["stckIssuDt"] = "20231227"
+    result = run_pilot(root, delegate=Backend(Response(payload(rows))))
+    assert result["status"] == "PILOT_PASSED_KNOWN_POSITIVE_SCHEMA"
+    manifest = json.loads((Path(result["run_root"]) / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["assessment"]["future_effective_rows"] == 1
+
+
+def test_stopped_run_gets_append_only_offline_reclassification(tmp_path, monkeypatch):
+    root = project(tmp_path, monkeypatch)
+    rows = [item(1), item(2)]
+    rows[1]["stckIssuDt"] = "20231227"
+    result = run_pilot(root, delegate=Backend(Response(payload(rows))))
+    run = Path(result["run_root"])
+    ledger_path, manifest_path = run / "call_ledger.json", run / "manifest.json"
+    ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+    ledger.update({"status": "PILOT_STOPPED", "assessment": {"error_type": "PilotError"}})
+    ledger_path.write_text(json.dumps(ledger, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.update({
+        "status": "PILOT_STOPPED", "assessment": {"error_type": "PilotError"},
+        "call_ledger_sha256": __import__("hashlib").sha256(ledger_path.read_bytes()).hexdigest(),
+    })
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    originals = {path.name: path.read_bytes() for path in run.iterdir()}
+    assert verify_pilot_run(root, run)["status"] == "OFFLINE_RECLASSIFICATION_READY"
+    audit = finalize_stopped_pilot(root, run)
+    assert audit["status"] == "OFFLINE_AUDIT_PASS_FUTURE_EFFECTIVE_EVENT"
+    assert finalize_stopped_pilot(root, run) == audit
+    assert {name: (run / name).read_bytes() for name in originals} == originals
