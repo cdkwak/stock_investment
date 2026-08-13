@@ -20,12 +20,13 @@ official continuous coverage.
 | Korean Open API history | KRX Open API | complete, 2010-01-04..2019-12-30 | daily ledger/checkpoint retained |
 | Korean short selling | authenticated pykrx 1.2.8 | Trading DATA_COMPLETE; Balance DATA_COMPLETE, 4,958/4,958 scopes and 6,035,958 rows; final deterministic audit PASS | Investor STOPPED after exactly one boundary business call returned only the range end date (1/501 expected dates); preserve Landing/ledger and redesign the range gate without retrying or synthesizing zeros |
 | `global_index_price_daily` | Yahoo chart API | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 49,051 rows through 2026-08-07 | canonical read, PK, OHLC, null, infinity, and gap audit pass; immutable content-addressed local-artifact audit retained, but collection has no lossless Landing or call ledger |
-| `fred_treasury_yield_daily` | FRED | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 16,853 weekdays, 1962-01-02..2026-08-06 | source-series nulls are preserved; immutable content-addressed local-artifact audit retained, while source-response provenance remains unavailable |
+| `fred_treasury_yield_daily` | FRED | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 16,853 weekdays, 1962-01-02..2026-08-06 | old history lacks response provenance; bounded DGS10 ALFRED pilots validate future Landing/realtime semantics but do not retrofit the artifact |
 | `fred_usd_fx_daily` | FRED | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 14,500 weekdays, 1971-01-04..2026-07-31 | source-series nulls are preserved; immutable content-addressed local-artifact audit retained, while source-response provenance remains unavailable |
 | `kr_market_investor_trading_daily` | Toss Securities | DATA_COMPLETE; 2014-07-01..2026-08-11, KOSPI/KOSDAQ, 5,946 rows | historical secondary; preserve the source `updatedAt`-derived `availability_date` |
 | `kr_treasury_yield_daily` | Toss Securities | ARTIFACT_COMPLETE / PREDICTIVE_USE_BLOCKED; 2019-01-02..2026-08-10, six tenors, 11,162 rows | percent yield semantics verified; source volume unit and observation availability are unknown |
+| `bok_ecos_kr_treasury_yield_source_observation` | BOK ECOS distributor / KOFIA source | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 29,674 rows, six tenors, 1998-11-13..2026-08-13 | five HTTP-200 backfill calls plus one exactly adopted 3Y page response; publication/revision timing remains unknown, so predictive use is blocked |
 | Toss per-symbol short/program/lending/credit | Toss Securities | not survivorship safe; delisted sample returned `stock-not-found` for all four operations | official program screen `MDCSTAT02601` needs a post-A007 request-contract pilot; official credit market aggregates do not replace per-symbol shares/ratios |
-| KB realtime | KB Securities | earlier OAuth success reported; 2026-08-11 fresh check failed with HTTP 500, result `9999`, process `E021`; IVSA0070 not called | verify app-key authorization externally, then authorize a new one-shot validation |
+| KB realtime | KB Securities | ACCESS_BLOCKED; 2026-08-11 and audited one-call 2026-08-13 token checks returned HTTP 500/result `9999`/process `E021`; IVSA0070 not called | provider/app-key authorization requires external resolution; do not repeat probes without new evidence |
 | Market breadth | canonical universe + Korean equity prices | DATA_COMPLETE, 15,413 rows, 1995-05-03..2026-08-07 | deterministic retained-input rebuild/state; four missing boundary rows added and nine stale incremental rows corrected under a frozen evidence gate |
 | `us_treasury_spread_daily` | FRED yields | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 16,853 rows, 1962-01-02..2026-08-06 | deterministic offline state records exact input-state/files, output hashes, formulas, validation, and `api_calls=0` |
 | `kr_market_liquidity_daily` | FSC/KOFIA public API | complete, 2021-10-26..2026-08-05 | daily incremental |
@@ -88,6 +89,7 @@ remain in landing and never overwrite normalized data.
 | `kr_equity_rights_schedule` | two retained response observations (`basDt` 2019-12-31, issuer 1115) | exercise and registry-close dates | not provided | the second response retained all declared 12 rows; response hash + item ordinal preserves both captures, while canonical event identity and historical knowledge remain blocked |
 | `kr_equity_master` | `source_date` | listing, delisting, deposit registration/cancellation dates | not provided | only when `source_date <= as_of`; missing `source_date` is ineligible for predictive features |
 | `kr_treasury_yield_daily` | unavailable from the retained source response | candle date | not provided | blocked for predictive features until a defensible observation-availability policy exists |
+| `bok_ecos_kr_treasury_yield_source_observation` | immutable capture ID/time and Landing hash | ECOS source date | not provided | historical values are retained as source observations; predictive use remains blocked because original publication and revision timing are unknown |
 
 Future effective events present in a snapshot remain valid source records. Total-return
 accounting may apply a validated event retrospectively at its economic effective date;
@@ -111,16 +113,22 @@ layer does not shift either date.
   but these pilots remain unexecuted and require separate D authorization, cooldown,
   and the single-KRX-stream gate. No candidate contract is registered before actual
   full-market response semantics and historical coverage are audited.
-- The OpenDART free-issue observation pilot is IMPLEMENTATION_READY but unexecuted.
-  It is capped at three sequential zero-retry requests and preserves filings as
-  immutable observations; it does not infer supersession, canonical events,
-  adjustment factors, prices, or predictive availability.
-- BOK ECOS table `817Y002` (`시장금리(일별)`) and the six official government-bond
-  tenor identities are reviewed. The bounded A010 metadata phase is ready, but this
-  process has no `BOK_ECOS_API_KEY`; the value phase remains blocked until the one-call
-  immutable metadata response is captured and its exact SHA-256 is independently
-  approved. KOFIA remains the upstream final-quotation-yield source and BOK ECOS the
-  official distributor; these values are not assumed identical to Toss OHLC candles.
+- The configured OpenDART free-issue pilot executed its bounded three-request,
+  zero-retry scope. `list`, `fricDecsn`, and `pifricDecsn` all returned HTTP 200 /
+  source status `013` valid-empty for issuer `01160363` and
+  2022-06-20..2022-07-20. Authentication and valid-empty handling are verified;
+  positive-row schema, units, coverage, and revision behavior remain blocked
+  until retained official evidence identifies a known-positive filing window.
+  No Normalized artifact or corporate-action inference was created.
+- BOK ECOS table `817Y002` (`1.3.2.1. 시장금리(일별)`) and all six official
+  government-bond tenor identities/ranges are verified. The historical
+  source-observation artifact is complete with 29,674 rows: the audited 3Y
+  page-semantics response was adopted without a duplicate request, and the other five
+  tenors completed serially with HTTP 200/retry 0. Exact Landing, ledger, checkpoint,
+  parser, Parquet and state reconciliation passed. KOFIA remains the upstream
+  final-quotation-yield source and BOK ECOS the official distributor; publication and
+  revision timing remain unknown, so these values are not assumed identical to Toss
+  OHLC candles and remain blocked from predictive use.
 - Legacy pykrx failed checkpoint entries are preserved for audit but do not
   indicate a gap in the completed official 1995-2026 equity datasets.
 - KB Securities remains read-only. An earlier OAuth success was reported, but the
@@ -184,8 +192,10 @@ layer does not shift either date.
   responses carry filing receipt identity and decision/economic schedule fields,
   and some products expose share counts or ratios. This is a defensible
   corporate-action observation candidate, not yet an adjustment-factor dataset.
-  The repository has no OpenDART API key, so collection is paused at the external
-  credential gate; no values or coverage before 2015 are inferred.
+  The configured credential unlocked the bounded three-call valid-empty pilot
+  described above. A successful-row contract remains blocked on a separately
+  evidence-selected known-positive issuer/window; no values or coverage before
+  2015 are inferred.
 - The one-call B002-P1 Rights diagnostic returned HTTP 200/result `00` with
   12 source records reported and one retained item (page size one). It proves
   source usability only, not historical coverage. That retained item is now
@@ -310,6 +320,15 @@ layer does not shift either date.
   exactly. These datasets are artifact-complete with provenance limits because
   their retained states lack Landing reconciliation, call ledgers, and strong
   source-response manifests.
+- Configured FRED credentials enabled three bounded DGS10 ALFRED diagnostics.
+  The initial two-request pilot stopped fail-closed because its requested vintage
+  scope exceeded the source limit. Two later one-request, zero-retry scopes passed
+  offline audit: a bounded realtime interval retained 27 rows, and a historical
+  revision interval retained 29 dates with zero dates having multiple observed
+  value versions. These prove credentialed Landing and realtime-period semantics
+  for bounded future collection, but do not retrofit old normalized provenance or
+  justify activating a revision dataset without useful revision evidence or an
+  explicit provenance-only decision.
 
 ## Artifact and execution classifications
 

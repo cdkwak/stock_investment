@@ -1,6 +1,6 @@
 # BOK ECOS Korean Treasury historical source observations
 
-Status: `FIVE_CALL_EXECUTION_READY / 3Y_PAGE_RESPONSE_ADOPTED`.
+Status: `ARTIFACT_COMPLETE_PROVENANCE_LIMITED / DO_NOT_RERUN`.
 
 This collector creates a separate Normalized dataset,
 `bok_ecos_kr_treasury_yield_source_observation`. It never writes, replaces, or
@@ -52,6 +52,12 @@ the source ledger and checkpoint. The backfill copies that immutable body into
 its own Landing, records `ADOPTED_RESPONSE` rather than `HTTP_RESPONSE`, retains
 the original capture ID/time, and lowers its live cap from six to five.
 
+The approved execution completed on 2026-08-13. All five live calls returned
+HTTP 200 with retry 0, and the adopted 3Y response reconciled exactly. The final
+artifact contains 29,674 rows across 29 yearly Parquet files, covers
+1998-11-13 through 2026-08-13, and passed full Landing-to-Parquet equality,
+schema, PK, range, null-semantics, state-manifest and secret-leak audits.
+
 The access key is a URL path segment. Full URLs are never logged. The ledger
 contains only the redacted route, scope, sequence, status, elapsed time, byte
 count, capture timestamp, and body SHA-256. Each body is written immutably to
@@ -89,7 +95,8 @@ Importing the collector performs no I/O. The CLI refuses live work without all
 of the following: configured `BOK_ECOS_API_KEY`, exact retained metadata digest,
 exact approved plan digest, and `--confirm-live-historical-backfill`.
 
-After independent review, the bounded command is:
+The executed command is retained below only as provenance. Do not rerun it to
+refresh or recreate the completed artifact:
 
 ```powershell
 .\.venv\Scripts\python.exe .\scripts\manual\backfill_bok_ecos_treasury.py `
@@ -100,9 +107,8 @@ After independent review, the bounded command is:
   --confirm-live-historical-backfill
 ```
 
-Do not execute this command merely because the implementation exists. D must
-first review the plan digest, provider-stream availability, current credential
-status and whether a new historical capture is still required.
+Any future refresh must use a new reviewed observation plan and capture ID; it
+must never overwrite or silently equate existing BOK ECOS or Toss observations.
 
 On success, audit all six Landing hashes against ledger/checkpoint, verify exact
 contract Arrow schema, PK uniqueness, source ranges and state/Parquet hashes.
