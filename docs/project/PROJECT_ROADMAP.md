@@ -254,9 +254,8 @@ The project must no longer operate in a Data-only mode. Data work should continu
 
 * [README](../../README.md) — repository setup, layout, and supported entry points.
 * [Data status](DATA_STATUS.md) — authoritative dataset coverage, limitations, and blockers.
-* [Data-phase handoff](../DATA_PHASE_HANDOFF_20260813.md) — current operational gates and recovery constraints.
-* [Data API inventory](../DATA_API_INVENTORY.md) — provider, credential, and API boundaries.
-* [Dataset inventory](../D001_DATASET_INVENTORY.md) — reproducible artifact inventory.
-* [Runbooks](../runbooks/) — bounded collection, validation, recovery, and maintenance procedures.
+* [Data API inventory](../data/inventory/DATA_API_INVENTORY.md) — provider, credential, and API boundaries.
+* [Dataset inventory](../data/inventory/D001_DATASET_INVENTORY.md) — reproducible artifact inventory.
+* [Active runbooks](../runbooks/active/) — current collection, validation, recovery, and maintenance procedures.
 
 Detailed schemas, provider limitations, API call budgets, dataset-specific decisions, and operational procedures belong in those references rather than this roadmap.

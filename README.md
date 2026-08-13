@@ -58,13 +58,15 @@ Passing a feasibility pilot does not authorize a bulk backfill.
   runner; [`scripts/manual/`](scripts/manual/) contains approval-gated
   diagnostics, pilots, migrations, and backfills.
 - [`tests/`](tests/) contains the offline unit test suite and fixtures.
-- [`docs/DATA_API_INVENTORY.md`](docs/DATA_API_INVENTORY.md) describes provider
+- [`docs/data/inventory/DATA_API_INVENTORY.md`](docs/data/inventory/DATA_API_INVENTORY.md) describes provider
   contracts, while [`docs/project/DATA_STATUS.md`](docs/project/DATA_STATUS.md) records verified
   coverage, blockers, and availability rules.
 - [`docs/project/PROJECT_STATUS.md`](docs/project/PROJECT_STATUS.md) is the first
   project-state document to read at session start.
 - [`docs/project/PROJECT_ROADMAP.md`](docs/project/PROJECT_ROADMAP.md) defines the long-term
   domain boundaries and development sequence.
-- [`docs/runbooks/`](docs/runbooks/) contains reproducible, approval-gated
-  operating procedures, including the
-  [authenticated pykrx historical plan](docs/runbooks/PYKRX_AUTHENTICATED_HISTORICAL_PLAN.md).
+- [`docs/runbooks/active/`](docs/runbooks/active/) contains currently actionable
+  procedures; blocked work is under [`docs/runbooks/deferred/`](docs/runbooks/deferred/).
+  Archived Data-phase procedures are historical evidence, not active instructions.
+  The deferred set includes the
+  [authenticated pykrx historical plan](docs/runbooks/deferred/PYKRX_AUTHENTICATED_HISTORICAL_PLAN.md).

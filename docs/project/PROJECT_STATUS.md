@@ -22,7 +22,7 @@ documents, inventories, contracts, runbooks, checkpoints, and ledgers.
 | Current data coverage, limits, or collection gates | [Data status](DATA_STATUS.md) |
 | Current Backtest scope and gates | [Backtest status](BACKTEST_STATUS.md) |
 | Architecture or prioritization decision | [Project roadmap](PROJECT_ROADMAP.md) |
-| Detailed Data operations | [Data-phase handoff](../DATA_PHASE_HANDOFF_20260813.md) and [runbooks](../runbooks/) |
+| Detailed Data operations | [Active runbooks](../runbooks/active/) and [deferred runbooks](../runbooks/deferred/) |
 
 `GUI_STATUS.md` does not yet exist because GUI implementation has not started.
 Create a domain status document only when that domain begins substantive work.
@@ -38,4 +38,5 @@ Create a domain status document only when that domain begins substantive work.
   accumulating chronological logs.
 - Keep detailed inventories, contracts, runbooks, checkpoints, ledgers, and
   provider evidence outside `docs/project/`.
-
+- Files under `docs/archive/` and `docs/runbooks/archive/` are historical
+  evidence and never active operating instructions.

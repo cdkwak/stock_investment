@@ -145,7 +145,7 @@ layer does not shift either date.
   explicit provenance fields. Treasury responses do not provide `updatedAt`;
   the earlier inferred `availability_date = source_date` was removed by an
   offline replay of all 60 retained landing responses, with no API calls. The
-  official-source audit in `A006_TREASURY_AVAILABILITY_AUDIT.md` confirms that
+  official-source audit in `../data/audits/A006_TREASURY_AVAILABILITY_AUDIT.md` confirms that
   Toss OHLC cannot inherit KOFIA's separate 16:30 final-quotation timestamp;
   all Toss availability dates remain null and predictive use stays blocked.
   Per-symbol historical APIs are blocked from full-universe
@@ -285,13 +285,13 @@ layer does not shift either date.
   V-KOSPI 200 is PILOT_READY through
   an official authenticated KRX daily-index candidate, but exact source index
   identity, returned fields, historical start, and revision/cutoff policy still
-  require the post-A007 bounded pilot documented in `VKOSPI200_SOURCE_AUDIT.md`.
+  require the post-A007 bounded pilot documented in `../data/audits/VKOSPI200_SOURCE_AUDIT.md`.
   Toss per-symbol program/lending/credit history remains survivorship blocked.
   Program trading is no longer source-unknown: local KRX metadata identifies
   `MDCSTAT02601`, but parameters, grain, fields, and units require the bounded
   post-A007 discovery gate in `KRX_PROGRAM_TRADING_SOURCE_READINESS.md`.
   `kr_credit_balance_daily` remains DATA_COMPLETE at market-aggregate grain;
-  `OFFICIAL_CREDIT_BALANCE_SOURCE_AUDIT.md` shows that its monetary FreeSIS
+  `../data/audits/OFFICIAL_CREDIT_BALANCE_SOURCE_AUDIT.md` shows that its monetary FreeSIS
   series cannot substitute for Toss per-symbol share quantities and ratios.
   KOSPI200 PCR is linked through 2026-08-07. The combined atomic writer
   preserved all ten 2010-2019 Parquet files byte-for-byte and added seven

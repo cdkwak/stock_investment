@@ -16,6 +16,7 @@
 - Domain owners may update their own domain status document.
 - Status documents represent current state; replace stale facts instead of appending logs.
 - Keep detailed inventories, contracts, runbooks, checkpoints, and ledgers outside `docs/project/`.
+- Do not scan deferred runbooks, archived handoffs, or raw provider documents by default.
 
 ## Current Scope
 Current priority: Data Layer.
