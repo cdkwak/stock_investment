@@ -260,6 +260,11 @@ class HttpCapture:
             raise PilotStopped(f"BUSINESS_REQUEST_COUNT_MISMATCH:{self.business_count}")
         return tuple(self._responses)
 
+    def take_latest_response(self, expected_business_count: int) -> requests.Response:
+        if self.business_count != expected_business_count or len(self._responses) != expected_business_count:
+            raise PilotStopped(f"BUSINESS_REQUEST_COUNT_MISMATCH:{self.business_count}")
+        return self._responses[-1]
+
 
 def _default_session_getter():
     with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):

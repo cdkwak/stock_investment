@@ -18,7 +18,12 @@ def expected_dates(root:Path):
  d=boundary.expected_dates(root)
  # Both retained market calendars must contain the same pair.
  import pyarrow.parquet as pq
- p=root.resolve()/"data/published/kr_equity_canonical_universe_daily/market=KOSDAQ/year=2017/data.parquet"; raw=p.read_bytes()
+ resolved=root.resolve(); p=(resolved/"data/published/kr_equity_canonical_universe_daily/market=KOSDAQ/year=2017/data.parquet").resolve()
+ try: p.relative_to(resolved)
+ except ValueError as error: raise PilotStopped("KOSDAQ_CANONICAL_SOURCE_PATH_ESCAPE") from error
+ if not p.is_file() or p.is_symlink(): raise PilotStopped("KOSDAQ_CANONICAL_SOURCE_MISSING")
+ try: raw=p.read_bytes()
+ except OSError as error: raise PilotStopped("KOSDAQ_CANONICAL_SOURCE_UNREADABLE") from error
  if len(raw)!=1224194 or hashlib.sha256(raw).hexdigest()!="ac4cf7679b9692208fb1158a5a8ba1aa529b833f787cc47941b9894ea049b0a3": raise PilotStopped("KOSDAQ_CANONICAL_SOURCE_CHANGED")
  kd=tuple(sorted({str(v).replace('-','') for v in pq.read_table(p,columns=['date'])['date'].to_pylist() if "20170519"<=str(v).replace('-','')<="20170522"}))
  if kd!=d: raise PilotStopped("MARKET_CALENDAR_PAIR_MISMATCH")
@@ -30,4 +35,10 @@ def classify_responses(bodies,dates):
  names=[r.classification for r in results]
  if names==["BOUNDARY_SHAPED_CONFIRMED"]*3: return "SHARED_BOUNDARY_SHAPED_CONFIRMED",results
  if all(n in {"BOUNDARY_SHAPED_CONFIRMED","RANGE_WINDOW_EFFECT"} for n in names): return "METRIC_OR_MARKET_SPECIFIC_WINDOW_EFFECT",results
+ raise PilotStopped("AMBIGUOUS_STOP:PARITY")
+
+def aggregate_classifications(results):
+ names=[r.classification for r in results]
+ if names==["BOUNDARY_SHAPED_CONFIRMED"]*3: return "SHARED_BOUNDARY_SHAPED_CONFIRMED"
+ if len(names)==3 and all(n in {"BOUNDARY_SHAPED_CONFIRMED","RANGE_WINDOW_EFFECT"} for n in names): return "METRIC_OR_MARKET_SPECIFIC_WINDOW_EFFECT"
  raise PilotStopped("AMBIGUOUS_STOP:PARITY")
