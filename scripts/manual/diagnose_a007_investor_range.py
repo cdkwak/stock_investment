@@ -115,6 +115,7 @@ class HttpCapture:
         self.business_count = 0
         self._original: Callable | None = None
         self._response: requests.Response | None = None
+        self._responses: list[requests.Response] = []
         self._business_session: requests.Session | None = None
 
     def __enter__(self):
@@ -137,6 +138,10 @@ class HttpCapture:
         self, session: requests.Session, method: object, kwargs: dict[str, object]
     ) -> None:
         expected = getattr(self.support, "EXPECTED_BUSINESS_DATA", None)
+        if isinstance(expected, tuple):
+            if self.business_count >= len(expected):
+                raise PilotStopped("BUSINESS_SEQUENCE_OVERFLOW")
+            expected = expected[self.business_count]
         if expected is None:
             return
         if session is not self._business_session:
@@ -207,8 +212,11 @@ class HttpCapture:
         }
         if not authentication:
             assert_no_credentials(response.content, self.credential_values)
-            body_path = self.run_dir / BODY_NAME
-            provenance_path = self.run_dir / PROVENANCE_NAME
+            sequence = self.business_count
+            body_name = BODY_NAME if self.support.MAX_BUSINESS_REQUESTS == 1 else f"response_{sequence:02d}.json"
+            provenance_name = PROVENANCE_NAME if self.support.MAX_BUSINESS_REQUESTS == 1 else f"{body_name}.provenance.json"
+            body_path = self.run_dir / body_name
+            provenance_path = self.run_dir / provenance_name
             body_hash = hashlib.sha256(response.content).hexdigest()
             write_bytes_atomic_new(body_path, response.content)
             provenance = {
@@ -222,18 +230,19 @@ class HttpCapture:
                 "raw_sequence": raw_sequence,
                 "response_bytes": len(response.content),
                 "run_id": self.run_id,
-                "scope_id": self.support.SCOPE_ID,
+                "scope_id": getattr(self.support, "SCOPE_IDS", (self.support.SCOPE_ID,))[sequence - 1],
                 "scope_sha256": self.support.scope_sha256(self.expected_dates),
                 "version": 1,
             }
             _atomic_json_new(provenance_path, provenance)
             entry.update({
-                "body_file": BODY_NAME,
-                "provenance_file": PROVENANCE_NAME,
+                "body_file": body_name,
+                "provenance_file": provenance_name,
                 "response_sha256": body_hash,
-                "scope": self.support.SCOPE_ID,
+                "scope": getattr(self.support, "SCOPE_IDS", (self.support.SCOPE_ID,))[sequence - 1],
             })
             self._response = response
+            self._responses.append(response)
         self.ledger.append("HTTP_RESPONSE", **entry)
         if response.status_code in {403, 429}:
             raise PilotStopped(f"HTTP_RESTRICTION:{response.status_code}")
@@ -245,6 +254,11 @@ class HttpCapture:
         if self.business_count != 1 or self._response is None:
             raise PilotStopped(f"BUSINESS_REQUEST_COUNT_MISMATCH:{self.business_count}")
         return self._response
+
+    def take_exact_responses(self) -> tuple[requests.Response, ...]:
+        if self.business_count != self.support.MAX_BUSINESS_REQUESTS or len(self._responses) != self.business_count:
+            raise PilotStopped(f"BUSINESS_REQUEST_COUNT_MISMATCH:{self.business_count}")
+        return tuple(self._responses)
 
 
 def _default_session_getter():
