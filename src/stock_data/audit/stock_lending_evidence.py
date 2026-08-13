@@ -37,6 +37,10 @@ from stock_data.providers.data_go_kr.data_v1 import (
     normalize_stock_lending_market,
     normalize_stock_lending_participant,
 )
+from stock_data.pipelines.stock_lending_backfill import (
+    StockLendingBackfillLocked,
+    stock_lending_run_lock,
+)
 from stock_data.validation.data_v1 import validate_data_v1
 
 
@@ -198,6 +202,18 @@ def _audit_state_lock(project_root: Path, state_root: Path):
             _assert_plain_components(project_root, lock_path)
             if lock_path.is_file() and lock_path.read_bytes() == token:
                 lock_path.unlink()
+
+
+@contextmanager
+def _collector_input_lock(project_root: Path):
+    """Share the canonical collector lock for rebuild through publication."""
+    try:
+        with stock_lending_run_lock(project_root):
+            yield
+    except StockLendingBackfillLocked as error:
+        raise StockLendingEvidenceAuditError(
+            "stock-lending collector owns the input lock; audit state was not published"
+        ) from error
 
 
 def _read_landing(path: Path) -> tuple[dict[str, object], list[Mapping[str, object]]]:
@@ -546,6 +562,14 @@ def write_stock_lending_evidence_state(project_root: Path, report: Mapping[str, 
     digest = supplied.pop("audit_manifest_sha256", None)
     if digest != _sha256_bytes(_canonical_bytes(supplied)):
         raise StockLendingEvidenceAuditError("audit report digest differs")
+    with _collector_input_lock(project_root):
+        return _write_stock_lending_evidence_state_locked(project_root, report)
+
+
+def _write_stock_lending_evidence_state_locked(
+    project_root: Path, report: Mapping[str, object]
+) -> dict[str, object]:
+    """Rebuild and publish while the canonical collector lock is owned."""
     # Rebuild independently: callers cannot forge PASS fields, manifests, or contracts.
     current = build_stock_lending_evidence_audit(project_root)
     if _canonical_bytes(current) != _canonical_bytes(report):

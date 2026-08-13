@@ -45,8 +45,12 @@ Create or reuse an immutable content-addressed state:
 
 The state is written atomically under
 `data/state/audits/stock_lending_retained_execution/<audit SHA-256>.json`.
-The writer independently rebuilds the entire report. A nonce-owned exclusive
-audit-state lock spans the final full-input manifest verification, temporary
-file durability, and content-addressed hard-link publication. Existing
-identical state is reused; concurrent writers, conflicting content, path
-redirects, input mutation, or forged reports are rejected.
+The writer first acquires the canonical collector lock
+`data/state/fsc_stock_lending_backfill.lock`. That shared lock spans the
+independent full rebuild, final input-manifest verification, and publication,
+so a conforming collection/resume process cannot mutate Landing, Normalized, or
+checkpoints during the evidence snapshot. Inside it, a separate nonce-owned
+audit-state lock spans temporary-file durability and content-addressed hard-link
+publication. Existing identical state is reused; active collectors, concurrent
+audit writers, conflicting content, path redirects, input mutation, or forged
+reports are rejected.

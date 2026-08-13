@@ -301,7 +301,7 @@ def test_input_mutation_at_immediate_pre_link_boundary_is_rejected(tmp_path, mon
     assert not list(state_root.glob("*.json")) if state_root.exists() else True
 
 
-def test_owned_lock_blocks_racing_writer_after_final_manifest_before_link(tmp_path, monkeypatch):
+def test_collector_lock_blocks_input_writer_after_final_manifest_before_link(tmp_path, monkeypatch):
     _write_fixture(tmp_path)
     report = build_stock_lending_evidence_audit(tmp_path)
     original_link = audit_module.os.link
@@ -310,10 +310,12 @@ def test_owned_lock_blocks_racing_writer_after_final_manifest_before_link(tmp_pa
     def racing_link(source, target):
         nonlocal raced
         raced = True
-        state_root = tmp_path / audit_module.DEFAULT_STATE_RELATIVE
-        with pytest.raises(StockLendingEvidenceAuditError, match="holds the lock"):
-            with audit_module._audit_state_lock(tmp_path, state_root):
-                pass
+        input_path = tmp_path / "data/state/kr_stock_lending_daily.json"
+        before = input_path.read_bytes()
+        with pytest.raises(audit_module.StockLendingBackfillLocked):
+            with audit_module.stock_lending_run_lock(tmp_path):
+                input_path.write_text("forged mutation", encoding="utf-8")
+        assert input_path.read_bytes() == before
         return original_link(source, target)
 
     monkeypatch.setattr(audit_module.os, "link", racing_link)
@@ -321,3 +323,14 @@ def test_owned_lock_blocks_racing_writer_after_final_manifest_before_link(tmp_pa
     assert raced is True
     assert result["status"] == "CREATED"
     assert not (tmp_path / audit_module.DEFAULT_STATE_RELATIVE / ".write.lock").exists()
+    assert not (tmp_path / "data/state/fsc_stock_lending_backfill.lock").exists()
+
+
+def test_active_collector_lock_prevents_rebuild_and_publication(tmp_path):
+    _write_fixture(tmp_path)
+    report = build_stock_lending_evidence_audit(tmp_path)
+    with audit_module.stock_lending_run_lock(tmp_path):
+        with pytest.raises(StockLendingEvidenceAuditError, match="collector owns the input lock"):
+            write_stock_lending_evidence_state(tmp_path, report)
+    state_root = tmp_path / audit_module.DEFAULT_STATE_RELATIVE
+    assert not list(state_root.glob("*.json")) if state_root.exists() else True
