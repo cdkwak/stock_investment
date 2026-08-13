@@ -24,6 +24,13 @@ explicitly counted, and is excluded from scoped normalization. The manifest
 records source rows, scoped rows, excluded-known rows, and per-market counts.
 Any other market label fails closed after Landing capture.
 
+Before an exact body is written, the sentinel scans for the configured service
+key in its supplied, URL-decoded, and URL-encoded forms. On a match it writes
+only redacted anomaly metadata and never persists the body. Offline adoption
+rescans every retained file, including `.body`, rejects links/reparse points or
+non-immediate manifest paths, independently validates raw call and ledger
+identity/accounting, and proves the parsed Landing JSON equals the raw response.
+
 `VALID_EMPTY_NOT_YET_AVAILABLE` deliberately does not mean a market-empty day.
 It records only that the exact source stream returned zero rows when observed.
 Do not promote it or add it to production `valid_empty_partitions`.

@@ -20,6 +20,7 @@ import shutil
 import sys
 import tempfile
 from uuid import uuid4
+from urllib.parse import quote, unquote
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -44,10 +45,39 @@ NUM_ROWS = 9999
 STREAMS = ("price_cap", "universe")
 SCOPED_MARKETS = {"KOSPI", "KOSDAQ"}
 KNOWN_EXCLUDED_MARKETS = {"KONEX"}
+REPARSE_POINT = 0x400
 
 
 class SentinelError(RuntimeError):
     pass
+
+
+def _assert_plain(path: Path) -> Path:
+    if not os.path.lexists(path):
+        raise SentinelError(f"required evidence path is missing: {path.name}")
+    info = path.lstat()
+    if path.is_symlink() or (getattr(info, "st_file_attributes", 0) & REPARSE_POINT):
+        raise SentinelError("links/reparse points are forbidden in sentinel evidence")
+    return path
+
+
+def _immediate_file(root: Path, name: object) -> Path:
+    if not isinstance(name, str) or re.fullmatch(r"[A-Za-z0-9_.-]+", name) is None:
+        raise SentinelError("evidence filename is not a safe immediate child")
+    root = _assert_plain(root)
+    path = root / name
+    if path.parent != root or not os.path.lexists(path):
+        raise SentinelError("evidence path is not an existing immediate child")
+    _assert_plain(path)
+    if not path.is_file():
+        raise SentinelError("evidence path is not a plain file")
+    return path
+
+
+def _secret_variants(value: str) -> set[bytes]:
+    decoded = unquote(value)
+    values = {value, decoded, quote(decoded, safe=""), quote(decoded, safe="~")}
+    return {item.encode("utf-8") for item in values if item}
 
 
 def _now() -> str:
@@ -93,9 +123,10 @@ def _atomic_bytes(path: Path, body: bytes) -> None:
 
 class _CaptureSession:
     """Persist exact HTTP evidence before the client parses/classifies it."""
-    def __init__(self, backend, run_root: Path, sequence: int, stream: str, endpoint: str):
+    def __init__(self, backend, run_root: Path, sequence: int, stream: str, endpoint: str, service_key: str):
         self.backend, self.run_root = backend, run_root
         self.sequence, self.stream, self.endpoint = sequence, stream, endpoint
+        self.secret_variants = _secret_variants(service_key)
         self.receipt: dict[str, object] | None = None
 
     def get(self, url, *, params, headers, timeout):
@@ -105,6 +136,16 @@ class _CaptureSession:
             raise SentinelError("HTTP response content is not exact bytes")
         raw = self.run_root / f"raw_response_{self.sequence:02d}_{self.stream}.body"
         call = self.run_root / f"raw_call_{self.sequence:02d}_{self.stream}.json"
+        if any(secret in body for secret in self.secret_variants):
+            safe_record = {"version": 1, "sequence": self.sequence, "stream": self.stream,
+                "event": "SECRET_ECHO_BLOCKED", "captured_at_utc": _now(), "endpoint": self.endpoint,
+                "http_status": int(response.status_code), "retry_count": 0,
+                "raw_body_persisted": False, "response_bytes": len(body),
+                "response_sha256": hashlib.sha256(body).hexdigest()}
+            _atomic_json(call, safe_record, exclusive=True)
+            self.receipt = {"raw_call_file": call.name, "raw_call_sha256": _sha(call),
+                            "http_status": int(response.status_code), "raw_body_persisted": False}
+            raise SentinelError("response body contained a configured credential variant; body not persisted")
         _atomic_bytes(raw, body)
         safe_params = {str(key): str(value) for key, value in params.items() if str(key) != "serviceKey"}
         record = {"version": 1, "sequence": self.sequence, "stream": self.stream,
@@ -201,7 +242,7 @@ def run_sentinel(project_root: Path, base_date: str, *, session=None) -> dict[st
         for sequence, stream_name in enumerate(STREAMS, start=1):
             capture_session = _CaptureSession(
                 session or __import__("requests"), run_root, sequence,
-                stream_name, endpoints[stream_name],
+                stream_name, endpoints[stream_name], key,
             )
             client = DataGoKrClient(
                 endpoint=endpoints[stream_name], service_key=key,
@@ -268,11 +309,12 @@ def run_sentinel(project_root: Path, base_date: str, *, session=None) -> dict[st
 
 def _read_audited_pair(project_root: Path, run_root: Path) -> tuple[dict[str, object], dict[str, Path]]:
     expected_parent = (project_root / LANDING_RELATIVE).resolve()
-    run_root = run_root.resolve()
-    if run_root.parent != expected_parent:
+    run_root = Path(os.path.abspath(run_root))
+    if run_root.parent != expected_parent or not re.fullmatch(r"\d{8}T\d{6}Z_[0-9a-f]{32}", run_root.name):
         raise SentinelError("adoption run must be an immediate sentinel child")
-    manifest_path = run_root / "manifest.json"
-    ledger_path = run_root / "call_ledger.jsonl"
+    _assert_plain(expected_parent); _assert_plain(run_root)
+    manifest_path = _immediate_file(run_root, "manifest.json")
+    ledger_path = _immediate_file(run_root, "call_ledger.jsonl")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if (
         manifest.get("status") != "NONEMPTY_AVAILABLE"
@@ -286,23 +328,65 @@ def _read_audited_pair(project_root: Path, run_root: Path) -> tuple[dict[str, ob
     lines = [json.loads(line) for line in ledger_path.read_text(encoding="utf-8").splitlines()]
     if len(lines) != 2 or [row.get("sequence") for row in lines] != [1, 2]:
         raise SentinelError("sentinel ledger is not exactly two calls")
+    configured_key = service_key_from_environment(project_root)
+    for evidence_file in run_root.iterdir():
+        _assert_plain(evidence_file)
+        if evidence_file.is_file() and any(secret in evidence_file.read_bytes() for secret in _secret_variants(configured_key)):
+            raise SentinelError("configured credential variant found in retained sentinel evidence")
     paths: dict[str, Path] = {}
-    for name in STREAMS:
+    endpoints = {"price_cap": STOCK_PRICE_ENDPOINT, "universe": UNIVERSE_ENDPOINT}
+    for sequence, name in enumerate(STREAMS, start=1):
         record = manifest["results"].get(name)
         if not isinstance(record, dict) or record.get("classification") != "NONEMPTY_AVAILABLE":
             raise SentinelError("sentinel stream is not non-empty")
-        raw_body = run_root / str(record.get("raw_body_file", ""))
-        raw_call = run_root / str(record.get("raw_call_file", ""))
-        if (not raw_body.is_file() or not raw_call.is_file()
-                or _sha(raw_body) != record.get("raw_body_sha256")
-                or raw_body.stat().st_size != record.get("raw_body_bytes")
-                or _sha(raw_call) != record.get("raw_call_sha256")
+        if lines[sequence - 1] != record:
+            raise SentinelError("sentinel ledger and manifest stream record differ")
+        common = {"sequence", "stream", "event", "captured_at_utc", "endpoint",
+                  "public_parameters", "retry_count", "pages", "landing_file", "landing_sha256",
+                  "raw_body_file", "raw_body_bytes", "raw_body_sha256", "raw_call_file",
+                  "raw_call_sha256", "http_status", "classification", "source_rows",
+                  "scoped_rows", "excluded_known_rows", "source_market_counts"}
+        expected_keys = common | ({"price_rows", "market_cap_rows"} if name == "price_cap" else {"universe_rows"})
+        expected_public = {"basDt": str(manifest["base_date"]), "numOfRows": NUM_ROWS,
+                           "pageNo": 1, "resultType": "json"}
+        if (set(record) != expected_keys or record.get("sequence") != sequence
+                or record.get("stream") != name or record.get("event") != "CALL_COMPLETED"
+                or record.get("endpoint") != endpoints[name] or record.get("public_parameters") != expected_public
+                or record.get("retry_count") != 0 or record.get("pages") != 1
                 or record.get("http_status") != 200):
+            raise SentinelError("sentinel ledger/manifest schema or call identity differs")
+        raw_body = _immediate_file(run_root, record.get("raw_body_file"))
+        raw_call = _immediate_file(run_root, record.get("raw_call_file"))
+        raw_call_record = json.loads(raw_call.read_text(encoding="utf-8"))
+        expected_raw_keys = {"version", "sequence", "stream", "captured_at_utc", "endpoint",
+                             "public_parameters", "http_status", "retry_count", "raw_body_file",
+                             "raw_body_bytes", "raw_body_sha256"}
+        expected_raw_public = {"basDt": str(manifest["base_date"]), "numOfRows": str(NUM_ROWS),
+                               "pageNo": "1", "resultType": "json"}
+        if (set(raw_call_record) != expected_raw_keys or raw_call_record.get("version") != 1
+                or raw_call_record.get("sequence") != sequence or raw_call_record.get("stream") != name
+                or raw_call_record.get("endpoint") != endpoints[name]
+                or raw_call_record.get("public_parameters") != expected_raw_public
+                or raw_call_record.get("http_status") != 200 or raw_call_record.get("retry_count") != 0
+                or raw_call_record.get("raw_body_file") != raw_body.name
+                or raw_call_record.get("raw_body_sha256") != record.get("raw_body_sha256")
+                or raw_call_record.get("raw_body_bytes") != record.get("raw_body_bytes")
+                or _sha(raw_call) != record.get("raw_call_sha256")):
+            raise SentinelError("sentinel raw call evidence differs")
+        if (_sha(raw_body) != record.get("raw_body_sha256")
+                or raw_body.stat().st_size != record.get("raw_body_bytes")
+                or _sha(raw_call) != record.get("raw_call_sha256")):
             raise SentinelError("sentinel exact HTTP evidence differs")
-        landing = run_root / str(record.get("landing_file", ""))
-        if not landing.is_file() or _sha(landing) != record.get("landing_sha256"):
+        landing = _immediate_file(run_root, record.get("landing_file"))
+        if _sha(landing) != record.get("landing_sha256"):
             raise SentinelError("sentinel Landing hash differs")
         pages = json.loads(landing.read_text(encoding="utf-8"))
+        try:
+            raw_payload = json.loads(raw_body.read_bytes())
+        except json.JSONDecodeError as error:
+            raise SentinelError("sentinel raw body is not JSON") from error
+        if pages != [raw_payload]:
+            raise SentinelError("parsed Landing is not exactly the captured raw response")
         body = pages[0]["response"]["body"]
         raw = body.get("items") or {}
         items = raw.get("item", []) if isinstance(raw, dict) else []

@@ -79,8 +79,8 @@ def test_live_sentinel_is_two_calls_and_does_not_touch_production(tmp_path, monk
     assert result["production_checkpoint_writes"] is False
     assert result["normalized_writes"] is False
     assert not (tmp_path / "data/state/kr_equity_price_cap_daily.json").exists()
-    text = "".join(p.read_text(encoding="utf-8") for p in Path(result["run_root"]).rglob("*.json*"))
-    assert "secret" not in text
+    retained = b"".join(p.read_bytes() for p in Path(result["run_root"]).iterdir() if p.is_file())
+    assert b"secret" not in retained
 
 
 def test_anomaly_stops_before_second_call_and_writes_manifest(tmp_path, monkeypatch):
@@ -121,6 +121,23 @@ def test_classification_failure_preserves_exact_landing_before_error(tmp_path, m
     assert "serviceKey" not in retained_call["public_parameters"]
 
 
+def test_secret_echo_is_blocked_before_body_persistence(tmp_path, monkeypatch):
+    secret = "secret%2Bencoded"
+    monkeypatch.setenv("DATA_GO_KR_SERVICE_KEY", secret)
+    class EchoSession:
+        def get(self, *args, **kwargs):
+            response = Response(_price())
+            response.content = b'{"echo":"secret+encoded"}'
+            return response
+    with pytest.raises(SentinelError, match="credential variant"):
+        run_sentinel(tmp_path, "20260812", session=EchoSession())
+    run_root = next((tmp_path / "data/landing/diagnostics/data_go_kr_equity_availability").iterdir())
+    assert not list(run_root.glob("*.body"))
+    retained = b"".join(path.read_bytes() for path in run_root.iterdir() if path.is_file())
+    assert b"secret%2Bencoded" not in retained and b"secret+encoded" not in retained
+    assert json.loads((run_root / "manifest.json").read_text())["status"] == "ANOMALY"
+
+
 def test_nonempty_pair_can_be_staged_offline_without_normalized_write(tmp_path, monkeypatch):
     monkeypatch.setenv("DATA_GO_KR_SERVICE_KEY", "secret")
     result = run_sentinel(tmp_path, "20260812", session=Session())
@@ -132,6 +149,50 @@ def test_nonempty_pair_can_be_staged_offline_without_normalized_write(tmp_path, 
     for state_name in ("kr_equity_price_cap_daily", "kr_equity_universe_daily"):
         state = json.loads((tmp_path / "data/state" / f"{state_name}.json").read_text())
         assert state["staged_partitions"] == ["20260812"]
+
+
+def test_adoption_rejects_raw_call_ledger_and_path_tamper(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATA_GO_KR_SERVICE_KEY", "secret")
+    result = run_sentinel(tmp_path, "20260812", session=Session())
+    run_root = Path(result["run_root"])
+    raw_call = next(run_root.glob("raw_call_01_*.json"))
+    original = raw_call.read_bytes(); call = json.loads(original); call["sequence"] = 2
+    raw_call.write_text(json.dumps(call))
+    with pytest.raises(SentinelError, match="raw call|hash"):
+        adopt_nonempty_pair(tmp_path, run_root)
+    raw_call.write_bytes(original)
+    ledger = run_root / "call_ledger.jsonl"; original_ledger = ledger.read_bytes()
+    lines = ledger.read_text().splitlines(); lines.reverse(); ledger.write_text("\n".join(lines) + "\n")
+    manifest = json.loads((run_root / "manifest.json").read_text()); manifest["call_ledger_sha256"] = __import__("hashlib").sha256(ledger.read_bytes()).hexdigest()
+    (run_root / "manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(SentinelError, match="exactly two calls|ledger"):
+        adopt_nonempty_pair(tmp_path, run_root)
+    ledger.write_bytes(original_ledger)
+
+
+def test_adoption_rejects_non_immediate_manifest_filename(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATA_GO_KR_SERVICE_KEY", "secret")
+    result = run_sentinel(tmp_path, "20260812", session=Session())
+    run_root = Path(result["run_root"]); manifest_path = run_root / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["results"]["price_cap"]["landing_file"] = "../escape.json"
+    manifest_path.write_text(json.dumps(manifest))
+    with pytest.raises(SentinelError, match="safe immediate child|ledger"):
+        adopt_nonempty_pair(tmp_path, run_root)
+
+
+def test_adoption_rejects_linked_evidence(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATA_GO_KR_SERVICE_KEY", "secret")
+    result = run_sentinel(tmp_path, "20260812", session=Session())
+    run_root = Path(result["run_root"]); manifest = json.loads((run_root / "manifest.json").read_text())
+    landing = run_root / manifest["results"]["price_cap"]["landing_file"]
+    outside = tmp_path / "outside.json"; outside.write_bytes(landing.read_bytes()); landing.unlink()
+    try:
+        landing.symlink_to(outside)
+    except OSError:
+        pytest.skip("symlink creation unavailable")
+    with pytest.raises(SentinelError, match="links/reparse"):
+        adopt_nonempty_pair(tmp_path, run_root)
 
 
 def test_confirmation_is_required(tmp_path):
