@@ -1,7 +1,11 @@
 # A007 follow-on: balance then investor
 
-Status: offline readiness review complete; execution remains D-gated while the
-single KRX stream is owned by the trading phase.
+Status: **SUPERSEDED / RECORD ONLY**. Trading and Balance are DATA_COMPLETE.
+Investor stopped after its first production range returned only 1/501 expected
+dates. The commands and 4+36-call plan below are retained as historical planning
+evidence and do not authorize execution or resume. Use the Investor diagnostic
+runbooks for the later bounded evidence; any next live request requires new D
+authorization and the single-KRX-stream gate.
 
 This runbook does not authorize a live request. It fixes the verified order,
 scope, capacity, and stop conditions for the two remaining v2 short-selling
@@ -139,4 +143,3 @@ Immediately stop on HTTP 403/429/5xx, auth/session anomaly, HTML or invalid JSON
 schema change, unexpected valid-empty, investor date-coverage mismatch, ledger
 or provenance mismatch, checkpoint inconsistency, duplicate scope, lock conflict,
 or raw-call-budget exhaustion. Do not retry automatically.
-

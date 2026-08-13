@@ -1,5 +1,13 @@
 # A007 Investor range diagnostic
 
+Status: **EXECUTED / PASS** on 2026-08-13. The single run
+`20260813T065923Z_6ec6cf7bde1c414988cddb7d275fd7a2` returned exactly the five
+expected dates, five positive totals, six raw HTTP responses, and one business
+response. Its classification is `MULTI_DATE_RANGE_CONFIRMED`; response SHA-256 is
+`2368c004fd9e3e287730fc378faffd94e07e7c621f01901f17b34567d8f57aca`.
+The immutable body, sidecar, manifest, and ledger remain under the diagnostic
+Landing root. This PASS did not change Investor state or authorize resume.
+
 ## Purpose
 
 The first historical Investor scope requested 2008-01-02 through 2009-12-30

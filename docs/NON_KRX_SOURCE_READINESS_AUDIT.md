@@ -4,6 +4,15 @@ Audit date: 2026-08-13. This is a repository-evidence audit; it made no live
 request and does not change any Dataset Contract, registry, checkpoint, or
 Data-status classification.
 
+Supersession note: this ranked table records the evidence available when the
+audit ran. Since then, all six allowlisted schema-only migrations were completed
+and verified without changing logical values, and A007 Trading and Balance
+completed. Rank 3 is therefore resolved. Rank 7 is no longer blocked by an
+active A007 production stream, but every post-A007 KRX pilot remains separately
+D-authorized, cooldown-gated, and subject to the single-stream rule. See
+`DATA_STATUS.md` and `DATA_PHASE_HANDOFF_20260813.md` for current status; the
+historical findings below are intentionally not rewritten.
+
 ## Ranked blockers
 
 | Rank | Area | Current evidence | Real next gate |

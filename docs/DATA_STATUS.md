@@ -57,11 +57,13 @@ official continuous coverage.
 | `kr_market_investor_net_purchase_bridge_daily` | legacy investor + Toss A001 | DATA_COMPLETE, 1999-01-04..2026-08-11; 9,780 rows | Published provider-boundary bridge; legacy rows retain `unit_unknown`, null availability, and predictive-use block; cross-segment numeric comparison is prohibited |
 
 Unauthenticated/standalone automated access to `data.krx.co.kr` remains disabled.
-Authenticated pykrx 1.2.8 access passed a bounded manual smoke test. A007 historical
-short-selling collection is now enabled only as D-owned, bounded, sequential batches
-with immutable Landing, call ledger, and checkpoint reconciliation. No second KRX
-stream is permitted while A007 runs. Existing pykrx Parquet data and checkpoints
-remain preserved. KB work remains read-only; order APIs are out of scope.
+Authenticated pykrx 1.2.8 access passed a bounded manual smoke test. A007 Trading and
+Balance are complete; Investor remains stopped after its first production request
+failed the exact date-coverage gate. No A007 production stream is active. Any further
+KRX diagnostic or pilot remains D-owned, bounded, sequential, and separately
+authorized; there is never more than one KRX stream. Existing pykrx Landing, ledgers,
+Parquet data, and checkpoints remain preserved. KB work remains read-only; order APIs
+are out of scope.
 
 Point-in-time rule: normalized source observations keep their source date unchanged.
 Research features/signals observed on trading day T may only be executed from T+1;
@@ -105,9 +107,10 @@ layer does not shift either date.
   zero retries. Historical, scheduled, polling, and repair automation remain
   disabled until the authenticated collection runbook gates are satisfied.
 - Bounded Landing-only pilots for fundamentals, foreign ownership, and ETF are
-  implemented and offline-tested. They remain unexecuted while A007 owns the
-  single KRX stream; no candidate contract is registered before actual full-market
-  response semantics and historical coverage are audited.
+  implemented and offline-tested. A007 no longer owns an active production stream,
+  but these pilots remain unexecuted and require separate D authorization, cooldown,
+  and the single-KRX-stream gate. No candidate contract is registered before actual
+  full-market response semantics and historical coverage are audited.
 - The OpenDART free-issue observation pilot is IMPLEMENTATION_READY but unexecuted.
   It is capped at three sequential zero-retry requests and preserves filings as
   immutable observations; it does not infer supersession, canonical events,
@@ -200,19 +203,27 @@ layer does not shift either date.
   PK duplicates, PK nulls, and numeric infinities are zero. The retained ledgers
   contain exactly 9,174 successful business responses, 255 authentication
   responses, no non-200 response, no duplicate completed scope, and one local
-  pre-response socket error from the interrupted Windows session. Balance
-  collected 3,849/4,958 scopes and 4,512,205 exact Normalized rows through the
-  successful `20240425_KOSPI` scope. The next `20240425_KOSDAQ` request returned
-  HTTP 200 with a 5,705-byte restriction HTML body (SHA-256
-  `109b7a8b1506a88e9110e8089c5d2be20d0e0c93587225c6e1ed4cfbfb783871`).
-  The collector preserved the body/sidecar/ledger, did not checkpoint or
-  normalize it, set the Balance state to `STOPPED`, released the lock, and made
-  no retry. The deterministic audit confirms all 4,512,205 checkpointed rows
-  match Landing exactly with zero PK/null/NaN/infinity violations; its overall
-  result is intentionally FAIL because the stopped response is an uncheckpointed
-  orphan and 1,109 scopes remain. Investor was not started. Resume requires a
-  separately reviewed access-recovery gate. The sequence remains documented in
-  `runbooks/A007_FOLLOWON_BALANCE_INVESTOR.md`. V-KOSPI 200 is PILOT_READY through
+  pre-response socket error from the interrupted Windows session. Balance is also
+  DATA_COMPLETE: 4,958/4,958 scopes produced 6,035,958 exact Normalized rows for
+  2016-06-30..2026-08-07. Its final deterministic audit reconciles Landing,
+  provenance, ledgers, checkpoint, Parquet rows, PK, nulls, NaNs, and infinities
+  with no remaining scope. The earlier `20240425_KOSDAQ` restriction response and
+  recovery are retained as audit history and were not rebuilt or discarded.
+  Investor then made exactly one production business request for
+  `20080102_20091230_KOSPI_volume`; the HTTP-200 JSON returned only the range end
+  date instead of all 501 expected canonical dates. The collector retained the
+  evidence, made no retry, wrote no checkpoint or Normalized data, and remains
+  `STOPPED`. A later one-request recent-window diagnostic passed all five expected
+  dates. The subsequent S1 request returned healthy-looking data for all 485/485
+  expected dates, but the original classifier stopped with
+  `TOP_LEVEL_SCHEMA_MISMATCH` because KRX included a verified `CURRENT_DATETIME`
+  metadata field beside `OutBlock_1`. A zero-network verifier then validated the
+  frozen inputs, exact request/ledger/provenance chain, all 485 expected dates,
+  exact row schema, nonnegative integers, component totals, and 485 positive-total
+  dates as `S1_FULL_RANGE_CONFIRMED`. The original terminal event remains preserved;
+  this offline PASS does not authorize Investor resume. The historical sequence remains documented in
+  `runbooks/A007_FOLLOWON_BALANCE_INVESTOR.md` and the two diagnostic runbooks.
+  V-KOSPI 200 is PILOT_READY through
   an official authenticated KRX daily-index candidate, but exact source index
   identity, returned fields, historical start, and revision/cutoff policy still
   require the post-A007 bounded pilot documented in `VKOSPI200_SOURCE_AUDIT.md`.
@@ -268,8 +279,13 @@ and source timestamps are UTC `timestamp[ns]`. A001 conforms without data
 migration. A006 was replayed offline so all 11,162 unverifiable
 `availability_date` values are null while every other field remains identical.
 Generic repository-wide enforcement of physical Arrow types for older datasets
-remains separate technical debt; it must not be used to silently rewrite frozen
-artifacts. The two legacy KOSPI200 Normalized datasets and their Derived PCR
+was completed for the six allowlisted schema-only migration roots. Their logical
+values and row identity were verified unchanged while the physical Arrow schemas
+were brought to their registered contracts; this was not a source rebuild. The
+already-completed migrations do not have a retrospective tool-owned old-to-new
+transaction ledger, so one must not be fabricated. Future schema migration
+provenance remains separate maintenance work. The two legacy KOSPI200 Normalized
+datasets and their Derived PCR
 dataset have separate active contracts registered with their implemented Arrow
 schemas, source identity, keys, sort order, partitioning, and nullability.
 The legacy investor-flow contract is likewise registered separately with key
