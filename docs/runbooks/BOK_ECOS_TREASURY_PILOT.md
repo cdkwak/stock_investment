@@ -1,11 +1,18 @@
 # BOK ECOS official Treasury close-yield pilot
 
-Status: `VALUE_PILOT_COMPLETE_REVIEW_REQUIRED / BACKFILL_NOT_AUTHORIZED`.
+Status: `SUPERSEDED_BY_COMPLETED_HISTORICAL_ARTIFACT / RECORD_ONLY`.
+
+The bounded metadata and value pilot completed successfully and was followed by
+the independently gated historical collection documented in
+[`BOK_ECOS_TREASURY_HISTORICAL_BACKFILL.md`](BOK_ECOS_TREASURY_HISTORICAL_BACKFILL.md).
+That separate source-observation artifact contains 29,674 rows across six
+tenors through 2026-08-13. The commands below are retained as audit history and
+are not authority to rerun either the pilot or the historical collection.
 
 This is a two-phase diagnostic, not a dataset collector. It makes no KRX call,
 does not write Normalized data, and cannot alter the retained Toss Treasury
-artifact. The implementation and tests were completed with local fixtures; no
-live BOK, KOFIA, KRX, pykrx, or Toss request was made.
+artifact. It made only the bounded BOK calls recorded below and no KOFIA, KRX,
+pykrx, or Toss request.
 
 ## Decision boundary
 
