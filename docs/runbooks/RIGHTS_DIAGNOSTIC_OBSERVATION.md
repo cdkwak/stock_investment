@@ -44,3 +44,14 @@ request with zero retries. Response SHA-256:
 The response contributed 12 immutable observations; together with the earlier
 one-row response identity, the artifact contains 13 rows. This is intentional
 observation provenance, not duplicate canonical events. Both locks were released.
+
+A final zero-network audit reconciled the raw response SHA across envelope,
+ledger, checkpoint, state snapshot, and the 12 corresponding Normalized rows.
+It also verified the envelope/ledger/checkpoint/handoff file hashes, exact request
+identity and source counts, two response identities, 13 state/artifact rows, zero
+PK duplicates or nulls, no configured service-key value in retained evidence,
+and both released locks. All gates passed. A scan of all locally retained
+data.go.kr JSON and base64 response envelopes found no other small declared result
+whose captured page is incomplete; the old 1/12 Rights envelope is the sole such
+case and is already completed by B002-P3. No additional one-call completion probe
+is justified from retained declared-count evidence.
