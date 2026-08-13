@@ -21,8 +21,9 @@ complete, with zero additional network calls during adoption and rebuilding.
   Balance, liquidity, credit, stock-lending, and provider-boundary derivative
   artifacts are retained and validated for their current contracts.
 - The largest target-history gaps are KOSPI200 futures 1996-2009, options/PCR
-  1997-2009, canonical corporate actions, adjusted-price/total-return accounting,
-  and the stopped short-selling Investor series.
+  1997-2009, KOSPI200 futures/options investor statistics before and after their
+  confirmed 1999-04-26 source start, canonical corporate actions,
+  adjusted-price/total-return accounting, and the stopped short-selling Investor series.
 - Yahoo indices are current through 2026-08-12; FRED Treasury yields/spreads through
   2026-08-11; FRED FX through the source-observed 2026-08-07. Older Yahoo/FRED
   history remains provenance-limited.
@@ -60,6 +61,8 @@ complete, with zero additional network calls during adoption and rebuilding.
 | KOSPI200 futures provider bridge | Published | 1996-present | 2010-01-04..2026-08-07; 38,601 rows | DATA_COMPLETE | TARGET_GAP | USABLE_WITH_LIMITS | Free KRX Basic Statistics is confirmed from 1996-05-06; resolve bulk-use terms before a bounded collector |
 | KOSPI200 options provider bridge | Published | 1997-present | 2010-01-04..2026-08-07; 3,782,720 rows | DATA_COMPLETE | TARGET_GAP | USABLE_WITH_LIMITS | Free KRX Basic Statistics is confirmed from 1997-07-07; resolve bulk-use terms before a bounded collector |
 | KOSPI200 option PCR | Derived | 1997-present | 2010-01-04..2026-08-07; 4,227 rows | DATA_COMPLETE | TARGET_GAP | USABLE_WITH_LIMITS | Backfill 1997-2009 options first, then rebuild |
+| KOSPI200 futures investor trading | Normalized | 1996-05-present | No artifact; free KRX screen first meaningful row 1999-04-26 | NOT_IMPLEMENTED | TARGET_GAP | NOT_READY | **P1:** review bulk-use terms and 48/72-request pre-2010 plan before one bounded pilot |
+| KOSPI200 options investor trading | Normalized | 1997-07-present | No artifact; free KRX screen first meaningful row 1999-04-26 | NOT_IMPLEMENTED | TARGET_GAP | NOT_READY | **P1:** review bulk-use terms, option-right scope, and request plan before one bounded pilot |
 | Short-selling Trading | Normalized | Retained source maximum | 2008-01-02..2026-08-07; 10,161,884 rows | DATA_COMPLETE | SOURCE_MAX_COMPLETE | USABLE_WITH_LIMITS | Maintenance only; preserve T+1 availability rule |
 | Short-selling Balance | Normalized | Retained source maximum | 2016-06-30..2026-08-07; 6,035,958 rows | DATA_COMPLETE | SOURCE_MAX_COMPLETE | PREDICTIVE_USE_BLOCKED | Preserve source values; availability semantics remain limiting |
 | Short-selling Investor | Normalized | 2008-present | No accepted artifact; production range returned 1/501 dates | STOPPED | TARGET_GAP | NOT_READY | Access recovered on one sentinel, but range semantics remain incomplete; no backfill |
@@ -81,18 +84,20 @@ complete, with zero additional network calls during adoption and rebuilding.
 
 | Priority | Dataset | Target | Actual | Missing | Source/Next Step |
 |---:|---|---|---|---|---|
-| 1 | KOSPI200 futures | 1996-present | 2010-01-04..2026-08-07 | 1996-2009 | Free official Basic Statistics is confirmed; obtain bulk/internal-use terms before collector work |
-| 2 | KOSPI200 options | 1997-present | 2010-01-04..2026-08-07 | 1997-2009 | Free official Basic Statistics is confirmed; obtain bulk/internal-use terms before collector work |
-| 3 | KOSPI200 PCR | 1997-present | 2010-01-04..2026-08-07 | 1997-2009 | Depends on historical options; deterministic rebuild afterward |
-| 4 | Corporate actions | Broad history with canonical events | Dividend snapshot + 13 Rights observations + 152,676 issuance observations + one OpenDART combined paid/free success row | Canonical revision/event identity, broader action families, and PIT timing | Preserve source terms and receipts; do not equate filing versions with canonical events |
-| 5 | Adjusted price / total return | 1995-present | Not implemented | All periods | Define accounting policy only after corporate-action evidence |
-| 6 | Short-selling Investor | 2008-present | No accepted artifact | Full historical coverage/semantics | Access recovered; require official source evidence or a new semantic design before collection |
-| 7 | Valuation | Historical PIT series | Bounded source probes only | Production history | Review a bounded authenticated KRX plan after access safety clears |
-| 8 | Foreign ownership | Historical PIT series | Bounded source probes only | Production history | Deferred authenticated KRX pilot |
-| 9 | ETF | Historical PIT series | Bounded source probes only | Production history | Deferred authenticated KRX pilot |
-| 10 | VKOSPI | 2003-present where source supports | Source audit only | Production history | Resolve official/reproducible source and contract |
-| 11 | Program trading | Historical market series | No accepted artifact | Production history | Resolve endpoint/request contract; do not use survivorship-unsafe per-symbol data |
-| 12 | Yahoo/FRED provenance | Existing artifact coverage | Current artifacts complete; old responses absent | Lossless provenance for historical rows | Irrecoverable retrospectively; require Landing/ledger for future refreshes |
+| 1 | KOSPI200 futures investor trading | 1996-05-present | No artifact; source rows confirmed from 1999-04-26 | 1996-05-06..1999-04-25 plus all uncollected source-supported history | **P1:** free `[15007]`; terms and 48/72-request pre-2010 design review before pilot |
+| 2 | KOSPI200 options investor trading | 1997-07-present | No artifact; source rows confirmed from 1999-04-26 | 1997-07-07..1999-04-25 plus all uncollected source-supported history | **P1:** free `[15007]`; freeze rights/session/taxonomy scope before pilot |
+| 3 | KOSPI200 futures | 1996-present | 2010-01-04..2026-08-07 | 1996-2009 | Free official Basic Statistics is confirmed; obtain bulk/internal-use terms before collector work |
+| 4 | KOSPI200 options | 1997-present | 2010-01-04..2026-08-07 | 1997-2009 | Free official Basic Statistics is confirmed; obtain bulk/internal-use terms before collector work |
+| 5 | KOSPI200 PCR | 1997-present | 2010-01-04..2026-08-07 | 1997-2009 | Depends on historical options; deterministic rebuild afterward |
+| 6 | Corporate actions | Broad history with canonical events | Dividend snapshot + 13 Rights observations + 152,676 issuance observations + one OpenDART combined paid/free success row | Canonical revision/event identity, broader action families, and PIT timing | Preserve source terms and receipts; do not equate filing versions with canonical events |
+| 7 | Adjusted price / total return | 1995-present | Not implemented | All periods | Define accounting policy only after corporate-action evidence |
+| 8 | Short-selling Investor | 2008-present | No accepted artifact | Full historical coverage/semantics | Access recovered; require official source evidence or a new semantic design before collection |
+| 9 | Valuation | Historical PIT series | Bounded source probes only | Production history | Review a bounded authenticated KRX plan after access safety clears |
+| 10 | Foreign ownership | Historical PIT series | Bounded source probes only | Production history | Deferred authenticated KRX pilot |
+| 11 | ETF | Historical PIT series | Bounded source probes only | Production history | Deferred authenticated KRX pilot |
+| 12 | VKOSPI | 2003-present where source supports | Source audit only | Production history | Resolve official/reproducible source and contract |
+| 13 | Program trading | Historical market series | No accepted artifact | Production history | Resolve endpoint/request contract; do not use survivorship-unsafe per-symbol data |
+| 14 | Yahoo/FRED provenance | Existing artifact coverage | Current artifacts complete; old responses absent | Lossless provenance for historical rows | Irrecoverable retrospectively; require Landing/ledger for future refreshes |
 
 ## 5. Bridge / Derived / Published Layers
 
@@ -114,6 +119,7 @@ roll, back adjustment, or continuous-contract accounting.
 |---|---|---|---|---|---|
 | KRX Investor range semantics | Short-selling Investor | STOPPED_SOURCE_SEMANTICS | Post-cooldown one-call sentinel returned HTTP 200 but only the positive range-end row | No active stream | New official source evidence or a separately reviewed semantic design; no further probe |
 | Pre-2010 derivatives source | Futures / options / PCR | FREE_OFFICIAL_SOURCE_CONFIRMED / BULK_USE_TERMS_GATE | Logged-in KRX Basic Statistics returned futures from 1996-05-06 and options from 1997-07-07; no files downloaded | No active stream | Clarify automated bulk/internal-research terms, then review one retry-zero Landing-first pilot |
+| Derivatives investor statistics | Futures / options investor trading | FREE_OFFICIAL_SOURCE_CONFIRMED / P1_TARGET | Both products have meaningful daily rows from 1999-04-26; earlier screen history is unavailable/zero | No active stream | Terms, request-cost, source-taxonomy, session, and option-right scope review |
 | KB token/access | KB realtime snapshots | BLOCKED_EXTERNAL | Token pilot stopped before market/account/order calls | No active stream | Provider/app-key authorization |
 | Dividend snapshot append | Dividend observations | WAITING_FOR_SOURCE_CHANGE | Latest bounded request was valid-empty | No active stream | New non-empty source snapshot |
 
@@ -122,6 +128,7 @@ roll, back adjustment, or continuous-contract accounting.
 | Dataset | Blocker | Required Resolution | Current Evidence |
 |---|---|---|---|
 | Futures/options/PCR target history | Free Basic Statistics coverage exists but all-contract reconstruction is high-volume and bulk-use terms are unresolved | Resolve KRX terms; paid KRX/FnGuide remain fallbacks only if the free route proves unusable | [Bounded free-source audit](../data/audits/KRX_BASIC_STATS_PRE2010_DERIVATIVES_AUDIT.md), [source decision](../providers/KOSPI200_PRE2010_DERIVATIVES_SOURCE_DECISION.md) |
+| Futures/options investor statistics | Source begins materially on 1999-04-26, taxonomy semantics are undocumented, and full pre-2010 extraction costs 48 minimum or 72 source-net-preserving queries | Review terms and exact contract before one retry-zero two-year-or-shorter pilot; do not fill 1996/1997-1999 gap synthetically | [Investor-statistics audit](../data/audits/KRX_DERIVATIVES_INVESTOR_STATS_AUDIT.md) |
 | Corporate actions / adjusted returns | Canonical revision/event identity and PIT timing remain incomplete | Reconcile filing versions and cross-source events before defining adjustment factors | [OpenDART known-positive audit](../data/audits/OPENDART_FREE_ISSUE_KNOWN_POSITIVE_AUDIT.md), dividend snapshot, partial Rights, and issuance observations |
 | Short-selling Investor | Access is restored for one scope, but historical range behavior remains unresolved | Do not backfill or synthesize missing dates; require official source evidence or a new reviewed semantic design | H1-H3 collapse, H4 boundary shape, parity HTTP 403, then post-cooldown HTTP 200 boundary shape |
 | BOK/FRED/Toss rates | Historical knowledge/revision availability is incomplete | Establish availability/vintage policy before predictive use | Valid artifacts and bounded retained source observations |
