@@ -48,16 +48,18 @@ not exhaustively for every intervening year.
 
 The daily-trend screen limits a query to two years and exposes one measure/side
 combination at a time. For the source-supported pre-2010 interval, six date chunks
-per product are required. Capturing source sell and buy for volume and value needs
-at least 24 queries per product (48 total); retaining the source net-buy series as
-well raises this to 36 per product (72 total). A one-day period-total approach
-would be much more expensive and is not recommended.
+per product are required. The complete requested dimensional scope (three sessions,
+two measures, three sides, plus three option-right selections) costs 108 futures
+and 324 options requests, or 432 total. A reduced ALL-session/ALL-right scope would
+cost 36 requests per product, but would not satisfy the target contract.
 
-Before collection, review KRX bulk/internal-use terms and freeze whether net buy is
-source-retained or derived-and-validated, exact session/rights scope, taxonomy
-handling, date chunks, and request pacing. Begin only with one retry-zero,
-Landing-first chunk pilot. Paid KRX/FnGuide data is not justified until this free
-route is shown unusable or insufficient under permitted terms.
+KRX's current website terms prohibit unauthorized automated collection and copying.
+The offline collector therefore requires a retained explicit KRX permission-evidence
+SHA-256 and fails before transport or artifact creation without it. If permission is
+obtained, freeze whether net buy is source-retained or derived-and-validated, exact
+session/rights scope, taxonomy handling, date chunks, and request pacing, then begin
+with one retry-zero Landing-first chunk pilot. Paid KRX/FnGuide data is not justified
+until this free route is shown unusable or insufficient under permitted terms.
 
 - [KRX Data Marketplace](https://data.krx.co.kr/)
 - [KRX website terms](https://data.krx.co.kr/contents/MDC/INFO/informationController/MDCINFO003.cmd)
