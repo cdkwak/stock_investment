@@ -15,7 +15,7 @@ to Feature or Backtest.
 | Investor H4 + boundary pair | H4 `AMBIGUOUS_STOP:154/490`; exact positive KOSPI-volume suffix 2017-05-22..2018-01-05. Audited pair `BOUNDARY_SHAPED_CONFIRMED`: sole positive 2017-05-22, 2017-05-19 absent | KOSDAQ/value/date-parity gates remain; no retry, synthesis, or production resume |
 | Investor parity access pause | first planned parity scope, KOSPI trading value, returned retained HTTP 403 restriction HTML; retry zero and calls 2/3 were not made | `PAUSED_ACCESS_SAFETY`; no further access probe; KOSDAQ volume/value parity remains unknown |
 | Six schema migrations | completed; exact contract schemas with logical values preserved | do not invent retrospective migration provenance |
-| Market breadth | DATA_COMPLETE; 15,415 rows through 2026-08-10; the frozen corrective cycle comprised 15,400 unchanged, 9 replaced, 4 added, 0 deleted, followed by two validated daily incremental rows | frozen corrective evidence and the 2026-08-10 Landing/checkpoint chain are retained |
+| Market breadth | DATA_COMPLETE; 15,417 rows through 2026-08-11; the frozen corrective cycle comprised 15,400 unchanged, 9 replaced, 4 added, 0 deleted, followed by four validated daily incremental rows across 2026-08-10..11 | frozen corrective evidence and both incremental Landing/checkpoint chains are retained |
 | Rights | one immutable partial diagnostic source observation | canonical economic-event identity, terms, and historical coverage remain blocked |
 | Dividend | 71,652 immutable rows from one retained snapshot | no historical PIT/correction history; wait for a genuinely new capture |
 | Treasury spread | artifact-complete and reproducible from retained yields | upstream availability/provenance limits predictive use |
