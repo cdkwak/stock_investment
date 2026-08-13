@@ -13,8 +13,16 @@ The audit proves:
 - operational checkpoints exactly match Normalized source dates;
 - Parquet schema/order, year partitions, primary keys, required nulls,
   infinities, domain rules, row totals, and source-date coverage;
+- exact all-contract-column equivalence by canonical full-row SHA-256 after
+  applying each dataset's production normalizer to every historical page;
 - market and participant source-absent dates relative to detail, without
   fabricating rows.
+
+The six independently retained incremental responses overlap the historical
+range. They are hashed and counted as retained evidence, but are explicitly
+excluded from the historical-to-Normalized row comparison so they are never
+silently appended or double-counted. Response hashes must also be globally
+unique across all three datasets.
 
 It does **not** resolve the historical execution-accounting incident. A wrapper
 timeout left its child running and a resume overlapped it. Therefore the report

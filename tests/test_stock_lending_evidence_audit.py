@@ -40,13 +40,32 @@ def _frame(contract, date="2021-04-01"):
     return pd.DataFrame([values], columns=contract.column_names)
 
 
-def _landing(page=1, *, result="00", tag="historical"):
+def _raw_row(contract, tag):
+    if contract is KR_STOCK_LENDING_DAILY:
+        return {
+            "basDt": "20210401", "mrktClsfNm": "KOSPI", "stckItmsCd": "000001",
+            "stckItmsNm": "sample", "cclStckCnt": "1", "rdptStckCnt": "2",
+            "balnStckCnt": "3", "balnStckAmt": "4", "tag": tag,
+        }
+    if contract is KR_STOCK_LENDING_MARKET_DAILY:
+        return {
+            "basDt": "20210401", "cclStckCnt": "1", "rdptStckCnt": "2",
+            "balnStckCnt": "3", "balnStckAmt": "4", "tag": tag,
+        }
+    return {
+        "basDt": "20210401", "invpnClsfNm": "broker", "invpnClsfDtlNm": "domestic",
+        "lndeCclStckAmt": "1", "lndeCclStckAmtRto": "10.0",
+        "borCclStckAmt": "2", "borCclStckAmtRto": "20.0", "tag": tag,
+    }
+
+
+def _landing(contract, page=1, *, result="00", tag="historical"):
     return [{
         "response": {
             "header": {"resultCode": result, "resultMsg": "NORMAL SERVICE."},
             "body": {
                 "numOfRows": 2, "pageNo": page, "totalCount": 1,
-                "items": {"item": [{"basDt": "20210401", "tag": tag}]},
+                "items": {"item": [_raw_row(contract, tag)]},
             },
         }
     }]
@@ -64,8 +83,8 @@ def _write_fixture(root: Path):
         landing = root / "data/landing/data_go_kr" / contract.name
         history = landing / "historical/20210401_open"
         history.mkdir(parents=True)
-        (history / "page=00001.json").write_text(json.dumps(_landing()), encoding="utf-8")
-        (landing / "20210401.json").write_text(json.dumps(_landing(tag="incremental")), encoding="utf-8")
+        (history / "page=00001.json").write_text(json.dumps(_landing(contract)), encoding="utf-8")
+        (landing / "20210401.json").write_text(json.dumps(_landing(contract, tag="incremental")), encoding="utf-8")
         normalized = root / "data/normalized" / contract.name / "year=2021"
         normalized.mkdir(parents=True)
         pq.write_table(dataframe_to_contract_table(_frame(contract), contract), normalized / "data.parquet")
@@ -111,7 +130,7 @@ def test_checkpoint_page_gap_is_rejected(tmp_path):
 def test_restriction_or_api_error_response_is_rejected(tmp_path):
     _write_fixture(tmp_path)
     path = tmp_path / "data/landing/data_go_kr/kr_stock_lending_market_daily/20210401.json"
-    path.write_text(json.dumps(_landing(result="99", tag="restriction")), encoding="utf-8")
+    path.write_text(json.dumps(_landing(KR_STOCK_LENDING_MARKET_DAILY, result="99", tag="restriction")), encoding="utf-8")
     with pytest.raises(StockLendingEvidenceAuditError, match="unsuccessful"):
         build_stock_lending_evidence_audit(tmp_path)
 
@@ -172,6 +191,26 @@ def test_forged_pass_report_is_rejected(tmp_path):
         write_stock_lending_evidence_state(tmp_path, report)
 
 
+def test_domain_valid_non_key_normalized_mutation_is_rejected(tmp_path):
+    _write_fixture(tmp_path)
+    contract = KR_STOCK_LENDING_PARTICIPANT_DAILY
+    path = tmp_path / f"data/normalized/{contract.name}/year=2021/data.parquet"
+    frame = _frame(contract)
+    frame.loc[0, "lender_amount"] = 99
+    pq.write_table(dataframe_to_contract_table(frame, contract), path)
+    with pytest.raises(StockLendingEvidenceAuditError, match="source/Normalized reconciliation"):
+        build_stock_lending_evidence_audit(tmp_path)
+
+
+def test_cross_dataset_duplicate_response_hash_is_rejected(tmp_path):
+    _write_fixture(tmp_path)
+    source = tmp_path / "data/landing/data_go_kr/kr_stock_lending_daily/20210401.json"
+    target = tmp_path / "data/landing/data_go_kr/kr_stock_lending_market_daily/20210401.json"
+    target.write_bytes(source.read_bytes())
+    with pytest.raises(StockLendingEvidenceAuditError, match="duplicated across datasets"):
+        build_stock_lending_evidence_audit(tmp_path)
+
+
 def test_mutation_between_rebuild_and_state_creation_is_rejected(tmp_path, monkeypatch):
     _write_fixture(tmp_path)
     report = build_stock_lending_evidence_audit(tmp_path)
@@ -201,3 +240,24 @@ def test_redirected_state_parent_is_rejected(tmp_path, monkeypatch):
     monkeypatch.setattr(audit_module, "_is_redirect", lambda path: path.absolute() == state_parent.absolute() or original(path))
     with pytest.raises(StockLendingEvidenceAuditError, match="redirected path component"):
         write_stock_lending_evidence_state(tmp_path, report)
+
+
+def test_input_mutation_at_immediate_pre_link_boundary_is_rejected(tmp_path, monkeypatch):
+    _write_fixture(tmp_path)
+    report = build_stock_lending_evidence_audit(tmp_path)
+    original = audit_module._input_manifest
+    calls = 0
+
+    def changing(root):
+        nonlocal calls
+        calls += 1
+        if calls == 5:
+            path = root / "data/state/kr_stock_lending_daily.json"
+            path.write_text(path.read_text("utf-8") + " ", encoding="utf-8")
+        return original(root)
+
+    monkeypatch.setattr(audit_module, "_input_manifest", changing)
+    with pytest.raises(StockLendingEvidenceAuditError, match="immediately before immutable link"):
+        write_stock_lending_evidence_state(tmp_path, report)
+    state_root = tmp_path / audit_module.DEFAULT_STATE_RELATIVE
+    assert not list(state_root.glob("*.json")) if state_root.exists() else True

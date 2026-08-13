@@ -26,6 +26,11 @@ from stock_data.contracts.data_v1 import (
     KR_STOCK_LENDING_PARTICIPANT_DAILY,
 )
 from stock_data.storage.contract_arrow import contract_arrow_schema, restore_contract_dates
+from stock_data.providers.data_go_kr.data_v1 import (
+    normalize_stock_lending,
+    normalize_stock_lending_market,
+    normalize_stock_lending_participant,
+)
 from stock_data.validation.data_v1 import validate_data_v1
 
 
@@ -42,6 +47,11 @@ CONTRACTS = {
         KR_STOCK_LENDING_MARKET_DAILY,
         KR_STOCK_LENDING_PARTICIPANT_DAILY,
     )
+}
+NORMALIZERS = {
+    KR_STOCK_LENDING_DAILY.name: normalize_stock_lending,
+    KR_STOCK_LENDING_MARKET_DAILY.name: normalize_stock_lending_market,
+    KR_STOCK_LENDING_PARTICIPANT_DAILY.name: normalize_stock_lending_participant,
 }
 
 
@@ -146,6 +156,26 @@ def _contract_record(contract) -> dict[str, object]:
     }
 
 
+def _canonical_full_row_digest(frame: pd.DataFrame, contract) -> str:
+    """Hash every contract column in stable contract-key order."""
+    ordered = frame[list(contract.column_names)].sort_values(
+        list(contract.sort_key), kind="stable"
+    ).reset_index(drop=True)
+    digest = hashlib.sha256()
+    digest.update(_canonical_bytes({
+        "dataset": contract.name, "columns": list(contract.column_names),
+        "sort_key": list(contract.sort_key), "rows": len(ordered),
+    }))
+    # JSON-lines is invariant to chunk boundaries, unlike an IPC container.
+    for start in range(0, len(ordered), 100_000):
+        body = ordered.iloc[start:start + 100_000].to_json(
+            orient="records", lines=True, date_format="iso",
+            double_precision=15, force_ascii=False,
+        )
+        digest.update(body.encode("utf-8"))
+    return digest.hexdigest()
+
+
 def _read_landing(path: Path) -> tuple[dict[str, object], list[Mapping[str, object]]]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -205,6 +235,7 @@ def _audit_dataset(project_root: Path, name: str) -> tuple[dict[str, object], se
     history_meta: list[dict[str, object]] = []
     hashes: list[str] = []
     retained_source_rows = 0
+    historical_normalized_frames: list[pd.DataFrame] = []
     for path in landing_files:
         metadata, rows = _read_landing(path)
         digest = _sha256_file(path)
@@ -227,6 +258,12 @@ def _audit_dataset(project_root: Path, name: str) -> tuple[dict[str, object], se
             if any(len(value) != 8 or not value.isdigit() for value in source_dates):
                 raise StockLendingEvidenceAuditError(f"{name}: invalid historical source date")
             historical_dates.update(source_dates)
+            try:
+                historical_normalized_frames.append(NORMALIZERS[name](rows))
+            except Exception as error:
+                raise StockLendingEvidenceAuditError(
+                    f"{name}: historical Landing normalization failed ({type(error).__name__})"
+                ) from error
         else:
             capture_date = path.stem
             source_dates = [str(row.get("basDt", "")) for row in rows]
@@ -255,6 +292,18 @@ def _audit_dataset(project_root: Path, name: str) -> tuple[dict[str, object], se
         expected_rows = page_size if index < expected_pages else next(iter(totals)) - page_size * (expected_pages - 1)
         if int(metadata["source_rows"]) != expected_rows:
             raise StockLendingEvidenceAuditError(f"{name}: historical page row count differs")
+    historical_normalized = pd.concat(historical_normalized_frames, ignore_index=True)
+    historical_normalized = historical_normalized[list(contract.column_names)].sort_values(
+        list(contract.sort_key), kind="stable"
+    ).reset_index(drop=True)
+    try:
+        validate_data_v1(historical_normalized, contract, allow_empty=False)
+    except Exception as error:
+        raise StockLendingEvidenceAuditError(
+            f"{name}: full historical Landing normalization failed ({type(error).__name__})"
+        ) from error
+    historical_full_row_sha256 = _canonical_full_row_digest(historical_normalized, contract)
+    del historical_normalized, historical_normalized_frames
 
     history_state = _load_state(project_root / "data/state" / f"{name}_historical.json", f"{name}_historical")
     expected_completed = [RANGE_MARKER] + [f"{RANGE_MARKER}:page:{page:05d}" for page in pages]
@@ -317,7 +366,11 @@ def _audit_dataset(project_root: Path, name: str) -> tuple[dict[str, object], se
     if key_nulls or duplicates or non_nullable_nulls or sum(infinity.values()):
         raise StockLendingEvidenceAuditError(f"{name}: PK/null/infinity checks failed")
     normalized_dates = set(pd.to_datetime(frame["date"]).dt.strftime("%Y%m%d"))
-    if len(frame) != historical_rows or normalized_dates != historical_dates:
+    normalized_full_row_sha256 = _canonical_full_row_digest(frame, contract)
+    if (
+        len(frame) != historical_rows or normalized_dates != historical_dates
+        or normalized_full_row_sha256 != historical_full_row_sha256
+    ):
         raise StockLendingEvidenceAuditError(f"{name}: historical source/Normalized reconciliation differs")
     operational = _load_state(project_root / "data/state" / f"{name}.json", name)
     completed_dates = set(str(value) for value in operational["completed_partitions"])
@@ -336,7 +389,13 @@ def _audit_dataset(project_root: Path, name: str) -> tuple[dict[str, object], se
             "response_count": len(manifest), "unique_successful_response_count": len(set(hashes)),
             "historical_page_count": len(history_meta), "incremental_capture_count": len(manifest) - len(history_meta),
             "retained_source_rows_including_overlapping_incremental_captures": retained_source_rows,
-            "historical_source_rows": historical_rows, "manifest": manifest,
+            "historical_source_rows": historical_rows,
+            "historical_normalized_full_row_sha256": historical_full_row_sha256,
+            "comparison_scope": (
+                "HISTORICAL_PAGES_ONLY; incremental captures overlap historical coverage "
+                "and are retained evidence but are not appended or double-counted"
+            ),
+            "manifest": manifest,
         },
         "checkpoints": {
             "historical": _relative(project_root / "data/state" / f"{name}_historical.json", project_root),
@@ -359,6 +418,7 @@ def _audit_dataset(project_root: Path, name: str) -> tuple[dict[str, object], se
             },
             "domain": {"status": "PASS"},
             "historical_source_reconciliation": {"status": "PASS", "rows": historical_rows, "source_dates": len(historical_dates)},
+            "canonical_full_row_sha256": normalized_full_row_sha256,
         },
     }, normalized_dates)
 
@@ -373,6 +433,12 @@ def build_stock_lending_evidence_audit(project_root: Path) -> dict[str, object]:
         dataset, dates = _audit_dataset(project_root, name)
         datasets.append(dataset)
         date_sets[name] = dates
+    response_hashes = [
+        response["sha256"]
+        for dataset in datasets for response in dataset["landing"]["manifest"]
+    ]
+    if len(response_hashes) != len(set(response_hashes)):
+        raise StockLendingEvidenceAuditError("retained response content is duplicated across datasets")
     post_manifest = _input_manifest(project_root)
     if pre_manifest != post_manifest:
         raise StockLendingEvidenceAuditError("audit inputs changed during scan")
@@ -408,6 +474,10 @@ def build_stock_lending_evidence_audit(project_root: Path) -> dict[str, object]:
         "input_manifest": pre_manifest,
         "input_manifest_sha256": _sha256_bytes(_canonical_bytes(pre_manifest)),
         "datasets": datasets, "date_gaps_against_detail": date_gaps,
+        "global_response_hash_uniqueness": {
+            "status": "PASS", "response_count": len(response_hashes),
+            "unique_sha256_count": len(set(response_hashes)),
+        },
         "summary": {"artifact_validation_status": "PASS", "execution_review_status": EXECUTION_STATUS},
     }
     report["audit_manifest_sha256"] = _sha256_bytes(_canonical_bytes(report))
@@ -444,7 +514,8 @@ def write_stock_lending_evidence_state(project_root: Path, report: Mapping[str, 
     path = _state_path(project_root, current)
     payload = _canonical_bytes(current)
     _assert_plain_components(project_root, path.parent)
-    if _input_manifest(project_root) != current["input_manifest"]:
+    pre_write_manifest = _input_manifest(project_root)
+    if pre_write_manifest != current["input_manifest"]:
         raise StockLendingEvidenceAuditError("audit inputs changed at state creation gate")
     if path.exists():
         _assert_plain_components(project_root, path)
@@ -459,6 +530,9 @@ def write_stock_lending_evidence_state(project_root: Path, report: Mapping[str, 
             stream.flush()
             os.fsync(stream.fileno())
         _assert_plain_components(project_root, path.parent)
+        immediate_manifest = _input_manifest(project_root)
+        if immediate_manifest != pre_write_manifest or immediate_manifest != current["input_manifest"]:
+            raise StockLendingEvidenceAuditError("audit inputs changed immediately before immutable link")
         try:
             os.link(temporary, path)
         except FileExistsError:
