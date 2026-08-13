@@ -221,8 +221,18 @@ layer does not shift either date.
   frozen inputs, exact request/ledger/provenance chain, all 485 expected dates,
   exact row schema, nonnegative integers, component totals, and 485 positive-total
   dates as `S1_FULL_RANGE_CONFIRMED`. The original terminal event remains preserved;
-  this offline PASS does not authorize Investor resume. The historical sequence remains documented in
-  `runbooks/A007_FOLLOWON_BALANCE_INVESTOR.md` and the two diagnostic runbooks.
+  this offline PASS does not authorize Investor resume. Three later one-request
+  historical availability diagnostics were also retained and audited. H1
+  (2010-01-04..2012-01-04; 502 expected dates), H2
+  (2012-01-05..2014-01-03; 494), and H3
+  (2014-01-06..2016-01-06; 494) each returned exactly one range-end row with all
+  investor components and total equal to zero. Each is classified
+  `PRE_AVAILABILITY_COLLAPSE`; each used five authentication responses plus one
+  business response, all HTTP 200, with retry zero. These results bound three
+  unavailable historical windows but do not establish a complete availability
+  boundary, authorize another probe, synthesize missing dates or zeros, or permit
+  Investor resume. The historical sequence remains documented in
+  `runbooks/A007_FOLLOWON_BALANCE_INVESTOR.md` and the diagnostic runbooks.
   V-KOSPI 200 is PILOT_READY through
   an official authenticated KRX daily-index candidate, but exact source index
   identity, returned fields, historical start, and revision/cutoff policy still

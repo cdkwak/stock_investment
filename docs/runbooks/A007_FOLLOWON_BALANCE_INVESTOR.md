@@ -7,6 +7,13 @@ evidence and do not authorize execution or resume. Use the Investor diagnostic
 runbooks for the later bounded evidence; any next live request requires new D
 authorization and the single-KRX-stream gate.
 
+Subsequent retained availability diagnostics H1, H2, and H3 each made exactly
+one zero-retry KOSPI-volume business request and were audited as
+`PRE_AVAILABILITY_COLLAPSE`: one all-zero range-end row rather than the frozen
+502, 494, and 494 expected dates across consecutive 2010-01-04..2016-01-06
+windows. They must not be repeated or converted into synthetic historical rows.
+They do not identify the complete source boundary or authorize Investor resume.
+
 This runbook does not authorize a live request. It fixes the verified order,
 scope, capacity, and stop conditions for the two remaining v2 short-selling
 datasets after trading has completed and passed its boundary audit.

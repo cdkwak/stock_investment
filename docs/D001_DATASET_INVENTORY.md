@@ -75,6 +75,14 @@ reuses
 temporary file plus no-overwrite hard link. The normal command remains dry-run;
 the snapshot option must be explicit.
 
+The first retained v2 point-in-time snapshot is
+[`b02e39e5b7a1a711062f10ed156456458e4cc5bd281def7d45a942478793b2e6.json`](../data/state/audits/dataset_inventory_v2/b02e39e5b7a1a711062f10ed156456458e4cc5bd281def7d45a942478793b2e6.json).
+It records 41 artifact roots, 1,165 artifact files, 95,446,002 rows, 50 registered
+contracts, 37 observed registered artifacts, 13 missing registered artifacts,
+zero unregistered artifacts, and 50 state files. Its classification remains
+`READ_ONLY_INVENTORY_NOT_DATA_COMPLETE_ASSERTION`; later repository changes do
+not alter this immutable snapshot.
+
 An inventory-specific exclusive lock serializes the final independent rebuild,
 CAS rebuild, and publication. It is not a lock for every Data writer and does
 not claim to freeze the repository indefinitely: the immutable report is exact
