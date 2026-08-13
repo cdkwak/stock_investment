@@ -327,6 +327,59 @@ def test_fred_yields_end_to_end_promotes_yields_spread_and_both_states(tmp_path,
     assert json.loads(spread_state.read_text())["run_id"] == result["run_id"]
 
 
+def _stopped_yields_fixture(root: Path, endpoints=None):
+    endpoints = endpoints or {item: "2026-08-02" for item in ("DGS2", "DGS10", "DGS30")}
+    production = root / "data/normalized/fred_treasury_yield_daily"
+    existing = pd.DataFrame({"date": ["2026-08-01"], "dgs2": [3.0], "dgs10": [4.0], "dgs30": [4.5]})
+    write_dataset_atomic(existing, production, FRED_TREASURY_YIELD_DAILY, refresh.validate_fred)
+    state = root / "data/state/fred_treasury_yield_daily.json"; state.parent.mkdir(parents=True)
+    state.write_text('{"dataset":"fred_treasury_yield_daily"}\n')
+    spread = root / "data/derived/us_treasury_spread_daily"; refresh._build_spread_candidate(existing, spread)
+    (root / "data/state/us_treasury_spread_daily.json").write_text('{"dataset":"us_treasury_spread_daily"}\n')
+    run = "20260813T000000Z_" + "a" * 32
+    checkpoint = root / "data/state/global_current_refresh" / run / "checkpoint.json"
+    landing = root / "data/landing/global_current_refresh" / run
+    plan = []
+    for item in ("DGS2", "DGS10", "DGS30"):
+        plan.append({"item": item, "start": "2026-08-01", "end": "2026-08-03"})
+        body = f"DATE,{item}\n2026-08-01,3.0\n{endpoints[item]},3.1\n".encode()
+        response = type("R", (), {"status_code": 200, "content": body, "headers": {"Content-Type": "text/csv"}})()
+        capture_public_response(root=landing, provider="fred", operation="fredgraph_csv",
+                                request_url="https://fred.stlouisfed.org/graph/fredgraph.csv",
+                                request_parameters={"id": item, "cosd": "2026-08-01", "coed": "2026-08-03"}, response=response)
+    payload = {"version": 2, "run_id": run, "phase": "fred_yields", "status": "STOPPED",
+               "max_http_calls": 3, "http_calls": 3, "http_statuses": [200, 200, 200],
+               "retry_count": 0, "frozen_plan": plan, "pre_dataset": _files_manifest(production),
+               "normalized_mutation": False, "error_type": "RefreshError"}
+    refresh._atomic_json(checkpoint, payload)
+    return checkpoint
+
+
+def test_offline_stopped_yields_adoption_builds_candidate_without_network(tmp_path):
+    root = tmp_path / "project"; root.mkdir(); checkpoint = _stopped_yields_fixture(root)
+    result = refresh.adopt_stopped_fred_yields(root, checkpoint,
+        accepted_observed_end=date(2026, 8, 2), confirm_requested_end=date(2026, 8, 3))
+    assert result["status"] == "CANDIDATE_REVIEW_REQUIRED"
+    assert result["requested_end"] == "2026-08-03" and result["accepted_observed_end"] == "2026-08-02"
+    assert result["approval_digest"] == refresh._approval_digest(result)
+    assert _files_manifest(root / result["candidate_root"])["rows"] == 2
+    assert _files_manifest(root / "data/normalized/fred_treasury_yield_daily")["rows"] == 1
+
+
+def test_offline_adoption_rejects_relabel_tamper_and_unequal_endpoints(tmp_path):
+    root = tmp_path / "project"; root.mkdir()
+    checkpoint = _stopped_yields_fixture(root, {"DGS2": "2026-08-02", "DGS10": "2026-08-03", "DGS30": "2026-08-02"})
+    with pytest.raises(RefreshError, match="endpoints"):
+        refresh.adopt_stopped_fred_yields(root, checkpoint,
+            accepted_observed_end=date(2026, 8, 2), confirm_requested_end=date(2026, 8, 3))
+    root2 = tmp_path / "project2"; root2.mkdir(); checkpoint2 = _stopped_yields_fixture(root2)
+    call = next((root2 / "data/landing/global_current_refresh").rglob("call.json"))
+    record = json.loads(call.read_text()); record["request_parameters"]["id"] = "DGS30"; call.write_text(json.dumps(record))
+    with pytest.raises(RefreshError, match="frozen plan|count"):
+        refresh.adopt_stopped_fred_yields(root2, checkpoint2,
+            accepted_observed_end=date(2026, 8, 2), confirm_requested_end=date(2026, 8, 3))
+
+
 def test_cli_refuses_implicit_live_mode(tmp_path):
     import subprocess, sys
     script = Path(__file__).parents[1] / "scripts/manual/refresh_global_current.py"
