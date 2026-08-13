@@ -34,8 +34,9 @@ to Feature or Backtest.
 - Do not push a remote branch from this handoff.
 
 The immutable inventory v2 snapshot
-`b02e39e5b7a1a711062f10ed156456458e4cc5bd281def7d45a942478793b2e6`
-was created from a quiescent point-in-time scan before H3. It records 41 artifact
+`4e866e3edb24d112f09ce8f424054996ad4a9be786ae05b250141b7792070988`
+was created from a quiescent point-in-time scan after the Investor parity access
+pause. It records 41 artifact
 roots, 1,165 artifact files, 95,446,002 rows, 50 registered contracts, 37 observed
 registered artifacts, 13 missing registered artifacts, zero unregistered
 artifacts, and 50 state files. Its classification is
