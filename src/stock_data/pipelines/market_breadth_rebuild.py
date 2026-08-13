@@ -65,6 +65,14 @@ _CORRECTION_REBUILT_ROWS = 15_413
 _CORRECTION_REBUILT_SEMANTIC_SHA256 = (
     "4aa010207e8bc0e5a02c09b0f7c013536e9a3a2cebeaad673969c2eab8a51d6e"
 )
+_CORRECTION_STAGED_PHYSICAL_MANIFEST_SHA256 = (
+    "138b650ccee52754be5fada97a1c1c18f2b92ebfc948abe88d7231cf21a4e8f6"
+)
+_CORRECTION_STAGED_FILE_COUNT = 63
+_CORRECTION_STAGED_TOTAL_BYTES = 500_089
+_CORRECTION_ADDED = 4
+_CORRECTION_REPLACED = 9
+_CORRECTION_DELETED = 0
 _CORRECTION_DELTA = (
     ("2010-01-04", "KOSDAQ", None, (673, 275, 88, 1036)),
     ("2010-01-04", "KOSPI", None, (424, 386, 115, 925)),
@@ -441,6 +449,9 @@ def _verify_frozen_correction(
             _CORRECTION_UNIVERSE_SEMANTIC_MANIFEST_SHA256,
         "rebuilt_rows": _CORRECTION_REBUILT_ROWS,
         "rebuilt_semantic_fingerprint_sha256": _CORRECTION_REBUILT_SEMANTIC_SHA256,
+        "staged_physical_manifest_sha256": _CORRECTION_STAGED_PHYSICAL_MANIFEST_SHA256,
+        "staged_file_count": _CORRECTION_STAGED_FILE_COUNT,
+        "staged_total_bytes": _CORRECTION_STAGED_TOTAL_BYTES,
     }
     if delta != _frozen_delta_manifest():
         raise MarketBreadthRebuildError(
@@ -451,7 +462,9 @@ def _verify_frozen_correction(
     added = sum(item["old"] is None and item["new"] is not None for item in delta)
     replaced = sum(item["old"] is not None and item["new"] is not None for item in delta)
     deleted = sum(item["old"] is not None and item["new"] is None for item in delta)
-    if (added, replaced, deleted) != (4, 9, 0):
+    if (added, replaced, deleted) != (
+        _CORRECTION_ADDED, _CORRECTION_REPLACED, _CORRECTION_DELETED
+    ):
         raise MarketBreadthRebuildError("frozen correction delta cardinality differs")
     return added, replaced, deleted
 
@@ -464,6 +477,7 @@ def _verify_existing_preserved(
     universe_manifest: list[dict[str, object]],
     price_semantic_manifest: list[dict[str, object]],
     universe_semantic_manifest: list[dict[str, object]],
+    staged_physical_manifest: list[dict[str, object]],
 ) -> dict[str, object]:
     root = project_root / OUTPUT_ROOT
     if not root.is_dir():
@@ -480,12 +494,6 @@ def _verify_existing_preserved(
     ).reset_index(drop=True)
     validate_market_breadth(existing)
     delta = _delta_manifest(existing, rebuilt)
-    if not delta:
-        return {
-            "mode": "EXACT_PRESERVATION", "existing_rows": len(existing),
-            "existing_semantic_fingerprint_sha256": _semantic_fingerprint(existing),
-            "delta_manifest": [], "added": 0, "replaced": 0, "deleted": 0,
-        }
     bindings = {
         "price_physical_manifest_sha256": _manifest_digest(price_manifest),
         "canonical_universe_physical_manifest_sha256": _manifest_digest(universe_manifest),
@@ -495,11 +503,45 @@ def _verify_existing_preserved(
         ),
         "rebuilt_rows": len(rebuilt),
         "rebuilt_semantic_fingerprint_sha256": _semantic_fingerprint(rebuilt),
+        "staged_physical_manifest_sha256": _manifest_digest(staged_physical_manifest),
+        "staged_file_count": len(staged_physical_manifest),
+        "staged_total_bytes": sum(int(item["bytes"]) for item in staged_physical_manifest),
     }
+    if not delta:
+        if len(existing) != _CORRECTION_REBUILT_ROWS:
+            return {
+                "mode": "EXACT_PRESERVATION", "existing_rows": len(existing),
+                "unchanged": len(existing), "replaced": 0, "added": 0, "deleted": 0,
+                "existing_semantic_fingerprint_sha256": _semantic_fingerprint(existing),
+                "delta_manifest": [],
+            }
+        expected = _verify_frozen_correction(_frozen_delta_manifest(), bindings)
+        existing_physical_manifest = _manifest(project_root, root)
+        existing_physical = {
+            "manifest_sha256": _manifest_digest(existing_physical_manifest),
+            "file_count": len(existing_physical_manifest),
+            "total_bytes": sum(int(item["bytes"]) for item in existing_physical_manifest),
+        }
+        if expected != (
+            _CORRECTION_ADDED, _CORRECTION_REPLACED, _CORRECTION_DELETED
+        ) or len(existing) != _CORRECTION_REBUILT_ROWS or existing_physical != {
+            "manifest_sha256": _CORRECTION_STAGED_PHYSICAL_MANIFEST_SHA256,
+            "file_count": _CORRECTION_STAGED_FILE_COUNT,
+            "total_bytes": _CORRECTION_STAGED_TOTAL_BYTES,
+        }:
+            raise MarketBreadthRebuildError("already-correct output evidence differs")
+        return {
+            "mode": "ALREADY_CORRECT_BOUND_NO_OP", "existing_rows": len(existing),
+            "unchanged": len(existing), "replaced": 0, "added": 0, "deleted": 0,
+            "existing_semantic_fingerprint_sha256": _semantic_fingerprint(existing),
+            "existing_physical": existing_physical,
+            "delta_manifest": [], "evidence_bindings": bindings,
+        }
     added, replaced, deleted = _verify_frozen_correction(delta, bindings)
     return {
         "mode": "FROZEN_EVIDENCE_BOUND_CORRECTION",
         "existing_rows": len(existing),
+        "unchanged": len(existing) - replaced - deleted,
         "existing_semantic_fingerprint_sha256": _semantic_fingerprint(existing),
         "delta_manifest": delta, "added": added, "replaced": replaced,
         "deleted": deleted, "evidence_bindings": bindings,
@@ -740,14 +782,15 @@ def _rebuild_market_breadth_locked(
             rebuilt, price_manifest, universe_manifest,
             price_semantic_manifest, universe_semantic_manifest,
         ) = _write_rebuild(project_root=project_root, stage_root=stage_root)
+        output_manifest = _manifest(
+            project_root, stage_root, logical_root=OUTPUT_ROOT
+        )
         preservation = _verify_existing_preserved(
             project_root, rebuilt,
             price_manifest=price_manifest, universe_manifest=universe_manifest,
             price_semantic_manifest=price_semantic_manifest,
             universe_semantic_manifest=universe_semantic_manifest,
-        )
-        output_manifest = _manifest(
-            project_root, stage_root, logical_root=OUTPUT_ROOT
+            staged_physical_manifest=output_manifest,
         )
         state_payload = {
             "algorithm": "consecutive_close_canonical_membership_v1",
@@ -773,7 +816,7 @@ def _rebuild_market_breadth_locked(
             "output_manifest": output_manifest,
             "rows": len(rebuilt),
             "semantic_fingerprint_sha256": _semantic_fingerprint(rebuilt),
-            "existing_values_preserved": preservation,
+            "existing_output_reconciliation": preservation,
         }
         (stage / "state.json").write_bytes(_json_bytes(state_payload))
         result = {"mode": mode, "status": "DRY_RUN_PASS", "startup_recovery": recovery,
@@ -793,6 +836,9 @@ def _rebuild_market_breadth_locked(
             raise MarketBreadthRebuildError("existing output changed before promotion")
         if original_state_digest != _file_digest(state_path):
             raise MarketBreadthRebuildError("existing state changed before promotion")
+        if preservation["mode"] == "ALREADY_CORRECT_BOUND_NO_OP":
+            result["status"] = "ALREADY_CORRECT"
+            return result
 
         root = project_root / OUTPUT_ROOT
         state = project_root / STATE_PATH

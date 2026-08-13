@@ -34,7 +34,15 @@ inputs match their frozen physical and lossless semantic manifests. One changed
 field, extra/missing delta, or input-manifest drift fails closed. This is not a
 general exception mechanism.
 
-The state records the exact delta and bindings, the correction rationale, the
+The independently staged physical result is also frozen before reconciliation:
+63 Parquet files, 500,089 total bytes, and manifest SHA-256
+`138b650ccee52754be5fada97a1c1c18f2b92ebfc948abe88d7231cf21a4e8f6`.
+An already-correct 15,413-row output is a no-op only after the same input,
+semantic-output, and staged-physical bindings pass; neither output bytes nor an
+existing state file are rewritten.
+
+The state records `existing_output_reconciliation` with 15,400 unchanged rows,
+9 replacements, 4 additions, and 0 deletions, plus the exact delta and bindings, the correction rationale, the
 limitation that retained historical state cannot prove the old values came from
 the current input revisions, and the schema-only migration semantic guarantee.
 Apply requires the exact dataset confirmation:

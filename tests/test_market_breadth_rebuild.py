@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from copy import deepcopy
 from pathlib import Path
+import shutil
 
 import pandas as pd
 import pyarrow as pa
@@ -36,7 +37,72 @@ def _frozen_bindings() -> dict[str, object]:
         "rebuilt_rows": breadth_rebuild._CORRECTION_REBUILT_ROWS,
         "rebuilt_semantic_fingerprint_sha256":
             breadth_rebuild._CORRECTION_REBUILT_SEMANTIC_SHA256,
+        "staged_physical_manifest_sha256":
+            breadth_rebuild._CORRECTION_STAGED_PHYSICAL_MANIFEST_SHA256,
+        "staged_file_count": breadth_rebuild._CORRECTION_STAGED_FILE_COUNT,
+        "staged_total_bytes": breadth_rebuild._CORRECTION_STAGED_TOTAL_BYTES,
     }
+
+
+def _bind_fixture_correction(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Path, list[dict[str, object]]]:
+    output = _fixtures(root, wrong_existing=True, existing_state=True)
+    stage = root / "fixture-evidence-stage" / DATASET
+    rebuilt, price, universe, price_semantic, universe_semantic = (
+        breadth_rebuild._write_rebuild(project_root=root, stage_root=stage)
+    )
+    staged_manifest = breadth_rebuild._manifest(
+        root, stage, logical_root=breadth_rebuild.OUTPUT_ROOT
+    )
+    existing = breadth_rebuild._read_legacy_existing_breadth_partition(
+        output, expected_market="KOSPI", expected_year=2026
+    )
+    delta = breadth_rebuild._delta_manifest(existing, rebuilt)
+    frozen = tuple(
+        (
+            item["date"], item["market"],
+            None if item["old"] is None else tuple(item["old"].values()),
+            None if item["new"] is None else tuple(item["new"].values()),
+        )
+        for item in delta
+    )
+    monkeypatch.setattr(breadth_rebuild, "_CORRECTION_DELTA", frozen)
+    monkeypatch.setattr(breadth_rebuild, "_CORRECTION_ADDED", 0)
+    monkeypatch.setattr(breadth_rebuild, "_CORRECTION_REPLACED", 1)
+    monkeypatch.setattr(breadth_rebuild, "_CORRECTION_DELETED", 0)
+    monkeypatch.setattr(breadth_rebuild, "_CORRECTION_REBUILT_ROWS", len(rebuilt))
+    monkeypatch.setattr(
+        breadth_rebuild, "_CORRECTION_REBUILT_SEMANTIC_SHA256",
+        breadth_rebuild._semantic_fingerprint(rebuilt),
+    )
+    monkeypatch.setattr(
+        breadth_rebuild, "_CORRECTION_PRICE_PHYSICAL_MANIFEST_SHA256",
+        breadth_rebuild._manifest_digest(price),
+    )
+    monkeypatch.setattr(
+        breadth_rebuild, "_CORRECTION_UNIVERSE_PHYSICAL_MANIFEST_SHA256",
+        breadth_rebuild._manifest_digest(universe),
+    )
+    monkeypatch.setattr(
+        breadth_rebuild, "_CORRECTION_PRICE_SEMANTIC_MANIFEST_SHA256",
+        breadth_rebuild._semantic_manifest_digest(price_semantic),
+    )
+    monkeypatch.setattr(
+        breadth_rebuild, "_CORRECTION_UNIVERSE_SEMANTIC_MANIFEST_SHA256",
+        breadth_rebuild._semantic_manifest_digest(universe_semantic),
+    )
+    monkeypatch.setattr(
+        breadth_rebuild, "_CORRECTION_STAGED_PHYSICAL_MANIFEST_SHA256",
+        breadth_rebuild._manifest_digest(staged_manifest),
+    )
+    monkeypatch.setattr(breadth_rebuild, "_CORRECTION_STAGED_FILE_COUNT", len(staged_manifest))
+    monkeypatch.setattr(
+        breadth_rebuild, "_CORRECTION_STAGED_TOTAL_BYTES",
+        sum(int(item["bytes"]) for item in staged_manifest),
+    )
+    shutil.rmtree(stage.parent)
+    return output, delta
 
 
 def _write(root: Path, relative: str, frame: pd.DataFrame, contract) -> None:
@@ -145,7 +211,7 @@ def test_dry_run_preserves_existing_values_and_records_retained_lineage(tmp_path
     assert state["api_calls"] == 0
     assert state["rows"] == 1
     assert state["coverage_start"] == state["coverage_end"] == "2026-01-02"
-    assert state["existing_values_preserved"]["existing_rows"] == 1
+    assert state["existing_output_reconciliation"]["existing_rows"] == 1
     assert set(state["input_manifests"]) == {
         "kr_equity_price_daily", "kr_equity_canonical_universe_daily"
     }
@@ -164,7 +230,7 @@ def test_dry_run_accepts_only_known_all_nullable_legacy_existing_schema(tmp_path
     assert all(field.nullable for field in schema)
     result = rebuild_market_breadth(project_root=tmp_path, mode="dry-run")
     assert result["status"] == "DRY_RUN_PASS"
-    assert result["state"]["existing_values_preserved"]["existing_rows"] == 1
+    assert result["state"]["existing_output_reconciliation"]["existing_rows"] == 1
 
 
 @pytest.mark.parametrize("fault", ["dtype", "extra", "reorder", "null", "mixed_nullability"])
@@ -208,7 +274,12 @@ def test_frozen_corrective_delta_and_bindings_are_exact() -> None:
     assert breadth_rebuild._verify_frozen_correction(delta, _frozen_bindings()) == (4, 9, 0)
 
 
-@pytest.mark.parametrize("fault", ["one_field", "extra", "missing", "input_manifest"])
+@pytest.mark.parametrize(
+    "fault", [
+        "one_field", "extra", "missing", "input_manifest", "input_semantic",
+        "rows", "output_semantic", "staged_physical", "unchanged_row", "deletion",
+    ],
+)
 def test_frozen_corrective_gate_rejects_any_evidence_drift(fault: str) -> None:
     delta = deepcopy(breadth_rebuild._frozen_delta_manifest())
     bindings = _frozen_bindings()
@@ -219,10 +290,91 @@ def test_frozen_corrective_gate_rejects_any_evidence_drift(fault: str) -> None:
         delta[-1]["date"] = "2026-08-07"
     elif fault == "missing":
         delta.pop()
-    else:
+    elif fault == "input_manifest":
         bindings["price_physical_manifest_sha256"] = "0" * 64
+    elif fault == "input_semantic":
+        bindings["price_semantic_manifest_sha256"] = "0" * 64
+    elif fault == "rows":
+        bindings["rebuilt_rows"] += 1
+    elif fault == "output_semantic":
+        bindings["rebuilt_semantic_fingerprint_sha256"] = "0" * 64
+    elif fault == "staged_physical":
+        bindings["staged_physical_manifest_sha256"] = "0" * 64
+    elif fault == "unchanged_row":
+        delta[1]["old"] = deepcopy(delta[1]["new"])
+    else:
+        delta[0]["new"] = None
     with pytest.raises(MarketBreadthRebuildError):
         breadth_rebuild._verify_frozen_correction(delta, bindings)
+
+
+def test_end_to_end_fixture_correction_records_honest_reconciliation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output, expected_delta = _bind_fixture_correction(tmp_path, monkeypatch)
+    result = rebuild_market_breadth(
+        project_root=tmp_path, mode="apply", confirmation=DATASET
+    )
+    assert result["status"] == "REBUILT"
+    reconciliation = result["state"]["existing_output_reconciliation"]
+    assert reconciliation["delta_manifest"] == expected_delta
+    assert (reconciliation["unchanged"], reconciliation["replaced"],
+            reconciliation["added"], reconciliation["deleted"]) == (0, 1, 0, 0)
+    assert int(pd.read_parquet(output).iloc[0]["advancing"]) == 1
+    state_path = tmp_path / breadth_rebuild.STATE_PATH
+    output_before = output.read_bytes()
+    state_before = state_path.read_bytes()
+    repeated = rebuild_market_breadth(
+        project_root=tmp_path, mode="apply", confirmation=DATASET
+    )
+    assert repeated["status"] == "ALREADY_CORRECT"
+    assert repeated["state"]["existing_output_reconciliation"]["mode"] == (
+        "ALREADY_CORRECT_BOUND_NO_OP"
+    )
+    assert output.read_bytes() == output_before
+    assert state_path.read_bytes() == state_before
+
+
+def test_correction_compare_and_swap_rejects_existing_output_mutation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output, _ = _bind_fixture_correction(tmp_path, monkeypatch)
+    original = breadth_rebuild._verify_existing_preserved
+    def mutate(*args, **kwargs):
+        result = original(*args, **kwargs)
+        output.write_bytes(output.read_bytes() + b"changed")
+        return result
+    monkeypatch.setattr(breadth_rebuild, "_verify_existing_preserved", mutate)
+    with pytest.raises(MarketBreadthRebuildError, match="existing output changed"):
+        rebuild_market_breadth(project_root=tmp_path, mode="apply", confirmation=DATASET)
+
+
+def test_already_correct_no_op_rejects_existing_physical_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output, _ = _bind_fixture_correction(tmp_path, monkeypatch)
+    rebuild_market_breadth(project_root=tmp_path, mode="apply", confirmation=DATASET)
+    table = pq.read_table(output)
+    pq.write_table(table, output, compression="gzip")
+    with pytest.raises(MarketBreadthRebuildError, match="already-correct output evidence"):
+        rebuild_market_breadth(project_root=tmp_path, mode="apply", confirmation=DATASET)
+
+
+def test_correction_crash_rolls_back_then_recovers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output, _ = _bind_fixture_correction(tmp_path, monkeypatch)
+    before = output.read_bytes()
+    original_replace = Path.replace
+    def fail_state(path: Path, target: Path):
+        if path.name == "state.json":
+            raise OSError("correction crash")
+        return original_replace(path, target)
+    monkeypatch.setattr(Path, "replace", fail_state)
+    with pytest.raises(OSError, match="correction crash"):
+        rebuild_market_breadth(project_root=tmp_path, mode="apply", confirmation=DATASET)
+    assert output.read_bytes() == before
+    assert not (tmp_path / breadth_rebuild.MARKER_PATH).exists()
 
 
 def test_apply_is_atomic_and_writes_exact_contract_and_state(tmp_path: Path) -> None:
