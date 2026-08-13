@@ -18,10 +18,11 @@ def expected_dates(root:Path):
  d=boundary.expected_dates(root)
  # Both retained market calendars must contain the same pair.
  import pyarrow.parquet as pq
- resolved=root.resolve(); p=(resolved/"data/published/kr_equity_canonical_universe_daily/market=KOSDAQ/year=2017/data.parquet").resolve()
+ resolved=root.resolve(); candidate=resolved/"data/published/kr_equity_canonical_universe_daily/market=KOSDAQ/year=2017/data.parquet"
+ if not candidate.exists() or not candidate.is_file() or candidate.is_symlink(): raise PilotStopped("KOSDAQ_CANONICAL_SOURCE_MISSING")
+ p=candidate.resolve()
  try: p.relative_to(resolved)
  except ValueError as error: raise PilotStopped("KOSDAQ_CANONICAL_SOURCE_PATH_ESCAPE") from error
- if not p.is_file() or p.is_symlink(): raise PilotStopped("KOSDAQ_CANONICAL_SOURCE_MISSING")
  try: raw=p.read_bytes()
  except OSError as error: raise PilotStopped("KOSDAQ_CANONICAL_SOURCE_UNREADABLE") from error
  if len(raw)!=1224194 or hashlib.sha256(raw).hexdigest()!="ac4cf7679b9692208fb1158a5a8ba1aa529b833f787cc47941b9894ea049b0a3": raise PilotStopped("KOSDAQ_CANONICAL_SOURCE_CHANGED")

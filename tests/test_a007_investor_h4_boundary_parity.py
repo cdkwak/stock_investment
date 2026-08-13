@@ -24,6 +24,27 @@ def test_cli_refuses_before_live(monkeypatch):
  monkeypatch.setattr(runner,'run',no); monkeypatch.setattr('sys.argv',['x'])
  assert runner.main()==2 and not called
 
+def _identical_symlink(tmp_path, market):
+ target=Path(f'data/published/kr_equity_canonical_universe_daily/market={market}/year=2017/data.parquet').resolve()
+ link=tmp_path/f'data/published/kr_equity_canonical_universe_daily/market={market}/year=2017/data.parquet'; link.parent.mkdir(parents=True)
+ try: link.symlink_to(target)
+ except OSError as error: pytest.skip(f'file symlink privilege unavailable: {error}')
+ assert link.read_bytes()==target.read_bytes()
+ return link
+def test_kospi_identical_hash_declared_symlink_is_rejected(tmp_path):
+ _identical_symlink(tmp_path,'KOSPI')
+ with pytest.raises(PilotStopped,match='CANONICAL_DATE_SOURCE_MISSING'): s.boundary.expected_dates(tmp_path)
+def test_kosdaq_identical_hash_declared_symlink_is_rejected(tmp_path,monkeypatch):
+ _identical_symlink(tmp_path,'KOSDAQ'); monkeypatch.setattr(s.boundary,'expected_dates',lambda unused:D)
+ with pytest.raises(PilotStopped,match='KOSDAQ_CANONICAL_SOURCE_MISSING'): s.expected_dates(tmp_path)
+@pytest.mark.parametrize('market,reason',[('KOSPI','CANONICAL_DATE_SOURCE_MISSING'),('KOSDAQ','KOSDAQ_CANONICAL_SOURCE_MISSING')])
+def test_declared_symlink_rejection_is_deterministic_without_os_privilege(monkeypatch,market,reason):
+ original=Path.is_symlink
+ monkeypatch.setattr(Path,'is_symlink',lambda self: True if f'market={market}' in self.as_posix() else original(self))
+ if market=='KOSDAQ': monkeypatch.setattr(s.boundary,'expected_dates',lambda unused:D)
+ target=s.boundary.expected_dates if market=='KOSPI' else s.expected_dates
+ with pytest.raises(PilotStopped,match=reason): target(Path('.'))
+
 class Auth:
  def __init__(self,session): self.session=session; self.is_authenticated=True
  def is_valid(self): return True

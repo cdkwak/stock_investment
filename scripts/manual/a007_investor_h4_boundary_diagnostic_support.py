@@ -35,10 +35,11 @@ def _digest(dates: tuple[str, ...]) -> str:
 
 
 def expected_dates(project_root: Path) -> tuple[str, ...]:
-    root = project_root.resolve(); source = CANONICAL_DATE_SOURCES[0]; path = (root / source["path"]).resolve()
+    root = project_root.resolve(); source = CANONICAL_DATE_SOURCES[0]; candidate = root / source["path"]
+    if not candidate.exists() or not candidate.is_file() or candidate.is_symlink(): raise PilotStopped("CANONICAL_DATE_SOURCE_MISSING")
+    path = candidate.resolve()
     try: path.relative_to(root)
     except ValueError as error: raise PilotStopped("CANONICAL_DATE_SOURCE_PATH_ESCAPE") from error
-    if not path.is_file() or path.is_symlink(): raise PilotStopped("CANONICAL_DATE_SOURCE_MISSING")
     raw = path.read_bytes()
     if len(raw) != source["bytes"] or hashlib.sha256(raw).hexdigest() != source["sha256"]: raise PilotStopped("CANONICAL_DATE_SOURCE_CHANGED")
     values = pq.read_table(path, columns=["date"])["date"].to_pylist()
