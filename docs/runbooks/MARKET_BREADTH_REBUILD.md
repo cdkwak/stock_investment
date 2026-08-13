@@ -18,9 +18,11 @@ Run the non-mutating gate first:
   --project-root . --mode dry-run
 ```
 
-The gate validates both input contracts, detects input changes during the run,
-validates exact output Arrow schema, and refuses any change to an existing
-derived key or value. Apply requires the exact dataset confirmation:
+The gate requires exact physical Arrow schemas and matching market/year row
+identity for both inputs and the existing output. It detects input changes
+during the run, validates the complete staged output with the same gates, and
+refuses any change to an existing derived key or value. Apply requires the
+exact dataset confirmation:
 
 ```powershell
 .\.venv\Scripts\python.exe .\scripts\manual\rebuild_market_breadth.py `
@@ -33,4 +35,11 @@ The state records zero API calls, input contract versions and byte manifests,
 the output manifest, coverage, rows, semantic fingerprint, and the fingerprint
 of preserved existing rows. A transaction marker provides rollback or finalizes
 a verified promotion after interruption. Do not run apply concurrently with an
-equity input writer.
+equity input writer. The single-writer lock and compare-and-swap checks cover
+the existing output and state. A `VERIFIED` transaction is finalized only after
+the promoted output manifest and state hashes match the marker; otherwise all
+backups remain for inspection.
+
+The retained price and canonical-universe roots must first complete their
+contract-schema migrations. Do not run the real dry-run or apply during the
+A007 disk window.

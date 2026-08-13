@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+from contextlib import contextmanager
 from uuid import uuid4
 
 import pandas as pd
@@ -16,7 +17,11 @@ from stock_data.contracts.kr_equity import (
 )
 from stock_data.contracts.kr_market import KR_MARKET_BREADTH_DAILY
 from stock_data.derived.market_breadth import calculate_market_breadth
-from stock_data.storage.contract_arrow import dataframe_to_contract_table, restore_contract_dates
+from stock_data.storage.contract_arrow import (
+    contract_arrow_schema,
+    dataframe_to_contract_table,
+    restore_contract_dates,
+)
 from stock_data.validation.kr_equity import validate_equity_price
 from stock_data.validation.kr_market import validate_market_breadth
 from stock_data.published.canonical_equity_universe import validate_canonical_universe
@@ -32,6 +37,11 @@ UNIVERSE_ROOT = Path("data/published/kr_equity_canonical_universe_daily")
 OUTPUT_ROOT = Path("data/derived/kr_market_breadth_daily")
 STATE_PATH = Path("data/state/kr_market_breadth_daily_rebuild.json")
 MARKER_PATH = Path("data/state/.kr_market_breadth_daily.rebuild.transaction.json")
+LOCK_PATH = Path("data/state/.kr_market_breadth_daily.rebuild.lock")
+_PHASES = {
+    "PREPARED", "ROOT_BACKED_UP", "ROOT_PROMOTED", "STATE_BACKED_UP",
+    "STATE_PROMOTED", "VERIFIED",
+}
 
 
 def _json_bytes(value: object) -> bytes:
@@ -49,6 +59,46 @@ def _write_atomic(path: Path, value: object) -> None:
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _sha256_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def _file_digest(path: Path) -> str | None:
+    return _sha256_bytes(path.read_bytes()) if path.is_file() else None
+
+
+def _manifest_digest(value: list[dict[str, object]]) -> str:
+    return _sha256_bytes(
+        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
+    )
+
+
+@contextmanager
+def _single_writer_lock(project_root: Path):
+    path = project_root / LOCK_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    token = uuid4().hex
+    try:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL)
+    except FileExistsError as error:
+        raise MarketBreadthRebuildError("market breadth rebuild lock is active") from error
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(_json_bytes({"dataset": DATASET, "token": token}))
+            stream.flush()
+            os.fsync(stream.fileno())
+        yield
+    finally:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            payload = None
+        if payload == {"dataset": DATASET, "token": token}:
+            path.unlink(missing_ok=True)
 
 
 def _manifest(
@@ -105,12 +155,22 @@ def _partitions(root: Path) -> dict[tuple[str, int], Path]:
     return result
 
 
-def _read_partition(path: Path, contract, validator) -> pd.DataFrame:
+def _read_partition(
+    path: Path, contract, validator, *, expected_market: str, expected_year: int
+) -> pd.DataFrame:
+    schema = pq.ParquetFile(path).schema_arrow
+    if not schema.equals(contract_arrow_schema(contract), check_metadata=False):
+        raise MarketBreadthRebuildError(f"physical schema differs from contract: {path}")
     frame = restore_contract_dates(pd.read_parquet(path), contract)
     frame = frame[list(contract.column_names)].sort_values(
         list(contract.sort_key), kind="stable"
     ).reset_index(drop=True)
     validator(frame)
+    if not frame["market"].eq(expected_market).all():
+        raise MarketBreadthRebuildError(f"row market differs from partition path: {path}")
+    years = pd.to_datetime(frame["date"], errors="raise").dt.year
+    if not years.eq(expected_year).all():
+        raise MarketBreadthRebuildError(f"row year differs from partition path: {path}")
     return frame
 
 
@@ -139,11 +199,16 @@ def _write_rebuild(
         previous_close: dict[str, int] = {}
         for key in sorted((key for key in prices if key[0] == market), key=lambda item: item[1]):
             _, year = key
-            price = _read_partition(prices[key], KR_EQUITY_PRICE_DAILY, validate_equity_price)
+            price = _read_partition(
+                prices[key], KR_EQUITY_PRICE_DAILY, validate_equity_price,
+                expected_market=market, expected_year=year,
+            )
             universe = _read_partition(
                 universes[key],
                 KR_EQUITY_CANONICAL_UNIVERSE_DAILY,
                 validate_canonical_universe,
+                expected_market=market,
+                expected_year=year,
             )
             working = price.copy()
             first_previous = working["symbol"].map(previous_close)
@@ -179,7 +244,10 @@ def _write_rebuild(
             target = stage_root / f"market={market}/year={year}/data.parquet"
             target.parent.mkdir(parents=True, exist_ok=True)
             pq.write_table(dataframe_to_contract_table(breadth, KR_MARKET_BREADTH_DAILY), target)
-            verified = _read_partition(target, KR_MARKET_BREADTH_DAILY, validate_market_breadth)
+            verified = _read_partition(
+                target, KR_MARKET_BREADTH_DAILY, validate_market_breadth,
+                expected_market=market, expected_year=year,
+            )
             if not verified.equals(breadth):
                 raise MarketBreadthRebuildError(f"staged output differs: {key}")
             outputs.append(breadth)
@@ -192,6 +260,21 @@ def _write_rebuild(
         list(KR_MARKET_BREADTH_DAILY.sort_key), kind="stable"
     ).reset_index(drop=True)
     validate_market_breadth(result)
+    staged_partitions = _partitions(stage_root)
+    staged = pd.concat(
+        [
+            _read_partition(
+                staged_partitions[key], KR_MARKET_BREADTH_DAILY,
+                validate_market_breadth, expected_market=key[0], expected_year=key[1],
+            )
+            for key in sorted(staged_partitions)
+        ],
+        ignore_index=True,
+    ).sort_values(list(KR_MARKET_BREADTH_DAILY.sort_key), kind="stable").reset_index(
+        drop=True
+    )
+    if not staged.equals(result):
+        raise MarketBreadthRebuildError("complete staged dataset differs from rebuild")
     return result, price_manifest_before, universe_manifest_before
 
 
@@ -201,8 +284,11 @@ def _verify_existing_preserved(project_root: Path, rebuilt: pd.DataFrame) -> dic
         raise MarketBreadthRebuildError("existing output root is required")
     existing_partitions = _partitions(root)
     frames = [
-        _read_partition(path, KR_MARKET_BREADTH_DAILY, validate_market_breadth)
-        for path in (existing_partitions[key] for key in sorted(existing_partitions))
+        _read_partition(
+            existing_partitions[key], KR_MARKET_BREADTH_DAILY, validate_market_breadth,
+            expected_market=key[0], expected_year=key[1],
+        )
+        for key in sorted(existing_partitions)
     ]
     existing = pd.concat(frames, ignore_index=True).sort_values(
         list(KR_MARKET_BREADTH_DAILY.sort_key), kind="stable"
@@ -221,45 +307,166 @@ def _verify_existing_preserved(project_root: Path, rebuilt: pd.DataFrame) -> dic
     }
 
 
+def _transaction_paths(project_root: Path, transaction_id: str) -> tuple[Path, Path, Path]:
+    return (
+        project_root / "data" / f".{DATASET}.rebuild.stage.{transaction_id}",
+        project_root / "data/derived" / f".{DATASET}.rebuild.backup.{transaction_id}",
+        project_root / "data/state" / f".{STATE_PATH.name}.backup.{transaction_id}",
+    )
+
+
+def _require_path_under_project(path: Path, project_root: Path) -> None:
+    resolved_project = project_root.resolve()
+    resolved = path.resolve()
+    if not resolved.is_relative_to(resolved_project):
+        raise MarketBreadthRebuildError("rebuild transaction path escapes project root")
+
+
+def _orphans(project_root: Path) -> set[Path]:
+    data = project_root / "data"
+    result = set(data.glob(f".{DATASET}.rebuild.stage.*"))
+    result.update((data / "derived").glob(f".{DATASET}.rebuild.backup.*"))
+    result.update((data / "state").glob(f".{STATE_PATH.name}.backup.*"))
+    result.update((data / "state").glob(f"{MARKER_PATH.name}.*.tmp"))
+    return result
+
+
+def _read_marker(project_root: Path) -> tuple[dict[str, object], Path, Path, Path]:
+    marker = project_root / MARKER_PATH
+    try:
+        payload = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise MarketBreadthRebuildError("invalid rebuild transaction marker JSON") from error
+    keys = {
+        "version", "dataset", "transaction_id", "phase", "state_existed",
+        "stage_relative", "backup_relative", "state_backup_relative",
+        "original_output_manifest_sha256", "original_state_sha256",
+        "expected_output_manifest_sha256", "expected_state_sha256",
+    }
+    if not isinstance(payload, dict) or set(payload) != keys:
+        raise MarketBreadthRebuildError("invalid rebuild transaction marker schema")
+    transaction_id = payload.get("transaction_id")
+    if (
+        payload.get("version") != 1
+        or payload.get("dataset") != DATASET
+        or not isinstance(transaction_id, str)
+        or len(transaction_id) != 32
+        or any(c not in "0123456789abcdef" for c in transaction_id)
+        or payload.get("phase") not in _PHASES
+        or not isinstance(payload.get("state_existed"), bool)
+    ):
+        raise MarketBreadthRebuildError("invalid rebuild transaction marker identity")
+    stage, backup, state_backup = _transaction_paths(project_root, transaction_id)
+    expected_relatives = {
+        "stage_relative": stage.relative_to(project_root).as_posix(),
+        "backup_relative": backup.relative_to(project_root).as_posix(),
+        "state_backup_relative": state_backup.relative_to(project_root).as_posix(),
+    }
+    if any(payload.get(key) != value for key, value in expected_relatives.items()):
+        raise MarketBreadthRebuildError("rebuild transaction marker path is unsafe")
+    for path in (stage, backup, state_backup):
+        _require_path_under_project(path, project_root)
+    for key in (
+        "original_output_manifest_sha256", "expected_output_manifest_sha256",
+        "expected_state_sha256",
+    ):
+        value = payload.get(key)
+        if not isinstance(value, str) or len(value) != 64 or any(c not in "0123456789abcdef" for c in value):
+            raise MarketBreadthRebuildError("invalid rebuild transaction marker digest")
+    original_state = payload.get("original_state_sha256")
+    if original_state is not None and (
+        not isinstance(original_state, str)
+        or len(original_state) != 64
+        or any(c not in "0123456789abcdef" for c in original_state)
+    ):
+        raise MarketBreadthRebuildError("invalid rebuild transaction marker state digest")
+    if bool(payload["state_existed"]) != (original_state is not None):
+        raise MarketBreadthRebuildError("marker state existence contradicts state digest")
+    unexpected = _orphans(project_root) - {stage, backup, state_backup}
+    if unexpected:
+        raise MarketBreadthRebuildError("ambiguous rebuild transaction orphans")
+    for path in (stage, backup):
+        if path.exists() and not path.is_dir():
+            raise MarketBreadthRebuildError("rebuild transaction directory is not a directory")
+    if state_backup.exists() and not state_backup.is_file():
+        raise MarketBreadthRebuildError("rebuild state backup is not a file")
+    return payload, stage, backup, state_backup
+
+
 def _recover(project_root: Path) -> str:
     marker = project_root / MARKER_PATH
+    orphans = _orphans(project_root)
     if not marker.exists():
+        if orphans:
+            raise MarketBreadthRebuildError("orphan rebuild paths exist without marker")
         return "NONE"
-    payload = json.loads(marker.read_text(encoding="utf-8"))
-    transaction_id = str(payload.get("transaction_id", ""))
-    if len(transaction_id) != 32 or any(c not in "0123456789abcdef" for c in transaction_id):
-        raise MarketBreadthRebuildError("invalid rebuild transaction marker")
-    data = project_root / "data"
+    payload, stage, backup, state_backup = _read_marker(project_root)
+    phase = str(payload["phase"])
     root = project_root / OUTPUT_ROOT
     state = project_root / STATE_PATH
-    stage = data / f".{DATASET}.rebuild.stage.{transaction_id}"
-    backup = data / "derived" / f".{DATASET}.rebuild.backup.{transaction_id}"
-    state_backup = state.parent / f".{state.name}.backup.{transaction_id}"
-    phase = payload.get("phase")
+    root_exists = root.is_dir()
+    stage_exists = stage.is_dir()
+    backup_exists = backup.is_dir()
+    state_exists = state.is_file()
+    state_backup_exists = state_backup.is_file()
+
     if phase == "VERIFIED":
-        shutil.rmtree(backup, ignore_errors=True)
+        if (
+            not root_exists
+            or not state_exists
+            or not backup_exists
+            or not stage_exists
+            or state_backup_exists != bool(payload["state_existed"])
+        ):
+            raise MarketBreadthRebuildError("verified transaction artifacts are incomplete")
+        if _manifest_digest(_manifest(project_root, root)) != payload["expected_output_manifest_sha256"]:
+            raise MarketBreadthRebuildError("verified output digest differs; backups retained")
+        if _file_digest(state) != payload["expected_state_sha256"]:
+            raise MarketBreadthRebuildError("verified state digest differs; backups retained")
+        if _manifest_digest(_manifest(project_root, backup, logical_root=OUTPUT_ROOT)) != payload[
+            "original_output_manifest_sha256"
+        ]:
+            raise MarketBreadthRebuildError("verified output backup digest differs")
+        if state_backup_exists and _file_digest(state_backup) != payload["original_state_sha256"]:
+            raise MarketBreadthRebuildError("verified state backup digest differs")
+        shutil.rmtree(backup)
         state_backup.unlink(missing_ok=True)
         shutil.rmtree(stage, ignore_errors=True)
         marker.unlink()
         return "FINALIZED"
-    if backup.exists():
-        shutil.rmtree(root, ignore_errors=True)
+
+    if not stage_exists:
+        raise MarketBreadthRebuildError("unverified transaction stage is missing")
+    if backup_exists:
+        if _manifest_digest(_manifest(project_root, backup, logical_root=OUTPUT_ROOT)) != payload[
+            "original_output_manifest_sha256"
+        ]:
+            raise MarketBreadthRebuildError("output backup digest differs")
+        if root_exists:
+            shutil.rmtree(root)
+    else:
+        if not root_exists or _manifest_digest(_manifest(project_root, root)) != payload[
+            "original_output_manifest_sha256"
+        ]:
+            raise MarketBreadthRebuildError("original output is unavailable")
+    if backup_exists:
         backup.replace(root)
-    elif phase not in {"PREPARED"}:
-        raise MarketBreadthRebuildError("cannot recover missing output backup")
-    if state_backup.exists():
+    if state_backup_exists:
+        if _file_digest(state_backup) != payload["original_state_sha256"]:
+            raise MarketBreadthRebuildError("state backup digest differs")
         state.unlink(missing_ok=True)
         state_backup.replace(state)
-    elif not payload.get("state_existed", False):
+    elif payload["state_existed"]:
+        if not state_exists or _file_digest(state) != payload["original_state_sha256"]:
+            raise MarketBreadthRebuildError("original state is unavailable")
+    else:
         state.unlink(missing_ok=True)
-    elif phase not in {"PREPARED", "ROOT_BACKED_UP", "ROOT_PROMOTED"}:
-        raise MarketBreadthRebuildError("cannot recover missing state backup")
-    shutil.rmtree(stage, ignore_errors=True)
+    shutil.rmtree(stage)
     marker.unlink()
     return "ROLLED_BACK"
 
 
-def rebuild_market_breadth(
+def _rebuild_market_breadth_locked(
     *, project_root: Path, mode: str, confirmation: str | None = None
 ) -> dict[str, object]:
     if mode not in {"dry-run", "apply"}:
@@ -268,6 +475,10 @@ def rebuild_market_breadth(
         raise MarketBreadthRebuildError("apply requires exact dataset confirmation")
     project_root = project_root.resolve()
     recovery = _recover(project_root)
+    original_output_manifest = _manifest(project_root, project_root / OUTPUT_ROOT)
+    original_output_digest = _manifest_digest(original_output_manifest)
+    state_path = project_root / STATE_PATH
+    original_state_digest = _file_digest(state_path)
     transaction_id = uuid4().hex
     stage = project_root / "data" / f".{DATASET}.rebuild.stage.{transaction_id}"
     stage_root = stage / DATASET
@@ -312,24 +523,44 @@ def rebuild_market_breadth(
             raise MarketBreadthRebuildError(
                 "canonical-universe inputs changed before promotion"
             )
+        if original_output_digest != _manifest_digest(
+            _manifest(project_root, project_root / OUTPUT_ROOT)
+        ):
+            raise MarketBreadthRebuildError("existing output changed before promotion")
+        if original_state_digest != _file_digest(state_path):
+            raise MarketBreadthRebuildError("existing state changed before promotion")
 
         root = project_root / OUTPUT_ROOT
         state = project_root / STATE_PATH
         marker = project_root / MARKER_PATH
         backup = root.parent / f".{DATASET}.rebuild.backup.{transaction_id}"
         state_backup = state.parent / f".{state.name}.backup.{transaction_id}"
-        marker_payload = {"transaction_id": transaction_id, "phase": "PREPARED",
-                          "state_existed": state.exists()}
+        marker_payload = {
+            "version": 1,
+            "dataset": DATASET,
+            "transaction_id": transaction_id,
+            "phase": "PREPARED",
+            "state_existed": state.exists(),
+            "stage_relative": stage.relative_to(project_root).as_posix(),
+            "backup_relative": backup.relative_to(project_root).as_posix(),
+            "state_backup_relative": state_backup.relative_to(project_root).as_posix(),
+            "original_output_manifest_sha256": original_output_digest,
+            "original_state_sha256": original_state_digest,
+            "expected_output_manifest_sha256": _manifest_digest(output_manifest),
+            "expected_state_sha256": _sha256_bytes(_json_bytes(state_payload)),
+        }
         _write_atomic(marker, marker_payload)
-        root.replace(backup)
         marker_payload["phase"] = "ROOT_BACKED_UP"
         _write_atomic(marker, marker_payload)
-        stage_root.replace(root)
+        root.replace(backup)
         marker_payload["phase"] = "ROOT_PROMOTED"
+        _write_atomic(marker, marker_payload)
+        stage_root.replace(root)
+        marker_payload["phase"] = "STATE_BACKED_UP"
         _write_atomic(marker, marker_payload)
         if state.exists():
             state.replace(state_backup)
-        marker_payload["phase"] = "STATE_BACKED_UP"
+        marker_payload["phase"] = "STATE_PROMOTED"
         _write_atomic(marker, marker_payload)
         (stage / "state.json").replace(state)
         if _manifest(project_root, root) != output_manifest:
@@ -347,3 +578,13 @@ def rebuild_market_breadth(
         raise
     finally:
         shutil.rmtree(stage, ignore_errors=True)
+
+
+def rebuild_market_breadth(
+    *, project_root: Path, mode: str, confirmation: str | None = None
+) -> dict[str, object]:
+    project_root = project_root.resolve()
+    with _single_writer_lock(project_root):
+        return _rebuild_market_breadth_locked(
+            project_root=project_root, mode=mode, confirmation=confirmation
+        )
