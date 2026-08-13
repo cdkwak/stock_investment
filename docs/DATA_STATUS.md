@@ -239,7 +239,12 @@ layer does not shift either date.
   `BOUNDARY_SHAPED_CONFIRMED`. This establishes the observed boundary shape only
   for `MDCSTAT30301` KOSPI volume. KOSDAQ, value mode, total-date parity, and
   historical production coverage remain unverified, so Investor stays stopped
-  and no resume or synthesis is authorized. The historical sequence remains documented in
+  and no resume or synthesis is authorized. The later parity diagnostic stopped
+  immediately on its first scope, KOSPI trading value: HTTP 403 restriction HTML
+  was retained with provenance and ledger. Retry count was zero; KOSDAQ volume
+  and KOSDAQ trading value calls 2/3 were not made. The KRX stream is
+  `PAUSED_ACCESS_SAFETY`; no further recovery or parity probe is authorized.
+  The historical sequence remains documented in
   `runbooks/A007_FOLLOWON_BALANCE_INVESTOR.md` and the diagnostic runbooks.
   V-KOSPI 200 is PILOT_READY through
   an official authenticated KRX daily-index candidate, but exact source index

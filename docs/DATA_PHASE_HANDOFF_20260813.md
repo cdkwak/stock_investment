@@ -13,6 +13,7 @@ to Feature or Backtest.
 | Investor S1 diagnostic | offline PASS `S1_FULL_RANGE_CONFIRMED`; retained request returned 485/485 dates and the original classifier false-negative on verified `CURRENT_DATETIME` remains preserved | evidence only; no retry or production resume |
 | Investor H1/H2/H3 diagnostics | audited `PRE_AVAILABILITY_COLLAPSE`; each returned one zero-valued range-end row instead of 502/494/494 expected dates for consecutive 2010-01-04..2016-01-06 windows | boundary remains unresolved; no retry, synthesis, next probe, or production resume is authorized |
 | Investor H4 + boundary pair | H4 `AMBIGUOUS_STOP:154/490`; exact positive KOSPI-volume suffix 2017-05-22..2018-01-05. Audited pair `BOUNDARY_SHAPED_CONFIRMED`: sole positive 2017-05-22, 2017-05-19 absent | KOSDAQ/value/date-parity gates remain; no retry, synthesis, or production resume |
+| Investor parity access pause | first planned parity scope, KOSPI trading value, returned retained HTTP 403 restriction HTML; retry zero and calls 2/3 were not made | `PAUSED_ACCESS_SAFETY`; no further access probe; KOSDAQ volume/value parity remains unknown |
 | Six schema migrations | completed; exact contract schemas with logical values preserved | do not invent retrospective migration provenance |
 | Market breadth | DATA_COMPLETE; 15,413 rows, comprising 15,400 unchanged, 9 replaced, 4 added, 0 deleted | frozen corrective evidence retained |
 | Rights | one immutable partial diagnostic source observation | canonical economic-event identity, terms, and historical coverage remain blocked |
@@ -25,6 +26,7 @@ to Feature or Backtest.
 
 - Do not rerun A007 Trading or Balance.
 - Do not retry S1 or resume Investor from the current evidence.
+- Do not retry the parity 403 or issue another KRX recovery probe while access is paused.
 - Any later KRX request requires explicit D authorization, cooldown confirmation,
   and exactly one active KRX stream.
 - Do not create retrospective source or migration provenance.

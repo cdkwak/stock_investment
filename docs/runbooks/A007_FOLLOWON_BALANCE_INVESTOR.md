@@ -18,6 +18,10 @@ from 490 requested KOSPI-volume dates and stopped as `AMBIGUOUS_STOP`. The audit
 2017-05-19/2017-05-22 boundary pair returned only positive 2017-05-22 and is
 `BOUNDARY_SHAPED_CONFIRMED`. That conclusion is limited to KOSPI volume;
 KOSDAQ, value mode, date parity, and production coverage remain gated.
+The subsequent parity attempt stopped on its first KOSPI trading-value scope
+after a retained HTTP 403 restriction response. It made no retry and did not
+issue the planned KOSDAQ volume or trading-value calls. The KRX stream is
+`PAUSED_ACCESS_SAFETY`; no further probe is authorized by this runbook.
 
 This runbook does not authorize a live request. It fixes the verified order,
 scope, capacity, and stop conditions for the two remaining v2 short-selling
