@@ -1,0 +1,93 @@
+import json
+from pathlib import Path
+
+import pytest
+
+from scripts.manual.data_go_kr_equity_availability_sentinel import (
+    SentinelError, _classify, adopt_nonempty_pair, run_sentinel,
+)
+
+
+def _price(date="20260812"):
+    return {"basDt": date, "srtnCd": "A005930", "isinCd": "KR7005930003", "itmsNm": "Samsung", "mrktCtg": "KOSPI", "clpr": "70000", "vs": "1", "fltRt": "0.1", "mkp": "69000", "hipr": "71000", "lopr": "68000", "trqu": "100", "trPrc": "7000000", "lstgStCnt": "1000", "mrktTotAmt": "70000000"}
+
+
+def _universe(date="20260812"):
+    return {"basDt": date, "srtnCd": "A005930", "isinCd": "KR7005930003", "itmsNm": "Samsung", "mrktCtg": "KOSPI", "crno": "1", "corpNm": "Samsung"}
+
+
+class Response:
+    status_code = 200
+    headers = {"Content-Type": "application/json"}
+    def __init__(self, item):
+        self.payload = {"response": {"header": {"resultCode": "00", "resultMsg": "OK"}, "body": {"pageNo": 1, "numOfRows": 9999, "totalCount": 1, "items": {"item": [item]}}}}
+        self.content = json.dumps(self.payload).encode()
+    def json(self): return self.payload
+    def raise_for_status(self): return None
+
+
+class Session:
+    def __init__(self): self.calls = 0
+    def get(self, *args, **kwargs):
+        self.calls += 1
+        return Response(_price() if self.calls == 1 else _universe())
+
+
+class WrongDateSession(Session):
+    def get(self, *args, **kwargs):
+        self.calls += 1
+        return Response(_price("20260811"))
+
+
+def test_classification_distinguishes_nonempty_and_unavailable():
+    assert _classify("price_cap", (), 0, "20260812")["classification"] == "VALID_EMPTY_NOT_YET_AVAILABLE"
+    assert _classify("price_cap", (_price(),), 1, "20260812")["price_rows"] == 1
+    assert _classify("universe", (_universe(),), 1, "20260812")["universe_rows"] == 1
+
+
+def test_wrong_date_is_anomaly():
+    with pytest.raises(SentinelError, match="date"):
+        _classify("universe", (_universe("20260811"),), 1, "20260812")
+
+
+def test_live_sentinel_is_two_calls_and_does_not_touch_production(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATA_GO_KR_SERVICE_KEY", "secret")
+    session = Session()
+    result = run_sentinel(tmp_path, "20260812", session=session)
+    assert session.calls == 2 and result["status"] == "NONEMPTY_AVAILABLE"
+    assert result["production_checkpoint_writes"] is False
+    assert result["normalized_writes"] is False
+    assert not (tmp_path / "data/state/kr_equity_price_cap_daily.json").exists()
+    text = "".join(p.read_text(encoding="utf-8") for p in Path(result["run_root"]).rglob("*.json*"))
+    assert "secret" not in text
+
+
+def test_anomaly_stops_before_second_call_and_writes_manifest(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATA_GO_KR_SERVICE_KEY", "secret")
+    session = WrongDateSession()
+    with pytest.raises(SentinelError, match="anomaly"):
+        run_sentinel(tmp_path, "20260812", session=session)
+    assert session.calls == 1
+    manifest = json.loads(next((tmp_path / "data/landing/diagnostics/data_go_kr_equity_availability").rglob("manifest.json")).read_text())
+    assert manifest["status"] == "ANOMALY" and manifest["adoption_eligible"] is False
+
+
+def test_nonempty_pair_can_be_staged_offline_without_normalized_write(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATA_GO_KR_SERVICE_KEY", "secret")
+    result = run_sentinel(tmp_path, "20260812", session=Session())
+    adopted = adopt_nonempty_pair(tmp_path, Path(result["run_root"]))
+    assert adopted["network_requests"] == 0
+    assert (tmp_path / "data/landing/data_go_kr/stock_price/20260812.json").is_file()
+    assert (tmp_path / "data/landing/data_go_kr/kr_equity_universe_daily/20260812.json").is_file()
+    assert not (tmp_path / "data/normalized").exists()
+    for state_name in ("kr_equity_price_cap_daily", "kr_equity_universe_daily"):
+        state = json.loads((tmp_path / "data/state" / f"{state_name}.json").read_text())
+        assert state["staged_partitions"] == ["20260812"]
+
+
+def test_confirmation_is_required(tmp_path):
+    import subprocess, sys
+    script = Path(__file__).parents[1] / "scripts/manual/data_go_kr_equity_availability_sentinel.py"
+    result = subprocess.run([sys.executable, str(script), "--project-root", str(tmp_path), "--date", "20260812"], capture_output=True, text=True)
+    assert result.returncode != 0
+    assert "explicit confirmation" in result.stderr
