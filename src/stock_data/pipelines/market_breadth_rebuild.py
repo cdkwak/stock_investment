@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from uuid import uuid4
 
 import pandas as pd
+import pyarrow as pa
 import pyarrow.parquet as pq
 
 from stock_data.contracts.kr_equity import (
@@ -43,6 +44,42 @@ _PHASES = {
     "STATE_PROMOTED", "VERIFIED", "OUTPUT_BACKUP_RETIRING",
     "STATE_BACKUP_RETIRING", "CLEANUP_PENDING",
 }
+
+# Independent, read-only audit of the post-schema-migration inputs and retained
+# v1 output.  These constants deliberately make the one accepted corrective
+# transition non-generalizable: any input byte/value or output delta drift must
+# be independently reviewed again.
+_CORRECTION_PRICE_PHYSICAL_MANIFEST_SHA256 = (
+    "33ca3f9552782ad4cf03d085d2a1aa53808f8ec3c930c3c302392ce6f74d54dd"
+)
+_CORRECTION_UNIVERSE_PHYSICAL_MANIFEST_SHA256 = (
+    "49c60b5cd996012c865bcb3e2fd29d6226cbaf4624ee9bbe92fd922233ed567f"
+)
+_CORRECTION_PRICE_SEMANTIC_MANIFEST_SHA256 = (
+    "69328261ef307e3b51e9aadf28139879afa646b9aed7c7eb87b1c9d3c28aa18a"
+)
+_CORRECTION_UNIVERSE_SEMANTIC_MANIFEST_SHA256 = (
+    "7feeb3c5d04bc3bf71757f2bfa89f94da8f4643293aca55a63d32faa853a89c8"
+)
+_CORRECTION_REBUILT_ROWS = 15_413
+_CORRECTION_REBUILT_SEMANTIC_SHA256 = (
+    "4aa010207e8bc0e5a02c09b0f7c013536e9a3a2cebeaad673969c2eab8a51d6e"
+)
+_CORRECTION_DELTA = (
+    ("2010-01-04", "KOSDAQ", None, (673, 275, 88, 1036)),
+    ("2010-01-04", "KOSPI", None, (424, 386, 115, 925)),
+    ("2014-11-19", "KOSPI", (379, 423, 97, 899), (380, 423, 97, 900)),
+    ("2015-12-22", "KOSDAQ", (387, 665, 93, 1145), (388, 665, 93, 1146)),
+    ("2017-06-30", "KOSDAQ", (528, 565, 140, 1233), (529, 565, 140, 1234)),
+    ("2018-06-07", "KOSDAQ", (762, 408, 102, 1272), (763, 408, 102, 1273)),
+    ("2019-10-30", "KOSPI", (261, 565, 82, 908), (262, 565, 82, 909)),
+    ("2020-01-02", "KOSDAQ", None, (859, 389, 160, 1408)),
+    ("2020-01-02", "KOSPI", None, (424, 422, 70, 916)),
+    ("2024-03-13", "KOSDAQ", (795, 756, 166, 1717), (796, 756, 166, 1718)),
+    ("2025-03-28", "KOSDAQ", (336, 1307, 151, 1794), (337, 1307, 151, 1795)),
+    ("2026-08-06", "KOSDAQ", (1116, 617, 85, 1818), (737, 892, 191, 1820)),
+    ("2026-08-06", "KOSPI", (628, 285, 30, 943), (490, 381, 72, 943)),
+)
 
 
 def _json_bytes(value: object) -> bytes:
@@ -233,9 +270,27 @@ def _semantic_fingerprint(frame: pd.DataFrame) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _contract_semantic_fingerprint(frame: pd.DataFrame, contract) -> str:
+    ordered = frame[list(contract.column_names)].sort_values(
+        list(contract.sort_key), kind="stable"
+    ).reset_index(drop=True)
+    table = dataframe_to_contract_table(ordered, contract).combine_chunks()
+    sink = pa.BufferOutputStream()
+    with pa.ipc.new_stream(sink, table.schema) as writer:
+        writer.write_table(table, max_chunksize=max(len(table), 1))
+    return _sha256_bytes(sink.getvalue().to_pybytes())
+
+
+def _semantic_manifest_digest(value: list[dict[str, object]]) -> str:
+    return _manifest_digest(value)
+
+
 def _write_rebuild(
     *, project_root: Path, stage_root: Path
-) -> tuple[pd.DataFrame, list[dict[str, object]], list[dict[str, object]]]:
+) -> tuple[
+    pd.DataFrame, list[dict[str, object]], list[dict[str, object]],
+    list[dict[str, object]], list[dict[str, object]],
+]:
     price_root = project_root / PRICE_ROOT
     universe_root = project_root / UNIVERSE_ROOT
     prices = _partitions(price_root)
@@ -245,6 +300,8 @@ def _write_rebuild(
 
     price_manifest_before = _manifest(project_root, price_root)
     universe_manifest_before = _manifest(project_root, universe_root)
+    price_semantic_manifest: list[dict[str, object]] = []
+    universe_semantic_manifest: list[dict[str, object]] = []
     outputs = []
     for market in ("KOSDAQ", "KOSPI"):
         previous_close: dict[str, int] = {}
@@ -299,6 +356,16 @@ def _write_rebuild(
                 target, KR_MARKET_BREADTH_DAILY, validate_market_breadth,
                 expected_market=market, expected_year=year,
             )
+            price_semantic_manifest.append({
+                "market": market, "year": year, "rows": len(price),
+                "sha256": _contract_semantic_fingerprint(price, KR_EQUITY_PRICE_DAILY),
+            })
+            universe_semantic_manifest.append({
+                "market": market, "year": year, "rows": len(universe),
+                "sha256": _contract_semantic_fingerprint(
+                    universe, KR_EQUITY_CANONICAL_UNIVERSE_DAILY
+                ),
+            })
             if not verified.equals(breadth):
                 raise MarketBreadthRebuildError(f"staged output differs: {key}")
             outputs.append(breadth)
@@ -326,10 +393,78 @@ def _write_rebuild(
     )
     if not staged.equals(result):
         raise MarketBreadthRebuildError("complete staged dataset differs from rebuild")
-    return result, price_manifest_before, universe_manifest_before
+    return (
+        result, price_manifest_before, universe_manifest_before,
+        price_semantic_manifest, universe_semantic_manifest,
+    )
 
 
-def _verify_existing_preserved(project_root: Path, rebuilt: pd.DataFrame) -> dict[str, object]:
+def _delta_manifest(existing: pd.DataFrame, rebuilt: pd.DataFrame) -> list[dict[str, object]]:
+    keys = list(KR_MARKET_BREADTH_DAILY.primary_key)
+    values = list(KR_MARKET_BREADTH_DAILY.column_names[2:])
+    old = existing.set_index(keys, verify_integrity=True)
+    new = rebuilt.set_index(keys, verify_integrity=True)
+    result: list[dict[str, object]] = []
+    for key in sorted(set(old.index) | set(new.index)):
+        old_values = None if key not in old.index else tuple(int(old.loc[key, column]) for column in values)
+        new_values = None if key not in new.index else tuple(int(new.loc[key, column]) for column in values)
+        if old_values != new_values:
+            result.append({
+                "date": str(key[0]), "market": str(key[1]),
+                "old": None if old_values is None else dict(zip(values, old_values)),
+                "new": None if new_values is None else dict(zip(values, new_values)),
+            })
+    return result
+
+
+def _frozen_delta_manifest() -> list[dict[str, object]]:
+    values = list(KR_MARKET_BREADTH_DAILY.column_names[2:])
+    return [
+        {
+            "date": day, "market": market,
+            "old": None if old is None else dict(zip(values, old)),
+            "new": None if new is None else dict(zip(values, new)),
+        }
+        for day, market, old, new in _CORRECTION_DELTA
+    ]
+
+
+def _verify_frozen_correction(
+    delta: list[dict[str, object]], bindings: dict[str, object]
+) -> tuple[int, int, int]:
+    expected_bindings = {
+        "price_physical_manifest_sha256": _CORRECTION_PRICE_PHYSICAL_MANIFEST_SHA256,
+        "canonical_universe_physical_manifest_sha256":
+            _CORRECTION_UNIVERSE_PHYSICAL_MANIFEST_SHA256,
+        "price_semantic_manifest_sha256": _CORRECTION_PRICE_SEMANTIC_MANIFEST_SHA256,
+        "canonical_universe_semantic_manifest_sha256":
+            _CORRECTION_UNIVERSE_SEMANTIC_MANIFEST_SHA256,
+        "rebuilt_rows": _CORRECTION_REBUILT_ROWS,
+        "rebuilt_semantic_fingerprint_sha256": _CORRECTION_REBUILT_SEMANTIC_SHA256,
+    }
+    if delta != _frozen_delta_manifest():
+        raise MarketBreadthRebuildError(
+            "rebuilt output changes existing data outside frozen correction evidence"
+        )
+    if bindings != expected_bindings:
+        raise MarketBreadthRebuildError("correction evidence input/output bindings differ")
+    added = sum(item["old"] is None and item["new"] is not None for item in delta)
+    replaced = sum(item["old"] is not None and item["new"] is not None for item in delta)
+    deleted = sum(item["old"] is not None and item["new"] is None for item in delta)
+    if (added, replaced, deleted) != (4, 9, 0):
+        raise MarketBreadthRebuildError("frozen correction delta cardinality differs")
+    return added, replaced, deleted
+
+
+def _verify_existing_preserved(
+    project_root: Path,
+    rebuilt: pd.DataFrame,
+    *,
+    price_manifest: list[dict[str, object]],
+    universe_manifest: list[dict[str, object]],
+    price_semantic_manifest: list[dict[str, object]],
+    universe_semantic_manifest: list[dict[str, object]],
+) -> dict[str, object]:
     root = project_root / OUTPUT_ROOT
     if not root.is_dir():
         raise MarketBreadthRebuildError("existing output root is required")
@@ -344,16 +479,42 @@ def _verify_existing_preserved(project_root: Path, rebuilt: pd.DataFrame) -> dic
         list(KR_MARKET_BREADTH_DAILY.sort_key), kind="stable"
     ).reset_index(drop=True)
     validate_market_breadth(existing)
-    keys = list(KR_MARKET_BREADTH_DAILY.primary_key)
-    comparison = existing.merge(rebuilt, on=keys, how="left", suffixes=("_old", "_new"), indicator=True)
-    if not comparison["_merge"].eq("both").all():
-        raise MarketBreadthRebuildError("rebuilt output drops existing keys")
-    for column in KR_MARKET_BREADTH_DAILY.column_names[2:]:
-        if not comparison[f"{column}_old"].eq(comparison[f"{column}_new"]).all():
-            raise MarketBreadthRebuildError(f"rebuilt output changes existing {column}")
+    delta = _delta_manifest(existing, rebuilt)
+    if not delta:
+        return {
+            "mode": "EXACT_PRESERVATION", "existing_rows": len(existing),
+            "existing_semantic_fingerprint_sha256": _semantic_fingerprint(existing),
+            "delta_manifest": [], "added": 0, "replaced": 0, "deleted": 0,
+        }
+    bindings = {
+        "price_physical_manifest_sha256": _manifest_digest(price_manifest),
+        "canonical_universe_physical_manifest_sha256": _manifest_digest(universe_manifest),
+        "price_semantic_manifest_sha256": _semantic_manifest_digest(price_semantic_manifest),
+        "canonical_universe_semantic_manifest_sha256": _semantic_manifest_digest(
+            universe_semantic_manifest
+        ),
+        "rebuilt_rows": len(rebuilt),
+        "rebuilt_semantic_fingerprint_sha256": _semantic_fingerprint(rebuilt),
+    }
+    added, replaced, deleted = _verify_frozen_correction(delta, bindings)
     return {
+        "mode": "FROZEN_EVIDENCE_BOUND_CORRECTION",
         "existing_rows": len(existing),
         "existing_semantic_fingerprint_sha256": _semantic_fingerprint(existing),
+        "delta_manifest": delta, "added": added, "replaced": replaced,
+        "deleted": deleted, "evidence_bindings": bindings,
+        "rationale": (
+            "independent audit found four source-boundary additions and nine exact "
+            "replacements under the retained-input v1 algorithm"
+        ),
+        "evidence_limitation": (
+            "retained historical state does not prove that the pre-rebuild values "
+            "were generated from the current input revisions"
+        ),
+        "schema_migration_semantic_guarantee": (
+            "input schema-only migrations preserved logical values; this correction "
+            "is additionally bound to exact current physical and semantic manifests"
+        ),
     }
 
 
@@ -575,10 +736,16 @@ def _rebuild_market_breadth_locked(
     stage = project_root / "data" / f".{DATASET}.rebuild.stage.{transaction_id}"
     stage_root = stage / DATASET
     try:
-        rebuilt, price_manifest, universe_manifest = _write_rebuild(
-            project_root=project_root, stage_root=stage_root
+        (
+            rebuilt, price_manifest, universe_manifest,
+            price_semantic_manifest, universe_semantic_manifest,
+        ) = _write_rebuild(project_root=project_root, stage_root=stage_root)
+        preservation = _verify_existing_preserved(
+            project_root, rebuilt,
+            price_manifest=price_manifest, universe_manifest=universe_manifest,
+            price_semantic_manifest=price_semantic_manifest,
+            universe_semantic_manifest=universe_semantic_manifest,
         )
-        preservation = _verify_existing_preserved(project_root, rebuilt)
         output_manifest = _manifest(
             project_root, stage_root, logical_root=OUTPUT_ROOT
         )
@@ -592,6 +759,11 @@ def _rebuild_market_breadth_locked(
             "input_manifests": {
                 KR_EQUITY_PRICE_DAILY.name: price_manifest,
                 KR_EQUITY_CANONICAL_UNIVERSE_DAILY.name: universe_manifest,
+            },
+            "input_semantic_manifests": {
+                KR_EQUITY_PRICE_DAILY.name: price_semantic_manifest,
+                KR_EQUITY_CANONICAL_UNIVERSE_DAILY.name:
+                    universe_semantic_manifest,
             },
             "input_contract_versions": {
                 KR_EQUITY_PRICE_DAILY.name: KR_EQUITY_PRICE_DAILY.version,

@@ -19,10 +19,25 @@ Run the non-mutating gate first:
 ```
 
 The gate requires exact physical Arrow schemas and matching market/year row
-identity for both inputs and the existing output. It detects input changes
-during the run, validates the complete staged output with the same gates, and
-refuses any change to an existing derived key or value. Apply requires the
-exact dataset confirmation:
+identity for both inputs. The retained 63-file breadth layout may differ only
+by its known all-nullable physical fields; its logical names, order, types,
+rows, keys, and values remain strict. It detects input changes during the run
+and validates the complete staged output with the exact contract schema.
+
+Normally every existing derived key and value must be preserved. One corrective
+transition is frozen from an independent audit: exactly four additions, nine
+old-to-new replacements, and zero deletions across thirteen named keys. The
+gate accepts that transition only when every old and new field matches the
+embedded delta manifest, the rebuilt output has exactly 15,413 rows and its
+frozen semantic fingerprint, and both current price and canonical-universe
+inputs match their frozen physical and lossless semantic manifests. One changed
+field, extra/missing delta, or input-manifest drift fails closed. This is not a
+general exception mechanism.
+
+The state records the exact delta and bindings, the correction rationale, the
+limitation that retained historical state cannot prove the old values came from
+the current input revisions, and the schema-only migration semantic guarantee.
+Apply requires the exact dataset confirmation:
 
 ```powershell
 .\.venv\Scripts\python.exe .\scripts\manual\rebuild_market_breadth.py `

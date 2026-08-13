@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from pathlib import Path
 
 import pandas as pd
@@ -20,6 +21,22 @@ from stock_data.pipelines.market_breadth_rebuild import (
 )
 from stock_data.pipelines import market_breadth_rebuild as breadth_rebuild
 from stock_data.storage.contract_arrow import contract_arrow_schema, dataframe_to_contract_table
+
+
+def _frozen_bindings() -> dict[str, object]:
+    return {
+        "price_physical_manifest_sha256":
+            breadth_rebuild._CORRECTION_PRICE_PHYSICAL_MANIFEST_SHA256,
+        "canonical_universe_physical_manifest_sha256":
+            breadth_rebuild._CORRECTION_UNIVERSE_PHYSICAL_MANIFEST_SHA256,
+        "price_semantic_manifest_sha256":
+            breadth_rebuild._CORRECTION_PRICE_SEMANTIC_MANIFEST_SHA256,
+        "canonical_universe_semantic_manifest_sha256":
+            breadth_rebuild._CORRECTION_UNIVERSE_SEMANTIC_MANIFEST_SHA256,
+        "rebuilt_rows": breadth_rebuild._CORRECTION_REBUILT_ROWS,
+        "rebuilt_semantic_fingerprint_sha256":
+            breadth_rebuild._CORRECTION_REBUILT_SEMANTIC_SHA256,
+    }
 
 
 def _write(root: Path, relative: str, frame: pd.DataFrame, contract) -> None:
@@ -184,6 +201,28 @@ def test_rebuild_fails_closed_if_an_existing_value_would_change(tmp_path: Path) 
         rebuild_market_breadth(project_root=tmp_path, mode="dry-run")
     assert output.read_bytes() == original
     assert not list((tmp_path / "data").glob(f".{DATASET}.rebuild.*"))
+
+
+def test_frozen_corrective_delta_and_bindings_are_exact() -> None:
+    delta = breadth_rebuild._frozen_delta_manifest()
+    assert breadth_rebuild._verify_frozen_correction(delta, _frozen_bindings()) == (4, 9, 0)
+
+
+@pytest.mark.parametrize("fault", ["one_field", "extra", "missing", "input_manifest"])
+def test_frozen_corrective_gate_rejects_any_evidence_drift(fault: str) -> None:
+    delta = deepcopy(breadth_rebuild._frozen_delta_manifest())
+    bindings = _frozen_bindings()
+    if fault == "one_field":
+        delta[0]["new"]["advancing"] += 1
+    elif fault == "extra":
+        delta.append(deepcopy(delta[-1]))
+        delta[-1]["date"] = "2026-08-07"
+    elif fault == "missing":
+        delta.pop()
+    else:
+        bindings["price_physical_manifest_sha256"] = "0" * 64
+    with pytest.raises(MarketBreadthRebuildError):
+        breadth_rebuild._verify_frozen_correction(delta, bindings)
 
 
 def test_apply_is_atomic_and_writes_exact_contract_and_state(tmp_path: Path) -> None:
