@@ -4,14 +4,20 @@ Reviewed: 2026-08-12 KST
 
 ## Decision
 
-The A010 metadata phase is `READY` with the reviewed config candidate in
-`docs/examples/bok_ecos_treasury_pilot.reviewed.json`.  The A010 value phase
-remains `BLOCKED` until its immutable one-call `StatisticItemList` response is
-captured and independently approved by SHA-256, exactly as A010 designed.
+The A010 metadata and bounded value phases are now
+`VALUE_PILOT_COMPLETE_REVIEW_REQUIRED`. One metadata request and eight value
+requests were retained; no retry occurred. This diagnostic result does not
+authorize a historical backfill or establish point-in-time availability.
 
-No ECOS value request or OpenAPI request was made in A011.  This review used
-official documentation, the public ECOS UI metadata used to render the table
-selector and statistical-description panes, and retained local A006 artifacts.
+The initial identity review used official documentation, the public ECOS UI
+metadata, and retained local A006 artifacts. The later bounded live pilot
+verified the identity against immutable ECOS OpenAPI responses.
+
+The four-date, two-tenor value pilot returned seven observations from eight
+HTTP-200 scopes. `2019-01-02 / 2Y` returned ECOS `INFO-200` (no corresponding
+data) and is preserved as `VALID_EMPTY`, consistent with the verified 2Y series
+start of `2021-03-10`; it is not converted to zero. The seven observations and
+separate Toss comparisons remain diagnostic and source-specific.
 
 ## Exact official identity
 
@@ -70,12 +76,10 @@ before the value phase can be approved.
 
 ## Remaining unknowns
 
-1. Exact per-item ECOS `START_TIME`/`END_TIME` for all six tenors.  Resolve only
-   through A010's already bounded metadata phase when D separately authorizes it.
-2. Original ECOS first-publication timestamps, observation-level correction
+1. Original ECOS first-publication timestamps, observation-level correction
    identifiers, and vintage/supersession access.  Date labels do not establish
    predictive availability.
-3. Whether ECOS history and retained Toss `close` ever represent the same value
+2. Whether ECOS history and retained Toss `close` ever represent the same value
    construction.  Existing A009 comparisons reject assumed equality.
 
 ## Primary official evidence
@@ -86,4 +90,3 @@ before the value phase can be approved.
   and effective date: <https://law.kofia.or.kr/service/law/lawFullScreenContent.do?historySeq=1577&seq=178>
 - MOEF KTB tenor and fungible-issue description: <https://ktb.moef.go.kr/ntndbtUnityIsu.do>
 - MOEF government-bond definition: <https://ktb.moef.go.kr/ntpbnd.do>
-

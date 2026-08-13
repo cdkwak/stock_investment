@@ -250,3 +250,68 @@ def test_wrong_metadata_approval_and_implicit_live_mode_are_rejected(tmp_path, m
             approve_metadata_sha256="0" * 64,
             session=NoCallSession(),
         )
+
+
+def test_stranded_complete_value_run_is_finalized_without_network(tmp_path, monkeypatch):
+    monkeypatch.setenv(runner.API_KEY_ENV, "literal-secret-key")
+    config_path = write_config(tmp_path)
+    metadata = runner.run_metadata(
+        project_root=tmp_path, config_path=config_path, session=MetadataSession()
+    )
+    original_comparisons = runner._comparisons
+    monkeypatch.setattr(
+        runner, "_comparisons",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("stranded")),
+    )
+    with pytest.raises(RuntimeError, match="stranded"):
+        runner.run_values(
+            project_root=tmp_path, config_path=config_path,
+            metadata_run_dir=Path(metadata["run_dir"]),
+            approve_metadata_sha256=metadata["metadata_summary_sha256"],
+            session=ValueSession(),
+        )
+    value_dir = next((tmp_path / runner.LANDING_RELATIVE).glob("values_*"))
+    assert json.loads((value_dir / "checkpoint.json").read_text())["status"] == "IN_PROGRESS"
+    monkeypatch.setattr(runner, "_comparisons", original_comparisons)
+    finalized = runner.finalize_retained_values(
+        project_root=tmp_path, config_path=config_path,
+        metadata_run_dir=Path(metadata["run_dir"]),
+        approve_metadata_sha256=metadata["metadata_summary_sha256"],
+        run_dir=value_dir,
+    )
+    assert finalized["status"] == "VALUE_PILOT_COMPLETE_REVIEW_REQUIRED"
+    assert finalized["raw_requests_total"] == 8
+    assert finalized["raw_requests_during_finalization"] == 0
+    assert finalized["observations"] == 8
+    assert (value_dir / "comparison_to_toss.json").is_file()
+
+
+def test_offline_value_finalizer_rejects_landing_hash_mismatch(tmp_path, monkeypatch):
+    monkeypatch.setenv(runner.API_KEY_ENV, "literal-secret-key")
+    config_path = write_config(tmp_path)
+    metadata = runner.run_metadata(
+        project_root=tmp_path, config_path=config_path, session=MetadataSession()
+    )
+    original_comparisons = runner._comparisons
+    monkeypatch.setattr(
+        runner, "_comparisons",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("stranded")),
+    )
+    with pytest.raises(RuntimeError, match="stranded"):
+        runner.run_values(
+            project_root=tmp_path, config_path=config_path,
+            metadata_run_dir=Path(metadata["run_dir"]),
+            approve_metadata_sha256=metadata["metadata_summary_sha256"],
+            session=ValueSession(),
+        )
+    value_dir = next((tmp_path / runner.LANDING_RELATIVE).glob("values_*"))
+    first = value_dir / "response_01_20260807_2Y.json"
+    first.write_bytes(first.read_bytes() + b" ")
+    monkeypatch.setattr(runner, "_comparisons", original_comparisons)
+    with pytest.raises(runner.PilotStopped, match="evidence differs"):
+        runner.finalize_retained_values(
+            project_root=tmp_path, config_path=config_path,
+            metadata_run_dir=Path(metadata["run_dir"]),
+            approve_metadata_sha256=metadata["metadata_summary_sha256"],
+            run_dir=value_dir,
+        )

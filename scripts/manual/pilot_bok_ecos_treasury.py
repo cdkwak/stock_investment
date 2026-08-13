@@ -423,6 +423,112 @@ def _comparisons(project_root: Path, observations: list[dict[str, object]]) -> l
     return result
 
 
+def _write_or_verify_json(path: Path, value: object) -> None:
+    body = _json_bytes(value)
+    if path.exists():
+        if path.read_bytes() != body:
+            raise PilotStopped(f"retained {path.name} differs from reconstructed content")
+        return
+    _immutable_bytes(path, body)
+
+
+def finalize_retained_values(
+    *, project_root: Path, config_path: Path, metadata_run_dir: Path,
+    approve_metadata_sha256: str, run_dir: Path,
+) -> dict[str, object]:
+    """Finalize an eight-response value run using retained evidence only."""
+    config = load_config(config_path)
+    config_hash = config_sha256(config)
+    root = project_root / LANDING_RELATIVE
+    _load_approved_metadata(root, metadata_run_dir, approve_metadata_sha256, config)
+    directory = _validated_run_dir(root, run_dir)
+    if not directory.name.startswith("values_"):
+        raise PilotStopped("retained run is not a values run")
+    checkpoint_path = directory / "checkpoint.json"
+    ledger_path = directory / "call_ledger.jsonl"
+    if not checkpoint_path.is_file() or not ledger_path.is_file():
+        raise PilotStopped("retained value evidence is incomplete")
+    checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    if checkpoint.get("phase") != "values" or checkpoint.get("status") != "IN_PROGRESS":
+        raise PilotStopped("retained value checkpoint is not finalizable")
+    if (
+        checkpoint.get("run_id") != directory.name.removeprefix("values_")
+        or checkpoint.get("config_sha256") != config_hash
+        or checkpoint.get("metadata_summary_sha256") != approve_metadata_sha256
+        or checkpoint.get("max_raw_requests") != MAX_VALUE_REQUESTS
+        or checkpoint.get("max_observations") != MAX_VALUE_OBSERVATIONS
+    ):
+        raise PilotStopped("retained value checkpoint identity differs")
+    completed = checkpoint.get("completed")
+    scopes = plan_value_scopes(config)
+    if not isinstance(completed, dict) or set(completed) != {scope.scope_id for scope in scopes}:
+        raise PilotStopped("retained value scopes are not exactly complete")
+    try:
+        records = [json.loads(line) for line in ledger_path.read_text(encoding="utf-8").splitlines()]
+    except (OSError, json.JSONDecodeError) as error:
+        raise PilotStopped("retained value ledger is invalid") from error
+    if [record.get("event") for record in records] != ["RUN_CREATED"] + [
+        "HTTP_RESPONSE"
+    ] * MAX_VALUE_REQUESTS:
+        raise PilotStopped("retained value ledger events are not exact")
+    observations: list[dict[str, object]] = []
+    classifications: dict[str, str] = {}
+    for sequence, scope in enumerate(scopes, start=1):
+        entry = completed[scope.scope_id]
+        landing = directory / f"response_{sequence:02d}_{scope.scope_id}.json"
+        response = records[sequence]
+        if not landing.is_file():
+            raise PilotStopped("retained value Landing is missing")
+        landing_hash = _sha(landing)
+        if (
+            response.get("sequence") != sequence
+            or response.get("operation") != VALUE_OPERATION
+            or response.get("scope") != scope.scope_id
+            or response.get("status_code") != 200
+            or response.get("response_bytes") != landing.stat().st_size
+            or response.get("response_sha256") != landing_hash
+            or entry.get("landing_file") != landing.name
+            or entry.get("landing_sha256") != landing_hash
+        ):
+            raise PilotStopped("retained value HTTP/Landing/checkpoint evidence differs")
+        parsed = parse_value(landing.read_bytes(), config, scope)
+        if (
+            entry.get("classification") != parsed.classification
+            or entry.get("observations") != len(parsed.observations)
+            or not isinstance(entry.get("captured_at_utc"), str)
+        ):
+            raise PilotStopped("retained value parser/checkpoint evidence differs")
+        classifications[scope.scope_id] = parsed.classification
+        observations.extend(
+            {**row, "captured_at_utc": entry["captured_at_utc"]}
+            for row in parsed.observations
+        )
+    if len(observations) > MAX_VALUE_OBSERVATIONS:
+        raise PilotStopped("hard observation cap exceeded")
+    _write_or_verify_json(directory / "observations.json", observations)
+    comparisons = _comparisons(project_root, observations)
+    _write_or_verify_json(directory / "comparison_to_toss.json", comparisons)
+    checkpoint["status"] = "VALUE_PILOT_COMPLETE_REVIEW_REQUIRED"
+    checkpoint["raw_requests_total"] = MAX_VALUE_REQUESTS
+    checkpoint["raw_requests_during_finalization"] = 0
+    checkpoint["observations"] = len(observations)
+    checkpoint["valid_empty_scopes"] = sorted(
+        scope for scope, classification in classifications.items()
+        if classification == "VALID_EMPTY"
+    )
+    checkpoint["observations_sha256"] = _sha(directory / "observations.json")
+    checkpoint["comparison_sha256"] = _sha(directory / "comparison_to_toss.json")
+    _atomic_replace(checkpoint_path, checkpoint)
+    Ledger(ledger_path).append(
+        "OFFLINE_VALUE_FINALIZATION_COMPLETED", status=checkpoint["status"],
+        raw_requests_total=MAX_VALUE_REQUESTS, network_requests=0,
+        observations=len(observations),
+        observations_sha256=checkpoint["observations_sha256"],
+        comparison_sha256=checkpoint["comparison_sha256"],
+    )
+    return {"run_dir": str(directory), **checkpoint}
+
+
 def run_values(
     *, project_root: Path, config_path: Path, metadata_run_dir: Path,
     approve_metadata_sha256: str, resume_run_dir: Path | None = None, session=None,

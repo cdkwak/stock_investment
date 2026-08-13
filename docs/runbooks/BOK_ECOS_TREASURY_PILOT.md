@@ -1,6 +1,6 @@
 # BOK ECOS official Treasury close-yield pilot
 
-Status: `METADATA_CAPTURED_REVIEW_REQUIRED / VALUES_NOT_AUTHORIZED`.
+Status: `VALUE_PILOT_COMPLETE_REVIEW_REQUIRED / BACKFILL_NOT_AUTHORIZED`.
 
 This is a two-phase diagnostic, not a dataset collector. It makes no KRX call,
 does not write Normalized data, and cannot alter the retained Toss Treasury
@@ -84,6 +84,22 @@ The retained HTTP-200 response and exact ledger were reconciled offline and the
 reviewed config was corrected to the source label; no second request was made.
 The value phase remains unauthorized until D independently approves the new
 immutable metadata-summary digest.
+
+If all eight value responses and checkpoint entries exist but the process stops
+before writing its comparison/final event, use the offline-only retained-value
+finalizer. It requires exact ledger sequence, HTTP 200/body byte/hash identity,
+all eight planned checkpoint scopes, re-parsing under the approved metadata and
+byte-identical preservation of any existing observation output. It has no HTTP
+client or credential argument and records zero requests during finalization.
+
+The bounded value run completed this recovery path on 2026-08-13. All eight
+ledgered requests were HTTP 200 and matched their immutable Landing bodies and
+checkpoint hashes. Seven observations were produced. The eighth scope,
+`2019-01-02 / 2Y`, returned the documented ECOS `INFO-200` no-data response and
+is preserved as `VALID_EMPTY`; the verified 2Y metadata start is `2021-03-10`.
+No additional request was made during finalization. Historical collection is
+still prohibited until the pilot semantics and publication/revision limitation
+receive a separate review.
 
 ## Storage and audit rules
 
