@@ -1,6 +1,6 @@
 # BOK ECOS official Treasury close-yield pilot
 
-Status: `IMPLEMENTATION_READY / EXECUTION_BLOCKED_PENDING_VERIFIED_CODES`.
+Status: `METADATA_CAPTURED_REVIEW_REQUIRED / VALUES_NOT_AUTHORIZED`.
 
 This is a two-phase diagnostic, not a dataset collector. It makes no KRX call,
 does not write Normalized data, and cannot alter the retained Toss Treasury
@@ -76,6 +76,14 @@ The metadata phase stops with `METADATA_CAPTURED_REVIEW_REQUIRED`. D must
 inspect the immutable raw response and six-tenor summary, then pass the exact
 summary SHA-256 to the value phase. The runner refuses a different config,
 modified metadata Landing, altered summary, wrong digest, or unreviewed status.
+
+The one-call metadata response was captured on 2026-08-13. It showed that the
+API's exact `STAT_NAME` includes the official hierarchy prefix
+`1.3.2.1. `, so the original strict parser stopped before producing a summary.
+The retained HTTP-200 response and exact ledger were reconciled offline and the
+reviewed config was corrected to the source label; no second request was made.
+The value phase remains unauthorized until D independently approves the new
+immutable metadata-summary digest.
 
 ## Storage and audit rules
 
@@ -173,4 +181,3 @@ $env:BOK_ECOS_API_KEY = '<process-only key>'
 
 The runner has no default live mode and refuses execution without the explicit
 confirmation flag. This runbook does not authorize those commands.
-

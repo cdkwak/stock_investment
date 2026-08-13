@@ -247,6 +247,84 @@ def run_metadata(*, project_root: Path, config_path: Path, session=None) -> dict
     return {"run_dir": str(run_dir), **checkpoint}
 
 
+def finalize_retained_metadata(
+    *, project_root: Path, config_path: Path, run_dir: Path,
+    original_config_sha256: str,
+) -> dict[str, object]:
+    """Finalize one retained HTTP-200 metadata response without network I/O.
+
+    This recovery path is deliberately narrow: it accepts only the exact
+    fail-closed state produced when the reviewed table label differed from the
+    live response.  It never adopts an unledgered response or a failed call.
+    """
+    config = load_config(config_path)
+    root = project_root / LANDING_RELATIVE
+    directory = _validated_run_dir(root, run_dir)
+    if not directory.name.startswith("metadata_"):
+        raise PilotStopped("retained run is not a metadata run")
+    checkpoint_path = directory / "checkpoint.json"
+    ledger_path = directory / "call_ledger.jsonl"
+    landing = directory / "response_01_item_metadata.json"
+    if not all(path.is_file() for path in (checkpoint_path, ledger_path, landing)):
+        raise PilotStopped("retained metadata evidence is incomplete")
+    checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    if checkpoint.get("phase") != "metadata" or checkpoint.get("status") != "CREATED":
+        raise PilotStopped("retained metadata checkpoint is not the fail-closed state")
+    if checkpoint.get("config_sha256") != original_config_sha256:
+        raise PilotStopped("original reviewed config hash differs")
+    if checkpoint.get("completed") != {} or checkpoint.get("max_raw_requests") != 1:
+        raise PilotStopped("retained metadata checkpoint is not pristine")
+    try:
+        records = [json.loads(line) for line in ledger_path.read_text(encoding="utf-8").splitlines()]
+    except (OSError, json.JSONDecodeError) as error:
+        raise PilotStopped("retained metadata ledger is invalid") from error
+    if [record.get("event") for record in records] != ["RUN_CREATED", "HTTP_RESPONSE"]:
+        raise PilotStopped("retained metadata ledger events are not exact")
+    response = records[1]
+    landing_hash = _sha(landing)
+    if (
+        response.get("sequence") != 1
+        or response.get("operation") != ITEM_LIST_OPERATION
+        or response.get("status_code") != 200
+        or response.get("response_bytes") != landing.stat().st_size
+        or response.get("response_sha256") != landing_hash
+    ):
+        raise PilotStopped("retained metadata HTTP evidence does not reconcile")
+    metadata = parse_item_metadata(landing.read_bytes(), config)
+    summary = {
+        "version": 1, "source": "bok_ecos", "operation": ITEM_LIST_OPERATION,
+        "config_sha256": config_sha256(config),
+        "original_reviewed_config_sha256": original_config_sha256,
+        "finalized_offline_at_utc": _now(), "network_requests_during_finalization": 0,
+        "landing_file": landing.name, "landing_sha256": landing_hash,
+        "call_ledger_sha256_before_finalization": _sha(ledger_path),
+        "six_tenor_identity": metadata,
+        "publication_semantics": "not_supplied_by_item_metadata",
+        "revision_semantics": "not_supplied_by_item_metadata",
+    }
+    summary_path = directory / "metadata_summary.json"
+    if summary_path.exists():
+        raise PilotStopped("metadata summary already exists")
+    _atomic_replace(summary_path, summary)
+    checkpoint["original_reviewed_config_sha256"] = original_config_sha256
+    checkpoint["config_sha256"] = config_sha256(config)
+    checkpoint["completed"] = {
+        "item_metadata": {"landing_sha256": landing_hash, "verified_tenors": len(metadata)}
+    }
+    checkpoint["status"] = "METADATA_CAPTURED_REVIEW_REQUIRED"
+    checkpoint["raw_requests"] = 1
+    checkpoint["network_requests_during_finalization"] = 0
+    checkpoint["metadata_summary_sha256"] = _sha(summary_path)
+    _atomic_replace(checkpoint_path, checkpoint)
+    Ledger(ledger_path).append(
+        "OFFLINE_FINALIZATION_COMPLETED", status=checkpoint["status"],
+        corrected_config_sha256=checkpoint["config_sha256"],
+        metadata_summary_sha256=checkpoint["metadata_summary_sha256"],
+        network_requests=0,
+    )
+    return {"run_dir": str(directory), **checkpoint}
+
+
 def _load_approved_metadata(root: Path, run_dir: Path, approval: str, config) -> dict[str, object]:
     directory = _validated_run_dir(root, run_dir)
     summary_path = directory / "metadata_summary.json"

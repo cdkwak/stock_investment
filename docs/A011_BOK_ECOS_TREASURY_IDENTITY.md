@@ -15,8 +15,8 @@ selector and statistical-description panes, and retained local A006 artifacts.
 
 ## Exact official identity
 
-ECOS UI metadata identifies table `817Y002` as
-`시장금리(일별)` / `Market Interest Rates(Daily)`, frequency `D`.  Its table-level
+ECOS API metadata identifies table `817Y002` by the exact Korean label
+`1.3.2.1. 시장금리(일별)` (Market Interest Rates, Daily), frequency `D`. Its table-level
 UI coverage is `1995-01-03` through `2026-08-11` as observed on the review date.
 
 | Canonical tenor | ECOS item code | Official item name | Unit |
@@ -86,5 +86,4 @@ before the value phase can be approved.
   and effective date: <https://law.kofia.or.kr/service/law/lawFullScreenContent.do?historySeq=1577&seq=178>
 - MOEF KTB tenor and fungible-issue description: <https://ktb.moef.go.kr/ntndbtUnityIsu.do>
 - MOEF government-bond definition: <https://ktb.moef.go.kr/ntpbnd.do>
-
 

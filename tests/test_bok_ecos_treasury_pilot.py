@@ -130,6 +130,54 @@ def test_documented_metadata_and_value_fields_are_strict(tmp_path):
     assert empty.classification == "VALID_EMPTY"
 
 
+def test_metadata_requires_exact_full_official_table_name(tmp_path):
+    config = support.load_config(write_config(tmp_path))
+    payload = json.loads(json.dumps(FIXTURE["metadata"]))
+    for row in payload["StatisticItemList"]["row"]:
+        row["STAT_NAME"] = "1.3.2.1. " + row["STAT_NAME"]
+    with pytest.raises(support.EcosPilotError, match="table identity"):
+        support.parse_item_metadata(json.dumps(payload).encode(), config)
+
+
+def test_retained_metadata_can_be_finalized_offline_after_exact_label_correction(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setenv(runner.API_KEY_ENV, "literal-secret-key")
+    old_path = write_config(tmp_path)
+    old_config = support.load_config(old_path)
+    old_hash = support.config_sha256(old_config)
+    payload = json.loads(json.dumps(FIXTURE["metadata"]))
+    for row in payload["StatisticItemList"]["row"]:
+        row["STAT_NAME"] = "1.3.2.1. " + row["STAT_NAME"]
+
+    class CorrectedMetadataSession:
+        def get(self, url, timeout):
+            return response(payload)
+
+    with pytest.raises(support.EcosPilotError, match="table identity"):
+        runner.run_metadata(
+            project_root=tmp_path, config_path=old_path,
+            session=CorrectedMetadataSession(),
+        )
+    run_dir = next((tmp_path / runner.LANDING_RELATIVE).glob("metadata_*"))
+    corrected = config_payload()
+    corrected["table_name"] = "1.3.2.1. Reviewed daily government bond yields"
+    corrected_path = write_config(tmp_path, corrected)
+    result = runner.finalize_retained_metadata(
+        project_root=tmp_path, config_path=corrected_path, run_dir=run_dir,
+        original_config_sha256=old_hash,
+    )
+    assert result["status"] == "METADATA_CAPTURED_REVIEW_REQUIRED"
+    assert result["raw_requests"] == 1
+    assert result["network_requests_during_finalization"] == 0
+    summary = json.loads((run_dir / "metadata_summary.json").read_text())
+    assert summary["network_requests_during_finalization"] == 0
+    assert summary["original_reviewed_config_sha256"] == old_hash
+    assert [row["STAT_NAME"] for row in summary["six_tenor_identity"]] == [
+        corrected["table_name"]
+    ] * 6
+
+
 def test_value_parser_rejects_observation_overflow(tmp_path):
     config = support.load_config(write_config(tmp_path))
     scope = support.plan_value_scopes(config)[0]
