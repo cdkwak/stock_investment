@@ -1,8 +1,9 @@
 # A007 Investor H3 historical availability diagnostic
 
-This is a prepared, **unexecuted** Landing-only diagnostic. Preparation does
-not authorize KRX access, and it must not run while another stream owns the
-shared D lock.
+The single retained run is
+`20260813T110213Z_581e739a8dab4e439206a73b5b838d46`; do not execute H3 again.
+Its zero-network audit confirms auth five plus one business call, all HTTP 200,
+and an exact sole `2016-01-06` all-zero `PRE_AVAILABILITY_COLLAPSE` response.
 
 The frozen scope is one authenticated `MDCSTAT30301` KOSPI volume request for
 `2014-01-06..2016-01-06`. Exactly 494 retained canonical KOSPI dates are bound
@@ -28,14 +29,11 @@ HTML/restriction content, HTTP failure, malformed JSON, unexpected fields,
 duplicate/out-of-scope dates, invalid/negative integers, and component/total
 mismatch stop immediately with no retry.
 
-Only a separately authorized operator may execute it with every guard:
+Reproduce the audit without network or writes (default dry-run):
 
 ```powershell
-.\.venv\Scripts\python.exe .\scripts\manual\diagnose_a007_investor_h3.py `
-  --acknowledge-no-active-krx-stream `
-  --confirm-one-live-request `
-  --confirm-landing-only `
-  --confirm-scope 20140106_20160106_KOSPI_volume_H3_availability
+.\.venv\Scripts\python.exe .\scripts\manual\verify_a007_investor_h3.py `
+  .\data\landing\diagnostics\a007_investor_h3\20260813T110213Z_581e739a8dab4e439206a73b5b838d46
 ```
 
 Preserve the single Landing result. Never retry H3 or infer availability from a
