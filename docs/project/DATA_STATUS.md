@@ -5,8 +5,8 @@
 | Field | Current value |
 |---|---|
 | Last updated | 2026-08-14 KST |
-| Rev1 commit | `9104843` (`Organize project documentation`); Data artifacts include the later ignored-data 2026-08-12 integration |
-| Coordination commit | `9104843` |
+| Rev1 commit | `8582bce` (`Correct stock issuance history scope`) |
+| Coordination commit | `ada48c1` (`Stabilize project control and repository context`) |
 | Data phase | Core collection substantially complete; maintenance, bounded refreshes, provenance, and high-value gap filling |
 | Active network stream | None |
 | Active locks/processes | None; provider lock absent and no Python process remains after the 2026-08-12 offline rebuild |
@@ -28,10 +28,11 @@ complete, with zero additional network calls during adoption and rebuilding.
   history remains provenance-limited.
 - KRX Investor is paused for access safety, KB Securities is externally blocked,
   and OpenDART lacks a retained known-positive filing scope. No retry is authorized.
-- No high-value collection is immediately runnable without new source evidence,
-  provider authorization, publication lag, or a separately reviewed bounded scope.
-  Data is in bounded maintenance/gap-filling mode; Backtest is the primary project
-  development phase.
+- The highest-value runnable Data task is the bounded stock-issuance source-history
+  integration. Its first 9,999-row page is retained; lossless handling of signed share
+  counts and invalid source date tokens must pass before zero-call adoption and resume.
+  Data otherwise remains in bounded maintenance/gap-filling mode; Backtest is the
+  primary project development phase.
 
 ### Status legend
 
@@ -63,6 +64,7 @@ complete, with zero additional network calls during adoption and rebuilding.
 | Stock lending detail / market / participant | Normalized | Official source history-present | 2021-04-01..2026-08-10; 3,236,815 / 1,254 / 11,472 rows | DATA_COMPLETE | SOURCE_MAX_COMPLETE | USABLE_WITH_LIMITS | Maintenance only; execution-call total remains unreconstructable |
 | Dividend source observations | Normalized | Versioned source snapshots | 71,652 rows at `basDt=2026-08-08`; 2026-08-13 was valid-empty | ARTIFACT_COMPLETE | TARGET_GAP | PREDICTIVE_USE_BLOCKED | Wait for a genuinely new non-empty snapshot |
 | Rights source observations | Normalized | Historical corporate-action observations | 13 rows for one 2019-12-31 issuer snapshot pair | PARTIAL | TARGET_GAP | PREDICTIVE_USE_BLOCKED | Resolve canonical event identity, economic terms, and broader history |
+| Stock issuance source observations | Landing / Normalized | Official unfiltered history through reference date 2026-08-12 | First page retained: 9,999 / 152,676 declared rows; no Normalized artifact yet | PARTIAL | TARGET_GAP | NOT_READY | Preserve signed counts and invalid date tokens, adopt page 1 offline, then resume bounded pages |
 | Market investor-flow bridge | Published | 1999-present | 1999-01-04..2026-08-11; 9,780 rows | DATA_COMPLETE | SOURCE_MAX_COMPLETE | PREDICTIVE_USE_BLOCKED | Keep provider segments separate; resolve legacy unit/availability semantics |
 | Yahoo global indices | Normalized | Available history-present | 1928-01-03..2026-08-12; 49,060 rows | ARTIFACT_COMPLETE | SOURCE_MAX_COMPLETE | USABLE_WITH_LIMITS | Bounded refreshes with Landing/ledger; old history stays provenance-limited |
 | FRED Treasury yields | Normalized | Available history-present | 1962-01-02..2026-08-11; 16,856 rows | ARTIFACT_COMPLETE | SOURCE_MAX_COMPLETE | PREDICTIVE_USE_BLOCKED | Use bounded refresh wrapper; old history lacks retained response provenance/vintages |
@@ -79,7 +81,7 @@ complete, with zero additional network calls during adoption and rebuilding.
 | 1 | KOSPI200 futures | 1996-present | 2010-01-04..2026-08-07 | 1996-2009 | Evidence and license a historical source; preserve provider/session boundary |
 | 2 | KOSPI200 options | 1997-present | 2010-01-04..2026-08-07 | 1997-2009 | Evidence and license a historical source |
 | 3 | KOSPI200 PCR | 1997-present | 2010-01-04..2026-08-07 | 1997-2009 | Depends on historical options; deterministic rebuild afterward |
-| 4 | Corporate actions | Broad history with canonical events | Dividend snapshot + 13 Rights observations + 2-row issuance diagnostic | Canonical split/merger/reduction/rights/dividend/issuance event history | Determine bounded issuance snapshot scope; verify economic terms and event identity |
+| 4 | Corporate actions | Broad history with canonical events | Dividend snapshot + 13 Rights observations + 2-row issuance diagnostic + retained 9,999-row issuance page | Canonical split/merger/reduction/rights/dividend/issuance event history | Complete lossless issuance source-observation history; separately verify economic terms and event identity |
 | 5 | Adjusted price / total return | 1995-present | Not implemented | All periods | Define accounting policy only after corporate-action evidence |
 | 6 | Short-selling Investor | 2008-present | No accepted artifact | Full historical coverage/semantics | Keep access pause; redesign only with separately authorized evidence |
 | 7 | Valuation | Historical PIT series | Bounded source probes only | Production history | Review a bounded authenticated KRX plan after access safety clears |
@@ -110,13 +112,14 @@ roll, back adjustment, or continuous-contract accounting.
 | KRX Investor parity | Short-selling Investor | PAUSED_ACCESS_SAFETY | First parity business request retained HTTP 403; later scopes not called | No active stream | New source/access evidence and explicit authorization |
 | KB token/access | KB realtime snapshots | BLOCKED_EXTERNAL | Token pilot stopped before market/account/order calls | No active stream | Provider/app-key authorization |
 | Dividend snapshot append | Dividend observations | WAITING_FOR_SOURCE_CHANGE | Latest bounded request was valid-empty | No active stream | New non-empty source snapshot |
+| Stock issuance history | Issuance source observations | IN_PROGRESS_OFFLINE_REVIEW | 3 bounded HTTP 200 calls retained; full page 1 has 9,999 / 152,676 rows; no Normalized write | No active stream | Pass source-token semantics, adopt page 1 without a call, then resume serial retry-free pages |
 
 ## 7. Blockers and Next Actions
 
 | Dataset | Blocker | Required Resolution | Current Evidence |
 |---|---|---|---|
 | Futures/options/PCR target history | Current verified sources begin in 2010 | Verify a source for 1996/1997-2009 and retain Landing provenance | Current-contract artifacts and bridges validate from 2010 |
-| Corporate actions / adjusted returns | No complete canonical event identity or economic terms | Determine bounded issuance snapshot scope; verify split/merger/reduction/rights/dividend source and accounting policy | Dividend snapshot, partial Rights observations, and audited 2-row issuance diagnostic; future effective dates are valid source records |
+| Corporate actions / adjusted returns | Issuance source tokens include signed counts and invalid/sentinel dates; canonical event identity and economic terms remain incomplete | Preserve exact source tokens with explicit parse status, complete bounded source observations, then define event/accounting policy separately | Dividend snapshot, partial Rights observations, audited 2-row issuance diagnostic, and one retained 9,999-row history page |
 | Short-selling Investor | Historical range behavior unresolved; access-safety pause | No retry until new source/access evidence; then separately review a bounded plan | H1-H3 end-date collapse, H4 boundary-shaped response, parity HTTP 403 |
 | BOK/FRED/Toss rates | Historical knowledge/revision availability is incomplete | Establish availability/vintage policy before predictive use | Valid artifacts and bounded retained source observations |
 | Yahoo/FRED legacy provenance | Historical raw responses were not retained | Accept permanent limit; enforce capture on all future refreshes | Immutable local-artifact audits plus new refresh ledgers |
