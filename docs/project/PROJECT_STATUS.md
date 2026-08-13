@@ -37,8 +37,11 @@ started; current scope is in [Backtest status](BACKTEST_STATUS.md).
 
 ## Latest validation state
 
-- Data dashboard refactored and committed at `8a4b7ef`; current coverage is in
+- Data dashboard refreshed at `572b37f`; current coverage is in
   [Data status](DATA_STATUS.md).
+- Stock-issuance history is now a 152,676-row, zero-duplicate source-observation
+  artifact for reference dates 2020-07-14..2026-08-12. Publication timing and
+  canonical event identity remain blocked for predictive use.
 - The 2026-08-12 equity integration finished offline with all five affected datasets
   through that date, primary-key duplicates zero, no network calls during adoption,
   and focused tests `75 passed, 1 skipped`.

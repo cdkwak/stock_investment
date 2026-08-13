@@ -46,6 +46,7 @@ KR_EQUITY_STOCK_ISSUANCE_SOURCE_OBSERVATION = DatasetContract(
         ColumnContract("issued_shares", "int64", True, "shares"),
         ColumnContract("listing_date_source", "string", True),
         ColumnContract("listing_date", "date32", True),
+        ColumnContract("listing_date_status", "string", False),
         ColumnContract("availability_status", "string", False),
     ),
 )
