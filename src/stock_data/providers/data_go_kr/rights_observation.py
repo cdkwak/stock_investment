@@ -272,6 +272,11 @@ def _load_existing(
         or state.get("contract_version") != KR_EQUITY_RIGHTS_SCHEDULE.version
         or state.get("state_version") != STATE_VERSION
         or state.get("status") != STATUS
+        or state.get("semantics")
+        != "append_only_source_observations_not_canonical_events"
+        or state.get("historical_completeness") is not False
+        or state.get("canonical_economic_event_identity") is not False
+        or state.get("api_calls") != 0
         or state.get("row_count") != len(existing)
         or state.get("output_manifest") != manifest
         or state.get("output_manifest_sha256") != _manifest_sha256(manifest)
@@ -359,7 +364,8 @@ def _recover(
         or not isinstance(payload.get("had_pair"), bool)
         or set(payload) != {
             "dataset", "transaction_id", "phase", "had_pair", "dataset_parent",
-            "state_parent", "new_dataset_sha256", "new_state_sha256",
+            "state_parent", "old_dataset_sha256", "old_state_sha256",
+            "new_dataset_sha256", "new_state_sha256",
         }
         or any(
             not isinstance(payload.get(field), str)
@@ -367,20 +373,100 @@ def _recover(
             or any(character not in "0123456789abcdef" for character in str(payload.get(field)))
             for field in ("new_dataset_sha256", "new_state_sha256")
         )
+        or (
+            bool(payload.get("had_pair"))
+            and any(
+                not isinstance(payload.get(field), str)
+                or len(str(payload.get(field))) != 64
+                or any(character not in "0123456789abcdef"
+                       for character in str(payload.get(field)))
+                for field in ("old_dataset_sha256", "old_state_sha256")
+            )
+        )
+        or (
+            not bool(payload.get("had_pair"))
+            and (payload.get("old_dataset_sha256") is not None
+                 or payload.get("old_state_sha256") is not None)
+        )
     ):
         raise RightsObservationError("transaction marker is invalid or unsafe")
     stage = dataset_root.parent / f".{DATASET}.rights-observation.stage.{transaction_id}"
     backup = dataset_root.parent / f".{DATASET}.rights-observation.backup.{transaction_id}"
     state_stage = state_path.parent / f".{state_path.name}.stage.{transaction_id}"
     state_backup = state_path.parent / f".{state_path.name}.backup.{transaction_id}"
+    paths = (dataset_root, stage, backup, state_path, state_stage, state_backup)
+    old_dataset = payload.get("old_dataset_sha256")
+    old_state = payload.get("old_state_sha256")
+    new_dataset = payload["new_dataset_sha256"]
+    new_state = payload["new_state_sha256"]
+
+    def classify_dataset(path: Path) -> str | None:
+        if not path.exists():
+            return None
+        if not path.is_dir():
+            raise RightsObservationError("dataset transaction path has unsafe type")
+        try:
+            _verify_physical_dataset(path)
+            fingerprint = _tree_hash(path, logical_root)
+        except Exception as error:
+            raise RightsObservationError(
+                "dataset transaction artifact cannot be fingerprinted"
+            ) from error
+        if fingerprint == old_dataset:
+            return "old"
+        if fingerprint == new_dataset:
+            return "new"
+        raise RightsObservationError("dataset transaction fingerprint is unknown")
+
+    def classify_state(path: Path) -> str | None:
+        if not path.exists():
+            return None
+        if not path.is_file():
+            raise RightsObservationError("state transaction path has unsafe type")
+        fingerprint = _sha256(path)
+        if fingerprint == old_state:
+            return "old"
+        if fingerprint == new_state:
+            return "new"
+        raise RightsObservationError("state transaction fingerprint is unknown")
+
+    layout = (
+        classify_dataset(paths[0]), classify_dataset(paths[1]),
+        classify_dataset(paths[2]), classify_state(paths[3]),
+        classify_state(paths[4]), classify_state(paths[5]),
+    )
+    old = "old" if payload["had_pair"] else None
+    layouts = {
+        "L0": (old, None, None, old, None, None),
+        "L1": (old, "new", None, old, "new", None),
+        "L2": (None, "new", old, old, "new", None),
+        "L3": ("new", None, old, old, "new", None),
+        "L4": ("new", None, old, None, "new", old),
+        "L5": ("new", None, old, "new", None, old),
+        # Interrupted rollback layouts.
+        "R1": (None, "new", old, None, "new", old),
+        "R2": (old, "new", None, None, "new", old),
+        "R3": (old, None, None, None, "new", old),
+        "R4": (old, None, None, old, "new", None),
+        # Verified cleanup may have retired either backup first.
+        "F1": ("new", None, None, "new", None, old),
+        "F2": ("new", None, old, "new", None, None),
+        "F3": ("new", None, None, "new", None, None),
+    }
+    allowed_by_phase = {
+        "PREPARED": {"L1", "L2", "R1", "R2", "R3", "R4", "L0"},
+        "DATASET_BACKED_UP": {"L2", "L3", "R1", "R2", "R3", "R4", "L0"},
+        "DATASET_PROMOTED": {"L3", "L4", "R1", "R2", "R3", "R4", "L0"},
+        "STATE_BACKED_UP": {"L4", "L5", "R1", "R2", "R3", "R4", "L0"},
+        "STATE_PROMOTED": {"L5", "R1", "R2", "R3", "R4", "L0"},
+        "VERIFIED": {"L5", "F1", "F2", "F3"},
+    }
+    if layout not in {layouts[name] for name in allowed_by_phase[str(phase)]}:
+        raise RightsObservationError(
+            f"transaction layout contradicts journal phase {phase}"
+        )
+
     if phase == "VERIFIED":
-        if (
-            not dataset_root.is_dir()
-            or not state_path.is_file()
-            or _tree_hash(dataset_root, logical_root) != payload.get("new_dataset_sha256")
-            or _sha256(state_path) != payload.get("new_state_sha256")
-        ):
-            raise RightsObservationError("verified transaction canonical pair differs")
         shutil.rmtree(backup, ignore_errors=True)
         state_backup.unlink(missing_ok=True)
         shutil.rmtree(stage, ignore_errors=True)
@@ -388,21 +474,36 @@ def _recover(
         marker.unlink()
         return "FINALIZED"
     if backup.exists():
-        shutil.rmtree(dataset_root, ignore_errors=True)
+        if dataset_root.exists():
+            if stage.exists():
+                raise RightsObservationError("dataset rollback topology is ambiguous")
+            dataset_root.replace(stage)
         backup.replace(dataset_root)
-    elif payload["had_pair"] and not dataset_root.exists():
-        raise RightsObservationError("cannot recover prior dataset")
-    elif not payload["had_pair"]:
-        shutil.rmtree(dataset_root, ignore_errors=True)
+    elif not payload["had_pair"] and dataset_root.exists():
+        if stage.exists():
+            raise RightsObservationError("new dataset rollback topology is ambiguous")
+        dataset_root.replace(stage)
     if state_backup.exists():
-        state_path.unlink(missing_ok=True)
+        if state_path.exists():
+            if state_stage.exists():
+                raise RightsObservationError("state rollback topology is ambiguous")
+            state_path.replace(state_stage)
         state_backup.replace(state_path)
-    elif payload["had_pair"] and not state_path.exists():
-        raise RightsObservationError("cannot recover prior state")
-    elif not payload["had_pair"]:
-        state_path.unlink(missing_ok=True)
+    elif not payload["had_pair"] and state_path.exists():
+        if state_stage.exists():
+            raise RightsObservationError("new state rollback topology is ambiguous")
+        state_path.replace(state_stage)
     shutil.rmtree(stage, ignore_errors=True)
     state_stage.unlink(missing_ok=True)
+    if payload["had_pair"]:
+        if (
+            not dataset_root.is_dir() or not state_path.is_file()
+            or _tree_hash(dataset_root, logical_root) != old_dataset
+            or _sha256(state_path) != old_state
+        ):
+            raise RightsObservationError("rolled-back canonical pair differs")
+    elif dataset_root.exists() or state_path.exists():
+        raise RightsObservationError("new canonical pair remained after rollback")
     marker.unlink()
     return "ROLLED_BACK"
 
@@ -485,14 +586,27 @@ def _promote_rights_diagnostic_locked(
             )
             stream.flush()
             os.fsync(stream.fileno())
+        old_dataset_sha256 = _tree_hash(dataset_root, logical_root) if had_pair else None
+        old_state_sha256 = _sha256(state_path) if had_pair else None
         marker_payload = {
             "dataset": DATASET, "transaction_id": transaction_id, "phase": "PREPARED",
             "had_pair": had_pair, "dataset_parent": str(dataset_root.parent.resolve()),
             "state_parent": str(state_path.parent.resolve()),
+            "old_dataset_sha256": old_dataset_sha256,
+            "old_state_sha256": old_state_sha256,
             "new_dataset_sha256": _tree_hash(stage, logical_root),
             "new_state_sha256": _sha256(state_stage),
         }
         _atomic_json(marker, marker_payload)
+        # Compare-and-swap gate immediately before the first canonical rename.
+        if had_pair:
+            if (
+                _tree_hash(dataset_root, logical_root) != old_dataset_sha256
+                or _sha256(state_path) != old_state_sha256
+            ):
+                raise RightsObservationError("existing dataset/state changed before promotion")
+        elif dataset_root.exists() or state_path.exists():
+            raise RightsObservationError("dataset/state appeared before promotion")
         if had_pair:
             dataset_root.replace(backup)
         marker_payload["phase"] = "DATASET_BACKED_UP"; _atomic_json(marker, marker_payload)

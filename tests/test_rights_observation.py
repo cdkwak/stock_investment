@@ -4,6 +4,8 @@ import base64
 import hashlib
 import json
 from pathlib import Path
+import shutil
+from uuid import uuid4
 
 import pyarrow.parquet as pq
 import pytest
@@ -13,6 +15,7 @@ from stock_data.providers.data_go_kr.rights_observation import (
     DATASET,
     STATUS,
     RightsObservationError,
+    _tree_hash,
     promote_rights_diagnostic,
 )
 from stock_data.storage.contract_arrow import contract_arrow_schema
@@ -181,3 +184,99 @@ def test_diagnostic_path_must_remain_inside_project(tmp_path: Path) -> None:
     outside.mkdir(exist_ok=True)
     with pytest.raises(RightsObservationError, match="escapes project root"):
         promote_rights_diagnostic(project_root=tmp_path, diagnostic_root=outside)
+
+
+def _interrupted_promoted_layout(root: Path) -> tuple[Path, dict[str, Path]]:
+    old_project = root / "old"
+    new_project = root / "new"
+    first_old = _diagnostic(
+        old_project, run="b002_p1_fixture_old", issuer="1115", day="20191231"
+    )
+    promote_rights_diagnostic(project_root=old_project, diagnostic_root=first_old)
+    first_new = _diagnostic(
+        new_project, run="b002_p1_fixture_old", issuer="1115", day="20191231"
+    )
+    promote_rights_diagnostic(project_root=new_project, diagnostic_root=first_new)
+    second_new = _diagnostic(
+        new_project, run="b002_p1_fixture_new", issuer="2222", day="20200102"
+    )
+    promote_rights_diagnostic(project_root=new_project, diagnostic_root=second_new)
+
+    project = root / "interrupted"
+    logical = Path("data/normalized") / DATASET
+    canonical = project / logical
+    backup = canonical.parent / f".{DATASET}.rights-observation.backup.{'1' * 32}"
+    state = project / "data/state/kr_equity_rights_schedule_observation.json"
+    state_stage = state.parent / f".{state.name}.stage.{'1' * 32}"
+    marker = canonical.parent / f".{DATASET}.rights-observation.transaction.json"
+    shutil.copytree(new_project / logical, canonical)
+    shutil.copytree(old_project / logical, backup)
+    state.parent.mkdir(parents=True)
+    shutil.copy2(old_project / "data/state/kr_equity_rights_schedule_observation.json", state)
+    shutil.copy2(new_project / "data/state/kr_equity_rights_schedule_observation.json", state_stage)
+    payload = {
+        "dataset": DATASET, "transaction_id": "1" * 32,
+        "phase": "DATASET_PROMOTED", "had_pair": True,
+        "dataset_parent": str(canonical.parent.resolve()),
+        "state_parent": str(state.parent.resolve()),
+        "old_dataset_sha256": _tree_hash(backup, logical),
+        "old_state_sha256": _sha(state),
+        "new_dataset_sha256": _tree_hash(canonical, logical),
+        "new_state_sha256": _sha(state_stage),
+    }
+    marker.write_text(json.dumps(payload), encoding="utf-8")
+    diagnostic = _diagnostic(
+        project, run="b002_p1_fixture_probe", issuer="3333", day="20210104"
+    )
+    return diagnostic, {
+        "canonical": canonical, "backup": backup, "state": state,
+        "state_stage": state_stage, "marker": marker,
+    }
+
+
+def _all_bytes(root: Path) -> dict[str, bytes]:
+    return {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in sorted(root.rglob("*")) if path.is_file()
+    }
+
+
+def test_startup_recovers_exact_interrupted_promotion(tmp_path: Path) -> None:
+    diagnostic, paths = _interrupted_promoted_layout(tmp_path)
+    result = promote_rights_diagnostic(
+        project_root=paths["canonical"].parents[2], diagnostic_root=diagnostic
+    )
+    assert result["startup_recovery"] == "ROLLED_BACK"
+    assert result["status"] == STATUS
+
+
+@pytest.mark.parametrize("target", ["canonical", "backup", "state", "state_stage"])
+def test_recovery_tamper_fails_before_any_mutation(
+    tmp_path: Path, target: str
+) -> None:
+    diagnostic, paths = _interrupted_promoted_layout(tmp_path)
+    path = paths[target]
+    if path.is_dir():
+        next(path.rglob("data.parquet")).write_bytes(b"corrupt")
+    else:
+        path.write_bytes(b"corrupt")
+    project = paths["canonical"].parents[2]
+    before = _all_bytes(project)
+    with pytest.raises(RightsObservationError, match="fingerprint|cannot be fingerprinted"):
+        promote_rights_diagnostic(project_root=project, diagnostic_root=diagnostic)
+    assert _all_bytes(project) == before
+
+
+def test_existing_state_semantics_are_exact(tmp_path: Path) -> None:
+    diagnostic = _diagnostic(
+        tmp_path, run="b002_p1_fixture_1", issuer="1115", day="20191231"
+    )
+    promote_rights_diagnostic(project_root=tmp_path, diagnostic_root=diagnostic)
+    state_path = tmp_path / "data/state/kr_equity_rights_schedule_observation.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["historical_completeness"] = True
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    before = _all_bytes(tmp_path)
+    with pytest.raises(RightsObservationError, match="state does not describe"):
+        promote_rights_diagnostic(project_root=tmp_path, diagnostic_root=diagnostic)
+    assert _all_bytes(tmp_path) == before
