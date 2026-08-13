@@ -8,6 +8,7 @@ import os
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pytest
 
 from scripts.manual import audit_a007_short_selling as cli
 from stock_data.audit.a007_short_selling import (
@@ -192,6 +193,81 @@ def _append(path, record):
         stream.write(json.dumps(record, sort_keys=True) + "\n")
 
 
+def _make_diagnostic_recovery(tmp_path, scope_id="20260810_KOSPI"):
+    original = _ledger_path(tmp_path)
+    records = [json.loads(line) for line in original.read_text().splitlines()]
+    sidecar = (
+        tmp_path / "data/landing/pykrx/short_selling/trading" /
+        f"{scope_id}.json.provenance.json"
+    )
+    provenance = json.loads(sidecar.read_text())
+    sequence = provenance["raw_sequence"]
+    response = next(
+        item for item in records
+        if item["event"] == "HTTP_RESPONSE" and item.get("raw_sequence") == sequence
+    )
+    correlation = next(
+        item for item in records
+        if item["event"] == "SCOPE_HTTP_CORRELATED" and item.get("raw_sequence") == sequence
+    )
+    records = [
+        item for item in records
+        if not (
+            (item["event"] in {"HTTP_RESPONSE", "SCOPE_HTTP_CORRELATED"}
+             and item.get("raw_sequence") == sequence)
+            or (item["event"] == "SCOPE_COMPLETED" and item.get("scope") == scope_id)
+        )
+    ]
+    original.write_text("".join(json.dumps(item) + "\n" for item in records))
+
+    diagnostic_run = "diagnostic_recovery_test"
+    diagnostic = (
+        tmp_path / "data/landing/diagnostics/a007_balance_recovery" /
+        diagnostic_run / "call_ledger.jsonl"
+    )
+    diagnostic.parent.mkdir(parents=True)
+    sentinel_response = {
+        **response, "run_id": diagnostic_run,
+        "recorded_at_utc": "2026-08-10T00:00:01+00:00",
+    }
+    sentinel_correlation = {
+        **correlation, "run_id": diagnostic_run,
+        "recorded_at_utc": "2026-08-10T00:00:02+00:00",
+    }
+    diagnostic.write_text(
+        json.dumps(sentinel_response) + "\n" + json.dumps(sentinel_correlation) + "\n"
+    )
+    provenance.update({
+        "run_id": diagnostic_run,
+        "ledger_relative_path": diagnostic.relative_to(tmp_path).as_posix(),
+    })
+    sidecar.write_text(json.dumps(provenance))
+
+    adoption_run = "production_adoption_test"
+    adoption = (
+        tmp_path / "data/landing/pykrx/short_selling/runs" /
+        adoption_run / "call_ledger.jsonl"
+    )
+    adoption.parent.mkdir(parents=True)
+    adoption_records = [
+        {
+            "event": "SCOPE_STARTED", "dataset": "trading", "scope": scope_id,
+            "run_id": adoption_run, "recorded_at_utc": "2026-08-10T00:00:03+00:00",
+        },
+        {
+            "event": "SCOPE_RECOVERED_WITHOUT_REQUEST", "scope": scope_id,
+            "run_id": adoption_run, "recorded_at_utc": "2026-08-10T00:00:04+00:00",
+        },
+        {
+            "event": "SCOPE_COMPLETED", "scope": scope_id, "run_id": adoption_run,
+            "classification": "SUCCESS", "normalized_rows": 1,
+            "recorded_at_utc": "2026-08-10T00:00:05+00:00",
+        },
+    ]
+    adoption.write_text("".join(json.dumps(item) + "\n" for item in adoption_records))
+    return sidecar, diagnostic, adoption
+
+
 def test_terminal_audit_is_read_only_and_separates_three_gates(tmp_path):
     _fixture(tmp_path)
     before = {
@@ -213,6 +289,86 @@ def test_terminal_audit_is_read_only_and_separates_three_gates(tmp_path):
     assert result["normalized"]["exact_values"]["compared_rows"] == 2
     assert result["landing"]["validated_artifact_chains"] == 2
     assert "Artifact integrity: PASS" in render_markdown(report)
+
+
+def test_diagnostic_sentinel_is_adopted_without_a_second_business_request(tmp_path):
+    _fixture(tmp_path)
+    _make_diagnostic_recovery(tmp_path)
+    report = _audit(tmp_path)
+    result = report["datasets"][0]
+    assert report["status"] == "PASS"
+    assert result["checkpoint"]["declared_normalized_rows"] == 2
+    assert result["normalized"]["rows"] == 2
+    assert result["normalized"]["exact_values"] == {
+        "status": "PASS", "compared_rows": 2, "mismatched_partitions": 0,
+        "missing_partitions": [], "orphan_partitions": [],
+        "method": "EXACT_SORTED_STREAM_COMPARISON",
+    }
+    assert result["landing"]["diagnostic_sentinel_recoveries"] == 1
+
+
+@pytest.mark.parametrize("fault", ["outside", "wrong_parent", "wrong_name", "missing"])
+def test_diagnostic_declared_ledger_path_fails_closed(tmp_path, fault):
+    _fixture(tmp_path)
+    sidecar, diagnostic, _ = _make_diagnostic_recovery(tmp_path)
+    provenance = json.loads(sidecar.read_text())
+    if fault == "outside":
+        provenance["ledger_relative_path"] = "../outside/call_ledger.jsonl"
+    elif fault == "wrong_parent":
+        provenance["run_id"] = "different_run"
+    elif fault == "wrong_name":
+        wrong = diagnostic.with_name("other.jsonl")
+        diagnostic.replace(wrong)
+        provenance["ledger_relative_path"] = wrong.relative_to(tmp_path).as_posix()
+    else:
+        diagnostic.unlink()
+    sidecar.write_text(json.dumps(provenance))
+    result = _audit(tmp_path)["datasets"][0]
+    assert result["status"] == "FAIL"
+    assert any(item["code"] == "ARTIFACT_CHAIN_INVALID"
+               for item in result["artifact_integrity"]["findings"])
+
+
+@pytest.mark.parametrize("fault", ["duplicate_response", "duplicate_correlation", "scope_hash"])
+def test_diagnostic_ledger_chain_must_be_exact_unique(tmp_path, fault):
+    _fixture(tmp_path)
+    _, diagnostic, _ = _make_diagnostic_recovery(tmp_path)
+    records = [json.loads(line) for line in diagnostic.read_text().splitlines()]
+    if fault == "duplicate_response":
+        records.append(dict(records[0]))
+    elif fault == "duplicate_correlation":
+        records.append(dict(records[1]))
+    else:
+        records[1]["scope_sha256"] = "0" * 64
+    diagnostic.write_text("".join(json.dumps(item) + "\n" for item in records))
+    result = _audit(tmp_path)["datasets"][0]
+    assert result["status"] == "FAIL"
+    assert any(item["code"] == "ARTIFACT_CHAIN_INVALID"
+               for item in result["artifact_integrity"]["findings"])
+
+
+@pytest.mark.parametrize("fault", ["missing_recovery", "duplicate_recovery", "adoption_request"])
+def test_diagnostic_adoption_must_be_unique_and_request_free(tmp_path, fault):
+    _fixture(tmp_path)
+    _, diagnostic, adoption = _make_diagnostic_recovery(tmp_path)
+    records = [json.loads(line) for line in adoption.read_text().splitlines()]
+    recovery = next(item for item in records if item["event"] == "SCOPE_RECOVERED_WITHOUT_REQUEST")
+    if fault == "missing_recovery":
+        records.remove(recovery)
+    elif fault == "duplicate_recovery":
+        records.append(dict(recovery))
+    else:
+        sentinel = [json.loads(line) for line in diagnostic.read_text().splitlines()]
+        response, correlation = sentinel
+        records.extend([
+            {**response, "run_id": records[0]["run_id"], "raw_sequence": 99},
+            {**correlation, "run_id": records[0]["run_id"], "raw_sequence": 99},
+        ])
+    adoption.write_text("".join(json.dumps(item) + "\n" for item in records))
+    result = _audit(tmp_path)["datasets"][0]
+    assert result["status"] == "FAIL"
+    assert any(item["code"] == "ARTIFACT_CHAIN_INVALID"
+               for item in result["artifact_integrity"]["findings"])
 
 
 def test_partial_checkpoint_and_nonterminal_status_cannot_pass(tmp_path):

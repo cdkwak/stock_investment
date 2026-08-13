@@ -78,6 +78,7 @@ class _LedgerIndex:
     responses: dict[tuple[str, int], list[dict[str, object]]]
     correlations: dict[tuple[str, int], list[dict[str, object]]]
     completions: dict[tuple[str, str], list[dict[str, object]]]
+    recoveries: dict[tuple[str, str], list[dict[str, object]]]
     status_counts: Counter[str]
     auth_responses: int
     errors: int
@@ -187,6 +188,7 @@ def _load_ledgers(runs_root: Path) -> _LedgerIndex:
     responses: dict[tuple[str, int], list[dict[str, object]]] = defaultdict(list)
     correlations: dict[tuple[str, int], list[dict[str, object]]] = defaultdict(list)
     completions: dict[tuple[str, str], list[dict[str, object]]] = defaultdict(list)
+    recoveries: dict[tuple[str, str], list[dict[str, object]]] = defaultdict(list)
     status_counts: Counter[str] = Counter()
     all_records: list[tuple[str, dict[str, object]]] = []
     invalid = auth = errors = retries = 0
@@ -233,19 +235,64 @@ def _load_ledgers(runs_root: Path) -> _LedgerIndex:
         if record.get("event") in {"SCOPE_STARTED", "RUN_COMPLETED"} and dataset in DATASETS:
             run_datasets[run_id].add(str(dataset))
     for run_id, record in all_records:
-        if record.get("event") != "SCOPE_COMPLETED" or not isinstance(record.get("scope"), str):
+        if record.get("event") not in {
+            "SCOPE_COMPLETED", "SCOPE_RECOVERED_WITHOUT_REQUEST",
+        } or not isinstance(record.get("scope"), str):
             continue
         datasets = run_datasets.get(run_id, set())
         if len(datasets) == 1:
-            completions[(next(iter(datasets)), record["scope"])].append(record)
+            target = completions if record["event"] == "SCOPE_COMPLETED" else recoveries
+            target[(next(iter(datasets)), record["scope"])].append(record)
         else:
             invalid += 1
     return _LedgerIndex(
         files=len(paths), records=len(all_records), invalid_records=invalid,
         responses=dict(responses), correlations=dict(correlations),
-        completions=dict(completions), status_counts=status_counts,
+        completions=dict(completions), recoveries=dict(recoveries),
+        status_counts=status_counts,
         auth_responses=auth, errors=errors, retry_events=retries,
     )
+
+
+def _declared_ledger_chain(
+    *, project_root: Path, relative: object, run_id: object, sequence: object,
+    scope: RequestScope, cache: dict[Path, tuple[list[dict[str, object]], int]],
+) -> tuple[dict[str, object], dict[str, object], Path]:
+    """Resolve exactly the ledger named by provenance using production's path rule."""
+    if (
+        not isinstance(run_id, str) or not run_id
+        or type(sequence) is not int or sequence < 1
+        or not isinstance(relative, str) or not relative or Path(relative).is_absolute()
+    ):
+        raise ValueError("provenance has invalid ledger/run/sequence identity")
+    ledger_path = (project_root / Path(relative)).resolve()
+    ledger_path.relative_to(project_root.resolve())
+    if ledger_path.name != "call_ledger.jsonl" or ledger_path.parent.name != run_id:
+        raise ValueError("ledger path/run mismatch")
+    if not ledger_path.is_file():
+        raise ValueError("declared ledger is missing")
+    if ledger_path not in cache:
+        cache[ledger_path] = _read_ledger_records(ledger_path)
+    records, invalid = cache[ledger_path]
+    if invalid:
+        raise ValueError("declared ledger has invalid records")
+    responses = [
+        record for record in records
+        if record.get("event") == "HTTP_RESPONSE"
+        and record.get("run_id") == run_id
+        and record.get("raw_sequence") == sequence
+    ]
+    correlations = [
+        record for record in records
+        if record.get("event") == "SCOPE_HTTP_CORRELATED"
+        and record.get("run_id") == run_id
+        and record.get("raw_sequence") == sequence
+        and record.get("scope") == scope.scope_id
+        and record.get("scope_sha256") == _scope_sha256(scope)
+    ]
+    if len(responses) != 1 or len(correlations) != 1:
+        raise ValueError("declared ledger response/correlation is not exact unique")
+    return responses[0], correlations[0], ledger_path
 
 
 def _classify_correlation(record: Mapping[str, object]) -> str | None:
@@ -752,6 +799,8 @@ def audit_dataset(
     expected_bodies: set[Path] = set()
     expected_sidecars: set[Path] = set()
     parsed_classifications: Counter[str] = Counter()
+    declared_ledger_cache: dict[Path, tuple[list[dict[str, object]], int]] = {}
+    diagnostic_recoveries = 0
     for scope_id, record in sorted(completed.items()):
         if not isinstance(record, Mapping):
             _finding(integrity, "CHECKPOINT_SCOPE_INVALID", scope_id)
@@ -782,18 +831,12 @@ def audit_dataset(
             if any(provenance.get(key) != value for key, value in expected_provenance.items()):
                 raise ValueError("provenance values differ")
             relative_ledger = provenance.get("ledger_relative_path")
-            ledger_path = (root / Path(str(relative_ledger))).resolve()
-            ledger_path.relative_to(root)
-            if ledger_path != (landing_root / "runs" / str(run_id) / "call_ledger.jsonl").resolve():
-                raise ValueError("ledger path/run mismatch")
             if record.get("body_sha256") != content_hash:
                 raise ValueError("checkpoint hash differs")
-            key = (str(run_id), sequence) if type(sequence) is int else ("", -1)
-            responses = ledger.responses.get(key, [])
-            correlations = ledger.correlations.get(key, [])
-            if len(responses) != 1 or len(correlations) != 1:
-                raise ValueError("HTTP response/correlation is not exact unique")
-            response = responses[0]
+            response, correlation, ledger_path = _declared_ledger_chain(
+                project_root=root, relative=relative_ledger, run_id=run_id,
+                sequence=sequence, scope=scope, cache=declared_ledger_cache,
+            )
             expected_http = {
                 "method": "POST", "url": BUSINESS_URL, "status_code": 200,
                 "response_bytes": body.stat().st_size, "response_sha256": content_hash,
@@ -801,9 +844,10 @@ def audit_dataset(
             }
             if any(response.get(field) != value for field, value in expected_http.items()):
                 raise ValueError("HTTP response differs")
-            correlation = correlations[0]
-            if correlation.get("scope") != scope_id or correlation.get("scope_sha256") != _scope_sha256(scope):
-                raise ValueError("scope correlation differs")
+            conventional_ledger = (
+                landing_root / "runs" / str(run_id) / "call_ledger.jsonl"
+            ).resolve()
+            is_diagnostic = ledger_path != conventional_ledger
             parsed = _parse_artifact(scope, body)
             parsed_classifications[parsed.classification] += 1
             if record.get("classification") != parsed.classification:
@@ -819,6 +863,28 @@ def audit_dataset(
             if len(completions) != 1:
                 raise ValueError("SCOPE_COMPLETED is not exact unique")
             completion = completions[0]
+            if is_diagnostic:
+                recoveries = ledger.recoveries.get((dataset, scope_id), [])
+                if len(recoveries) != 1:
+                    raise ValueError("diagnostic sentinel recovery is not exact unique")
+                recovery = recoveries[0]
+                adoption_run = completion.get("run_id")
+                if recovery.get("run_id") != adoption_run:
+                    raise ValueError("diagnostic recovery/completion run differs")
+                if any(
+                    record.get("run_id") == adoption_run
+                    and record.get("scope") == scope_id
+                    for records in ledger.correlations.values() for record in records
+                ):
+                    raise ValueError("diagnostic recovery run repeated the business request")
+                sentinel_time = response.get("recorded_at_utc")
+                recovery_time = recovery.get("recorded_at_utc")
+                completion_time = completion.get("recorded_at_utc")
+                if not all(isinstance(value, str) for value in (
+                    sentinel_time, recovery_time, completion_time,
+                )) or not (sentinel_time < recovery_time < completion_time):
+                    raise ValueError("diagnostic recovery chronology differs")
+                diagnostic_recoveries += 1
             if completion.get("classification") != parsed.classification:
                 raise ValueError("SCOPE_COMPLETED classification differs")
             if completion.get("normalized_rows") != len(parsed.dataframe):
@@ -910,6 +976,7 @@ def audit_dataset(
         "landing": {
             "bodies": len(actual_bodies), "sidecars": len(actual_sidecars),
             "validated_artifact_chains": len(artifacts), "orphan_bodies": orphan_bodies,
+            "diagnostic_sentinel_recoveries": diagnostic_recoveries,
             "missing_bodies": missing_bodies, "orphan_sidecars": orphan_sidecars,
             "missing_sidecars": missing_sidecars,
         },
