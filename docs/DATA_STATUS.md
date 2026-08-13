@@ -26,7 +26,7 @@ official continuous coverage.
 | `kr_treasury_yield_daily` | Toss Securities | ARTIFACT_COMPLETE / PREDICTIVE_USE_BLOCKED; 2019-01-02..2026-08-10, six tenors, 11,162 rows | percent yield semantics verified; source volume unit and observation availability are unknown |
 | Toss per-symbol short/program/lending/credit | Toss Securities | not survivorship safe; delisted sample returned `stock-not-found` for all four operations | official program screen `MDCSTAT02601` needs a post-A007 request-contract pilot; official credit market aggregates do not replace per-symbol shares/ratios |
 | KB realtime | KB Securities | earlier OAuth success reported; 2026-08-11 fresh check failed with HTTP 500, result `9999`, process `E021`; IVSA0070 not called | verify app-key authorization externally, then authorize a new one-shot validation |
-| Market breadth | canonical universe + Korean equity prices | complete, 1995-05-03..2026-08-07 | daily incremental |
+| Market breadth | canonical universe + Korean equity prices | DATA_COMPLETE, 15,413 rows, 1995-05-03..2026-08-07 | deterministic retained-input rebuild/state; four missing boundary rows added and nine stale incremental rows corrected under a frozen evidence gate |
 | `us_treasury_spread_daily` | FRED yields | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 16,853 rows, 1962-01-02..2026-08-06 | deterministic offline state records exact input-state/files, output hashes, formulas, validation, and `api_calls=0` |
 | `kr_market_liquidity_daily` | FSC/KOFIA public API | complete, 2021-10-26..2026-08-05 | daily incremental |
 | `kr_credit_balance_daily` | FSC/KOFIA public API | complete, 2021-11-09..2026-08-05 | daily incremental |
