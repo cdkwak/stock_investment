@@ -15,6 +15,15 @@ checkpoint, Landing path, Normalized dataset, canonical universe, or breadth.
 Live and adoption modes share `data/state/data_go_kr_provider.lock`; do not run
 them alongside another DATA.GO writer that has not adopted this shared lock.
 
+Each exact HTTP response body and a credential-free call record are committed
+to diagnostic Landing before API parsing, schema checks, or market
+classification. A classification failure therefore retains hash-bound response
+evidence referenced by the anomaly ledger. `KONEX` is a known source market
+outside the current KOSPI/KOSDAQ Dataset Contracts: it remains in Landing, is
+explicitly counted, and is excluded from scoped normalization. The manifest
+records source rows, scoped rows, excluded-known rows, and per-market counts.
+Any other market label fails closed after Landing capture.
+
 `VALID_EMPTY_NOT_YET_AVAILABLE` deliberately does not mean a market-empty day.
 It records only that the exact source stream returned zero rows when observed.
 Do not promote it or add it to production `valid_empty_partitions`.

@@ -42,6 +42,8 @@ LANDING_RELATIVE = Path("data/landing/diagnostics/data_go_kr_equity_availability
 LOCK_RELATIVE = Path("data/state/data_go_kr_provider.lock")
 NUM_ROWS = 9999
 STREAMS = ("price_cap", "universe")
+SCOPED_MARKETS = {"KOSPI", "KOSDAQ"}
+KNOWN_EXCLUDED_MARKETS = {"KONEX"}
 
 
 class SentinelError(RuntimeError):
@@ -72,6 +74,51 @@ def _atomic_json(path: Path, value: object, *, exclusive: bool = False) -> None:
         os.replace(temporary, path)
     finally:
         Path(temporary).unlink(missing_ok=True)
+
+
+def _atomic_bytes(path: Path, body: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        raise SentinelError(f"immutable file already exists: {path.name}")
+    handle, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(handle, "wb") as stream:
+            stream.write(body); stream.flush(); os.fsync(stream.fileno())
+        if path.exists():
+            raise SentinelError(f"immutable file already exists: {path.name}")
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+class _CaptureSession:
+    """Persist exact HTTP evidence before the client parses/classifies it."""
+    def __init__(self, backend, run_root: Path, sequence: int, stream: str, endpoint: str):
+        self.backend, self.run_root = backend, run_root
+        self.sequence, self.stream, self.endpoint = sequence, stream, endpoint
+        self.receipt: dict[str, object] | None = None
+
+    def get(self, url, *, params, headers, timeout):
+        response = self.backend.get(url, params=params, headers=headers, timeout=timeout)
+        body = response.content
+        if not isinstance(body, bytes):
+            raise SentinelError("HTTP response content is not exact bytes")
+        raw = self.run_root / f"raw_response_{self.sequence:02d}_{self.stream}.body"
+        call = self.run_root / f"raw_call_{self.sequence:02d}_{self.stream}.json"
+        _atomic_bytes(raw, body)
+        safe_params = {str(key): str(value) for key, value in params.items() if str(key) != "serviceKey"}
+        record = {"version": 1, "sequence": self.sequence, "stream": self.stream,
+                  "captured_at_utc": _now(), "endpoint": self.endpoint,
+                  "public_parameters": dict(sorted(safe_params.items())),
+                  "http_status": int(response.status_code), "retry_count": 0,
+                  "raw_body_file": raw.name, "raw_body_bytes": len(body),
+                  "raw_body_sha256": _sha(raw)}
+        _atomic_json(call, record, exclusive=True)
+        self.receipt = {"raw_body_file": raw.name, "raw_body_bytes": len(body),
+                        "raw_body_sha256": record["raw_body_sha256"],
+                        "raw_call_file": call.name, "raw_call_sha256": _sha(call),
+                        "http_status": int(response.status_code)}
+        return response
 
 
 @contextmanager
@@ -107,9 +154,21 @@ def _classify(stream: str, items, total_count: int, base_date: str) -> dict[str,
         return {"classification": "VALID_EMPTY_NOT_YET_AVAILABLE", "source_rows": 0}
     if len(items) != total_count or total_count > NUM_ROWS:
         raise SentinelError("single-page row/total gate failed")
+    market_counts: dict[str, int] = {}
+    for item in items:
+        if not isinstance(item, dict) or "mrktCtg" not in item:
+            raise SentinelError("source item market field is missing")
+        market = str(item["mrktCtg"]).strip()
+        market_counts[market] = market_counts.get(market, 0) + 1
+    unknown = set(market_counts) - SCOPED_MARKETS - KNOWN_EXCLUDED_MARKETS
+    if unknown:
+        raise SentinelError(f"unknown data.go.kr markets: {sorted(unknown)}")
+    scoped = tuple(item for item in items if str(item["mrktCtg"]).strip() in SCOPED_MARKETS)
+    if not scoped:
+        raise SentinelError("source is non-empty but KOSPI/KOSDAQ scoped rows are empty")
     expected = datetime.strptime(base_date, "%Y%m%d").strftime("%Y-%m-%d")
     if stream == "price_cap":
-        normalized = normalize_stock_price_items(items)
+        normalized = normalize_stock_price_items(scoped)
         frames = (normalized.price, normalized.market_cap)
         if any(frame.empty or set(frame["date"]) != {expected} for frame in frames):
             raise SentinelError("price/cap normalized date or non-empty gate failed")
@@ -117,12 +176,16 @@ def _classify(stream: str, items, total_count: int, base_date: str) -> dict[str,
             raise SentinelError("price/cap fanout row counts differ")
         return {
             "classification": "NONEMPTY_AVAILABLE", "source_rows": total_count,
+            "scoped_rows": len(scoped), "excluded_known_rows": total_count - len(scoped),
+            "source_market_counts": dict(sorted(market_counts.items())),
             "price_rows": len(normalized.price), "market_cap_rows": len(normalized.market_cap),
         }
-    frame = normalize_universe_items(items)
+    frame = normalize_universe_items(scoped)
     if frame.empty or set(frame["date"]) != {expected}:
         raise SentinelError("universe normalized date or non-empty gate failed")
-    return {"classification": "NONEMPTY_AVAILABLE", "source_rows": total_count, "universe_rows": len(frame)}
+    return {"classification": "NONEMPTY_AVAILABLE", "source_rows": total_count,
+            "scoped_rows": len(scoped), "excluded_known_rows": total_count - len(scoped),
+            "source_market_counts": dict(sorted(market_counts.items())), "universe_rows": len(frame)}
 
 
 def run_sentinel(project_root: Path, base_date: str, *, session=None) -> dict[str, object]:
@@ -136,33 +199,43 @@ def run_sentinel(project_root: Path, base_date: str, *, session=None) -> dict[st
     endpoints = {"price_cap": STOCK_PRICE_ENDPOINT, "universe": UNIVERSE_ENDPOINT}
     with _lock(project_root, run_id):
         for sequence, stream_name in enumerate(STREAMS, start=1):
+            capture_session = _CaptureSession(
+                session or __import__("requests"), run_root, sequence,
+                stream_name, endpoints[stream_name],
+            )
             client = DataGoKrClient(
                 endpoint=endpoints[stream_name], service_key=key,
-                session=session or __import__("requests"), max_attempts=1,
+                session=capture_session, max_attempts=1,
             )
             try:
                 result = client.fetch_all(
                     filters={"basDt": base_date}, num_of_rows=NUM_ROWS, max_pages=1,
                 )
-                assessment = _classify(stream_name, result.items, result.total_count, base_date)
                 landing = run_root / f"response_{sequence:02d}_{stream_name}.json"
                 write_landing_pages_atomic(result.pages, landing)
-                record = {
+                evidence = {
                     "sequence": sequence, "stream": stream_name, "event": "CALL_COMPLETED",
                     "captured_at_utc": _now(), "endpoint": endpoints[stream_name],
                     "public_parameters": {"basDt": base_date, "numOfRows": NUM_ROWS, "pageNo": 1, "resultType": "json"},
                     "retry_count": 0, "pages": len(result.pages),
                     "landing_file": landing.name, "landing_sha256": _sha(landing),
-                    **assessment,
+                    **(capture_session.receipt or {}),
                 }
+                results[stream_name] = evidence
+                assessment = _classify(stream_name, result.items, result.total_count, base_date)
+                record = {**evidence, **assessment}
                 results[stream_name] = record
             except Exception as error:
                 safe = str(error).replace(key, "<redacted>")
+                evidence = results.get(stream_name, capture_session.receipt or {})
+                if evidence:
+                    results[stream_name] = evidence
                 with ledger_path.open("a", encoding="utf-8", newline="\n") as stream:
                     stream.write(json.dumps({
                         "sequence": sequence, "stream": stream_name, "event": "ANOMALY",
                         "captured_at_utc": _now(), "error_type": type(error).__name__,
                         "error": safe[:240], "retry_count": 0,
+                        **{key: evidence[key] for key in ("landing_file", "landing_sha256", "pages") if key in evidence},
                     }, ensure_ascii=False, sort_keys=True) + "\n")
                 _atomic_json(run_root / "manifest.json", {
                     "version": 1, "status": "ANOMALY", "run_id": run_id,
@@ -218,6 +291,14 @@ def _read_audited_pair(project_root: Path, run_root: Path) -> tuple[dict[str, ob
         record = manifest["results"].get(name)
         if not isinstance(record, dict) or record.get("classification") != "NONEMPTY_AVAILABLE":
             raise SentinelError("sentinel stream is not non-empty")
+        raw_body = run_root / str(record.get("raw_body_file", ""))
+        raw_call = run_root / str(record.get("raw_call_file", ""))
+        if (not raw_body.is_file() or not raw_call.is_file()
+                or _sha(raw_body) != record.get("raw_body_sha256")
+                or raw_body.stat().st_size != record.get("raw_body_bytes")
+                or _sha(raw_call) != record.get("raw_call_sha256")
+                or record.get("http_status") != 200):
+            raise SentinelError("sentinel exact HTTP evidence differs")
         landing = run_root / str(record.get("landing_file", ""))
         if not landing.is_file() or _sha(landing) != record.get("landing_sha256"):
             raise SentinelError("sentinel Landing hash differs")

@@ -26,6 +26,13 @@ class Response:
     def raise_for_status(self): return None
 
 
+class ItemsResponse(Response):
+    def __init__(self, items):
+        self.payload = {"response": {"header": {"resultCode": "00", "resultMsg": "OK"},
+            "body": {"pageNo": 1, "numOfRows": 9999, "totalCount": len(items), "items": {"item": items}}}}
+        self.content = json.dumps(self.payload).encode()
+
+
 class Session:
     def __init__(self): self.calls = 0
     def get(self, *args, **kwargs):
@@ -50,6 +57,20 @@ def test_wrong_date_is_anomaly():
         _classify("universe", (_universe("20260811"),), 1, "20260812")
 
 
+def test_known_konex_is_reported_and_excluded_from_scoped_contract():
+    konex = {**_price(), "srtnCd": "A123456", "isinCd": "KR7123450000", "mrktCtg": "KONEX"}
+    result = _classify("price_cap", (_price(), konex), 2, "20260812")
+    assert result["source_rows"] == 2 and result["scoped_rows"] == 1
+    assert result["excluded_known_rows"] == 1
+    assert result["source_market_counts"] == {"KONEX": 1, "KOSPI": 1}
+
+
+def test_unknown_market_fails_closed():
+    unknown = {**_price(), "mrktCtg": "OTC"}
+    with pytest.raises(SentinelError, match="unknown.*OTC"):
+        _classify("price_cap", (_price(), unknown), 2, "20260812")
+
+
 def test_live_sentinel_is_two_calls_and_does_not_touch_production(tmp_path, monkeypatch):
     monkeypatch.setenv("DATA_GO_KR_SERVICE_KEY", "secret")
     session = Session()
@@ -70,6 +91,34 @@ def test_anomaly_stops_before_second_call_and_writes_manifest(tmp_path, monkeypa
     assert session.calls == 1
     manifest = json.loads(next((tmp_path / "data/landing/diagnostics/data_go_kr_equity_availability").rglob("manifest.json")).read_text())
     assert manifest["status"] == "ANOMALY" and manifest["adoption_eligible"] is False
+    run_root = next((tmp_path / "data/landing/diagnostics/data_go_kr_equity_availability").iterdir())
+    landing = run_root / manifest["results"]["price_cap"]["landing_file"]
+    assert landing.is_file()
+    assert manifest["results"]["price_cap"]["landing_sha256"]
+    raw = run_root / manifest["results"]["price_cap"]["raw_body_file"]
+    assert raw.is_file() and manifest["results"]["price_cap"]["raw_body_sha256"]
+
+
+def test_classification_failure_preserves_exact_landing_before_error(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATA_GO_KR_SERVICE_KEY", "secret")
+    class UnknownSession:
+        calls = 0
+        def get(self, *args, **kwargs):
+            self.calls += 1
+            return ItemsResponse([{**_price(), "mrktCtg": "OTC"}])
+    session = UnknownSession()
+    with pytest.raises(SentinelError, match="unknown"):
+        run_sentinel(tmp_path, "20260812", session=session)
+    run_root = next((tmp_path / "data/landing/diagnostics/data_go_kr_equity_availability").iterdir())
+    manifest = json.loads((run_root / "manifest.json").read_text())
+    landing = run_root / manifest["results"]["price_cap"]["landing_file"]
+    assert session.calls == 1 and landing.is_file()
+    assert __import__("hashlib").sha256(landing.read_bytes()).hexdigest() == manifest["results"]["price_cap"]["landing_sha256"]
+    raw = run_root / manifest["results"]["price_cap"]["raw_body_file"]
+    call = run_root / manifest["results"]["price_cap"]["raw_call_file"]
+    assert b'"OTC"' in raw.read_bytes()
+    retained_call = json.loads(call.read_text())
+    assert "serviceKey" not in retained_call["public_parameters"]
 
 
 def test_nonempty_pair_can_be_staged_offline_without_normalized_write(tmp_path, monkeypatch):
