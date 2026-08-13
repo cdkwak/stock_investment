@@ -1,8 +1,19 @@
 # A007 Investor H1 historical availability diagnostic
 
-This is a prepared, **unexecuted** Landing-only diagnostic. It must not be run
-while another KRX stream owns the shared D lock, and this implementation task
-does not authorize live access.
+The one authorized Landing-only diagnostic was retained at
+`20260813T103525Z_47ad701d154b430e89f18434bd152031`. A subsequent offline audit
+made zero network calls and did not alter that run.
+
+The retained ledger contains five authentication responses and exactly one
+business response, all HTTP 200 with raw sequences 1..6, followed by
+`DIAGNOSTIC_PASSED`. The 189-byte body SHA-256
+`6ead29ac104ea3da7499b31e089e2f3634107d452a62278fc02d3859f4003c32`
+matches both provenance and business-ledger records. Manifest, provenance,
+scope, 502 expected dates, request counts, schema, and run ID reconcile. The
+retained body has exactly one `2012-01-04` row and all four components plus total
+are zero, so it satisfies the exact `PRE_AVAILABILITY_COLLAPSE` branch. A scan
+against locally configured secret values and common credential/key labels found
+no persisted credential. H1 must not be executed again.
 
 The frozen scope is exactly one authenticated `MDCSTAT30301` KOSPI volume
 request for `2010-01-04..2012-01-04`. The expected set is exactly 502 canonical

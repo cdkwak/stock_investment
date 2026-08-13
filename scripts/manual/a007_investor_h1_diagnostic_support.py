@@ -121,7 +121,13 @@ def _integer(value: object, field: str) -> int:
     return parsed
 
 
-def classify_response(body: bytes, dates: tuple[str, ...]) -> DiagnosticClassification:
+def classify_availability_response(
+    body: bytes,
+    dates: tuple[str, ...],
+    *,
+    scope: Mapping[str, object],
+    full_range_classification: str,
+) -> DiagnosticClassification:
     if body.lstrip().startswith(b"<"):
         raise PilotStopped("HTML_OR_RESTRICTION_RESPONSE")
     try:
@@ -158,7 +164,7 @@ def classify_response(body: bytes, dates: tuple[str, ...]) -> DiagnosticClassifi
             day = datetime.strptime(str(row["TRD_DD"]).strip(), "%Y/%m/%d").strftime("%Y%m%d")
         except ValueError as error:
             raise PilotStopped(f"INVALID_DATE:{index}") from error
-        if not SCOPE["strtDd"] <= day <= SCOPE["endDd"]:
+        if not str(scope["strtDd"]) <= day <= str(scope["endDd"]):
             raise PilotStopped(f"OUT_OF_SCOPE_DATE:{day}")
         components = [_integer(row[field], field) for field in SOURCE_FIELDS[1:5]]
         total = _integer(row["STR_CONST_VAL5"], "STR_CONST_VAL5")
@@ -172,11 +178,17 @@ def classify_response(body: bytes, dates: tuple[str, ...]) -> DiagnosticClassifi
     actual = set(observed)
     if actual == set(dates) and len(rows) == len(dates):
         return DiagnosticClassification(
-            "H1_FULL_RANGE_AVAILABLE", len(rows), tuple(sorted(observed)), positive,
+            full_range_classification, len(rows), tuple(sorted(observed)), positive,
             source_current_datetime,
         )
-    if len(rows) == 1 and observed[0] == SCOPE["endDd"] and totals[0] == 0:
+    if len(rows) == 1 and observed[0] == scope["endDd"] and totals[0] == 0:
         return DiagnosticClassification(
             "PRE_AVAILABILITY_COLLAPSE", 1, (observed[0],), 0, source_current_datetime,
         )
     raise PilotStopped(f"AMBIGUOUS_STOP:{len(actual)}/{len(dates)}")
+
+
+def classify_response(body: bytes, dates: tuple[str, ...]) -> DiagnosticClassification:
+    return classify_availability_response(
+        body, dates, scope=SCOPE, full_range_classification="H1_FULL_RANGE_AVAILABLE",
+    )
