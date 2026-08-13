@@ -18,11 +18,12 @@ The audit proves:
 - market and participant source-absent dates relative to detail, without
   fabricating rows.
 
-The six independently retained incremental responses overlap the historical
-range. They are hashed and counted as retained evidence, but are explicitly
-excluded from the historical-to-Normalized row comparison so they are never
-silently appended or double-counted. Response hashes must also be globally
-unique across all three datasets.
+The six independently retained incremental responses must fall inside the
+historical range. Each is production-normalized and must exactly match the
+corresponding Normalized date slice by row count and lossless Arrow IPC digest.
+They remain excluded from the historical row total so they are never silently
+appended or double-counted. Response hashes must also be globally unique across
+all three datasets.
 
 It does **not** resolve the historical execution-accounting incident. A wrapper
 timeout left its child running and a resume overlapped it. Therefore the report
@@ -44,6 +45,8 @@ Create or reuse an immutable content-addressed state:
 
 The state is written atomically under
 `data/state/audits/stock_lending_retained_execution/<audit SHA-256>.json`.
-The writer independently rebuilds the entire report and immediately rechecks
-all input files before creation. Existing identical state is reused; conflicting
-content, path redirects, input mutation, or forged reports are rejected.
+The writer independently rebuilds the entire report. A nonce-owned exclusive
+audit-state lock spans the final full-input manifest verification, temporary
+file durability, and content-addressed hard-link publication. Existing
+identical state is reused; concurrent writers, conflicting content, path
+redirects, input mutation, or forged reports are rejected.

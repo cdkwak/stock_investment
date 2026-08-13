@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -110,6 +111,11 @@ def test_build_and_content_addressed_write_are_deterministic_and_honest(tmp_path
     assert first["execution_accounting"]["status"] == EXECUTION_STATUS
     assert first["execution_accounting"]["exact_total_calls_known"] is False
     assert all(item["normalized"]["historical_source_reconciliation"]["status"] == "PASS" for item in first["datasets"])
+    assert all(
+        comparison["status"] == "PASS"
+        for item in first["datasets"]
+        for comparison in item["landing"]["incremental_capture_reconciliation"]
+    )
     created = write_stock_lending_evidence_state(tmp_path, first)
     existing = write_stock_lending_evidence_state(tmp_path, first)
     assert created["status"] == "CREATED"
@@ -202,6 +208,38 @@ def test_domain_valid_non_key_normalized_mutation_is_rejected(tmp_path):
         build_stock_lending_evidence_audit(tmp_path)
 
 
+def test_float_nextafter_values_have_different_lossless_digests():
+    contract = KR_STOCK_LENDING_PARTICIPANT_DAILY
+    first = _frame(contract)
+    second = _frame(contract)
+    second.loc[0, "lender_ratio"] = np.nextafter(
+        first.loc[0, "lender_ratio"], float("inf")
+    )
+    assert audit_module._canonical_full_row_digest(first, contract) != audit_module._canonical_full_row_digest(second, contract)
+
+
+def test_incremental_capture_value_divergence_is_rejected(tmp_path):
+    _write_fixture(tmp_path)
+    path = tmp_path / "data/landing/data_go_kr/kr_stock_lending_participant_daily/20210401.json"
+    payload = json.loads(path.read_text("utf-8"))
+    payload[0]["response"]["body"]["items"]["item"][0]["lndeCclStckAmt"] = "99"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(StockLendingEvidenceAuditError, match="incremental capture differs"):
+        build_stock_lending_evidence_audit(tmp_path)
+
+
+def test_incremental_capture_outside_historical_coverage_is_rejected(tmp_path):
+    _write_fixture(tmp_path)
+    old = tmp_path / "data/landing/data_go_kr/kr_stock_lending_market_daily/20210401.json"
+    new = old.with_name("20200401.json")
+    payload = json.loads(old.read_text("utf-8"))
+    payload[0]["response"]["body"]["items"]["item"][0]["basDt"] = "20200401"
+    old.unlink()
+    new.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(StockLendingEvidenceAuditError, match="outside historical coverage"):
+        build_stock_lending_evidence_audit(tmp_path)
+
+
 def test_cross_dataset_duplicate_response_hash_is_rejected(tmp_path):
     _write_fixture(tmp_path)
     source = tmp_path / "data/landing/data_go_kr/kr_stock_lending_daily/20210401.json"
@@ -261,3 +299,25 @@ def test_input_mutation_at_immediate_pre_link_boundary_is_rejected(tmp_path, mon
         write_stock_lending_evidence_state(tmp_path, report)
     state_root = tmp_path / audit_module.DEFAULT_STATE_RELATIVE
     assert not list(state_root.glob("*.json")) if state_root.exists() else True
+
+
+def test_owned_lock_blocks_racing_writer_after_final_manifest_before_link(tmp_path, monkeypatch):
+    _write_fixture(tmp_path)
+    report = build_stock_lending_evidence_audit(tmp_path)
+    original_link = audit_module.os.link
+    raced = False
+
+    def racing_link(source, target):
+        nonlocal raced
+        raced = True
+        state_root = tmp_path / audit_module.DEFAULT_STATE_RELATIVE
+        with pytest.raises(StockLendingEvidenceAuditError, match="holds the lock"):
+            with audit_module._audit_state_lock(tmp_path, state_root):
+                pass
+        return original_link(source, target)
+
+    monkeypatch.setattr(audit_module.os, "link", racing_link)
+    result = write_stock_lending_evidence_state(tmp_path, report)
+    assert raced is True
+    assert result["status"] == "CREATED"
+    assert not (tmp_path / audit_module.DEFAULT_STATE_RELATIVE / ".write.lock").exists()

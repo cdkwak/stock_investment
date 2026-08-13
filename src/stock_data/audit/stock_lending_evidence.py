@@ -8,6 +8,7 @@ Normalized datasets while keeping the historical execution overlap unresolved.
 from __future__ import annotations
 
 from dataclasses import asdict
+from contextlib import contextmanager
 import hashlib
 import json
 import math
@@ -18,6 +19,7 @@ from uuid import uuid4
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
 import pyarrow.parquet as pq
 
 from stock_data.contracts.data_v1 import (
@@ -25,7 +27,11 @@ from stock_data.contracts.data_v1 import (
     KR_STOCK_LENDING_MARKET_DAILY,
     KR_STOCK_LENDING_PARTICIPANT_DAILY,
 )
-from stock_data.storage.contract_arrow import contract_arrow_schema, restore_contract_dates
+from stock_data.storage.contract_arrow import (
+    contract_arrow_schema,
+    dataframe_to_contract_table,
+    restore_contract_dates,
+)
 from stock_data.providers.data_go_kr.data_v1 import (
     normalize_stock_lending,
     normalize_stock_lending_market,
@@ -157,23 +163,41 @@ def _contract_record(contract) -> dict[str, object]:
 
 
 def _canonical_full_row_digest(frame: pd.DataFrame, contract) -> str:
-    """Hash every contract column in stable contract-key order."""
+    """Hash lossless contract-typed Arrow IPC in stable contract-key order."""
     ordered = frame[list(contract.column_names)].sort_values(
         list(contract.sort_key), kind="stable"
     ).reset_index(drop=True)
-    digest = hashlib.sha256()
-    digest.update(_canonical_bytes({
-        "dataset": contract.name, "columns": list(contract.column_names),
-        "sort_key": list(contract.sort_key), "rows": len(ordered),
-    }))
-    # JSON-lines is invariant to chunk boundaries, unlike an IPC container.
-    for start in range(0, len(ordered), 100_000):
-        body = ordered.iloc[start:start + 100_000].to_json(
-            orient="records", lines=True, date_format="iso",
-            double_precision=15, force_ascii=False,
-        )
-        digest.update(body.encode("utf-8"))
-    return digest.hexdigest()
+    table = dataframe_to_contract_table(ordered, contract).combine_chunks()
+    sink = pa.BufferOutputStream()
+    with pa.ipc.new_stream(sink, table.schema) as writer:
+        writer.write_table(table, max_chunksize=max(len(table), 1))
+    return _sha256_bytes(sink.getvalue().to_pybytes())
+
+
+@contextmanager
+def _audit_state_lock(project_root: Path, state_root: Path):
+    """Own the final verify-and-publish critical section with a nonce lock."""
+    lock_path = state_root / ".write.lock"
+    _assert_plain_components(project_root, state_root)
+    token = uuid4().hex.encode("ascii")
+    try:
+        descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        raise StockLendingEvidenceAuditError("another stock-lending audit state writer holds the lock") from None
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(token)
+            stream.flush()
+            os.fsync(stream.fileno())
+        _assert_plain_components(project_root, lock_path)
+        if not lock_path.is_file() or lock_path.read_bytes() != token:
+            raise StockLendingEvidenceAuditError("audit state lock ownership differs")
+        yield
+    finally:
+        if lock_path.exists():
+            _assert_plain_components(project_root, lock_path)
+            if lock_path.is_file() and lock_path.read_bytes() == token:
+                lock_path.unlink()
 
 
 def _read_landing(path: Path) -> tuple[dict[str, object], list[Mapping[str, object]]]:
@@ -236,6 +260,7 @@ def _audit_dataset(project_root: Path, name: str) -> tuple[dict[str, object], se
     hashes: list[str] = []
     retained_source_rows = 0
     historical_normalized_frames: list[pd.DataFrame] = []
+    incremental_frames: list[tuple[Path, str, pd.DataFrame]] = []
     for path in landing_files:
         metadata, rows = _read_landing(path)
         digest = _sha256_file(path)
@@ -273,6 +298,12 @@ def _audit_dataset(project_root: Path, name: str) -> tuple[dict[str, object], se
                 or any(value != capture_date for value in source_dates)
             ):
                 raise StockLendingEvidenceAuditError(f"{name}: incremental capture scope differs")
+            try:
+                incremental_frames.append((path, capture_date, NORMALIZERS[name](rows)))
+            except Exception as error:
+                raise StockLendingEvidenceAuditError(
+                    f"{name}: incremental Landing normalization failed ({type(error).__name__})"
+                ) from error
         manifest.append({
             "path": _relative(path, project_root), "kind": kind,
             "bytes": path.stat().st_size, "sha256": digest, **metadata,
@@ -372,6 +403,26 @@ def _audit_dataset(project_root: Path, name: str) -> tuple[dict[str, object], se
         or normalized_full_row_sha256 != historical_full_row_sha256
     ):
         raise StockLendingEvidenceAuditError(f"{name}: historical source/Normalized reconciliation differs")
+    incremental_comparisons: list[dict[str, object]] = []
+    minimum_date = min(historical_dates)
+    maximum_date = max(historical_dates)
+    for path, capture_date, source_frame in incremental_frames:
+        if capture_date < minimum_date or capture_date > maximum_date:
+            raise StockLendingEvidenceAuditError(f"{name}: incremental capture is outside historical coverage")
+        normalized_slice = frame[
+            pd.to_datetime(frame["date"]).dt.strftime("%Y%m%d").eq(capture_date)
+        ].reset_index(drop=True)
+        source_digest = _canonical_full_row_digest(source_frame, contract)
+        normalized_digest = _canonical_full_row_digest(normalized_slice, contract)
+        if len(source_frame) != len(normalized_slice) or source_digest != normalized_digest:
+            raise StockLendingEvidenceAuditError(f"{name}: incremental capture differs from Normalized date slice")
+        incremental_comparisons.append({
+            "path": _relative(path, project_root), "source_date": capture_date,
+            "source_rows": len(source_frame), "normalized_slice_rows": len(normalized_slice),
+            "source_normalized_full_row_sha256": source_digest,
+            "normalized_date_slice_full_row_sha256": normalized_digest,
+            "status": "PASS",
+        })
     operational = _load_state(project_root / "data/state" / f"{name}.json", name)
     completed_dates = set(str(value) for value in operational["completed_partitions"])
     if (
@@ -393,8 +444,9 @@ def _audit_dataset(project_root: Path, name: str) -> tuple[dict[str, object], se
             "historical_normalized_full_row_sha256": historical_full_row_sha256,
             "comparison_scope": (
                 "HISTORICAL_PAGES_ONLY; incremental captures overlap historical coverage "
-                "and are retained evidence but are not appended or double-counted"
+                "and are verified separately against exact Normalized date slices, not appended or double-counted"
             ),
+            "incremental_capture_reconciliation": incremental_comparisons,
             "manifest": manifest,
         },
         "checkpoints": {
@@ -513,36 +565,37 @@ def write_stock_lending_evidence_state(project_root: Path, report: Mapping[str, 
             _assert_plain_components(project_root, current_directory)
     path = _state_path(project_root, current)
     payload = _canonical_bytes(current)
-    _assert_plain_components(project_root, path.parent)
-    pre_write_manifest = _input_manifest(project_root)
-    if pre_write_manifest != current["input_manifest"]:
-        raise StockLendingEvidenceAuditError("audit inputs changed at state creation gate")
-    if path.exists():
-        _assert_plain_components(project_root, path)
-        if not path.is_file() or path.read_bytes() != payload:
-            raise StockLendingEvidenceAuditError("immutable audit state content differs")
-        return {"status": "EXISTS_IDENTICAL", "path": _relative(path, project_root), "report": current}
-    temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
-    try:
-        descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        with os.fdopen(descriptor, "wb") as stream:
-            stream.write(payload)
-            stream.flush()
-            os.fsync(stream.fileno())
+    with _audit_state_lock(project_root, state_root):
         _assert_plain_components(project_root, path.parent)
-        immediate_manifest = _input_manifest(project_root)
-        if immediate_manifest != pre_write_manifest or immediate_manifest != current["input_manifest"]:
-            raise StockLendingEvidenceAuditError("audit inputs changed immediately before immutable link")
-        try:
-            os.link(temporary, path)
-        except FileExistsError:
+        pre_write_manifest = _input_manifest(project_root)
+        if pre_write_manifest != current["input_manifest"]:
+            raise StockLendingEvidenceAuditError("audit inputs changed at state creation gate")
+        if path.exists():
             _assert_plain_components(project_root, path)
             if not path.is_file() or path.read_bytes() != payload:
-                raise StockLendingEvidenceAuditError("immutable audit state collision")
+                raise StockLendingEvidenceAuditError("immutable audit state content differs")
             return {"status": "EXISTS_IDENTICAL", "path": _relative(path, project_root), "report": current}
-    finally:
-        temporary.unlink(missing_ok=True)
-    return {"status": "CREATED", "path": _relative(path, project_root), "report": current}
+        temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+        try:
+            descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+            _assert_plain_components(project_root, path.parent)
+            immediate_manifest = _input_manifest(project_root)
+            if immediate_manifest != pre_write_manifest or immediate_manifest != current["input_manifest"]:
+                raise StockLendingEvidenceAuditError("audit inputs changed immediately before immutable link")
+            try:
+                os.link(temporary, path)
+            except FileExistsError:
+                _assert_plain_components(project_root, path)
+                if not path.is_file() or path.read_bytes() != payload:
+                    raise StockLendingEvidenceAuditError("immutable audit state collision")
+                return {"status": "EXISTS_IDENTICAL", "path": _relative(path, project_root), "report": current}
+        finally:
+            temporary.unlink(missing_ok=True)
+        return {"status": "CREATED", "path": _relative(path, project_root), "report": current}
 
 
 def upgrade_stock_lending_evidence_state(project_root: Path) -> dict[str, object]:
