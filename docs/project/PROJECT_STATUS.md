@@ -42,6 +42,15 @@ started; current scope is in [Backtest status](BACKTEST_STATUS.md).
 - Stock-issuance history is now a 152,676-row, zero-duplicate source-observation
   artifact for reference dates 2020-07-14..2026-08-12. Publication timing and
   canonical event identity remain blocked for predictive use.
+- A single post-cooldown KRX Investor sentinel returned HTTP 200 with retry 0, proving
+  access recovery for that scope, but again returned only the positive range-end row.
+  Investor historical collection remains stopped on source semantics.
+- Free KRX Open API coverage is confirmed to start in 2010 for futures/options.
+  Pre-2010 history now requires user-approved paid-source coverage and licensing;
+  the preferred source and acceptance gate are recorded in the Data dashboard.
+- OpenDART now has one retained known-positive combined paid/free-issue row with
+  verified economic terms. Original and corrected receipt identities differ, so
+  canonical corporate-action identity and adjustment accounting remain blocked.
 - The 2026-08-12 equity integration finished offline with all five affected datasets
   through that date, primary-key duplicates zero, no network calls during adoption,
   and focused tests `75 passed, 1 skipped`.

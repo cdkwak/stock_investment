@@ -2,7 +2,13 @@
 
 ## Decision
 
-Status: **BOUNDED_PILOT_VALID_EMPTY**, not DATA_COMPLETE.
+Status: **SUPERSEDED BY KNOWN-POSITIVE AUDIT / DO_NOT RERUN**.
+
+The later bounded run `20260813T191033Z_1891cf7c6047424aa484f66fea129bfc`
+confirmed one filing-list row and one `pifricDecsn` success row for ECOPRO BM.
+Current evidence and identity limits are recorded in the
+[known-positive audit](../../data/audits/OPENDART_FREE_ISSUE_KNOWN_POSITIVE_AUDIT.md).
+This historical pilot procedure is not active execution authority.
 
 The repository has a Landing-only manual pilot and an offline-tested parser for
 the documented OpenDART `fricDecsn` and `pifricDecsn` response fields. The first
@@ -172,4 +178,3 @@ be source values or coverage evidence. Tests prove:
    alone prove historical ordinary/other-share identity.
 7. Only then implement the source-observation dataset. Adjustment factors and
    canonical events require a separate reviewed methodology.
-
