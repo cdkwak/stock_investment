@@ -40,7 +40,10 @@ the existing output and state. A `VERIFIED` transaction is finalized only after
 the promoted output manifest and state hashes match the marker; otherwise all
 backups remain for inspection. Backup retirement is journaled before each
 deletion, so recovery can resume after either the output backup or state backup
-has already been removed. Before fresh-run access, resolved paths for both
+has already been removed. Once `OUTPUT_BACKUP_RETIRING` is durable, recursive
+deletion is resumable even if only part of the backup tree was removed; the
+canonical promoted output/state pair is reverified, while the intentionally
+partial retired backup is not mistaken for corruption. Before fresh-run access, resolved paths for both
 inputs, output, state, marker, lock, stage, and backups must remain beneath the
 resolved project root; junction or symlink escapes fail closed.
 

@@ -442,6 +442,51 @@ def test_verified_cleanup_resumes_after_each_backup_deletion(
     assert not stage.exists() and not marker.exists()
 
 
+def test_output_backup_partial_recursive_deletion_is_resumable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _fixtures(tmp_path, existing_state=True)
+    root, state, stage, backup, state_backup, marker, _ = _verified_transaction(tmp_path)
+    canonical_before = {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in root.rglob("data.parquet")
+    }
+    state_before = state.read_bytes()
+    original_rmtree = breadth_rebuild.shutil.rmtree
+    injected = False
+
+    def partial_then_crash(path: Path, *args, **kwargs):
+        nonlocal injected
+        candidate = Path(path)
+        if candidate == backup and not injected:
+            injected = True
+            first = next(candidate.rglob("data.parquet"))
+            first.unlink()
+            raise OSError("injected partial backup deletion")
+        return original_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(breadth_rebuild.shutil, "rmtree", partial_then_crash)
+    with pytest.raises(OSError, match="partial backup deletion"):
+        breadth_rebuild._recover(tmp_path)
+    assert backup.exists()
+    assert json.loads(marker.read_text(encoding="utf-8"))["phase"] == "OUTPUT_BACKUP_RETIRING"
+    assert {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in root.rglob("data.parquet")
+    } == canonical_before
+    assert state.read_bytes() == state_before
+
+    monkeypatch.setattr(breadth_rebuild.shutil, "rmtree", original_rmtree)
+    assert breadth_rebuild._recover(tmp_path) == "FINALIZED"
+    assert not backup.exists() and not state_backup.exists()
+    assert not stage.exists() and not marker.exists()
+    assert {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in root.rglob("data.parquet")
+    } == canonical_before
+    assert state.read_bytes() == state_before
+
+
 @pytest.mark.parametrize(
     "relative",
     [

@@ -450,10 +450,11 @@ def _recover(project_root: Path) -> str:
             phase = "OUTPUT_BACKUP_RETIRING"
         if phase == "OUTPUT_BACKUP_RETIRING":
             if backup.exists():
-                if _manifest_digest(
-                    _manifest(project_root, backup, logical_root=OUTPUT_ROOT)
-                ) != payload["original_output_manifest_sha256"]:
-                    raise MarketBreadthRebuildError("retiring output backup digest differs")
+                # VERIFIED durably records that both the promoted pair and complete
+                # original backup passed their hashes. Retirement may be interrupted
+                # midway through recursive deletion, so this phase deliberately
+                # resumes deletion without requiring the now-partial backup to hash
+                # like its pre-retirement form.
                 shutil.rmtree(backup)
             payload["phase"] = "STATE_BACKUP_RETIRING"
             _write_atomic(marker, payload)
