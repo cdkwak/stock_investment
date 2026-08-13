@@ -5,11 +5,15 @@ import pandas as pd
 
 from stock_data.contracts.krx_derivatives_investor import (
     KR_KOSPI200_FUTURES_INVESTOR_TRADING_DAILY,
+    KR_KOSPI200_FUTURES_INVESTOR_NET_PURCHASE_DAILY,
     KR_KOSPI200_OPTIONS_INVESTOR_TRADING_DAILY,
 )
 
 
 def validate_derivatives_investor(dataframe: pd.DataFrame, contract) -> None:
+    if contract is KR_KOSPI200_FUTURES_INVESTOR_NET_PURCHASE_DAILY:
+        validate_futures_investor_net_purchase(dataframe)
+        return
     if contract not in {
         KR_KOSPI200_FUTURES_INVESTOR_TRADING_DAILY,
         KR_KOSPI200_OPTIONS_INVESTOR_TRADING_DAILY,
@@ -54,6 +58,38 @@ def validate_derivatives_investor(dataframe: pd.DataFrame, contract) -> None:
         lambda values: values.str.strip().eq("")
     ).any().any():
         raise ValueError("source unit is missing")
+    if dataframe.duplicated(list(contract.primary_key)).any():
+        raise ValueError("duplicate primary key")
+    sorted_frame = dataframe.sort_values(list(contract.sort_key), kind="stable")
+    if not sorted_frame.index.equals(dataframe.index):
+        raise ValueError("rows are not sorted")
+
+
+def validate_futures_investor_net_purchase(dataframe: pd.DataFrame) -> None:
+    contract = KR_KOSPI200_FUTURES_INVESTOR_NET_PURCHASE_DAILY
+    if dataframe.empty or list(dataframe.columns) != list(contract.column_names):
+        raise ValueError("invalid schema or empty dataset")
+    dates = pd.to_datetime(dataframe["date"], format="%Y-%m-%d", errors="coerce")
+    if dates.isna().any() or (dates < pd.Timestamp("1999-04-26")).any():
+        raise ValueError("date precedes verified source coverage")
+    constants = {
+        "product": "KOSPI200_FUTURES",
+        "session": "ALL",
+        "trading_value_unit_source": "백만원",
+        "source": "KRX_BASIC_STATISTICS",
+        "source_operation": "15007_DAILY_TREND_TRADING_VALUE_NET_PURCHASE",
+    }
+    for column, expected in constants.items():
+        if not dataframe[column].eq(expected).all():
+            raise ValueError(f"unexpected {column}")
+    if dataframe["investor_type_source"].astype(str).str.strip().eq("").any():
+        raise ValueError("empty investor source label")
+    values = pd.to_numeric(dataframe["net_purchase_trading_value"], errors="coerce")
+    if values.isna().any() or not np.isfinite(values.to_numpy()).all():
+        raise ValueError("invalid net-purchase value")
+    digests = dataframe["source_inventory_sha256"].astype(str)
+    if not digests.str.fullmatch(r"[0-9a-f]{64}").all() or digests.nunique() != 1:
+        raise ValueError("invalid source inventory identity")
     if dataframe.duplicated(list(contract.primary_key)).any():
         raise ValueError("duplicate primary key")
     sorted_frame = dataframe.sort_values(list(contract.sort_key), kind="stable")

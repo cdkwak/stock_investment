@@ -58,6 +58,10 @@ started; current scope is in [Backtest status](BACKTEST_STATUS.md).
 - A post-integration read-only inventory reproduced the same input-tree and inventory
   hashes twice: 42 artifact roots, 51 registered contracts, 38 observed registered
   artifacts, zero unregistered artifacts, and 59 state files.
+- The user-provided KRX futures net-purchase CSV history is now a dedicated normalized
+  dataset: 33,670 rows across 6,734 dates, 1999-04-26..2026-08-13, with exact
+  Landing-to-Normalized audit and no network calls. Broader investor-trading targets
+  remain separate.
 - Inventory tests: `23 passed, 1 skipped`. Main-worktree Markdown links: 38 checked,
   zero broken; stale pre-consolidation control/runbook paths: zero.
 

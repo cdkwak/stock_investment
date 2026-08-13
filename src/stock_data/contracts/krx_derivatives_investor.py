@@ -58,3 +58,37 @@ KRX_DERIVATIVES_INVESTOR_CONTRACTS = (
     KR_KOSPI200_FUTURES_INVESTOR_TRADING_DAILY,
     KR_KOSPI200_OPTIONS_INVESTOR_TRADING_DAILY,
 )
+
+
+KR_KOSPI200_FUTURES_INVESTOR_NET_PURCHASE_DAILY = DatasetContract(
+    name="kr_kospi200_futures_investor_net_purchase_daily",
+    version=1,
+    status="active",
+    description=(
+        "Daily KOSPI200 futures investor net-purchase trading value from manual "
+        "official KRX Basic Statistics screen 15007 CSV downloads."
+    ),
+    source="krx_basic_statistics:15007:manual_csv",
+    layer="normalized",
+    storage_format="parquet",
+    frequency="daily",
+    timezone="Asia/Seoul",
+    primary_key=("date", "investor_type_source"),
+    sort_key=("date", "investor_type_source"),
+    partition_by=("year",),
+    columns=(
+        _column("date", "date32"),
+        _column("product", "string", description="Exact reviewed product: KOSPI200_FUTURES."),
+        _column("session", "string", description="Exact reviewed KRX market scope: ALL."),
+        _column("investor_type_source", "string", description="Exact CSV category header."),
+        _column("net_purchase_trading_value", "float64", unit="trading_value_unit_source"),
+        _column("trading_value_unit_source", "string", description="Exact reviewed display unit: 백만원."),
+        _column("source", "string"),
+        _column("source_operation", "string"),
+        _column("source_inventory_sha256", "string"),
+    ),
+)
+
+KRX_DERIVATIVES_INVESTOR_CONTRACTS += (
+    KR_KOSPI200_FUTURES_INVESTOR_NET_PURCHASE_DAILY,
+)

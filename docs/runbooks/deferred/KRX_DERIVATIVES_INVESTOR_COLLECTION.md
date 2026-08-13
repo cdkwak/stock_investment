@@ -21,12 +21,13 @@ Statistics screen `[15007]`.
 
 The 2026-08-14 manual inbox was retained under the content-addressed manual Landing
 root and audited without network access. Its 28 files cover one futures net series
-only. Measure, unit, and session are not encoded in the CSVs, and options/sell/buy/
-the other measure are absent. Do not normalize these files into the strict targets,
-fill absent measures with nulls, or infer units from value magnitude. A future manual
-bundle must include an explicit settings manifest for each file and all requested
-product/right/session/measure/side combinations. The automated path below remains
-separately permission-gated.
+only. The authenticated screen state subsequently verified `일별추이 / 거래대금 /
+순매수 / 전체 / 백만원`, so those files were promoted to the separate narrow contract
+`kr_kospi200_futures_investor_net_purchase_daily`. Do not backfill nonexistent
+sell/buy/volume fields or treat that artifact as the broader futures/options target.
+A future broader manual bundle must include an explicit settings manifest for each
+file and all requested product/right/session/measure/side combinations. The automated
+path below remains separately permission-gated.
 
 ## Scope and cost
 

@@ -1,6 +1,6 @@
 # KRX derivatives investor-statistics audit
 
-Status: **PARTIAL_MANUAL_SOURCE_RETAINED / TARGETS_NOT_BUILT**
+Status: **NARROW_FUTURES_NET_PURCHASE_DATASET_COMPLETE / BROADER_TARGETS_DEFERRED**
 
 ## Manual file integration, 2026-08-14
 
@@ -20,13 +20,24 @@ The series misses zero retained canonical Korean trading dates through 2026-08-1
 and adds the source date 2026-08-13. Category residuals after exact overlap removal
 are -1 on 967 dates, zero on 4,459, and +1 on 1,308; source values are not corrected.
 
-This is one futures net-buy series only. The CSV bytes do not identify whether the
-measure is volume or trading value, its unit, or its session. They contain no sell,
-buy, option, CALL/PUT, REGULAR/NIGHT, or detailed institutional-category series.
-Therefore neither strict v1 target contract can be populated honestly, no Parquet
-or empty options artifact was written, and no inferred values were introduced.
-The originals remain in the manual inbox until the missing exports and their exact
-download settings are supplied and the complete target artifacts pass validation.
+The authenticated `[15007]` screen configuration was subsequently inspected without
+issuing a data query. It bound the files to `일별추이`, `거래대금 (AMT)`, `순매수
+(SUN)`, market/session `전체`, and unit `백만원`. Product identity is supported by
+the user's explicit declaration, the first six `선물순매수` filenames, the exact
+overlap chain through all later files, and the screen's `코스피200 선물` product
+identity. The screen product selector had subsequently moved to options and is
+explicitly not used as the file-product evidence.
+
+These semantics support the narrower registered contract
+`kr_kospi200_futures_investor_net_purchase_daily`; they do not require nonexistent
+sell/buy fields. The promoted artifact has 33,670 rows (6,734 dates × five exact
+source categories), 28 yearly Parquet partitions, zero PK duplicates/nulls/infinities,
+and exact Landing-to-Normalized values. Its physical manifest SHA-256 is
+`a1c88788f55de0de95125aac09059518b18049d9650c05b4197f600cdfb393b7`;
+the independent audit SHA-256 is
+`0ba9574239054e72b6c994421ed614a2d53c9e03acaebe2a19c9a43863cd5279`.
+Network calls for inspection, promotion, and audit were zero. The broader futures and
+options investor-trading targets remain separate future datasets.
 
 Earlier on 2026-08-14 KST, the authenticated free KRX Data Marketplace Basic Statistics
 screen `[15007] 투자자별 거래실적` was queried manually with bounded dates. No
