@@ -90,7 +90,13 @@ def _append_state(root: Path, run: dict[str, Any]) -> dict[str, Any]:
     state = _read_state(root)
     if any(item.get("run_id") == run["run_id"] for item in state["runs"]):
         return state
-    if any(item.get("capture_date_kst") == run["capture_date_kst"] for item in state["runs"]):
+    same_date = [item for item in state["runs"] if item.get("capture_date_kst") == run["capture_date_kst"]]
+    one_off_replaces_retired_path = (
+        run.get("run_kind") == "CORRECTED_AUTH_ONE_OFF_VALIDATION"
+        and same_date
+        and all(item.get("status") == "TOKEN_FAILED_RETIRED_PATH" for item in same_date)
+    )
+    if same_date and not one_off_replaces_retired_path:
         raise RuntimeError("KB daily attempt already recorded for this KST date")
     state["runs"].append(run)
     state["runs"] = sorted(state["runs"], key=lambda item: (item["capture_date_kst"], item["run_id"]))
@@ -163,6 +169,7 @@ def collect_daily_snapshot(
     *,
     known_secrets: tuple[str, ...],
     confirm_access_restored: bool = False,
+    confirm_one_off_auth_validation: bool = False,
     now: datetime | None = None,
     session: DailyCaptureSession | None = None,
 ) -> dict[str, Any]:
@@ -178,7 +185,7 @@ def collect_daily_snapshot(
         os.close(descriptor)
         return _collect_daily_snapshot(
             root, known_secrets=known_secrets, confirm_access_restored=confirm_access_restored,
-            now=now, session=session,
+            confirm_one_off_auth_validation=confirm_one_off_auth_validation, now=now, session=session,
         )
     finally:
         lock.unlink(missing_ok=True)
@@ -189,6 +196,7 @@ def _collect_daily_snapshot(
     *,
     known_secrets: tuple[str, ...],
     confirm_access_restored: bool,
+    confirm_one_off_auth_validation: bool,
     now: datetime | None,
     session: DailyCaptureSession | None,
 ) -> dict[str, Any]:
@@ -196,15 +204,22 @@ def _collect_daily_snapshot(
     local = observed.astimezone(KST); state = _read_state(root)
     if state.get("access_status") in {"ACCESS_BLOCKED", "SENTINEL_PATH_FAILED"} and not confirm_access_restored:
         return {"status": "NOT_EXECUTED_AUTH_REVIEW_REQUIRED", "network_calls": 0}
-    if any(item.get("capture_date_kst") == local.date().isoformat() for item in state["runs"]):
+    same_date = [item for item in state["runs"] if item.get("capture_date_kst") == local.date().isoformat()]
+    one_off_allowed = (
+        confirm_one_off_auth_validation
+        and same_date
+        and all(item.get("status") == "TOKEN_FAILED_RETIRED_PATH" for item in same_date)
+    )
+    if same_date and not one_off_allowed:
         return {"status": "NOT_EXECUTED_ALREADY_ATTEMPTED_TODAY", "network_calls": 0}
     if local.weekday() >= 5:
         return {"status": "NOT_EXECUTED_NON_TRADING_WEEKDAY", "network_calls": 0}
     minute = local.hour * 60 + local.minute
-    if not 16 * 60 + 30 <= minute <= 18 * 60:
+    if not confirm_one_off_auth_validation and not 16 * 60 + 30 <= minute <= 18 * 60:
         return {"status": "NOT_EXECUTED_OUTSIDE_1630_1800_KST", "network_calls": 0}
 
-    run_id = observed.strftime("%Y%m%dT%H%M%SZ") + "_daily"
+    run_kind = "CORRECTED_AUTH_ONE_OFF_VALIDATION" if confirm_one_off_auth_validation else "SCHEDULED_DAILY"
+    run_id = observed.strftime("%Y%m%dT%H%M%SZ") + ("_auth_validation" if confirm_one_off_auth_validation else "_daily")
     run_dir = root / "data/landing/kbsec/daily_snapshot" / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
     session = session or DailyCaptureSession(); status = "STARTED"; error_type = None
@@ -255,7 +270,7 @@ def _collect_daily_snapshot(
         if not _secret_scan(list(run_dir.iterdir()), known_secrets):
             raise RuntimeError("secret detected in KB daily artifacts")
     run = {
-        "run_id": run_id, "capture_date_kst": local.date().isoformat(),
+        "run_id": run_id, "run_kind": run_kind, "capture_date_kst": local.date().isoformat(),
         "captured_at_utc": observed.isoformat(), "status": status,
         "request_count": len(session.calls), "retry_count": 0,
         "market_request_count": sum(call["operation"] == "api/v1/ivsa0070" for call in session.calls),

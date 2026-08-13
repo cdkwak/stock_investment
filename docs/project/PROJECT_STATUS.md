@@ -24,12 +24,12 @@ started; current scope is in [Backtest status](BACKTEST_STATUS.md).
 | Backtest | Package and minimal domain interfaces do not yet exist | First vertical slice remains unimplemented |
 | Data selection | Corporate actions, historical vintages, and some target histories remain incomplete | Select only datasets whose documented limitations fit the first test |
 | GUI | Backtest service/result interfaces are not stable | GUI implementation and `GUI_STATUS.md` remain deferred |
-| Realtime/trading | KB authorization is blocked; live-account interfaces are not designed | No realtime account, paper, or live execution work |
+| Realtime/trading | KB authentication is fixed and daily read-only snapshots are ready; live-account interfaces are not designed | No account, paper, order, or live execution work |
 
 ## Do not run
 
 - No external API or network access from Backtest.
-- No KRX Investor retry, KB token retry, or other paused/deferred Data probe without
+- No KRX Investor retry or other paused/deferred Data probe without
   new evidence and explicit authorization.
 - No GUI business logic, realtime account integration, paper trading, live orders,
   supervised learning, or reinforcement learning in the current milestone.
@@ -65,7 +65,10 @@ started; current scope is in [Backtest status](BACKTEST_STATUS.md).
 - KB daily snapshot ingestion is prepared as a one-attempt-per-trading-day 17:00 KST
   append-only task. A successful 2026-08-13 reference run proved access; the Rev1
   E021 sentinel used a different flat OAuth envelope. The official nested envelope
-  is now canonical, with the next bounded daily capture still pending.
+  is now canonical. The one-off corrected run completed OAuth and IVSA0070 with
+  retry zero, but its 07:05 KST pre-open response mixed 2026-08-12, 2026-08-13,
+  and 2026-08-14 reference dates. Its premature Normalized rows were quarantined;
+  pipeline status remains `DATE_SEMANTICS_REVIEW_REQUIRED`, not operational.
 - Inventory tests: `23 passed, 1 skipped`. Main-worktree Markdown links: 38 checked,
   zero broken; stale pre-consolidation control/runbook paths: zero.
 

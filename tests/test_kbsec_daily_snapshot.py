@@ -90,3 +90,28 @@ def test_token_failure_blocks_future_attempt_without_new_evidence(tmp_path: Path
         now=datetime(2026, 8, 17, 8, 0, tzinfo=timezone.utc), session=DailyCaptureSession(),
     )
     assert later == {"status": "NOT_EXECUTED_AUTH_REVIEW_REQUIRED", "network_calls": 0}
+
+
+def test_one_off_validation_may_replace_only_retired_same_day_path(tmp_path: Path, monkeypatch) -> None:
+    _environment(monkeypatch)
+    state = {
+        "schema": "stock_data.kbsec_daily_snapshot_state", "version": 1,
+        "access_status": "AUTH_FIXED",
+        "runs": [{"run_id": "old", "capture_date_kst": "2026-08-14", "status": "TOKEN_FAILED_RETIRED_PATH"}],
+    }
+    path = tmp_path / "data/state/kbsec_daily_snapshot.json"
+    path.parent.mkdir(parents=True); path.write_text(json.dumps(state), encoding="utf-8")
+    adapter = TwoResponseAdapter(); session = DailyCaptureSession(); session.mount("https://", adapter)
+    result = collect_daily_snapshot(
+        tmp_path, known_secrets=("unit-key", "unit-secret"),
+        confirm_one_off_auth_validation=True,
+        now=datetime(2026, 8, 13, 22, 0, tzinfo=timezone.utc), session=session,
+    )
+    assert result["status"] == "COMPLETE"
+    assert result["run_kind"] == "CORRECTED_AUTH_ONE_OFF_VALIDATION"
+    assert result["request_count"] == 2
+    scheduled = collect_daily_snapshot(
+        tmp_path, known_secrets=("unit-key", "unit-secret"),
+        now=datetime(2026, 8, 14, 8, 0, tzinfo=timezone.utc), session=DailyCaptureSession(),
+    )
+    assert scheduled["status"] == "NOT_EXECUTED_ALREADY_ATTEMPTED_TODAY"

@@ -1,6 +1,6 @@
 # KB Securities daily market snapshot
 
-Status: **ONGOING / AUTH_PATH_CORRECTED**
+Status: **AUTH_FIXED / DATE_SEMANTICS_REVIEW_REQUIRED**
 
 The target is one provisional `IVSA0070` snapshot per Korean trading day at
 approximately 17:00 KST. This is a lightweight point-in-time observation stream,
@@ -59,3 +59,14 @@ credential fingerprints, issued a token, and completed IVSA0070 at 2026-08-13
 18:12 KST. The failed response remains retained as retired-path evidence. Tokens are
 memory-only; the completed successful process left no reusable token cache. Do not
 make a token request solely for diagnosis.
+
+The corrected one-off run `20260813T220546Z_auth_validation` completed exactly one
+OAuth request and one read-only IVSA0070 request, both HTTP 200 with retry zero.
+It was captured pre-open at 07:05 KST. The response mixed inquiry date 2026-08-14,
+liquidity source date 2026-08-12, and global-symbol source dates 2026-08-13; investor
+and breadth were zero-valued current-session snapshots rather than 2026-08-13 closes.
+Audit `e37cf7786a2f619be003390b9d1c59537a66579d20fb1770b74615f240aa1939`
+therefore supersedes the earlier structural audit and blocks operational promotion.
+The 33 premature Normalized rows were moved intact to
+`data/quarantine/kbsec_preopen_date_semantics/20260813T220546Z_auth_validation`.
+Do not register the recurring task until one post-close snapshot verifies slice dates.

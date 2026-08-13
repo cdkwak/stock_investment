@@ -16,6 +16,7 @@ def main() -> None:
     parser.add_argument("--adopt-token-failure-run", type=Path)
     parser.add_argument("--confirm-live-daily", action="store_true")
     parser.add_argument("--confirm-access-restored", action="store_true")
+    parser.add_argument("--confirm-one-off-auth-validation", action="store_true")
     args = parser.parse_args()
     if args.adopt_token_failure_run:
         result = adopt_token_failure(args.project_root, args.adopt_token_failure_run)
@@ -28,6 +29,7 @@ def main() -> None:
             args.project_root,
             known_secrets=tuple(os.getenv(name, "") for name in required),
             confirm_access_restored=args.confirm_access_restored,
+            confirm_one_off_auth_validation=args.confirm_one_off_auth_validation,
         )
     else:
         result = {"status": "NOT_EXECUTED_CONFIRMATION_REQUIRED", "network_calls": 0}
