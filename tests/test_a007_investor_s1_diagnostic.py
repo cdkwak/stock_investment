@@ -14,6 +14,7 @@ from urllib3.util.retry import Retry
 from scripts.manual import a007_investor_s1_diagnostic_support as support
 from scripts.manual import diagnose_a007_investor_range as base_runner
 from scripts.manual import diagnose_a007_investor_s1 as runner
+from scripts.manual import verify_a007_investor_s1 as verifier
 from scripts.manual.pykrx_short_selling_pilot_support import PilotStopped
 
 
@@ -34,6 +35,12 @@ def _body(dates: tuple[str, ...] = FIXTURE_DATES) -> bytes:
         }
         for day in dates
     ]}).encode()
+
+
+def _body_with_current(dates: tuple[str, ...] = FIXTURE_DATES) -> bytes:
+    payload = json.loads(_body(dates))
+    payload["CURRENT_DATETIME"] = "2026.08.13 PM 07:21:10"
+    return json.dumps(payload).encode()
 
 
 def _response(body: bytes) -> requests.Response:
@@ -136,6 +143,8 @@ def test_s1_classifier_accepts_only_exact_canonical_set():
     assert result.classification == "S1_FULL_RANGE_CONFIRMED"
     assert result.source_rows == len(FIXTURE_DATES)
     assert result.observed_dates == FIXTURE_DATES
+    with_current = support.classify_response(_body_with_current(), FIXTURE_DATES)
+    assert with_current.source_current_datetime == "2026.08.13 PM 07:21:10"
 
 
 def test_s1_classifier_rejects_extra_row_and_top_level_fields():
@@ -146,6 +155,10 @@ def test_s1_classifier_rejects_extra_row_and_top_level_fields():
     payload = json.loads(_body())
     payload["extra"] = []
     with pytest.raises(PilotStopped, match="TOP_LEVEL_SCHEMA_MISMATCH"):
+        support.classify_response(json.dumps(payload).encode(), FIXTURE_DATES)
+    payload = json.loads(_body())
+    payload["CURRENT_DATETIME"] = "2026-08-13 19:21:10"
+    with pytest.raises(PilotStopped, match="CURRENT_DATETIME_INVALID"):
         support.classify_response(json.dumps(payload).encode(), FIXTURE_DATES)
 
 
@@ -370,3 +383,86 @@ def test_zero_retry_is_explicitly_installed_on_every_auth_adapter():
             retry.total, retry.connect, retry.read, retry.redirect,
             retry.status, retry.other,
         ) == (0, 0, 0, 0, 0, 0)
+
+
+def test_offline_verifier_preserves_original_chain_and_appends_idempotent_evidence(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    run_id = "20260813T102056Z_" + "a" * 32
+    run_dir = project / "data/landing/diagnostics/a007_investor_s1" / run_id
+    run_dir.mkdir(parents=True)
+    _patch_fixture_plan(monkeypatch)
+    body = _body_with_current()
+    body_sha = hashlib.sha256(body).hexdigest()
+    manifest = support.manifest_payload(
+        run_id=run_id, created_at_utc="2026-08-13T10:20:56+00:00",
+        dates=FIXTURE_DATES,
+    )
+    provenance = {
+        "body_sha256": body_sha, "response_bytes": len(body),
+        "http_status_code": 200, "raw_sequence": 6, "run_id": run_id,
+        "scope_id": support.SCOPE_ID,
+        "scope_sha256": support.scope_sha256(FIXTURE_DATES),
+        "expected_dates": list(FIXTURE_DATES),
+        "ledger_relative_path": (
+            f"data/landing/diagnostics/a007_investor_s1/{run_id}/call_ledger.jsonl"
+        ),
+    }
+    ledger = [
+        {
+            "event": "HTTP_RESPONSE", "authentication": True,
+            "raw_sequence": sequence, "status_code": 200,
+        }
+        for sequence in range(1, 6)
+    ] + [
+        {
+            "event": "SCOPE_STARTED", "bld": support.BUSINESS_BLD,
+            "scope": support.SCOPE_ID, "params": dict(support.SCOPE),
+            "business_request_limit": 1,
+        },
+        {
+            "event": "HTTP_RESPONSE", "authentication": False,
+            "raw_sequence": 6, "status_code": 200, "method": "POST",
+            "url": "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd",
+            "scope": support.SCOPE_ID, "body_file": "response.json",
+            "provenance_file": "response.json.provenance.json",
+            "response_sha256": body_sha, "response_bytes": len(body),
+            "recorded_at_utc": "2026-08-13T10:21:11+00:00",
+        },
+        {
+            "event": "DIAGNOSTIC_STOPPED", "error": "TOP_LEVEL_SCHEMA_MISMATCH",
+        },
+    ]
+    (run_dir / "response.json").write_bytes(body)
+    (run_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (run_dir / "response.json.provenance.json").write_text(
+        json.dumps(provenance), encoding="utf-8"
+    )
+    (run_dir / "call_ledger.jsonl").write_text(
+        "".join(json.dumps(item) + "\n" for item in ledger), encoding="utf-8"
+    )
+    originals = {
+        name: (run_dir / name).read_bytes()
+        for name in ("response.json", "manifest.json", "response.json.provenance.json", "call_ledger.jsonl")
+    }
+    first = verifier.verify_retained_run(
+        project_root=project, run_dir=run_dir, write_evidence=True
+    )
+    second = verifier.verify_retained_run(
+        project_root=project, run_dir=run_dir, write_evidence=True
+    )
+    assert first["status"] == "VERIFIED"
+    assert second["status"] == "ALREADY_VERIFIED"
+    assert first["classification"] == "S1_FULL_RANGE_CONFIRMED"
+    assert first["positive_total_dates"] == len(FIXTURE_DATES)
+    assert len(list((run_dir / verifier.EVIDENCE_ROOT).glob("*.json"))) == 1
+    assert all((run_dir / name).read_bytes() == value for name, value in originals.items())
+    provenance["raw_sequence"] = 5
+    (run_dir / "response.json.provenance.json").write_text(
+        json.dumps(provenance), encoding="utf-8"
+    )
+    with pytest.raises(PilotStopped, match="OFFLINE_PROVENANCE_CHAIN_MISMATCH"):
+        verifier.verify_retained_run(
+            project_root=project, run_dir=run_dir, write_evidence=False
+        )

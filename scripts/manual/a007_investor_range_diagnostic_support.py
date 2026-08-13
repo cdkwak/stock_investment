@@ -50,6 +50,7 @@ class DiagnosticClassification:
     source_rows: int
     observed_dates: tuple[str, ...]
     positive_total_dates: int
+    source_current_datetime: str | None = None
 
 
 def expected_dates(unused_project_root=None) -> tuple[str, ...]:
@@ -117,8 +118,17 @@ def classify_exact_response(
         raise PilotStopped("INVALID_JSON_ROOT")
     if payload.get("_error_code") or payload.get("error") or payload.get("errors"):
         raise PilotStopped("SOURCE_ERROR_PAYLOAD")
-    if set(payload) != {"OutBlock_1"}:
+    allowed_top_level = {"OutBlock_1"}, {"OutBlock_1", "CURRENT_DATETIME"}
+    if set(payload) not in allowed_top_level:
         raise PilotStopped("TOP_LEVEL_SCHEMA_MISMATCH")
+    source_current_datetime = payload.get("CURRENT_DATETIME")
+    if source_current_datetime is not None:
+        if not isinstance(source_current_datetime, str):
+            raise PilotStopped("CURRENT_DATETIME_INVALID")
+        try:
+            datetime.strptime(source_current_datetime, "%Y.%m.%d %p %I:%M:%S")
+        except ValueError as error:
+            raise PilotStopped("CURRENT_DATETIME_INVALID") from error
     rows = payload.get("OutBlock_1")
     if not isinstance(rows, list):
         raise PilotStopped("EXPECTED_BLOCK_MISSING")
@@ -165,6 +175,7 @@ def classify_exact_response(
         source_rows=len(rows),
         observed_dates=tuple(sorted(observed)),
         positive_total_dates=positive_total_dates,
+        source_current_datetime=source_current_datetime,
     )
 
 
