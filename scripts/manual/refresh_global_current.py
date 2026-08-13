@@ -78,7 +78,7 @@ def _assert_plain_path(base: Path, path: Path, *, must_exist: bool = True) -> Pa
     current = base
     for component in absolute.relative_to(base).parts:
         current /= component
-        if current.exists():
+        if os.path.lexists(current):
             info = current.lstat()
             if current.is_symlink() or (getattr(info, "st_file_attributes", 0) & REPARSE_POINT):
                 raise RefreshError("links/reparse points are forbidden in refresh paths")
@@ -148,9 +148,9 @@ def _files_manifest(root: Path) -> dict[str, object]:
 
 
 def _file_fingerprint(path: Path) -> dict[str, object]:
-    if not path.exists():
+    _assert_plain_path(path.parent, path, must_exist=False)
+    if not os.path.lexists(path):
         return {"exists": False}
-    _assert_plain_path(path.parent, path)
     if not path.is_file():
         raise RefreshError("state fingerprint target is not a plain file")
     body = path.read_bytes()
@@ -515,19 +515,17 @@ def _copy_artifact(source: Path, target: Path) -> None:
 
 
 def _recover_transaction(
-    journal_path: Path, *, committed: bool, allowed_targets: set[Path],
-    allowed_sources: set[Path], project_root: Path,
+    journal_path: Path, *, committed: bool,
+    allowed_pairs: list[tuple[Path, Path]], project_root: Path,
 ) -> None:
     if not journal_path.is_file():
         return
     _assert_plain_path(project_root, journal_path)
     journal = json.loads(journal_path.read_text(encoding="utf-8"))
     entries = journal.get("replacements", [])
-    observed_targets = {Path(entry.get("target", "")) for entry in entries}
-    if observed_targets != allowed_targets:
-        raise RefreshError("transaction journal target topology differs")
-    if {Path(entry.get("source", "")) for entry in entries} != allowed_sources:
-        raise RefreshError("transaction journal source topology differs")
+    observed_pairs = [(Path(entry.get("source", "")), Path(entry.get("target", ""))) for entry in entries]
+    if observed_pairs != allowed_pairs:
+        raise RefreshError("transaction journal ordered source/target identity differs")
     token = journal_path.parent.name
     for number, entry in enumerate(entries):
         target = _assert_plain_path(project_root, Path(entry["target"]), must_exist=False)
@@ -562,10 +560,12 @@ def _recover_transaction(
     else:
         for entry in reversed(entries):
             target, backup = Path(entry["target"]), Path(entry["backup"])
-            if backup.exists():
+            if backup.exists() and _artifact_fingerprint(backup) == entry["pre_target_fingerprint"]:
                 if target.exists():
                     _remove_path(target)
                 backup.replace(target)
+            elif entry["original_exists"] and target.exists() and _artifact_fingerprint(target) == entry["pre_target_fingerprint"]:
+                pass
             elif not entry["original_exists"] and target.exists():
                 _remove_path(target)
     for entry in entries:
@@ -666,7 +666,7 @@ def _approval_digest(checkpoint: dict[str, object]) -> str:
 
 
 def promote_phase(project_root: Path, checkpoint_path: Path, *, approval_digest: str) -> dict[str, object]:
-    """Zero-network CAS promotion of a reviewed whole candidate root."""
+    """Zero-network CAS promotion; the global lock covers recovery and preflight."""
     project_root = project_root.resolve()
     _assert_plain_path(project_root.parent, project_root)
     checkpoint_path = _assert_plain_path(project_root, checkpoint_path)
@@ -674,37 +674,20 @@ def promote_phase(project_root: Path, checkpoint_path: Path, *, approval_digest:
     run_id = checkpoint.get("run_id")
     if not isinstance(run_id, str) or not re.fullmatch(r"\d{8}T\d{6}Z_[0-9a-f]{32}", run_id):
         raise RefreshError("invalid run identity")
-    expected_checkpoint = project_root / "data/state/global_current_refresh" / str(run_id) / "checkpoint.json"
-    if checkpoint_path != expected_checkpoint.absolute():
+    expected = project_root / "data/state/global_current_refresh" / run_id / "checkpoint.json"
+    if checkpoint_path != expected.absolute():
         raise RefreshError("checkpoint path does not match its run identity")
-    phase = checkpoint.get("phase")
+    with _lock(project_root, run_id):
+        return _promote_locked(project_root, checkpoint_path, approval_digest)
+
+
+def _promote_locked(project_root: Path, checkpoint_path: Path, approval_digest: str) -> dict[str, object]:
+    checkpoint_path = _assert_plain_path(project_root, checkpoint_path)
+    checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    run_id, phase = checkpoint.get("run_id"), checkpoint.get("phase")
     if phase not in PHASES:
         raise RefreshError("unknown checkpoint phase")
-    _, contract, _ = PHASES[phase]
-    production = project_root / "data/normalized" / contract.name
-    operational_state = project_root / "data/state" / f"{contract.name}.json"
-    _assert_plain_path(project_root, production)
-    _assert_plain_path(project_root, operational_state)
-    allowed_targets = {production, operational_state}
-    candidate_parent = project_root / "data/staging/global_current_refresh" / run_id
-    allowed_sources = {candidate_parent / contract.name, candidate_parent / f"{contract.name}.state.json"}
-    if (checkpoint.get("candidate_root") != (candidate_parent / contract.name).relative_to(project_root).as_posix()
-            or checkpoint.get("candidate_operational_state") != (candidate_parent / f"{contract.name}.state.json").relative_to(project_root).as_posix()):
-        raise RefreshError("checkpoint candidate path topology differs")
-    if phase == "fred_yields":
-        allowed_targets |= {
-            project_root / "data/derived" / US_TREASURY_SPREAD_DAILY.name,
-            project_root / "data/state" / f"{US_TREASURY_SPREAD_DAILY.name}.json",
-        }
-        allowed_sources |= {
-            candidate_parent / US_TREASURY_SPREAD_DAILY.name,
-            candidate_parent / f"{US_TREASURY_SPREAD_DAILY.name}.state.json",
-        }
-        if checkpoint.get("candidate_spread_state") != (candidate_parent / f"{US_TREASURY_SPREAD_DAILY.name}.state.json").relative_to(project_root).as_posix():
-            raise RefreshError("checkpoint spread-state topology differs")
-    for path in allowed_targets | allowed_sources:
-        _assert_plain_path(project_root, path, must_exist=False)
-    limit, _, items = PHASES[phase]
+    limit, contract, items = PHASES[phase]
     if (checkpoint.get("max_http_calls") != limit or checkpoint.get("http_calls") != limit
             or checkpoint.get("retry_count") != 0 or checkpoint.get("http_statuses") != [200] * limit
             or len(checkpoint.get("landing_captures", [])) != limit
@@ -712,78 +695,63 @@ def promote_phase(project_root: Path, checkpoint_path: Path, *, approval_digest:
             or checkpoint.get("approval_digest") != approval_digest
             or _approval_digest(checkpoint) != approval_digest):
         raise RefreshError("checkpoint approval/call/plan accounting differs")
+    production = project_root / "data/normalized" / contract.name
+    state = project_root / "data/state" / f"{contract.name}.json"
+    candidate_parent = project_root / "data/staging/global_current_refresh" / run_id
+    candidate = candidate_parent / contract.name
+    candidate_state = candidate_parent / f"{contract.name}.state.json"
+    if (checkpoint.get("candidate_root") != candidate.relative_to(project_root).as_posix()
+            or checkpoint.get("candidate_operational_state") != candidate_state.relative_to(project_root).as_posix()):
+        raise RefreshError("checkpoint candidate path topology differs")
+    replacements = [(candidate, production), (candidate_state, state)]
+    spread = spread_state = candidate_spread = candidate_spread_state = None
+    if phase == "fred_yields":
+        spread = project_root / "data/derived" / US_TREASURY_SPREAD_DAILY.name
+        spread_state = project_root / "data/state" / f"{US_TREASURY_SPREAD_DAILY.name}.json"
+        candidate_spread = candidate_parent / US_TREASURY_SPREAD_DAILY.name
+        candidate_spread_state = candidate_parent / f"{US_TREASURY_SPREAD_DAILY.name}.state.json"
+        if checkpoint.get("candidate_spread_state") != candidate_spread_state.relative_to(project_root).as_posix():
+            raise RefreshError("checkpoint spread-state topology differs")
+        replacements += [(candidate_spread, spread), (candidate_spread_state, spread_state)]
+    for source, target in replacements:
+        _assert_plain_path(project_root, source, must_exist=False)
+        _assert_plain_path(project_root, target, must_exist=False)
     journal_path = checkpoint_path.with_name("promotion_transaction.json")
     _assert_plain_path(project_root, journal_path, must_exist=False)
     _recover_transaction(
         journal_path, committed=checkpoint.get("status") == "PROMOTED",
-        allowed_targets=allowed_targets, allowed_sources=allowed_sources,
-        project_root=project_root,
+        allowed_pairs=replacements, project_root=project_root,
     )
     checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
     if checkpoint.get("status") == "PROMOTED":
         return checkpoint
     if checkpoint.get("status") != "CANDIDATE_REVIEW_REQUIRED":
         raise RefreshError("checkpoint is not review-ready")
-    expected_candidate = project_root / "data/staging/global_current_refresh" / run_id / contract.name
-    candidate = _assert_plain_path(project_root, project_root / checkpoint["candidate_root"])
-    if candidate != expected_candidate.absolute():
-        raise RefreshError("candidate path does not match phase/run topology")
     landing = _assert_plain_path(project_root, project_root / "data/landing/global_current_refresh" / run_id)
-    if _verify_captures(landing, phase, checkpoint["frozen_plan"]) != checkpoint["landing_captures"]:
-        raise RefreshError("Landing evidence changed after preparation")
-    if _files_manifest(production) != checkpoint["pre_dataset"]:
-        raise RefreshError("production CAS mismatch")
-    if _files_manifest(candidate) != checkpoint["candidate_dataset"]:
-        raise RefreshError("candidate manifest mismatch")
-    candidate_state = _assert_plain_path(project_root, project_root / checkpoint["candidate_operational_state"])
-    if candidate_state != (candidate.parent / f"{contract.name}.state.json").absolute():
-        raise RefreshError("candidate operational-state topology differs")
-    if (_file_fingerprint(operational_state) != checkpoint["pre_operational_state"]
+    for source, target in replacements:
+        _assert_plain_path(project_root, source)
+        _assert_plain_path(project_root, target)
+    if (_verify_captures(landing, phase, checkpoint["frozen_plan"]) != checkpoint["landing_captures"]
+            or _files_manifest(production) != checkpoint["pre_dataset"]
+            or _files_manifest(candidate) != checkpoint["candidate_dataset"]
+            or _file_fingerprint(state) != checkpoint["pre_operational_state"]
             or _file_fingerprint(candidate_state) != checkpoint["candidate_operational_state_fingerprint"]):
-        raise RefreshError("operational-state CAS/candidate mismatch")
-    replacements = [(candidate, production), (candidate_state, operational_state)]
-    if phase == "fred_yields":
-        spread = project_root / "data/derived" / US_TREASURY_SPREAD_DAILY.name
-        spread_state = project_root / "data/state" / f"{US_TREASURY_SPREAD_DAILY.name}.json"
-        _assert_plain_path(project_root, spread)
-        _assert_plain_path(project_root, spread_state)
-        candidate_spread = _assert_plain_path(project_root, candidate.parent / US_TREASURY_SPREAD_DAILY.name)
-        candidate_spread_state = _assert_plain_path(project_root, project_root / checkpoint["candidate_spread_state"])
-        if (_files_manifest(spread) != checkpoint["pre_spread"]
-                or _files_manifest(candidate_spread) != checkpoint["candidate_spread_manifest"]
-                or _file_fingerprint(spread_state) != checkpoint["pre_spread_state"]
-                or _file_fingerprint(candidate_spread_state) != checkpoint["candidate_spread_state_fingerprint"]):
-            raise RefreshError("Treasury spread CAS/candidate mismatch")
-        replacements.append((candidate_spread, spread))
-        replacements.append((candidate_spread_state, spread_state))
-    with _lock(project_root, checkpoint["run_id"]):
-        for path in (checkpoint_path, landing, production, operational_state, candidate, candidate_state):
-            _assert_plain_path(project_root, path)
-        if phase == "fred_yields":
-            for path in (spread, spread_state, candidate_spread, candidate_spread_state):
-                _assert_plain_path(project_root, path)
-        if (_files_manifest(production) != checkpoint["pre_dataset"]
-                or _files_manifest(candidate) != checkpoint["candidate_dataset"]
-                or _file_fingerprint(operational_state) != checkpoint["pre_operational_state"]
-                or _file_fingerprint(candidate_state) != checkpoint["candidate_operational_state_fingerprint"]
-                or _verify_captures(landing, phase, checkpoint["frozen_plan"]) != checkpoint["landing_captures"]):
-            raise RefreshError("post-lock CAS/input validation differs")
-        if phase == "fred_yields" and (
-                _files_manifest(spread) != checkpoint["pre_spread"]
-                or _files_manifest(candidate_spread) != checkpoint["candidate_spread_manifest"]
-                or _file_fingerprint(spread_state) != checkpoint["pre_spread_state"]
-                or _file_fingerprint(candidate_spread_state) != checkpoint["candidate_spread_state_fingerprint"]):
-            raise RefreshError("post-lock Treasury spread CAS/input differs")
-        promoted = dict(checkpoint)
-        promoted.update({"status": "PROMOTED", "normalized_mutation": True,
-                         "post_dataset": checkpoint["candidate_dataset"],
-                         "promoted_at_utc": datetime.now(timezone.utc).isoformat()})
-        _replace_roots_atomically(
-            replacements, finalize=lambda: _atomic_json(checkpoint_path, promoted),
-            journal_path=journal_path,
-        )
-        checkpoint = promoted
-    return checkpoint
+        raise RefreshError("locked CAS/input validation differs")
+    if phase == "fred_yields" and (
+            _files_manifest(spread) != checkpoint["pre_spread"]
+            or _files_manifest(candidate_spread) != checkpoint["candidate_spread_manifest"]
+            or _file_fingerprint(spread_state) != checkpoint["pre_spread_state"]
+            or _file_fingerprint(candidate_spread_state) != checkpoint["candidate_spread_state_fingerprint"]):
+        raise RefreshError("locked Treasury spread CAS/input differs")
+    promoted = dict(checkpoint)
+    promoted.update({"status": "PROMOTED", "normalized_mutation": True,
+                     "post_dataset": checkpoint["candidate_dataset"],
+                     "promoted_at_utc": datetime.now(timezone.utc).isoformat()})
+    _replace_roots_atomically(
+        replacements, finalize=lambda: _atomic_json(checkpoint_path, promoted),
+        journal_path=journal_path,
+    )
+    return promoted
 
 
 def main(argv: list[str] | None = None) -> int:

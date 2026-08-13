@@ -120,7 +120,7 @@ def test_crash_journal_recovery_rolls_back_incomplete_swap(tmp_path):
         "source_fingerprint": _artifact_fingerprint(source),
         "pre_target_fingerprint": _artifact_fingerprint(backup),
     }]}))
-    _recover_transaction(journal, committed=False, allowed_targets={target}, allowed_sources={source}, project_root=tmp_path)
+    _recover_transaction(journal, committed=False, allowed_pairs=[(source, target)], project_root=tmp_path)
     assert (target / "year=2026/data.parquet").read_bytes() == b"old"
     assert json.loads(journal.read_text())["status"] == "ROLLED_BACK_RECOVERED"
 
@@ -139,7 +139,7 @@ def test_committed_recovery_reconstructs_missing_target_before_backup_cleanup(tm
         "source_fingerprint": _artifact_fingerprint(source),
         "pre_target_fingerprint": _artifact_fingerprint(backup),
     }]}))
-    _recover_transaction(journal, committed=True, allowed_targets={target}, allowed_sources={source}, project_root=tmp_path)
+    _recover_transaction(journal, committed=True, allowed_pairs=[(source, target)], project_root=tmp_path)
     assert (target / "year=2026/data.parquet").read_bytes() == b"new"
     assert not backup.exists()
 
@@ -158,8 +158,45 @@ def test_committed_recovery_refuses_to_delete_last_unverified_backup(tmp_path):
         "pre_target_fingerprint": _artifact_fingerprint(backup),
     }]}))
     with pytest.raises(RefreshError, match="no verified canonical"):
-        _recover_transaction(journal, committed=True, allowed_targets={target}, allowed_sources={source}, project_root=tmp_path)
+        _recover_transaction(journal, committed=True, allowed_pairs=[(source, target)], project_root=tmp_path)
     assert backup.exists()
+
+
+def test_uncommitted_recovery_prefers_verified_target_over_corrupt_backup(tmp_path):
+    source, target = tmp_path / "candidate", tmp_path / "production"
+    _root(source, b"new"); _root(target, b"old")
+    expected = _artifact_fingerprint(target)
+    run = tmp_path / "run"; run.mkdir()
+    stage = target.parent / f".{target.name}.refresh-{run.name}-0.stage"
+    backup = target.parent / f".{target.name}.refresh-{run.name}-0.backup"
+    _root(backup, b"corrupt")
+    journal = run / "promotion_transaction.json"
+    journal.write_text(json.dumps({"version": 1, "status": "PREPARED", "replacements": [{
+        "source": str(source), "target": str(target), "stage": str(stage),
+        "backup": str(backup), "original_exists": True,
+        "source_fingerprint": _artifact_fingerprint(source), "pre_target_fingerprint": expected,
+    }]}))
+    _recover_transaction(journal, committed=False, allowed_pairs=[(source, target)], project_root=tmp_path)
+    assert _artifact_fingerprint(target) == expected
+
+
+def test_recovery_rejects_swapped_ordered_source_target_pairs_without_mutation(tmp_path):
+    source1, source2 = tmp_path / "candidate1", tmp_path / "candidate2"
+    target1, target2 = tmp_path / "production1", tmp_path / "production2"
+    for path, body in ((source1, b"new1"), (source2, b"new2"), (target1, b"old1"), (target2, b"old2")):
+        _root(path, body)
+    before = (_artifact_fingerprint(target1), _artifact_fingerprint(target2))
+    run = tmp_path / "run"; run.mkdir(); entries = []
+    for number, (source, target) in enumerate(((source2, target1), (source1, target2))):
+        entries.append({"source": str(source), "target": str(target),
+                        "stage": str(target.parent / f".{target.name}.refresh-{run.name}-{number}.stage"),
+                        "backup": str(target.parent / f".{target.name}.refresh-{run.name}-{number}.backup"),
+                        "original_exists": True, "source_fingerprint": _artifact_fingerprint(source),
+                        "pre_target_fingerprint": _artifact_fingerprint(target)})
+    journal = run / "promotion_transaction.json"; journal.write_text(json.dumps({"version": 1, "status": "PREPARED", "replacements": entries}))
+    with pytest.raises(RefreshError, match="ordered source/target"):
+        _recover_transaction(journal, committed=False, allowed_pairs=[(source1, target1), (source2, target2)], project_root=tmp_path)
+    assert (_artifact_fingerprint(target1), _artifact_fingerprint(target2)) == before
 
 
 def test_path_gate_rejects_lexical_escape(tmp_path):
@@ -174,6 +211,7 @@ def test_file_fingerprint_rejects_symlink_or_reparse(tmp_path):
         link.symlink_to(target)
     except OSError:
         pytest.skip("symlink creation unavailable")
+    target.unlink()
     with pytest.raises(RefreshError, match="links/reparse"):
         refresh._file_fingerprint(link)
 
@@ -239,9 +277,14 @@ def test_prepare_is_nonmutating_tamper_fails_and_offline_promotion_is_atomic(tmp
     assert _files_manifest(production) == before
     tamper.unlink()
     original_state = state.read_bytes(); state.write_bytes(b'{"changed":true}\n')
-    with pytest.raises(RefreshError, match="operational-state"):
+    with pytest.raises(RefreshError, match="CAS/input"):
         refresh.promote_phase(root, checkpoint, approval_digest=result["approval_digest"])
     state.write_bytes(original_state)
+    lock = root / "data/state/global_current_refresh.lock"; lock.write_text("other-run")
+    with pytest.raises(RefreshError, match="lock"):
+        refresh.promote_phase(root, checkpoint, approval_digest=result["approval_digest"])
+    assert lock.read_text() == "other-run" and _files_manifest(production) == before
+    lock.unlink()
     promoted = refresh.promote_phase(root, checkpoint, approval_digest=result["approval_digest"])
     assert promoted["status"] == "PROMOTED"
     restored = read_dataset(production, GLOBAL_INDEX_PRICE_DAILY, validate_global_index)

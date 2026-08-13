@@ -50,6 +50,12 @@ rollback after an interrupted, uncommitted transaction or cleanup after a
 committed transaction. Committed recovery reconstructs any missing canonical
 target from a fingerprint-verified candidate or stage before deleting backups;
 if no verified new copy exists, it preserves all remaining copies and stops.
+Rollback only installs a backup whose fingerprint matches the recorded
+pre-transaction target; a still-valid canonical target is preferred over an
+unknown or partial backup. Journal entries must match the exact ordered
+candidate-to-production mapping, so swapping dataset and state sources is
+rejected without mutation. The global refresh lock is acquired before recovery
+or promotion preflight and remains held through final publication.
 All candidate, Landing, production, and state manifests
 are checked again after the provider lock is acquired. Paths must match the
 run/phase topology; symlinks, junctions/reparse points, extra files, and unknown
