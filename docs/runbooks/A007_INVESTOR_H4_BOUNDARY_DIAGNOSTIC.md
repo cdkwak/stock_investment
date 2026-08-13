@@ -1,6 +1,12 @@
 # A007 Investor H4 boundary-pair diagnostic
 
-Prepared and **unexecuted**. This does not authorize live KRX access.
+Status: **EXECUTED / AUDITED PASS**. The single retained run
+`20260813T111424Z_f53404faea84403d93aff521b5e255f0` made five authentication
+requests and one business request, all HTTP 200 with retry zero. The 218-byte
+body SHA-256 is
+`2b9a2d54f7f20f188918d2404c294c6001592c52bc350e80bd4ffed6b5540a8d`.
+It returned only 2017-05-22 with a positive total; 2017-05-19 was absent, so the
+audited classification is `BOUNDARY_SHAPED_CONFIRMED`. Do not execute it again.
 
 The H4 retained response was an exact positive 154-date suffix beginning
 `2017-05-22`. The smallest boundary test is one `MDCSTAT30301` KOSPI volume
@@ -16,9 +22,10 @@ writes no checkpoint or Normalized data.
 - any zero, other subset, schema/domain/restriction shape: stop, no retry.
 
 Even `BOUNDARY_SHAPED_CONFIRMED` applies only to KOSPI volume and does not prove
-other markets, value mode, or broader historical availability.
+other markets, value mode, total-date parity, or broader historical production
+coverage. It does not authorize Investor resume or synthetic missing rows.
 
-Only separate authorization may execute all guards:
+Historical command retained for audit only; do not execute:
 
 ```powershell
 .\.venv\Scripts\python.exe .\scripts\manual\diagnose_a007_investor_h4_boundary.py `

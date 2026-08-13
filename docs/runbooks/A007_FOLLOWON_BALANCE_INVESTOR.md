@@ -13,6 +13,11 @@ one zero-retry KOSPI-volume business request and were audited as
 502, 494, and 494 expected dates across consecutive 2010-01-04..2016-01-06
 windows. They must not be repeated or converted into synthetic historical rows.
 They do not identify the complete source boundary or authorize Investor resume.
+H4 subsequently returned an exact 154-date positive suffix beginning 2017-05-22
+from 490 requested KOSPI-volume dates and stopped as `AMBIGUOUS_STOP`. The audited
+2017-05-19/2017-05-22 boundary pair returned only positive 2017-05-22 and is
+`BOUNDARY_SHAPED_CONFIRMED`. That conclusion is limited to KOSPI volume;
+KOSDAQ, value mode, date parity, and production coverage remain gated.
 
 This runbook does not authorize a live request. It fixes the verified order,
 scope, capacity, and stop conditions for the two remaining v2 short-selling

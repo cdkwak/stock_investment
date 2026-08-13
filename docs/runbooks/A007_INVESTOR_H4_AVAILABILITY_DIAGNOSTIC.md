@@ -1,8 +1,17 @@
 # A007 Investor H4 historical availability diagnostic
 
-This is a prepared, **unexecuted** Landing-only diagnostic. Preparation does
-not authorize KRX access, and it must not run while another stream owns the
-shared D lock.
+Status: **EXECUTED / AMBIGUOUS STOP**. The single authorized Landing-only run
+`20260813T110838Z_8dd9ac10cc3d41508a9371f62323552c` made five authentication
+requests and one business request, all HTTP 200 with retry zero. It must not be
+run again.
+
+The 24,556-byte body (SHA-256
+`e49731fcae3884457ead31250733e79401a2a68479e4918dafa1cde201c5ac01`)
+returned 154 of 490 expected dates and the original terminal event is
+`AMBIGUOUS_STOP:154/490`. The rows form the exact canonical suffix
+2017-05-22..2018-01-05 and all 154 totals are positive; the exact 336-date prefix
+2016-01-07..2017-05-19 is absent. This shape alone did not prove a source
+availability boundary and did not authorize retry or Investor resume.
 
 The frozen scope is one authenticated `MDCSTAT30301` KOSPI volume request for
 `2016-01-07..2018-01-05`. Exactly 490 retained canonical dates are bound to the
@@ -21,7 +30,7 @@ Classification is exact full set → `H4_FULL_RANGE_AVAILABLE`; sole end-date
 or value pattern → `AMBIGUOUS_STOP`. HTML/restriction, HTTP/schema/date/domain
 failures stop immediately without retry.
 
-Only separately authorized execution may use all guards:
+Historical command retained for audit only; do not execute:
 
 ```powershell
 .\.venv\Scripts\python.exe .\scripts\manual\diagnose_a007_investor_h4.py `
@@ -31,4 +40,7 @@ Only separately authorized execution may use all guards:
   --confirm-scope 20160107_20180105_KOSPI_volume_H4_availability
 ```
 
-Never retry H4 or infer availability from partial/ambiguous output.
+The separately audited boundary-pair run returned sole positive 2017-05-22 and
+no 2017-05-19, classified `BOUNDARY_SHAPED_CONFIRMED`. This conclusion applies
+only to KOSPI volume. It does not prove KOSDAQ/value parity, authorize synthetic
+zeros, or permit production resume. Never retry H4.

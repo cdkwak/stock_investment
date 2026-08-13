@@ -231,7 +231,15 @@ layer does not shift either date.
   business response, all HTTP 200, with retry zero. These results bound three
   unavailable historical windows but do not establish a complete availability
   boundary, authorize another probe, synthesize missing dates or zeros, or permit
-  Investor resume. The historical sequence remains documented in
+  Investor resume. H4 then requested 490 KOSPI-volume dates for
+  2016-01-07..2018-01-05 and stopped as `AMBIGUOUS_STOP:154/490`: its 154 positive
+  rows are the exact canonical suffix 2017-05-22..2018-01-05, while the 336-date
+  prefix through 2017-05-19 is absent. A separately audited two-date boundary
+  pair returned sole positive 2017-05-22 and no 2017-05-19, classified
+  `BOUNDARY_SHAPED_CONFIRMED`. This establishes the observed boundary shape only
+  for `MDCSTAT30301` KOSPI volume. KOSDAQ, value mode, total-date parity, and
+  historical production coverage remain unverified, so Investor stays stopped
+  and no resume or synthesis is authorized. The historical sequence remains documented in
   `runbooks/A007_FOLLOWON_BALANCE_INVESTOR.md` and the diagnostic runbooks.
   V-KOSPI 200 is PILOT_READY through
   an official authenticated KRX daily-index candidate, but exact source index
