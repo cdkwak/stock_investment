@@ -2,13 +2,31 @@
 
 ## Decision
 
-Status: **IMPLEMENTATION_READY_FOR_BOUNDED_PILOT**, not DATA_COMPLETE.
+Status: **BOUNDED_PILOT_VALID_EMPTY**, not DATA_COMPLETE.
 
-The repository now has an unexecuted, Landing-only manual pilot and an
-offline-tested parser for the documented OpenDART `fricDecsn` and
-`pifricDecsn` response fields. No OpenDART, KRX, pykrx, or other data endpoint
-was called. No canonical corporate-action event, adjustment factor, Normalized
+The repository has a Landing-only manual pilot and an offline-tested parser for
+the documented OpenDART `fricDecsn` and `pifricDecsn` response fields. The first
+bounded live run completed with three HTTP 200 / source-status `013` valid-empty
+responses. No canonical corporate-action event, adjustment factor, Normalized
 dataset, or Published dataset is created.
+
+## Executed bounded pilot
+
+Run `20260813T121345Z_54c2bc7d14e7460b944638d1e125abea` used issuer code
+`01160363` and filing window `20220620..20220720`. It made exactly three serial
+business/raw HTTP requests with retry count zero. `list`, `fricDecsn`, and
+`pifricDecsn` each returned HTTP 200, OpenDART status `013`, and zero rows. The
+checkpoint is `COMPLETE`; all three landed bodies match their ledger SHA-256,
+and a credential scan found no key in the run artifacts.
+
+This run validates authentication, endpoint access, the valid-empty branch,
+Landing-first persistence, ledger accounting, and checkpoint completion only.
+It does **not** validate a successful response schema, source units, revision
+behavior, or event coverage. The KRX-confirmed corporate action in this period
+does not by itself establish that its first OpenDART filing date lies inside the
+selected window. Do not treat the empty result as source exhaustion. A later
+positive-row pilot requires a separately evidence-selected filing window and a
+new explicit call budget; this completed run must not be retried or overwritten.
 
 Official documentation:
 
@@ -141,8 +159,9 @@ be source values or coverage evidence. Tests prove:
 
 ## Gates before any dataset build
 
-1. Obtain and configure the OpenDART key outside Git.
-2. D approves the exact issuer/window and 3-call manual pilot.
+1. Select a positive-row issuer/window from an official filing observation; do
+   not infer the OpenDART filing window from a KRX effective date.
+2. D approves a new exact issuer/window and separate three-call manual budget.
 3. Independently reconcile all Landing hashes, three ledger calls and the
    checkpoint; validate actual nullability and unexpected fields.
 4. Verify at least one original/correction or withdrawal sequence and determine
@@ -153,5 +172,4 @@ be source values or coverage evidence. Tests prove:
    alone prove historical ordinary/other-share identity.
 7. Only then implement the source-observation dataset. Adjustment factors and
    canonical events require a separate reviewed methodology.
-
 
