@@ -18,7 +18,7 @@ official continuous coverage.
 | Korean source verification | authenticated pykrx 1.2.8 | bounded manual smoke passed; 5/5 public probes, 12 raw HTTP requests | automation remains dataset-specific; only the reviewed A007 single-stream collector is currently enabled |
 | Korean equity price/cap/universe | marcap + KRX Open API + FSC data.go.kr | complete, 1995-05-02..2026-08-07 | daily incremental |
 | Korean Open API history | KRX Open API | complete, 2010-01-04..2019-12-30 | daily ledger/checkpoint retained |
-| Korean short selling | authenticated pykrx 1.2.8 | Trading DATA_COMPLETE; 9,174/9,174 scopes (4,587/4,587 dates), 10,161,884 rows, 2008-01-02..2026-08-07; PK/null/infinity/hash reconciliation passed | retain the single authenticated stream and collect balance, then investor, in audited bounded batches |
+| Korean short selling | authenticated pykrx 1.2.8 | Trading DATA_COMPLETE; Balance safely PAUSED at 3,849/4,958 scopes and 4,512,205 rows after KRX returned HTTP-200 restriction HTML for `20240425_KOSDAQ`; Investor not started | do not retry automatically; preserve the failed Landing/ledger evidence and resume only after a separately reviewed access-recovery gate |
 | `global_index_price_daily` | Yahoo chart API | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 49,051 rows through 2026-08-07 | canonical read, PK, OHLC, null, infinity, and gap audit pass; retained collection has no lossless Landing or call ledger |
 | `fred_treasury_yield_daily` | FRED | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 16,853 weekdays, 1962-01-02..2026-08-06 | source-series nulls are preserved; retained state is only a coarse completion marker |
 | `fred_usd_fx_daily` | FRED | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 14,500 weekdays, 1971-01-04..2026-07-31 | source-series nulls are preserved; retained state is only a coarse completion marker |
@@ -197,8 +197,18 @@ layer does not shift either date.
   PK duplicates, PK nulls, and numeric infinities are zero. The retained ledgers
   contain exactly 9,174 successful business responses, 255 authentication
   responses, no non-200 response, no duplicate completed scope, and one local
-  pre-response socket error from the interrupted Windows session. Balance and
-  investor remain the sequential A007 follow-on phases documented in
+  pre-response socket error from the interrupted Windows session. Balance
+  collected 3,849/4,958 scopes and 4,512,205 exact Normalized rows through the
+  successful `20240425_KOSPI` scope. The next `20240425_KOSDAQ` request returned
+  HTTP 200 with a 5,705-byte restriction HTML body (SHA-256
+  `109b7a8b1506a88e9110e8089c5d2be20d0e0c93587225c6e1ed4cfbfb783871`).
+  The collector preserved the body/sidecar/ledger, did not checkpoint or
+  normalize it, set the Balance state to `STOPPED`, released the lock, and made
+  no retry. The deterministic audit confirms all 4,512,205 checkpointed rows
+  match Landing exactly with zero PK/null/NaN/infinity violations; its overall
+  result is intentionally FAIL because the stopped response is an uncheckpointed
+  orphan and 1,109 scopes remain. Investor was not started. Resume requires a
+  separately reviewed access-recovery gate. The sequence remains documented in
   `runbooks/A007_FOLLOWON_BALANCE_INVESTOR.md`. V-KOSPI 200 is PILOT_READY through
   an official authenticated KRX daily-index candidate, but exact source index
   identity, returned fields, historical start, and revision/cutoff policy still
