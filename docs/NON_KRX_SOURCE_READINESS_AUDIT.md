@@ -13,6 +13,16 @@ D-authorized, cooldown-gated, and subject to the single-stream rule. See
 `DATA_STATUS.md` and `DATA_PHASE_HANDOFF_20260813.md` for current status; the
 historical findings below are intentionally not rewritten.
 
+Further supersession from the credential-validation cycle: OpenDART credentials
+were configured and its three-call pilot completed valid-empty; BOK ECOS metadata,
+value, and historical source-observation collection completed; two bounded DGS10
+ALFRED intervals passed offline audit but yielded no useful multi-version revision
+evidence; Rights retained a complete 12/12 response; and a second dividend snapshot
+attempt for `basDt=20260813` stopped as exact source-success valid-empty after one
+call. KB token access reproduced HTTP 500/result `9999`/process `E021`. The ranked
+table below remains historical; use `DATA_STATUS.md` and provider runbooks for
+current gates.
+
 ## Ranked blockers
 
 | Rank | Area | Current evidence | Real next gate |
