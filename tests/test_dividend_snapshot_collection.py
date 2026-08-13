@@ -3,7 +3,9 @@ from pathlib import Path
 
 import requests
 
-from scripts.manual.dividend_snapshot_collection import collect_dividend_snapshot
+from scripts.manual.dividend_snapshot_collection import (
+    collect_dividend_snapshot, recover_valid_empty_first_page,
+)
 from stock_data.providers.data_go_kr.dividend_observation import load_dividend_observation
 
 
@@ -70,4 +72,25 @@ def test_provider_lock_blocks_before_call(tmp_path: Path):
         service_key="fixture-key",max_calls=1,delegate=delegate)
     except Exception as error: assert "lock already exists" in str(error)
     else: raise AssertionError("lock ignored")
+    assert not delegate.calls
+
+
+def test_offline_recovery_records_exact_valid_empty_and_blocks_recall(tmp_path: Path):
+    page=tmp_path/"data/landing/data_go_kr/kr_equity_dividend/snapshots/20260813/page=00001.json"
+    page.parent.mkdir(parents=True)
+    page.write_text(json.dumps({"response":{
+        "header":{"resultCode":"00","resultMsg":"NORMAL SERVICE."},
+        "body":{"items":{},"numOfRows":9999,"pageNo":1,"totalCount":0},
+    }}),encoding="utf-8")
+    result=recover_valid_empty_first_page(project_root=tmp_path,snapshot_date="20260813")
+    assert result["status"]=="VALID_EMPTY_STOP" and result["calls_reconstructed"]==1
+    state=json.loads((tmp_path/"data/state/dividend_snapshot_collection/20260813.json").read_text())
+    ledger=json.loads((tmp_path/"data/state/dividend_snapshot_collection/20260813.ledger.jsonl").read_text())
+    assert state["business_calls"]==1 and state["retries"]==0
+    assert ledger["http_status"] is None and ledger["reconstructed_offline"] is True
+    delegate=Delegate([response(1,[item(1)],1)])
+    try: collect_dividend_snapshot(project_root=tmp_path,snapshot_date="20260813",
+        service_key="fixture-key",max_calls=1,delegate=delegate)
+    except Exception as error: assert "terminal" in str(error)
+    else: raise AssertionError("valid-empty terminal checkpoint resumed")
     assert not delegate.calls

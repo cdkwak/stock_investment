@@ -169,6 +169,16 @@ layer does not shift either date.
   snapshot with no capture timestamp, prior snapshot, or correction history.
   It is therefore artifact-complete only and remains ineligible for historical
   PIT, predictive, adjusted-price, or total-return use.
+- A separately authorized second dividend snapshot attempt for `basDt=2026-08-13`
+  made exactly one request with zero retries. The source-success result `00`
+  response declared and returned zero rows. The Landing page is retained with
+  SHA-256 `c8ee7766deedd80acd8fb1a3bcdb1b29e67caa037c73b2ec8c8e11042ce148a5`;
+  an offline-reconstructed checkpoint and ledger classify it
+  `VALID_EMPTY_STOP`. The former local non-empty assertion stopped after Landing
+  persistence but before transport status was recorded, so exact HTTP status is
+  intentionally marked unreconstructable. No second call, completed
+  `full_history.json`, Normalized append, or semantic inference was made. The
+  existing 2026-08-08 snapshot therefore remains the sole artifact snapshot.
 - Official OpenDART discovery found 2015+ filing APIs for paid/free capital
   increases, capital reductions, mergers, divisions, and division-mergers. The
   responses carry filing receipt identity and decision/economic schedule fields,

@@ -110,7 +110,8 @@ def _page_payload(path: Path, *, page_no: int, snapshot_date: str) -> tuple[dict
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
         response = payload["response"]; header = response["header"]; body = response["body"]
-        items = body["items"]["item"]
+        container = body.get("items") or {}
+        items = container.get("item", []) if isinstance(container, dict) else []
     except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError) as error:
         raise DividendCollectionStopped(f"retained page {page_no} shape differs") from error
     if not isinstance(items, list): items = [items]
@@ -118,12 +119,15 @@ def _page_payload(path: Path, *, page_no: int, snapshot_date: str) -> tuple[dict
         str(header.get("resultCode", "")).zfill(2) != "00"
         or int(body.get("pageNo", 0)) != page_no
         or int(body.get("numOfRows", 0)) != PAGE_SIZE
-        or not items
         or len(items) > PAGE_SIZE
         or any(str(item.get("basDt")) != snapshot_date for item in items if isinstance(item, dict))
     ):
         raise DividendCollectionStopped(f"retained page {page_no} semantics differ")
-    normalize_dividend(items)
+    if not items:
+        if int(body.get("totalCount", -1)) != 0:
+            raise DividendCollectionStopped(f"retained page {page_no} empty before totalCount")
+    else:
+        normalize_dividend(items)
     return payload, int(body["totalCount"]), len(items)
 
 
@@ -136,6 +140,52 @@ def _new_state(snapshot_date: str) -> dict[str, Any]:
         "retries": 0, "landing_path": None, "updated_at_utc": _iso_now(),
         "historical_completeness": False, "predictive_use": False,
     }
+
+
+def recover_valid_empty_first_page(*, project_root: Path, snapshot_date: str) -> dict[str, Any]:
+    """Record the page retained before the former local non-empty assertion stopped."""
+    project_root = project_root.resolve()
+    page_path = project_root / (
+        f"data/landing/data_go_kr/kr_equity_dividend/snapshots/{snapshot_date}/page=00001.json"
+    )
+    state_path = project_root / "data/state/dividend_snapshot_collection" / f"{snapshot_date}.json"
+    ledger_path = project_root / "data/state/dividend_snapshot_collection" / f"{snapshot_date}.ledger.jsonl"
+    if state_path.exists() or ledger_path.exists():
+        raise DividendCollectionStopped("checkpoint or ledger already exists; recovery refused")
+    payload, total, rows = _page_payload(
+        page_path, page_no=1, snapshot_date=snapshot_date
+    )
+    if total != 0 or rows != 0:
+        raise DividendCollectionStopped("orphan first page is not exact valid-empty")
+    header = payload["response"]["header"]
+    if str(header.get("resultCode", "")).zfill(2) != "00":
+        raise DividendCollectionStopped("orphan first page is not source-success")
+    state = _new_state(snapshot_date)
+    state.update({
+        "status": "VALID_EMPTY_STOP", "expected_total": 0, "expected_pages": 1,
+        "business_calls": 1, "updated_at_utc": _iso_now(),
+        "terminal_evidence": {
+            "path": page_path.relative_to(project_root).as_posix(),
+            "sha256": _sha(page_path), "page_no": 1,
+        },
+        "recovery_note": (
+            "offline reconstruction after the bounded runner retained the successful "
+            "page before its former non-empty assertion; HTTP status was not persisted"
+        ),
+    })
+    _atomic_json(state_path, state)
+    ledger_path.parent.mkdir(parents=True, exist_ok=True)
+    ledger = {
+        "operation": OPERATION, "snapshot_date": snapshot_date, "page_no": 1,
+        "num_of_rows": PAGE_SIZE, "attempt": 1, "retry_count": 0,
+        "outcome": "VALID_EMPTY_STOP", "result_code": "00",
+        "http_status": None, "http_status_reconstructable": False,
+        "landing_sha256": _sha(page_path), "item_count": 0, "total_count": 0,
+        "credential_values_persisted": False, "reconstructed_offline": True,
+    }
+    ledger_path.write_text(json.dumps(ledger, sort_keys=True) + "\n", encoding="utf-8")
+    return {"status": state["status"], "calls_reconstructed": 1,
+            "retry_count": 0, "landing_sha256": _sha(page_path)}
 
 
 def _load_state(path: Path, snapshot_date: str) -> dict[str, Any]:
@@ -180,6 +230,7 @@ def collect_dividend_snapshot(
         return {"status": "ALREADY_COMPLETE", "calls_this_run": 0, **state}
     if state.get("status") in {
         "STOPPED", "BOUNDS_STOP", "TOTAL_CHANGED_STOP", "PAGE_COUNT_STOP",
+        "VALID_EMPTY_STOP",
     }:
         raise DividendCollectionStopped(
             f"checkpoint is terminal and requires offline audit: {state['status']}"

@@ -78,3 +78,22 @@ The requested `basDt` is a source snapshot identity, not an announcement date,
 knowledge date, effective date, revision timestamp, or proof of historical PIT
 coverage. A second capture may reveal source changes but does not define event
 supersession or justify adjusted prices.
+
+### 2026-08-13 execution outcome
+
+The first bounded request for `basDt=20260813` returned source result `00` with
+`totalCount=0` and zero items. The page was retained before the runner's former
+non-empty local assertion stopped the process. No further request was made.
+Because the process stopped before its ledger step, an offline recovery records
+exactly one call, zero retries, the retained page hash, and
+`http_status_reconstructable=false`; it does not invent the missing transport
+status. The checkpoint is terminal `VALID_EMPTY_STOP`, preventing a silent
+repeat.
+
+This valid-empty response cannot be passed to the non-empty observation contract
+and did not produce `full_history.json` or a Normalized append. The runner now
+recognizes exact source-success `totalCount=0` pages and records this terminal
+state directly, while mismatched empty pages still fail closed. The retained
+2026-08-08 snapshot remains unchanged and authoritative as the only artifact
+snapshot. A future attempt requires a separately selected later `basDt`; do not
+retry 2026-08-13 merely to seek non-empty data.
