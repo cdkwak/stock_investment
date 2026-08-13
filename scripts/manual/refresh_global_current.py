@@ -345,7 +345,9 @@ def _parse_retained_fred_capture(call_path: Path, item: str) -> pd.DataFrame:
     if hashlib.sha256(body.read_bytes()).hexdigest() != record.get("response_body_sha256"):
         raise RefreshError("retained FRED Landing body hash differs")
     frame = pd.read_csv(StringIO(body.read_bytes().decode("utf-8")))
-    if frame.empty or len(frame.columns) != 2 or frame.columns[0] != "DATE" or frame.columns[1].upper() != item:
+    if (frame.empty or len(frame.columns) != 2
+            or frame.columns[0] not in {"DATE", "observation_date"}
+            or frame.columns[1].upper() != item):
         raise RefreshError("retained FRED Landing schema/series identity differs")
     frame.columns = ["date", item.lower()]
     frame["date"] = pd.to_datetime(frame["date"], errors="raise").dt.strftime("%Y-%m-%d")
