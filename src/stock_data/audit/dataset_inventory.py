@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -130,7 +131,45 @@ def _input_tree_manifest(project_root: Path) -> list[dict[str, object]]:
             "path": _relative(path, project_root), "bytes": path.stat().st_size,
             "sha256": _sha256(path),
         })
+    landing_root = project_root / "data/landing"
+    if landing_root.exists():
+        for path in sorted(
+            (value for value in landing_root.rglob("*") if value.is_file()),
+            key=lambda value: value.as_posix(),
+        ):
+            _assert_plain_components(project_root, path)
+            result.append({
+                "path": _relative(path, project_root), "bytes": path.stat().st_size,
+                "evidence": "LANDING_METADATA_ONLY_BODY_NOT_READ",
+            })
+    result.sort(key=lambda item: str(item["path"]))
     return result
+
+
+@contextmanager
+def _snapshot_lock(project_root: Path, snapshot_root: Path):
+    """Serialize inventory rebuild/CAS/publication; this is not a data-writer lock."""
+    _assert_plain_components(project_root, snapshot_root)
+    path = snapshot_root / ".write.lock"
+    token = uuid4().hex.encode("ascii")
+    try:
+        descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        raise RuntimeError("another inventory snapshot writer holds the lock") from None
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(token)
+            stream.flush()
+            os.fsync(stream.fileno())
+        _assert_plain_components(project_root, path)
+        if not path.is_file() or path.read_bytes() != token:
+            raise RuntimeError("inventory snapshot lock ownership differs")
+        yield
+    finally:
+        if path.exists():
+            _assert_plain_components(project_root, path)
+            if path.is_file() and path.read_bytes() == token:
+                path.unlink()
 
 
 def _ignored(relative: Path) -> str | None:
@@ -517,6 +556,7 @@ def _landing_summary(project_root: Path) -> dict[str, object]:
     counts: Counter[str] = Counter()
     sizes: Counter[str] = Counter()
     ignored = 0
+    manifest = []
     if root.exists():
         for path in sorted(root.rglob("*")):
             if not path.is_file():
@@ -527,11 +567,14 @@ def _landing_summary(project_root: Path) -> dict[str, object]:
             extension = path.suffix.lower() or "<none>"
             counts[extension] += 1
             sizes[extension] += path.stat().st_size
+            manifest.append({"path": _relative(path, project_root), "bytes": path.stat().st_size})
     return {
         "body_read": False,
         "files_by_extension": dict(sorted(counts.items())),
         "bytes_by_extension": dict(sorted(sizes.items())),
         "ignored_files": ignored,
+        "metadata_manifest": manifest,
+        "metadata_manifest_sha256": _sha256_bytes(_canonical_bytes(manifest)),
     }
 
 
@@ -880,43 +923,57 @@ def write_immutable_snapshot(
     digest = supplied.pop("inventory_sha256", None)
     if digest != _sha256_bytes(_canonical_bytes(supplied)):
         raise ValueError("inventory digest differs")
-    rebuilt = build_inventory(
-        project_root, contracts=contracts, max_key_rows=max_key_rows, max_scan_rows=max_scan_rows
-    )
-    if _canonical_bytes(rebuilt) != _canonical_bytes(report):
-        raise RuntimeError("inventory differs from independent current rebuild")
     root = project_root / IMMUTABLE_SNAPSHOT_RELATIVE
     current = project_root
     for component in IMMUTABLE_SNAPSHOT_RELATIVE.parts:
         current /= component
         current.mkdir(exist_ok=True)
         _assert_plain_components(project_root, current)
-    target = root / f"{digest}.json"
-    body = serialize_json(rebuilt).encode("utf-8")
-    if target.exists():
-        if not target.is_file() or target.read_bytes() != body:
-            raise RuntimeError("immutable inventory snapshot differs")
-        return {"status": "ALREADY_RECORDED", "path": _relative(target, project_root), "inventory_sha256": digest}
-    temporary = target.with_name(f".{target.name}.{uuid4().hex}.tmp")
-    try:
-        descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        with os.fdopen(descriptor, "wb") as stream:
-            stream.write(body)
-            stream.flush()
-            os.fsync(stream.fileno())
-        # A second exact rebuild is the compare-and-scan boundary immediately
-        # before immutable publication.
-        immediate = build_inventory(
+    with _snapshot_lock(project_root, root):
+        # This independently completed scan defines the point-in-time evidence.
+        # The lock serializes publishers; it deliberately does not claim to
+        # freeze unrelated Data writers.
+        rebuilt = build_inventory(
             project_root, contracts=contracts, max_key_rows=max_key_rows, max_scan_rows=max_scan_rows
         )
-        if _canonical_bytes(immediate) != _canonical_bytes(report):
-            raise RuntimeError("inventory inputs changed before snapshot publication")
-        try:
-            os.link(temporary, target)
-        except FileExistsError:
+        if _canonical_bytes(rebuilt) != _canonical_bytes(report):
+            raise RuntimeError("inventory differs from independent current rebuild")
+        target = root / f"{digest}.json"
+        body = serialize_json(rebuilt).encode("utf-8")
+        _assert_plain_components(project_root, root)
+        if target.exists():
+            _assert_plain_components(project_root, target)
             if not target.is_file() or target.read_bytes() != body:
-                raise RuntimeError("immutable inventory snapshot collision")
+                raise RuntimeError("immutable inventory snapshot differs")
+            _assert_plain_components(project_root, target)
             return {"status": "ALREADY_RECORDED", "path": _relative(target, project_root), "inventory_sha256": digest}
-    finally:
-        temporary.unlink(missing_ok=True)
-    return {"status": "CREATED", "path": _relative(target, project_root), "inventory_sha256": digest}
+        temporary = target.with_name(f".{target.name}.{uuid4().hex}.tmp")
+        try:
+            descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(body)
+                stream.flush()
+                os.fsync(stream.fileno())
+            # Exact CAS immediately before publication, still under the writer lock.
+            immediate = build_inventory(
+                project_root, contracts=contracts, max_key_rows=max_key_rows, max_scan_rows=max_scan_rows
+            )
+            if _canonical_bytes(immediate) != _canonical_bytes(report):
+                raise RuntimeError("inventory inputs changed before snapshot publication")
+            _assert_plain_components(project_root, root)
+            if target.exists():
+                _assert_plain_components(project_root, target)
+                if not target.is_file() or target.read_bytes() != body:
+                    raise RuntimeError("immutable inventory snapshot collision")
+                return {"status": "ALREADY_RECORDED", "path": _relative(target, project_root), "inventory_sha256": digest}
+            try:
+                os.link(temporary, target)
+            except FileExistsError:
+                _assert_plain_components(project_root, target)
+                if not target.is_file() or target.read_bytes() != body:
+                    raise RuntimeError("immutable inventory snapshot collision")
+                return {"status": "ALREADY_RECORDED", "path": _relative(target, project_root), "inventory_sha256": digest}
+            _assert_plain_components(project_root, target)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return {"status": "CREATED", "path": _relative(target, project_root), "inventory_sha256": digest}

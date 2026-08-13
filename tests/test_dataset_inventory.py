@@ -192,6 +192,18 @@ def test_report_is_deterministic_and_ignores_documented_quarantine(tmp_path):
     )
 
 
+def test_landing_summary_is_bound_to_path_and_bytes_without_body_hash(tmp_path):
+    landing = tmp_path / "data/landing/provider/call.json"
+    landing.parent.mkdir(parents=True)
+    landing.write_bytes(b"opaque source body")
+    report = build_inventory(tmp_path, contracts={})
+    assert report["landing_summary"]["body_read"] is False
+    assert report["landing_summary"]["metadata_manifest"] == [
+        {"path": "data/landing/provider/call.json", "bytes": 18}
+    ]
+    assert "sha256" not in report["landing_summary"]["metadata_manifest"][0]
+
+
 def test_saved_audit_output_is_not_reingested_as_operational_state(tmp_path):
     _write(tmp_path / "data/normalized/registered", _rows())
     operational_state = tmp_path / "data/state/registered.json"
@@ -288,3 +300,100 @@ def test_input_tree_mutation_during_scan_is_rejected(tmp_path, monkeypatch):
     monkeypatch.setattr(inventory_module, "_artifact_record", changing)
     with pytest.raises(RuntimeError, match="inputs changed during scan"):
         build_inventory(tmp_path, contracts={contract.name: contract}, max_key_rows=10)
+
+
+def test_landing_mutation_during_summary_is_rejected(tmp_path, monkeypatch):
+    landing = tmp_path / "data/landing/provider/source.json"
+    landing.parent.mkdir(parents=True)
+    landing.write_bytes(b"one")
+    original = inventory_module._landing_summary
+
+    def changing(root):
+        result = original(root)
+        landing.write_bytes(b"changed-size")
+        return result
+
+    monkeypatch.setattr(inventory_module, "_landing_summary", changing)
+    with pytest.raises(RuntimeError, match="inputs changed during scan"):
+        build_inventory(tmp_path, contracts={})
+
+
+def test_landing_mutation_before_publication_rejects_stale_snapshot(tmp_path, monkeypatch):
+    contract = _contract()
+    _write(tmp_path / "data/normalized/registered", _rows())
+    landing = tmp_path / "data/landing/provider/source.json"
+    landing.parent.mkdir(parents=True)
+    landing.write_bytes(b"one")
+    report = build_inventory(tmp_path, contracts={contract.name: contract}, max_key_rows=10)
+    original = inventory_module.build_inventory
+    calls = 0
+
+    def changing(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            landing.write_bytes(b"changed-before-publication")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(inventory_module, "build_inventory", changing)
+    with pytest.raises(RuntimeError, match="inputs changed before snapshot publication"):
+        write_immutable_snapshot(
+            tmp_path, report, contracts={contract.name: contract}, max_key_rows=10
+        )
+    snapshot_root = tmp_path / inventory_module.IMMUTABLE_SNAPSHOT_RELATIVE
+    assert not list(snapshot_root.glob("*.json"))
+
+
+def test_existing_reparse_snapshot_target_is_rejected(tmp_path, monkeypatch):
+    contract = _contract()
+    _write(tmp_path / "data/normalized/registered", _rows())
+    report = build_inventory(tmp_path, contracts={contract.name: contract}, max_key_rows=10)
+    root = tmp_path / inventory_module.IMMUTABLE_SNAPSHOT_RELATIVE
+    root.mkdir(parents=True)
+    target = root / f"{report['inventory_sha256']}.json"
+    target.write_text(serialize_json(report), encoding="utf-8")
+    original = inventory_module._is_redirect
+    monkeypatch.setattr(
+        inventory_module, "_is_redirect",
+        lambda path: path.absolute() == target.absolute() or original(path),
+    )
+    with pytest.raises(RuntimeError, match="redirected"):
+        write_immutable_snapshot(
+            tmp_path, report, contracts={contract.name: contract}, max_key_rows=10
+        )
+
+
+def test_reparse_snapshot_parent_is_rejected(tmp_path, monkeypatch):
+    contract = _contract()
+    _write(tmp_path / "data/normalized/registered", _rows())
+    report = build_inventory(tmp_path, contracts={contract.name: contract}, max_key_rows=10)
+    audits = tmp_path / "data/state/audits"
+    audits.mkdir(parents=True)
+    original = inventory_module._is_redirect
+    monkeypatch.setattr(
+        inventory_module, "_is_redirect",
+        lambda path: path.absolute() == audits.absolute() or original(path),
+    )
+    with pytest.raises(RuntimeError, match="redirected"):
+        write_immutable_snapshot(
+            tmp_path, report, contracts={contract.name: contract}, max_key_rows=10
+        )
+
+
+def test_existing_snapshot_file_symlink_is_rejected_when_supported(tmp_path):
+    contract = _contract()
+    _write(tmp_path / "data/normalized/registered", _rows())
+    report = build_inventory(tmp_path, contracts={contract.name: contract}, max_key_rows=10)
+    root = tmp_path / inventory_module.IMMUTABLE_SNAPSHOT_RELATIVE
+    root.mkdir(parents=True)
+    backing = tmp_path / "outside.json"
+    backing.write_text(serialize_json(report), encoding="utf-8")
+    target = root / f"{report['inventory_sha256']}.json"
+    try:
+        target.symlink_to(backing)
+    except OSError:
+        pytest.skip("file symlink creation is unavailable")
+    with pytest.raises(RuntimeError, match="redirected"):
+        write_immutable_snapshot(
+            tmp_path, report, contracts={contract.name: contract}, max_key_rows=10
+        )

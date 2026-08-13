@@ -8,7 +8,9 @@ the local filesystem at invocation time. Missing registered datasets and
 unregistered artifacts are reported, not silently classified as defects.
 
 The command performs no provider or network calls and never reads Landing raw
-bodies. Landing is summarized only by file extension, count, and bytes.
+bodies. Landing is bound to the inventory through a deterministic relative-path
+and byte-count metadata manifest, then summarized by extension, count, and
+bytes. Its pre/post manifest is part of the same scan-consistency gate.
 
 ## Report identity
 
@@ -72,3 +74,11 @@ reuses
 `data/state/audits/dataset_inventory_v2/<inventory SHA-256>.json` by durable
 temporary file plus no-overwrite hard link. The normal command remains dry-run;
 the snapshot option must be explicit.
+
+An inventory-specific exclusive lock serializes the final independent rebuild,
+CAS rebuild, and publication. It is not a lock for every Data writer and does
+not claim to freeze the repository indefinitely: the immutable report is exact
+point-in-time evidence for its successfully completed, unchanged pre/post scan.
+If artifact, state, or Landing metadata changes before publication, the CAS
+fails and no snapshot is linked. Existing targets and all parent components are
+rechecked for symlinks, junctions, and reparse points before reads and links.
