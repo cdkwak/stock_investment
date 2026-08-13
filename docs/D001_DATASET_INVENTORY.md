@@ -76,10 +76,10 @@ temporary file plus no-overwrite hard link. The normal command remains dry-run;
 the snapshot option must be explicit.
 
 The latest retained v2 point-in-time snapshot is
-[`4e866e3edb24d112f09ce8f424054996ad4a9be786ae05b250141b7792070988.json`](../data/state/audits/dataset_inventory_v2/4e866e3edb24d112f09ce8f424054996ad4a9be786ae05b250141b7792070988.json).
-It records 41 artifact roots, 1,165 artifact files, 95,446,002 rows, 50 registered
-contracts, 37 observed registered artifacts, 13 missing registered artifacts,
-zero unregistered artifacts, and 50 state files. Its classification remains
+[`48ce7887c965830c942e8f125346a7ca2a00e58ec2785c22e15cb509c10bc71f.json`](../data/state/audits/dataset_inventory_v2/48ce7887c965830c942e8f125346a7ca2a00e58ec2785c22e15cb509c10bc71f.json).
+It records 42 artifact roots, 95,486,624 rows, 51 registered contracts,
+38 observed registered artifacts, 13 missing registered artifacts,
+zero unregistered artifacts, and 53 state files. Its classification remains
 `READ_ONLY_INVENTORY_NOT_DATA_COMPLETE_ASSERTION`; later repository changes do
 not alter this immutable snapshot.
 
