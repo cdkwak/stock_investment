@@ -9,9 +9,10 @@ from urllib.parse import quote
 import scripts.manual.refresh_global_current as refresh
 from scripts.manual.refresh_global_current import (
     BudgetSession, RefreshError, _files_manifest, _finite_latest, _replace_roots_atomically,
-    _assert_plain_path, _recover_transaction, _series_revision,
+    _artifact_fingerprint, _assert_plain_path, _recover_transaction, _series_revision,
 )
 from stock_data.contracts.global_market import GLOBAL_INDEX_PRICE_DAILY
+from stock_data.contracts.global_market import FRED_TREASURY_YIELD_DAILY, US_TREASURY_SPREAD_DAILY
 from stock_data.providers.fred import fetch_series
 from stock_data.providers.public_http_capture import capture_public_response
 from stock_data.providers.yahoo import CONFIG, _epoch
@@ -69,6 +70,14 @@ def test_revision_report_is_explicit_per_series_and_detects_finite_to_null():
     assert report["source_omitted_existing_dates"] == 0
 
 
+def test_revision_report_detects_planned_overlap_omitted_before_response_start():
+    old = pd.DataFrame({"date": ["2026-08-01", "2026-08-02"], "x": [1.0, 2.0]})
+    new = pd.DataFrame({"date": ["2026-08-02", "2026-08-03"], "x": [2.0, 3.0]})
+    report = _series_revision(old, new, item="X", phase="fred_fx",
+                              planned_start="2026-08-01", planned_end="2026-08-03")
+    assert report["source_omitted_existing_dates"] == 1
+
+
 def _root(path: Path, body: bytes) -> None:
     target = path / "year=2026" / "data.parquet"
     target.parent.mkdir(parents=True)
@@ -108,15 +117,65 @@ def test_crash_journal_recovery_rolls_back_incomplete_swap(tmp_path):
     journal.write_text(json.dumps({"version": 1, "status": "PREPARED", "replacements": [{
         "source": str(source), "target": str(target), "stage": str(stage),
         "backup": str(backup), "original_exists": True,
+        "source_fingerprint": _artifact_fingerprint(source),
+        "pre_target_fingerprint": _artifact_fingerprint(backup),
     }]}))
-    _recover_transaction(journal, committed=False, allowed_targets={target})
+    _recover_transaction(journal, committed=False, allowed_targets={target}, allowed_sources={source}, project_root=tmp_path)
     assert (target / "year=2026/data.parquet").read_bytes() == b"old"
     assert json.loads(journal.read_text())["status"] == "ROLLED_BACK_RECOVERED"
+
+
+def test_committed_recovery_reconstructs_missing_target_before_backup_cleanup(tmp_path):
+    source, target = tmp_path / "candidate", tmp_path / "production"
+    _root(source, b"new")
+    run = tmp_path / "run"; run.mkdir()
+    stage = target.parent / f".{target.name}.refresh-{run.name}-0.stage"
+    backup = target.parent / f".{target.name}.refresh-{run.name}-0.backup"
+    _root(backup, b"old")
+    journal = run / "promotion_transaction.json"
+    journal.write_text(json.dumps({"version": 1, "status": "COMMITTED", "replacements": [{
+        "source": str(source), "target": str(target), "stage": str(stage),
+        "backup": str(backup), "original_exists": True,
+        "source_fingerprint": _artifact_fingerprint(source),
+        "pre_target_fingerprint": _artifact_fingerprint(backup),
+    }]}))
+    _recover_transaction(journal, committed=True, allowed_targets={target}, allowed_sources={source}, project_root=tmp_path)
+    assert (target / "year=2026/data.parquet").read_bytes() == b"new"
+    assert not backup.exists()
+
+
+def test_committed_recovery_refuses_to_delete_last_unverified_backup(tmp_path):
+    source, target = tmp_path / "missing-source", tmp_path / "production"
+    run = tmp_path / "run"; run.mkdir()
+    stage = target.parent / f".{target.name}.refresh-{run.name}-0.stage"
+    backup = target.parent / f".{target.name}.refresh-{run.name}-0.backup"
+    _root(backup, b"old")
+    journal = run / "promotion_transaction.json"
+    journal.write_text(json.dumps({"version": 1, "status": "COMMITTED", "replacements": [{
+        "source": str(source), "target": str(target), "stage": str(stage),
+        "backup": str(backup), "original_exists": True,
+        "source_fingerprint": {"kind": "directory", "value": {"not": "available"}},
+        "pre_target_fingerprint": _artifact_fingerprint(backup),
+    }]}))
+    with pytest.raises(RefreshError, match="no verified canonical"):
+        _recover_transaction(journal, committed=True, allowed_targets={target}, allowed_sources={source}, project_root=tmp_path)
+    assert backup.exists()
 
 
 def test_path_gate_rejects_lexical_escape(tmp_path):
     with pytest.raises(RefreshError, match="escapes"):
         _assert_plain_path(tmp_path, tmp_path / "inside" / ".." / ".." / "outside", must_exist=False)
+
+
+def test_file_fingerprint_rejects_symlink_or_reparse(tmp_path):
+    target = tmp_path / "target.json"; target.write_text("{}")
+    link = tmp_path / "link.json"
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("symlink creation unavailable")
+    with pytest.raises(RefreshError, match="links/reparse"):
+        refresh._file_fingerprint(link)
 
 
 def test_prepare_is_nonmutating_tamper_fails_and_offline_promotion_is_atomic(tmp_path, monkeypatch):
@@ -151,18 +210,27 @@ def test_prepare_is_nonmutating_tamper_fails_and_offline_promotion_is_atomic(tmp
     assert _files_manifest(production) == before and result["normalized_mutation"] is False
     checkpoint = root / "data/state/global_current_refresh" / result["run_id"] / "checkpoint.json"
     candidate = root / result["candidate_root"]
-    with pytest.raises(RefreshError, match="approval digest"):
+    with pytest.raises(RefreshError, match="approval/call/plan"):
         refresh.promote_phase(root, checkpoint, approval_digest="0" * 64)
     body = next((root / "data/landing/global_current_refresh" / result["run_id"]).rglob("response.body"))
     original_body = body.read_bytes(); body.write_bytes(b"tampered")
     with pytest.raises(RefreshError, match="body hash"):
         refresh.promote_phase(root, checkpoint, approval_digest=result["approval_digest"])
     body.write_bytes(original_body)
+    rogue = body.parents[3] / "rogue.txt"; rogue.write_text("rogue")
+    with pytest.raises(RefreshError, match="unexpected topology"):
+        refresh.promote_phase(root, checkpoint, approval_digest=result["approval_digest"])
+    rogue.unlink()
     call = next((root / "data/landing/global_current_refresh" / result["run_id"]).rglob("call.json"))
     original_call = call.read_bytes(); record = json.loads(original_call)
     record["request_parameters"]["symbol"] = "WRONG"
     call.write_text(json.dumps(record))
     with pytest.raises(RefreshError, match="frozen plan"):
+        refresh.promote_phase(root, checkpoint, approval_digest=result["approval_digest"])
+    call.write_bytes(original_call)
+    record = json.loads(original_call); record.pop("response_content_type")
+    call.write_text(json.dumps(record))
+    with pytest.raises(RefreshError, match="schema/value"):
         refresh.promote_phase(root, checkpoint, approval_digest=result["approval_digest"])
     call.write_bytes(original_call)
     tamper = candidate / "unexpected.txt"; tamper.write_text("tamper")
@@ -179,6 +247,41 @@ def test_prepare_is_nonmutating_tamper_fails_and_offline_promotion_is_atomic(tmp
     restored = read_dataset(production, GLOBAL_INDEX_PRICE_DAILY, validate_global_index)
     assert len(restored) == 9 and restored.date.max() == "2026-08-03"
     assert json.loads(state.read_text())["run_id"] == result["run_id"]
+
+
+def test_fred_yields_end_to_end_promotes_yields_spread_and_both_states(tmp_path, monkeypatch):
+    root = tmp_path / "project"; root.mkdir()
+    production = root / "data/normalized/fred_treasury_yield_daily"
+    existing = pd.DataFrame({"date": ["2026-08-01", "2026-08-02"],
+                             "dgs2": [3.0, 3.1], "dgs10": [4.0, 4.1], "dgs30": [4.5, 4.6]})
+    write_dataset_atomic(existing, production, FRED_TREASURY_YIELD_DAILY, refresh.validate_fred)
+    state = root / "data/state/fred_treasury_yield_daily.json"
+    state.parent.mkdir(parents=True); state.write_text('{"dataset":"fred_treasury_yield_daily"}\n')
+    spread = root / "data/derived/us_treasury_spread_daily"
+    refresh._build_spread_candidate(existing, spread)
+    spread_state = root / "data/state/us_treasury_spread_daily.json"
+    spread_state.write_text('{"dataset":"us_treasury_spread_daily"}\n')
+
+    def fake_fred(item, start, *, end, session, capture_root):
+        params = {"id": item, "cosd": start.isoformat(), "coed": end.isoformat()}
+        response = session.get("https://fred.stlouisfed.org/graph/fredgraph.csv", params=params)
+        capture_public_response(root=capture_root, provider="fred", operation="fredgraph_csv",
+                                request_url="https://fred.stlouisfed.org/graph/fredgraph.csv",
+                                request_parameters=params, response=response)
+        column = item.lower(); base = {"dgs2": 3.0, "dgs10": 4.0, "dgs30": 4.5}[column]
+        return pd.DataFrame({"date": [start.isoformat(), "2026-08-01", "2026-08-02", end.isoformat()],
+                             column: [base - .1, base, base + .1, base + .2]})
+
+    monkeypatch.setattr(refresh, "fetch_series", fake_fred)
+    result = refresh.prepare_phase(root, "fred_yields", end=date(2026, 8, 3), session=Backend())
+    checkpoint = root / "data/state/global_current_refresh" / result["run_id"] / "checkpoint.json"
+    promoted = refresh.promote_phase(root, checkpoint, approval_digest=result["approval_digest"])
+    assert promoted["status"] == "PROMOTED"
+    yields = read_dataset(production, FRED_TREASURY_YIELD_DAILY, refresh.validate_fred)
+    assert yields.date.max() == "2026-08-03"
+    assert _files_manifest(spread)["rows"] == len(yields)
+    assert json.loads(state.read_text())["run_id"] == result["run_id"]
+    assert json.loads(spread_state.read_text())["run_id"] == result["run_id"]
 
 
 def test_cli_refuses_implicit_live_mode(tmp_path):

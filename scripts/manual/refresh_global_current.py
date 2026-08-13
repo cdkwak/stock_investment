@@ -148,8 +148,11 @@ def _files_manifest(root: Path) -> dict[str, object]:
 
 
 def _file_fingerprint(path: Path) -> dict[str, object]:
-    if not path.is_file():
+    if not path.exists():
         return {"exists": False}
+    _assert_plain_path(path.parent, path)
+    if not path.is_file():
+        raise RefreshError("state fingerprint target is not a plain file")
     body = path.read_bytes()
     return {"exists": True, "bytes": len(body), "sha256": hashlib.sha256(body).hexdigest()}
 
@@ -207,7 +210,10 @@ def _merge(existing: pd.DataFrame, incoming: pd.DataFrame, keys: list[str]) -> p
     return result.sort_values(keys, kind="stable").reset_index(drop=True)
 
 
-def _series_revision(existing: pd.DataFrame, incoming: pd.DataFrame, *, item: str, phase: str) -> dict[str, object]:
+def _series_revision(
+    existing: pd.DataFrame, incoming: pd.DataFrame, *, item: str, phase: str,
+    planned_start: str | None = None, planned_end: str | None = None,
+) -> dict[str, object]:
     if phase == "yahoo":
         old = existing.loc[existing.symbol.eq(item)].set_index("date")
         new = incoming.loc[incoming.symbol.eq(item)].set_index("date")
@@ -224,8 +230,9 @@ def _series_revision(existing: pd.DataFrame, incoming: pd.DataFrame, *, item: st
         finite_to_null += int((left.notna() & right.isna()).sum())
         null_to_finite += int((left.isna() & right.notna()).sum())
         revised_finite += int((left.notna() & right.notna() & ~left.eq(right)).sum())
-    dates = pd.to_datetime(incoming["date"])
-    bounded = old.loc[pd.to_datetime(old.index).to_series(index=old.index).between(dates.min(), dates.max())]
+    lower = pd.Timestamp(planned_start) if planned_start else pd.to_datetime(incoming["date"]).min()
+    upper = pd.Timestamp(planned_end) if planned_end else pd.to_datetime(incoming["date"]).max()
+    bounded = old.loc[pd.to_datetime(old.index).to_series(index=old.index).between(lower, upper)]
     return {
         "item": item, "response_start": str(incoming.date.min()), "response_end": str(incoming.date.max()),
         "overlap_rows": len(overlap), "inserted_rows": len(new.index.difference(old.index)),
@@ -236,11 +243,50 @@ def _series_revision(existing: pd.DataFrame, incoming: pd.DataFrame, *, item: st
 
 
 def _verify_captures(landing_root: Path, phase: str, plan: list[dict[str, str]]) -> list[dict[str, object]]:
+    expected_provider = "yahoo" if phase == "yahoo" else "fred"
+    expected_operation = "chart" if phase == "yahoo" else "fredgraph_csv"
+    for entry in landing_root.rglob("*"):
+        _assert_plain_path(landing_root, entry)
+        parts = entry.relative_to(landing_root).parts
+        valid = (
+            (len(parts) == 1 and entry.is_dir() and parts[0] == expected_provider)
+            or (len(parts) == 2 and entry.is_dir() and parts == (expected_provider, expected_operation))
+            or (len(parts) == 3 and entry.is_dir() and parts[:2] == (expected_provider, expected_operation))
+            or (len(parts) == 4 and entry.is_file() and parts[:2] == (expected_provider, expected_operation)
+                and parts[3] in {"call.json", "response.body"})
+        )
+        if not valid:
+            raise RefreshError("Landing root contains unexpected topology")
     records = []
     for path in sorted(landing_root.rglob("call.json")):
+        _assert_plain_path(landing_root, path)
         record = json.loads(path.read_text(encoding="utf-8"))
+        required = {
+            "capture_version", "provider", "operation", "captured_at_utc",
+            "request_url", "request_parameters", "http_status",
+            "response_content_type", "response_body_sha256", "response_bytes",
+            "landing_body_file",
+        }
+        if set(record) != required or record["capture_version"] != 1 or record["landing_body_file"] != "response.body":
+            raise RefreshError("Landing call schema/value differs")
+        if set(child.name for child in path.parent.iterdir()) != {"call.json", "response.body"}:
+            raise RefreshError("Landing call directory topology differs")
+        if path.parent.parent.parent != landing_root / record["provider"]:
+            raise RefreshError("Landing provider/operation topology differs")
+        if not re.fullmatch(r"\d{8}T\d{6}\.\d{6}Z_[0-9a-f]{32}", path.parent.name):
+            raise RefreshError("Landing call-directory identity differs")
+        try:
+            stamp = datetime.fromisoformat(str(record["captured_at_utc"]).replace("Z", "+00:00")).astimezone(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+        except (ValueError, TypeError) as error:
+            raise RefreshError("Landing capture timestamp differs") from error
+        if not path.parent.name.startswith(stamp + "_"):
+            raise RefreshError("Landing call-directory timestamp differs")
         body = path.with_name(record["landing_body_file"])
-        if hashlib.sha256(body.read_bytes()).hexdigest() != record["response_body_sha256"]:
+        _assert_plain_path(landing_root, body)
+        content = body.read_bytes()
+        if (hashlib.sha256(content).hexdigest() != record["response_body_sha256"]
+                or len(content) != record["response_bytes"]
+                or not isinstance(record["response_content_type"], str)):
             raise RefreshError("Landing body hash differs from call record")
         if int(record.get("http_status", 0)) != 200:
             raise RefreshError("Landing call is not HTTP 200")
@@ -268,7 +314,9 @@ def _verify_captures(landing_root: Path, phase: str, plan: list[dict[str, str]])
                 or record.get("operation") != expected_operation
                 or record.get("request_url") != expected_url or parameters != expected_parameters):
             raise RefreshError("Landing record does not bind exactly to frozen plan")
-        records.append({"item": item, "path": path.relative_to(landing_root).as_posix(), "body_sha256": record["response_body_sha256"]})
+        records.append({"item": item, "path": path.relative_to(landing_root).as_posix(),
+                        "call_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                        "body_sha256": record["response_body_sha256"]})
     if len(records) != len(plan) or {record["item"] for record in records} != {entry["item"] for entry in plan}:
         raise RefreshError("Landing call-record count differs")
     return records
@@ -372,7 +420,13 @@ def prepare_phase(project_root: Path, phase: str, *, end: date, session=None) ->
                     raise RefreshError("FRED finite coverage regressed")
                 keys = ["date"]
                 validator = validate_fred
-            revision = {item: _series_revision(existing, frame_by_item[item], item=item, phase=phase) for item in items}
+            plan_by_item = {entry["item"]: entry for entry in plan}
+            revision = {
+                item: _series_revision(
+                    existing, frame_by_item[item], item=item, phase=phase,
+                    planned_start=plan_by_item[item]["start"], planned_end=plan_by_item[item]["end"],
+                ) for item in items
+            }
             if any(report["source_omitted_existing_dates"] or report["finite_to_null_cells"] for report in revision.values()):
                 raise RefreshError("source omitted retained dates or changed finite values to null")
             candidate = _merge(existing, incoming, keys)
@@ -437,21 +491,75 @@ def _remove_path(path: Path) -> None:
         path.unlink(missing_ok=True)
 
 
-def _recover_transaction(journal_path: Path, *, committed: bool, allowed_targets: set[Path]) -> None:
+def _artifact_fingerprint(path: Path) -> dict[str, object]:
+    if path.is_dir():
+        digest = hashlib.sha256()
+        files = []
+        for child in sorted(path.rglob("*")):
+            _assert_plain_path(path, child)
+            if child.is_file():
+                body = child.read_bytes()
+                relative = child.relative_to(path).as_posix()
+                value = hashlib.sha256(body).hexdigest()
+                files.append({"path": relative, "bytes": len(body), "sha256": value})
+                digest.update(relative.encode() + b"\0" + value.encode() + b"\n")
+        return {"kind": "directory", "value": {"files": files, "manifest_sha256": digest.hexdigest()}}
+    return {"kind": "file", "value": _file_fingerprint(path)}
+
+
+def _copy_artifact(source: Path, target: Path) -> None:
+    if source.is_dir():
+        shutil.copytree(source, target)
+    else:
+        shutil.copy2(source, target)
+
+
+def _recover_transaction(
+    journal_path: Path, *, committed: bool, allowed_targets: set[Path],
+    allowed_sources: set[Path], project_root: Path,
+) -> None:
     if not journal_path.is_file():
         return
+    _assert_plain_path(project_root, journal_path)
     journal = json.loads(journal_path.read_text(encoding="utf-8"))
     entries = journal.get("replacements", [])
     observed_targets = {Path(entry.get("target", "")) for entry in entries}
     if observed_targets != allowed_targets:
         raise RefreshError("transaction journal target topology differs")
+    if {Path(entry.get("source", "")) for entry in entries} != allowed_sources:
+        raise RefreshError("transaction journal source topology differs")
     token = journal_path.parent.name
     for number, entry in enumerate(entries):
-        target = Path(entry["target"])
+        target = _assert_plain_path(project_root, Path(entry["target"]), must_exist=False)
+        source = _assert_plain_path(project_root, Path(entry["source"]), must_exist=False)
+        stage = _assert_plain_path(project_root, Path(entry["stage"]), must_exist=False)
+        backup = _assert_plain_path(project_root, Path(entry["backup"]), must_exist=False)
         if (Path(entry["stage"]) != target.parent / f".{target.name}.refresh-{token}-{number}.stage"
                 or Path(entry["backup"]) != target.parent / f".{target.name}.refresh-{token}-{number}.backup"):
             raise RefreshError("transaction journal scratch topology differs")
-    if not committed:
+        if committed:
+            available = next((path for path in (target, stage, source) if path.exists() and _artifact_fingerprint(path) == entry["source_fingerprint"]), None)
+            if available is None:
+                raise RefreshError("committed transaction has no verified canonical source copy")
+        elif entry["original_exists"]:
+            original_available = (
+                backup.exists() and _artifact_fingerprint(backup) == entry["pre_target_fingerprint"]
+            ) or (
+                target.exists() and _artifact_fingerprint(target) == entry["pre_target_fingerprint"]
+            )
+            if not original_available:
+                raise RefreshError("uncommitted transaction has no verified original copy")
+    if committed:
+        for entry in entries:
+            target, source, stage = Path(entry["target"]), Path(entry["source"]), Path(entry["stage"])
+            if not target.exists() or _artifact_fingerprint(target) != entry["source_fingerprint"]:
+                verified = next(path for path in (stage, source) if path.exists() and _artifact_fingerprint(path) == entry["source_fingerprint"])
+                if target.exists():
+                    _remove_path(target)
+                _copy_artifact(verified, target)
+            if _artifact_fingerprint(target) != entry["source_fingerprint"]:
+                raise RefreshError("committed recovery canonical verification failed")
+    else:
         for entry in reversed(entries):
             target, backup = Path(entry["target"]), Path(entry["backup"])
             if backup.exists():
@@ -485,7 +593,9 @@ def _replace_roots_atomically(
                 raise RefreshError("transaction scratch path already exists; recover first")
             target.parent.mkdir(parents=True, exist_ok=True)
             journal_entries.append({"source": str(source), "target": str(target), "stage": str(stage),
-                                    "backup": str(backup), "original_exists": target.exists()})
+                                    "backup": str(backup), "original_exists": target.exists(),
+                                    "source_fingerprint": _artifact_fingerprint(source),
+                                    "pre_target_fingerprint": _artifact_fingerprint(target) if target.exists() else {"exists": False}})
             stages.append((stage, target))
         if journal_path is not None:
             _atomic_json(journal_path, {"version": 1, "status": "PREPARING", "replacements": journal_entries})
@@ -540,13 +650,16 @@ def _replace_roots_atomically(
 
 def _approval_digest(checkpoint: dict[str, object]) -> str:
     keys = [
-        "run_id", "phase", "frozen_plan", "landing_captures", "coverage",
+        "run_id", "phase", "frozen_plan", "max_http_calls", "retry_count",
+        "http_calls", "http_statuses", "landing_captures", "coverage",
         "revision_report", "pre_dataset", "candidate_dataset",
+        "pre_operational_state", "candidate_root", "candidate_operational_state",
         "candidate_operational_state_fingerprint",
     ]
     keys.extend(key for key in (
         "pre_spread", "pre_spread_state", "candidate_spread",
-        "candidate_spread_manifest", "candidate_spread_state_fingerprint",
+        "candidate_spread_manifest", "candidate_spread_state",
+        "candidate_spread_state_fingerprint",
     ) if key in checkpoint)
     payload = {key: checkpoint[key] for key in keys}
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
@@ -573,20 +686,44 @@ def promote_phase(project_root: Path, checkpoint_path: Path, *, approval_digest:
     _assert_plain_path(project_root, production)
     _assert_plain_path(project_root, operational_state)
     allowed_targets = {production, operational_state}
+    candidate_parent = project_root / "data/staging/global_current_refresh" / run_id
+    allowed_sources = {candidate_parent / contract.name, candidate_parent / f"{contract.name}.state.json"}
+    if (checkpoint.get("candidate_root") != (candidate_parent / contract.name).relative_to(project_root).as_posix()
+            or checkpoint.get("candidate_operational_state") != (candidate_parent / f"{contract.name}.state.json").relative_to(project_root).as_posix()):
+        raise RefreshError("checkpoint candidate path topology differs")
     if phase == "fred_yields":
         allowed_targets |= {
             project_root / "data/derived" / US_TREASURY_SPREAD_DAILY.name,
             project_root / "data/state" / f"{US_TREASURY_SPREAD_DAILY.name}.json",
         }
+        allowed_sources |= {
+            candidate_parent / US_TREASURY_SPREAD_DAILY.name,
+            candidate_parent / f"{US_TREASURY_SPREAD_DAILY.name}.state.json",
+        }
+        if checkpoint.get("candidate_spread_state") != (candidate_parent / f"{US_TREASURY_SPREAD_DAILY.name}.state.json").relative_to(project_root).as_posix():
+            raise RefreshError("checkpoint spread-state topology differs")
+    for path in allowed_targets | allowed_sources:
+        _assert_plain_path(project_root, path, must_exist=False)
+    limit, _, items = PHASES[phase]
+    if (checkpoint.get("max_http_calls") != limit or checkpoint.get("http_calls") != limit
+            or checkpoint.get("retry_count") != 0 or checkpoint.get("http_statuses") != [200] * limit
+            or len(checkpoint.get("landing_captures", [])) != limit
+            or [entry.get("item") for entry in checkpoint.get("frozen_plan", [])] != list(items)
+            or checkpoint.get("approval_digest") != approval_digest
+            or _approval_digest(checkpoint) != approval_digest):
+        raise RefreshError("checkpoint approval/call/plan accounting differs")
     journal_path = checkpoint_path.with_name("promotion_transaction.json")
-    _recover_transaction(journal_path, committed=checkpoint.get("status") == "PROMOTED", allowed_targets=allowed_targets)
+    _assert_plain_path(project_root, journal_path, must_exist=False)
+    _recover_transaction(
+        journal_path, committed=checkpoint.get("status") == "PROMOTED",
+        allowed_targets=allowed_targets, allowed_sources=allowed_sources,
+        project_root=project_root,
+    )
     checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
     if checkpoint.get("status") == "PROMOTED":
         return checkpoint
     if checkpoint.get("status") != "CANDIDATE_REVIEW_REQUIRED":
         raise RefreshError("checkpoint is not review-ready")
-    if checkpoint.get("approval_digest") != approval_digest or _approval_digest(checkpoint) != approval_digest:
-        raise RefreshError("explicit approval digest differs")
     expected_candidate = project_root / "data/staging/global_current_refresh" / run_id / contract.name
     candidate = _assert_plain_path(project_root, project_root / checkpoint["candidate_root"])
     if candidate != expected_candidate.absolute():
@@ -607,10 +744,10 @@ def promote_phase(project_root: Path, checkpoint_path: Path, *, approval_digest:
     replacements = [(candidate, production), (candidate_state, operational_state)]
     if phase == "fred_yields":
         spread = project_root / "data/derived" / US_TREASURY_SPREAD_DAILY.name
+        spread_state = project_root / "data/state" / f"{US_TREASURY_SPREAD_DAILY.name}.json"
         _assert_plain_path(project_root, spread)
         _assert_plain_path(project_root, spread_state)
         candidate_spread = _assert_plain_path(project_root, candidate.parent / US_TREASURY_SPREAD_DAILY.name)
-        spread_state = project_root / "data/state" / f"{US_TREASURY_SPREAD_DAILY.name}.json"
         candidate_spread_state = _assert_plain_path(project_root, project_root / checkpoint["candidate_spread_state"])
         if (_files_manifest(spread) != checkpoint["pre_spread"]
                 or _files_manifest(candidate_spread) != checkpoint["candidate_spread_manifest"]
@@ -620,6 +757,11 @@ def promote_phase(project_root: Path, checkpoint_path: Path, *, approval_digest:
         replacements.append((candidate_spread, spread))
         replacements.append((candidate_spread_state, spread_state))
     with _lock(project_root, checkpoint["run_id"]):
+        for path in (checkpoint_path, landing, production, operational_state, candidate, candidate_state):
+            _assert_plain_path(project_root, path)
+        if phase == "fred_yields":
+            for path in (spread, spread_state, candidate_spread, candidate_spread_state):
+                _assert_plain_path(project_root, path)
         if (_files_manifest(production) != checkpoint["pre_dataset"]
                 or _files_manifest(candidate) != checkpoint["candidate_dataset"]
                 or _file_fingerprint(operational_state) != checkpoint["pre_operational_state"]

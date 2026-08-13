@@ -39,10 +39,18 @@ copy of each whole candidate root with rollback. A yield candidate also rebuilds
 the Treasury spreads; yield and spread roots promote in the same transaction.
 Candidate evidence remains retained after promotion.
 
+The approval digest binds the pre-production operational state, exact call and
+HTTP-status accounting, retry count, frozen paths, call-record hashes, revision
+details, and every candidate/pre-production manifest. Changing any reviewed
+field invalidates approval.
+
 Dataset and operational-state candidates are promoted together. A durable
 transaction journal is written before staging begins and supports deterministic
 rollback after an interrupted, uncommitted transaction or cleanup after a
-committed transaction. All candidate, Landing, production, and state manifests
+committed transaction. Committed recovery reconstructs any missing canonical
+target from a fingerprint-verified candidate or stage before deleting backups;
+if no verified new copy exists, it preserves all remaining copies and stops.
+All candidate, Landing, production, and state manifests
 are checked again after the provider lock is acquired. Paths must match the
 run/phase topology; symlinks, junctions/reparse points, extra files, and unknown
 partition layouts are rejected.
