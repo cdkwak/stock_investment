@@ -96,11 +96,19 @@ def _append_state(root: Path, run: dict[str, Any]) -> dict[str, Any]:
         and same_date
         and all(item.get("status") == "TOKEN_FAILED_RETIRED_PATH" for item in same_date)
     )
-    if same_date and not one_off_replaces_retired_path:
+    post_close_follows_one_off = (
+        run.get("run_kind") == "SCHEDULED_POST_CLOSE_DATE_VALIDATION"
+        and same_date
+        and not any(item.get("run_kind") == "SCHEDULED_POST_CLOSE_DATE_VALIDATION" for item in same_date)
+        and all(item.get("status") in {"TOKEN_FAILED_RETIRED_PATH", "COMPLETE"} for item in same_date)
+    )
+    if same_date and not (one_off_replaces_retired_path or post_close_follows_one_off):
         raise RuntimeError("KB daily attempt already recorded for this KST date")
     state["runs"].append(run)
     state["runs"] = sorted(state["runs"], key=lambda item: (item["capture_date_kst"], item["run_id"]))
     state["access_status"] = "SENTINEL_PATH_FAILED" if run["status"] == "TOKEN_FAILED" else "ACCESS_OK"
+    if run["status"] == "RAW_CAPTURED_DATE_REVIEW_REQUIRED":
+        state["daily_snapshot_status"] = "POST_CLOSE_COMPARISON_READY"
     state["latest_run_id"] = run["run_id"]
     state["latest_capture_date_kst"] = run["capture_date_kst"]
     _atomic_json(_state_path(root), state)
@@ -210,7 +218,14 @@ def _collect_daily_snapshot(
         and same_date
         and all(item.get("status") == "TOKEN_FAILED_RETIRED_PATH" for item in same_date)
     )
-    if same_date and not one_off_allowed:
+    post_close_validation_allowed = (
+        not confirm_one_off_auth_validation
+        and state.get("daily_snapshot_status") == "DATE_SEMANTICS_REVIEW_REQUIRED"
+        and same_date
+        and not any(item.get("run_kind") == "SCHEDULED_POST_CLOSE_DATE_VALIDATION" for item in same_date)
+        and all(item.get("status") in {"TOKEN_FAILED_RETIRED_PATH", "COMPLETE"} for item in same_date)
+    )
+    if same_date and not (one_off_allowed or post_close_validation_allowed):
         return {"status": "NOT_EXECUTED_ALREADY_ATTEMPTED_TODAY", "network_calls": 0}
     if local.weekday() >= 5:
         return {"status": "NOT_EXECUTED_NON_TRADING_WEEKDAY", "network_calls": 0}
@@ -218,7 +233,12 @@ def _collect_daily_snapshot(
     if not confirm_one_off_auth_validation and not 16 * 60 + 30 <= minute <= 18 * 60:
         return {"status": "NOT_EXECUTED_OUTSIDE_1630_1800_KST", "network_calls": 0}
 
-    run_kind = "CORRECTED_AUTH_ONE_OFF_VALIDATION" if confirm_one_off_auth_validation else "SCHEDULED_DAILY"
+    if confirm_one_off_auth_validation:
+        run_kind = "CORRECTED_AUTH_ONE_OFF_VALIDATION"
+    elif post_close_validation_allowed:
+        run_kind = "SCHEDULED_POST_CLOSE_DATE_VALIDATION"
+    else:
+        run_kind = "SCHEDULED_DAILY"
     run_id = observed.strftime("%Y%m%dT%H%M%SZ") + ("_auth_validation" if confirm_one_off_auth_validation else "_daily")
     run_dir = root / "data/landing/kbsec/daily_snapshot" / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
@@ -243,8 +263,20 @@ def _collect_daily_snapshot(
         }
         _atomic_json(run_dir / "provenance.json", provenance)
         status = "RAW_VALIDATED"
-        counts = store_kb_market_summary_response(root, response=response, collected_at=observed)
-        status = "COMPLETE"
+        if run_kind == "SCHEDULED_POST_CLOSE_DATE_VALIDATION":
+            previous = next(
+                item for item in reversed(state["runs"])
+                if item.get("run_kind") == "CORRECTED_AUTH_ONE_OFF_VALIDATION"
+            )
+            comparison = _compare_slice_date_evidence(
+                json.loads((root / previous["landing_run"] / "market_response.json").read_text(encoding="utf-8"))["dataBody"],
+                response.data_body,
+            )
+            _atomic_json(run_dir / "slice_date_comparison.json", comparison)
+            status = "RAW_CAPTURED_DATE_REVIEW_REQUIRED"
+        else:
+            counts = store_kb_market_summary_response(root, response=response, collected_at=observed)
+            status = "COMPLETE"
     except KBSecError as error:
         error_type = type(error).__name__; status = "TOKEN_FAILED" if len(session.calls) == 1 else "MARKET_FAILED"
     finally:
@@ -279,3 +311,61 @@ def _collect_daily_snapshot(
     }
     _append_state(root, run)
     return run
+
+
+def _compare_slice_date_evidence(preopen: dict[str, Any], postclose: dict[str, Any]) -> dict[str, Any]:
+    inquiry = str(postclose.get("inq_dy_tm", ""))[:8]
+    slices = {
+        "market_breadth": tuple(postclose.get(key) for key in (
+            "kspi_ulmt_is_c", "kspi_up_is_c", "kspi_unchng_is_c", "kspi_dwn_is_c", "kspi_llmt_is_c",
+            "ksdq_ulmt_is_c", "ksdq_up_is_c", "ksdq_unchng_is_c", "ksdq_dwn_is_c", "ksdq_llmt_is_c",
+        )),
+        "program_trading": tuple(postclose.get(key) for key in ("mprft_nt_b", "nmp_nt_b")),
+        "investor_flow": postclose.get("out5", []),
+        "market_liquidity": tuple(postclose.get(key) for key in (
+            "cs_dpst_5", "rcvamt_5", "crdt_blnc_5", "fts_tfnd_5",
+        )),
+        "derivatives_summary": postclose.get("out3", []),
+        "domestic_indices": postclose.get("out2", []),
+        "global_symbols": postclose.get("out4", []),
+    }
+    before = {
+        "market_breadth": tuple(preopen.get(key) for key in (
+            "kspi_ulmt_is_c", "kspi_up_is_c", "kspi_unchng_is_c", "kspi_dwn_is_c", "kspi_llmt_is_c",
+            "ksdq_ulmt_is_c", "ksdq_up_is_c", "ksdq_unchng_is_c", "ksdq_dwn_is_c", "ksdq_llmt_is_c",
+        )),
+        "program_trading": tuple(preopen.get(key) for key in ("mprft_nt_b", "nmp_nt_b")),
+        "investor_flow": preopen.get("out5", []),
+        "market_liquidity": tuple(preopen.get(key) for key in (
+            "cs_dpst_5", "rcvamt_5", "crdt_blnc_5", "fts_tfnd_5",
+        )),
+        "derivatives_summary": preopen.get("out3", []),
+        "domestic_indices": preopen.get("out2", []),
+        "global_symbols": preopen.get("out4", []),
+    }
+    result: dict[str, Any] = {}
+    for name, values in slices.items():
+        if name == "market_liquidity":
+            source_dates = [str(postclose.get("dt_5", ""))[:8]]
+            classification = "LAGGED_SOURCE_DATE" if source_dates[0] and source_dates[0] != inquiry else "DATE_UNRESOLVED"
+        elif name == "global_symbols":
+            source_dates = sorted({
+                str(row.get("dt_tm", ""))[:8] for row in postclose.get("out4", [])
+                if isinstance(row, dict) and str(row.get("dt_tm", "")).strip()
+            })
+            classification = "DATE_UNRESOLVED"
+        else:
+            source_dates = [inquiry]
+            classification = "CURRENT_DAY_CLOSE" if values != before[name] else "DATE_UNRESOLVED"
+        result[name] = {
+            "preopen_values_equal": values == before[name],
+            "source_dates": source_dates,
+            "classification_candidate": classification,
+        }
+    return {
+        "schema": RUN_SCHEMA + ".slice_date_comparison", "version": 1,
+        "preopen_inquiry_date": str(preopen.get("inq_dy_tm", ""))[:8],
+        "postclose_inquiry_date": inquiry,
+        "classifications_are_candidates_pending_offline_review": True,
+        "slices": result,
+    }

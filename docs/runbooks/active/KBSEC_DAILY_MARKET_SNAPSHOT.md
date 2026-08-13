@@ -69,4 +69,8 @@ Audit `e37cf7786a2f619be003390b9d1c59537a66579d20fb1770b74615f240aa1939`
 therefore supersedes the earlier structural audit and blocks operational promotion.
 The 33 premature Normalized rows were moved intact to
 `data/quarantine/kbsec_preopen_date_semantics/20260813T220546Z_auth_validation`.
-Do not register the recurring task until one post-close snapshot verifies slice dates.
+The weekday 17:00 KST task is registered. Its next run is a Landing-first comparison
+capture only: it may follow the same-day pre-open validation once, writes
+`slice_date_comparison.json`, and stops before Normalized publication. Review must
+classify each slice as `CURRENT_DAY_CLOSE`, `PREVIOUS_DAY_CLOSE`, `INTRADAY/NIGHT`,
+`LAGGED_SOURCE_DATE`, or `DATE_UNRESOLVED` before defining final per-slice contracts.
