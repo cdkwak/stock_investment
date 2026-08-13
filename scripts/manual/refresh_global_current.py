@@ -458,6 +458,88 @@ def adopt_stopped_fred_yields(
     return adopted
 
 
+def adopt_stopped_fred_fx(
+    project_root: Path, checkpoint_path: Path, *, accepted_observed_end: date,
+    confirm_requested_end: date,
+) -> dict[str, object]:
+    """Offline adoption of one already captured stopped FX run; zero HTTP."""
+    project_root = project_root.resolve()
+    checkpoint_path = _assert_plain_path(project_root, checkpoint_path)
+    stopped = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    run_id = stopped.get("run_id")
+    items = ("DEXKOUS", "DEXJPUS")
+    if (stopped.get("phase") != "fred_fx" or stopped.get("status") != "STOPPED"
+            or stopped.get("http_calls") != 2 or stopped.get("http_statuses") != [200, 200]
+            or stopped.get("retry_count") != 0):
+        raise RefreshError("stopped run is not an exact healthy two-call FX capture")
+    expected_checkpoint = project_root / "data/state/global_current_refresh" / str(run_id) / "checkpoint.json"
+    if checkpoint_path != expected_checkpoint.absolute():
+        raise RefreshError("stopped checkpoint topology differs")
+    plan = stopped.get("frozen_plan")
+    if (not isinstance(plan, list) or [entry.get("item") for entry in plan] != list(items)
+            or {entry.get("end") for entry in plan} != {confirm_requested_end.isoformat()}):
+        raise RefreshError("requested-end confirmation or frozen FX plan differs")
+    landing = _assert_plain_path(project_root, project_root / "data/landing/global_current_refresh" / run_id)
+    captures = _verify_captures(landing, "fred_fx", plan)
+    call_by_item = {capture["item"]: landing / capture["path"] for capture in captures}
+    frames = {item: _parse_retained_fred_capture(call_by_item[item], item) for item in items}
+    endpoints = {item: frame.date.max() for item, frame in frames.items()}
+    if set(endpoints.values()) != {accepted_observed_end.isoformat()}:
+        raise RefreshError("FRED FX series endpoints are unequal or differ from reviewed observed end")
+    plan_by_item = {entry["item"]: entry for entry in plan}
+    for item in items:
+        frame, entry = frames[item], plan_by_item[item]
+        if frame.date.min() < entry["start"] or frame.date.max() > entry["end"]:
+            raise RefreshError("retained FRED FX response lies outside frozen requested window")
+    production = project_root / "data/normalized" / FRED_USD_FX_DAILY.name
+    production_state = project_root / "data/state" / f"{FRED_USD_FX_DAILY.name}.json"
+    existing = read_dataset(production, FRED_USD_FX_DAILY, validate_fred)
+    if _files_manifest(production) != stopped["pre_dataset"]:
+        raise RefreshError("FX production changed since stopped capture")
+    incoming = frames[items[0]].merge(frames[items[1]], on="date", how="outer", validate="one_to_one")
+    incoming = incoming.sort_values("date", kind="stable").reset_index(drop=True)
+    validate_fred(incoming)
+    revisions = {item: _series_revision(
+        existing, frames[item], item=item, phase="fred_fx",
+        planned_start=plan_by_item[item]["start"], planned_end=accepted_observed_end.isoformat(),
+    ) for item in items}
+    if any(report["source_omitted_existing_dates"] or report["finite_to_null_cells"] for report in revisions.values()):
+        raise RefreshError("retained FRED FX response omits or nulls retained observations")
+    candidate = _merge(existing, incoming, ["date"])
+    validate_fred(candidate)
+    candidate_parent = project_root / "data/staging/global_current_refresh" / run_id
+    candidate_root = candidate_parent / FRED_USD_FX_DAILY.name
+    if candidate_parent.exists():
+        raise RefreshError("FX adoption candidate path already exists")
+    with _lock(project_root, run_id):
+        write_dataset_atomic(candidate, candidate_root, FRED_USD_FX_DAILY, validate_fred)
+        candidate_manifest = _files_manifest(candidate_root)
+        coverage = {item: {"planned_start": plan_by_item[item]["start"],
+                           "requested_end": confirm_requested_end.isoformat(),
+                           "accepted_observed_end": accepted_observed_end.isoformat(),
+                           "observed_start": frames[item].date.min(), "observed_end": frames[item].date.max()}
+                    for item in items}
+        state_path = candidate_parent / f"{FRED_USD_FX_DAILY.name}.state.json"
+        _atomic_json(state_path, {"dataset": FRED_USD_FX_DAILY.name,
+            "status": "artifact_complete_provenance_limited", "run_id": run_id,
+            "adoption": "reviewed_publication_lag", "requested_end": confirm_requested_end.isoformat(),
+            "accepted_observed_end": accepted_observed_end.isoformat(), "frozen_plan": plan,
+            "landing_captures": captures, "coverage": coverage, "revision_report": revisions,
+            "pre_dataset": stopped["pre_dataset"], "candidate_dataset": candidate_manifest})
+        adopted = dict(stopped)
+        adopted.update({"version": 3, "status": "CANDIDATE_REVIEW_REQUIRED", "error_type": None,
+            "adoption": "reviewed_publication_lag", "requested_end": confirm_requested_end.isoformat(),
+            "accepted_observed_end": accepted_observed_end.isoformat(), "landing_captures": captures,
+            "coverage": coverage, "revision_report": revisions, "candidate_dataset": candidate_manifest,
+            "candidate_root": candidate_root.relative_to(project_root).as_posix(),
+            "pre_operational_state": _file_fingerprint(production_state),
+            "candidate_operational_state": state_path.relative_to(project_root).as_posix(),
+            "candidate_operational_state_fingerprint": _file_fingerprint(state_path)})
+        adopted["approval_digest"] = _approval_digest(adopted)
+        _atomic_json(checkpoint_path, adopted)
+    return adopted
+
+
 def prepare_phase(project_root: Path, phase: str, *, end: date, session=None) -> dict[str, object]:
     """Make a reviewable Landing/candidate bundle; never mutate production."""
     project_root = project_root.resolve()
@@ -885,11 +967,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--confirm-offline-promotion", action="store_true")
     parser.add_argument("--approval-digest")
     parser.add_argument("--adopt-stopped-fred-yields", type=Path)
+    parser.add_argument("--adopt-stopped-fred-fx", type=Path)
     parser.add_argument("--accepted-observed-end", type=date.fromisoformat)
     parser.add_argument("--confirm-requested-end", type=date.fromisoformat)
     args = parser.parse_args(argv)
     root = args.project_root.resolve()
-    if args.adopt_stopped_fred_yields:
+    if args.adopt_stopped_fred_fx:
+        if not args.accepted_observed_end or not args.confirm_requested_end:
+            raise SystemExit("adoption requires accepted observed end and requested-end confirmation")
+        result = adopt_stopped_fred_fx(
+            root, args.adopt_stopped_fred_fx.resolve(),
+            accepted_observed_end=args.accepted_observed_end,
+            confirm_requested_end=args.confirm_requested_end,
+        )
+    elif args.adopt_stopped_fred_yields:
         if not args.accepted_observed_end or not args.confirm_requested_end:
             raise SystemExit("adoption requires accepted observed end and requested-end confirmation")
         result = adopt_stopped_fred_yields(

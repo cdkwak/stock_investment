@@ -380,6 +380,51 @@ def test_offline_adoption_rejects_relabel_tamper_and_unequal_endpoints(tmp_path)
             accepted_observed_end=date(2026, 8, 2), confirm_requested_end=date(2026, 8, 3))
 
 
+def _stopped_fx_fixture(root: Path, endpoints=None):
+    items = ("DEXKOUS", "DEXJPUS"); endpoints = endpoints or {item: "2026-08-02" for item in items}
+    production = root / "data/normalized/fred_usd_fx_daily"
+    existing = pd.DataFrame({"date": ["2026-08-01"], "dexkous": [1400.0], "dexjpus": [0.0068]})
+    write_dataset_atomic(existing, production, refresh.FRED_USD_FX_DAILY, refresh.validate_fred)
+    state = root / "data/state/fred_usd_fx_daily.json"; state.parent.mkdir(parents=True)
+    state.write_text('{"dataset":"fred_usd_fx_daily"}\n')
+    run = "20260813T010000Z_" + "b" * 32
+    checkpoint = root / "data/state/global_current_refresh" / run / "checkpoint.json"
+    landing = root / "data/landing/global_current_refresh" / run
+    plan = []
+    for item in items:
+        plan.append({"item": item, "start": "2026-08-01", "end": "2026-08-03"})
+        body = f"observation_date,{item}\n2026-08-01,1.0\n{endpoints[item]},1.1\n".encode()
+        response = type("R", (), {"status_code": 200, "content": body, "headers": {"Content-Type": "text/csv"}})()
+        capture_public_response(root=landing, provider="fred", operation="fredgraph_csv",
+            request_url="https://fred.stlouisfed.org/graph/fredgraph.csv",
+            request_parameters={"id": item, "cosd": "2026-08-01", "coed": "2026-08-03"}, response=response)
+    refresh._atomic_json(checkpoint, {"version": 2, "run_id": run, "phase": "fred_fx", "status": "STOPPED",
+        "max_http_calls": 2, "http_calls": 2, "http_statuses": [200, 200], "retry_count": 0,
+        "frozen_plan": plan, "pre_dataset": _files_manifest(production), "normalized_mutation": False,
+        "error_type": "RefreshError"})
+    return checkpoint
+
+
+def test_offline_stopped_fx_adoption_and_rejection_gates(tmp_path):
+    root = tmp_path / "fx"; root.mkdir(); checkpoint = _stopped_fx_fixture(root)
+    result = refresh.adopt_stopped_fred_fx(root, checkpoint,
+        accepted_observed_end=date(2026, 8, 2), confirm_requested_end=date(2026, 8, 3))
+    assert result["status"] == "CANDIDATE_REVIEW_REQUIRED"
+    assert result["approval_digest"] == refresh._approval_digest(result)
+    assert _files_manifest(root / result["candidate_root"])["rows"] == 2
+    root2 = tmp_path / "unequal"; root2.mkdir()
+    unequal = _stopped_fx_fixture(root2, {"DEXKOUS": "2026-08-02", "DEXJPUS": "2026-08-03"})
+    with pytest.raises(RefreshError, match="endpoints"):
+        refresh.adopt_stopped_fred_fx(root2, unequal,
+            accepted_observed_end=date(2026, 8, 2), confirm_requested_end=date(2026, 8, 3))
+    root3 = tmp_path / "tamper"; root3.mkdir(); tampered = _stopped_fx_fixture(root3)
+    call = next((root3 / "data/landing/global_current_refresh").rglob("call.json"))
+    record = json.loads(call.read_text()); record["request_parameters"]["id"] = "DEXJPUS"; call.write_text(json.dumps(record))
+    with pytest.raises(RefreshError, match="frozen plan|count"):
+        refresh.adopt_stopped_fred_fx(root3, tampered,
+            accepted_observed_end=date(2026, 8, 2), confirm_requested_end=date(2026, 8, 3))
+
+
 def test_cli_refuses_implicit_live_mode(tmp_path):
     import subprocess, sys
     script = Path(__file__).parents[1] / "scripts/manual/refresh_global_current.py"
