@@ -22,3 +22,25 @@ byte-idempotent.
 This artifact is not a canonical corporate-action event table, does not prove
 historical completeness, and supplies no adjustment factor or announcement
 date. Do not reclassify the canonical Rights blocker from this observation.
+
+## Fixed-snapshot completion sentinel
+
+The B002-P3 runner is restricted in code to the already verified
+`basDt=20191231`, KSD issuer customer `1115`, page 1, and `numOfRows=12`.
+It holds the shared data.go.kr network lock, permits exactly one request with
+zero retries, and writes the raw response envelope, redacted ledger, external
+checkpoint, and hash-chain handoff before promotion. Only an HTTP-200/result-00
+response containing exactly 12/12 unique records with the reviewed source fields
+and identities can reach the existing append-only observation builder.
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\manual\run_rights_completion_sentinel.py
+```
+
+The authorized 2026-08-13 execution
+`b002_p3_20260813T123002Z_8694970d70fb45f0b6d962173da34769` passed in one
+request with zero retries. Response SHA-256:
+`113ae1aaf5c8906afd15858f173e5772e37554a74afa9c2550fc122a80044fcd`.
+The response contributed 12 immutable observations; together with the earlier
+one-row response identity, the artifact contains 13 rows. This is intentional
+observation provenance, not duplicate canonical events. Both locks were released.

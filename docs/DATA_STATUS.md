@@ -40,7 +40,7 @@ official continuous coverage.
 | `kr_stock_lending_participant_daily` | FSC stock-lending public API | DATA_COMPLETE, 2021-04-01..2026-08-10; 11,472 rows, 1,290 source dates | 27 source-absent dates versus detail intentionally preserved |
 | `kr_equity_dividend` | FSC dividend public API | one current snapshot complete, 71,652 source events; no historical point-in-time series | define versioned incremental snapshot policy |
 | `kr_equity_dividend_source_observation` | retained FSC dividend Landing snapshot | ARTIFACT_COMPLETE, 71,652 immutable source observations at `basDt=2026-08-08` | non-PIT/non-predictive; append future independently captured snapshots by Landing hash |
-| `kr_equity_rights_schedule` | FSC rights public API | PARTIAL_DIAGNOSTIC_SOURCE_OBSERVATION; one immutable Normalized row from retained 2019-12-31 diagnostic | declared 12/returned 1; canonical event identity, historical completeness, and economic adjustment terms remain BLOCKED |
+| `kr_equity_rights_schedule` | FSC rights public API | PARTIAL_DIAGNOSTIC_SOURCE_OBSERVATION; 13 immutable observations across two retained responses for 2019-12-31 issuer 1115 | the completion response returned its declared 12/12 rows; canonical event identity, broader historical completeness, and economic adjustment terms remain BLOCKED |
 | Corporate-action source boundary | FSC/data.go.kr local official guides | analysis complete; no new dataset | verify split/merger/reduction economic-term source before deriving adjustments |
 | Adjusted price / total return | none selected | not started | define corporate-action accounting policy and source |
 | 2020+ official equity | FSC stock price/listed APIs | complete, 2020-01-02..2026-08-07 | daily incremental |
@@ -85,7 +85,7 @@ remain in landing and never overwrite normalized data.
 | Dataset | Source snapshot / as-of | Event-effective fields | Announcement field | Historical predictive use |
 |---|---|---|---|---|
 | `kr_equity_dividend` | `date` (`basDt`) | record, cash-payment, stock-delivery dates | not provided | from the captured source snapshot date only; event dates are not knowledge dates |
-| `kr_equity_rights_schedule` | one retained successful diagnostic snapshot (`basDt` 2019-12-31) | exercise and registry-close dates | not provided | one observation is retained immutably by response hash + item ordinal; declared 12/returned 1, so canonical event identity and historical knowledge remain blocked |
+| `kr_equity_rights_schedule` | two retained response observations (`basDt` 2019-12-31, issuer 1115) | exercise and registry-close dates | not provided | the second response retained all declared 12 rows; response hash + item ordinal preserves both captures, while canonical event identity and historical knowledge remain blocked |
 | `kr_equity_master` | `source_date` | listing, delisting, deposit registration/cancellation dates | not provided | only when `source_date <= as_of`; missing `source_date` is ineligible for predictive features |
 | `kr_treasury_yield_daily` | unavailable from the retained source response | candle date | not provided | blocked for predictive features until a defensible observation-availability policy exists |
 
@@ -187,6 +187,17 @@ layer does not shift either date.
   provide ratios, share quantities, issue price, adjustment factors, or a safe
   field-only canonical event identity. No economic Rights event dataset or
   adjusted-price input is therefore marked complete.
+- The separately authorized B002-P3 completion sentinel made exactly one
+  retry-free request for the same fixed 2019-12-31 issuer/page with page size
+  12. It returned HTTP 200/result `00` and exactly 12/12 unique source records
+  matching the reviewed source schema and request identity. Its immutable
+  Landing response, ledger, checkpoint, and hash-chain handoff passed credential,
+  parser, contract, PK, and state reconciliation checks. The existing append-only
+  observation builder added the complete response as 12 observations; the two
+  retained response identities now total 13 rows with zero PK duplicates. This
+  completes only that one source response snapshot and does not establish wider
+  historical coverage, canonical business-event identity, economic rights terms,
+  adjustment factors, announcement timing, or supersession semantics.
 - Short-selling source feasibility is confirmed but its dataset contract/coverage
   pilot is now complete. The 25 sequential business probes used 40 raw HTTP
   requests: 25 business responses and 15 authentication requests across the

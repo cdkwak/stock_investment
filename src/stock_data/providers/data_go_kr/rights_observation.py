@@ -22,6 +22,20 @@ from stock_data.validation.data_v1 import validate_data_v1
 DATASET = KR_EQUITY_RIGHTS_SCHEDULE.name
 STATUS = "PARTIAL_DIAGNOSTIC_SOURCE_OBSERVATION"
 STATE_VERSION = 1
+DIAGNOSTIC_SPECS = {
+    "B002-P1": {
+        "source_classification": "SOURCE_USABLE",
+        "requested_rows": 1,
+        "returned_rows": 1,
+        "declared_total": 12,
+    },
+    "B002-P3": {
+        "source_classification": "SOURCE_SNAPSHOT_COMPLETE",
+        "requested_rows": 12,
+        "returned_rows": 12,
+        "declared_total": 12,
+    },
+}
 
 
 class RightsObservationError(RuntimeError):
@@ -133,11 +147,13 @@ def _extract_diagnostic(
     envelope = _json(envelope_path)
     ledger = _json(ledger_path)
     run_id = handoff.get("run_id")
+    task_id = handoff.get("task_id")
+    spec = DIAGNOSTIC_SPECS.get(str(task_id))
     if (
         not isinstance(run_id, str)
         or not run_id
-        or handoff.get("task_id") != "B002-P1"
-        or handoff.get("classification") != "SOURCE_USABLE"
+        or spec is None
+        or handoff.get("classification") != spec["source_classification"]
         or handoff.get("request_count") != 1
         or handoff.get("retries") != 0
         or handoff.get("envelope_sha256") != _sha256(envelope_path)
@@ -150,6 +166,21 @@ def _extract_diagnostic(
         value = handoff.get(field)
         if not isinstance(value, str) or _under(project_root, project_root / value) != expected:
             raise RightsObservationError(f"handoff {field} differs")
+    if task_id == "B002-P3":
+        checkpoint_value = handoff.get("checkpoint_path")
+        if not isinstance(checkpoint_value, str):
+            raise RightsObservationError("completion checkpoint path is missing")
+        checkpoint_path = _under(project_root, project_root / checkpoint_value)
+        checkpoint = _json(checkpoint_path)
+        if (
+            handoff.get("checkpoint_sha256") != _sha256(checkpoint_path)
+            or checkpoint.get("task_id") != task_id
+            or checkpoint.get("run_id") != run_id
+            or checkpoint.get("status") != spec["source_classification"]
+            or checkpoint.get("request_count") != 1
+            or checkpoint.get("retry_count") != 0
+        ):
+            raise RightsObservationError("completion checkpoint authenticity gate failed")
 
     encoded = envelope.get("response_body_base64")
     if envelope.get("response_body_encoding") != "base64" or not isinstance(encoded, str):
@@ -160,7 +191,7 @@ def _extract_diagnostic(
         raise RightsObservationError("response body base64 is invalid") from error
     body_sha = _sha256_bytes(body_bytes)
     if (
-        envelope.get("task_id") != "B002-P1"
+        envelope.get("task_id") != task_id
         or envelope.get("run_id") != run_id
         or envelope.get("http_status") != 200
         or envelope.get("response_body_bytes") != len(body_bytes)
@@ -171,9 +202,9 @@ def _extract_diagnostic(
 
     request = ledger.get("request")
     if (
-        ledger.get("task_id") != "B002-P1"
+        ledger.get("task_id") != task_id
         or ledger.get("run_id") != run_id
-        or ledger.get("classification") != "SOURCE_USABLE"
+        or ledger.get("classification") != spec["source_classification"]
         or ledger.get("authorized_operation")
         != "GetStocRighScheService_V2/getRighExerReasSche_V2"
         or ledger.get("http_status") != 200
@@ -190,7 +221,7 @@ def _extract_diagnostic(
             "basDt", "issuCmpyKsdCustNo", "numOfRows", "pageNo", "resultType"
         }
         or request.get("pageNo") != 1
-        or request.get("numOfRows") != 1
+        or request.get("numOfRows") != spec["requested_rows"]
         or request.get("resultType") != "json"
     ):
         raise RightsObservationError("call ledger authenticity gate failed")
@@ -208,15 +239,17 @@ def _extract_diagnostic(
     if (
         response.get("header", {}).get("resultCode") != "00"
         or body.get("pageNo") != 1
-        or body.get("numOfRows") != 1
-        or body.get("totalCount") != 12
+        or body.get("numOfRows") != spec["requested_rows"]
+        or body.get("totalCount") != spec["declared_total"]
         or not isinstance(items, list)
-        or len(items) != 1
-        or ledger.get("returned_item_count") != 1
-        or ledger.get("total_count") != 12
-        or str(request.get("basDt")) != str(items[0].get("basDt"))
-        or str(request.get("issuCmpyKsdCustNo"))
-        != str(items[0].get("issuCmpyKsdCustNo"))
+        or len(items) != spec["returned_rows"]
+        or ledger.get("returned_item_count") != spec["returned_rows"]
+        or ledger.get("total_count") != spec["declared_total"]
+        or any(str(request.get("basDt")) != str(item.get("basDt")) for item in items)
+        or any(
+            str(request.get("issuCmpyKsdCustNo"))
+            != str(item.get("issuCmpyKsdCustNo")) for item in items
+        )
     ):
         raise RightsObservationError("diagnostic response/request semantics differ")
 
@@ -225,14 +258,14 @@ def _extract_diagnostic(
     )
     metadata = {
         "run_id": run_id,
-        "task_id": "B002-P1",
+        "task_id": task_id,
         "classification": STATUS,
         "historical_completeness": False,
         "canonical_economic_event_identity": False,
         "api_calls_for_promotion": 0,
         "source_snapshot_date": str(frame["source_snapshot_date"].iloc[0]),
-        "declared_total_count": 12,
-        "returned_item_count": 1,
+        "declared_total_count": spec["declared_total"],
+        "returned_item_count": spec["returned_rows"],
         "source_page_no": 1,
         "response_body_sha256": body_sha,
         "response_envelope_sha256": _sha256(envelope_path),
@@ -303,13 +336,16 @@ def _load_existing(
         if (
             not isinstance(snapshot, dict)
             or set(snapshot) != snapshot_fields
-            or snapshot.get("task_id") != "B002-P1"
+            or not isinstance(snapshot.get("task_id"), str)
+            or snapshot.get("task_id") not in DIAGNOSTIC_SPECS
             or snapshot.get("classification") != STATUS
             or snapshot.get("historical_completeness") is not False
             or snapshot.get("canonical_economic_event_identity") is not False
             or snapshot.get("api_calls_for_promotion") != 0
-            or snapshot.get("declared_total_count") != 12
-            or snapshot.get("returned_item_count") != 1
+            or snapshot.get("declared_total_count")
+            != DIAGNOSTIC_SPECS[str(snapshot.get("task_id"))]["declared_total"]
+            or snapshot.get("returned_item_count")
+            != DIAGNOSTIC_SPECS[str(snapshot.get("task_id"))]["returned_rows"]
             or snapshot.get("source_page_no") != 1
             or any(not isinstance(value, str) or len(value) != 64
                    or any(character not in "0123456789abcdef" for character in value)
