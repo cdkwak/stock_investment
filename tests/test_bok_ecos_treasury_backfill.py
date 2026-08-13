@@ -10,6 +10,7 @@ import pytest
 
 from scripts.manual import backfill_bok_ecos_treasury as runner
 from scripts.manual import bok_ecos_treasury_backfill_support as support
+from scripts.manual import pilot_bok_ecos_treasury_page_semantics as page_runner
 from stock_data.contracts.bok_ecos_treasury import (
     BOK_ECOS_KR_TREASURY_YIELD_SOURCE_OBSERVATION as CONTRACT,
 )
@@ -182,3 +183,54 @@ def test_live_cli_requires_explicit_confirmation():
             "--project-root", ".", "--plan", "missing.json",
             "--approve-plan-sha256", "a" * 64,
         ])
+
+
+def test_backfill_adopts_exact_page_pilot_and_makes_only_five_requests(tmp_path, monkeypatch):
+    payload = _plan_payload()
+    payload["tenors"]["3Y"]["start_date"] = "19981113"
+    preliminary_path = _write_plan(tmp_path, payload)
+    preliminary = support.load_plan(preliminary_path)
+    body = (json.dumps(_metadata_summary(preliminary), ensure_ascii=False,
+                       sort_keys=True, indent=2) + "\n").encode()
+    digest = hashlib.sha256(body).hexdigest()
+    payload["metadata_summary_sha256"] = digest
+    plan_path = _write_plan(tmp_path, payload)
+    plan = support.load_plan(plan_path)
+    metadata = tmp_path / "data/landing/diagnostics/bok_ecos_treasury_pilot/metadata_fixture"
+    metadata.mkdir(parents=True)
+    (metadata / "metadata_summary.json").write_bytes(body)
+    monkeypatch.setenv(runner.API_KEY_ENV, "literal-secret")
+
+    class PageSession:
+        def __init__(self): self.calls = []
+        def get(self, url, timeout):
+            self.calls.append((url, timeout))
+            scope = next(value for value in plan.scopes if value.tenor == "3Y")
+            content = _response(plan, scope, dates=(scope.start_date, scope.end_date))
+            return type("Response", (), {"status_code": 200, "content": content})()
+
+    page_session = PageSession()
+    page_runner.run_pilot(
+        project_root=tmp_path, plan_path=plan_path,
+        approve_plan_sha256=support.plan_sha256(plan), session=page_session,
+    )
+    page_dir = next((tmp_path / page_runner.LANDING_RELATIVE).glob("run_*"))
+    backfill_session = Session(); backfill_session.plan = plan
+    result = runner.run_backfill(
+        project_root=tmp_path, plan_path=plan_path,
+        approve_plan_sha256=support.plan_sha256(plan),
+        adopt_3y_page_run_dir=page_dir, session=backfill_session,
+        sleep_fn=lambda seconds: None, jitter_fn=lambda low, high: 4.0,
+    )
+    assert len(page_session.calls) == 1
+    assert len(backfill_session.calls) == 5
+    assert all("ITEM3Y" not in unquote(url) for url, _ in backfill_session.calls)
+    assert result["raw_requests"] == 5 and result["source_responses"] == 6
+    assert result["adopted_scopes"] == ["3Y"]
+    run_dir = next((tmp_path / runner.LANDING_RELATIVE).glob("run_*"))
+    ledger = [json.loads(line) for line in (run_dir / "call_ledger.jsonl").read_text().splitlines()]
+    assert sum(row["event"] == "ADOPTED_RESPONSE" for row in ledger) == 1
+    assert sum(row["event"] == "HTTP_RESPONSE" for row in ledger) == 5
+    checkpoint = json.loads((run_dir / "checkpoint.json").read_text())
+    assert checkpoint["completed"]["3Y"]["adopted"] is True
+    assert checkpoint["completed"]["3Y"]["source_run"].startswith("data/landing/diagnostics/")

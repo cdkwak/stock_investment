@@ -1,6 +1,6 @@
 # BOK ECOS Korean Treasury historical source observations
 
-Status: `IMPLEMENTATION_READY / LIVE_EXECUTION_REQUIRES_INDEPENDENT_REVIEW`.
+Status: `FIVE_CALL_EXECUTION_READY / 3Y_PAGE_RESPONSE_ADOPTED`.
 
 This collector creates a separate Normalized dataset,
 `bok_ecos_kr_treasury_yield_source_observation`. It never writes, replaces, or
@@ -32,8 +32,10 @@ individual range is below the fixed 10,000-row response cap.
 
 ## Exact request and safety budget
 
-- operation: `StatisticSearch`, one full-range request per verified item;
-- exact planned requests: 6; hard cap: 6; maximum response rows: 10,000 each;
+- operation: `StatisticSearch`, one full-range response per verified item;
+- source responses: 6, but live backfill requests: exactly 5; the already
+  captured and audited 3Y response is adopted and must not be requested again;
+- hard live-request cap: 5; maximum response rows: 10,000 each;
 - maximum accepted observations: 60,000 across all responses;
 - one serial BOK ECOS stream, 3-5 seconds random delay between calls;
 - timeout 30 seconds, retry 0, no pagination, fallback, or automatic range split;
@@ -42,6 +44,13 @@ individual range is below the fixed 10,000-row response cap.
   run and leaves prior checkpointed scopes intact;
 - a request failure is never resumable. A clean stop between checkpointed scopes
   resumes from the next scope without repeating completed requests.
+
+The adoption path accepts only a `PAGE_SEMANTICS_PASS_REVIEW_REQUIRED` 3Y run
+with one HTTP-200 response, retry 0, no Normalized write, exact plan/metadata
+hashes, exact endpoint/count summary, and byte-identical Landing hashes across
+the source ledger and checkpoint. The backfill copies that immutable body into
+its own Landing, records `ADOPTED_RESPONSE` rather than `HTTP_RESPONSE`, retains
+the original capture ID/time, and lowers its live cap from six to five.
 
 The access key is a URL path segment. Full URLs are never logged. The ledger
 contains only the redacted route, scope, sequence, status, elapsed time, byte
@@ -87,6 +96,7 @@ After independent review, the bounded command is:
   --project-root . `
   --plan .\docs\examples\bok_ecos_treasury_backfill.prepared.json `
   --approve-plan-sha256 eb54595c04e5cbc6cca2522fe9beb555bc8222cefdb36dda507771ff5777a847 `
+  --adopt-3y-page-run-dir .\data\landing\diagnostics\bok_ecos_treasury_page_semantics\run_20260813T123713Z_65cbbb0ce39245a6b9f26a2cc6a137be `
   --confirm-live-historical-backfill
 ```
 

@@ -79,12 +79,13 @@ def _metadata_summary(project_root: Path, digest: str, plan) -> Path:
 
 
 class Client:
-    def __init__(self, session, ledger: Ledger, key: str, initial: int):
-        self.session, self.ledger, self.key, self.requests = session, ledger, key, initial
+    def __init__(self, session, ledger: Ledger, key: str, initial: int, max_requests: int):
+        self.session, self.ledger, self.key = session, ledger, key
+        self.requests, self.max_requests = initial, max_requests
 
     def get(self, plan, scope, sequence: int, landing: Path) -> tuple[bytes, str]:
-        if self.requests >= MAX_REQUESTS:
-            raise BackfillError("hard six-request cap reached")
+        if self.requests >= self.max_requests:
+            raise BackfillError("hard live-request cap reached")
         self.requests += 1
         started = time.monotonic()
         try:
@@ -123,9 +124,78 @@ def _resume_count(ledger_path: Path, completed: dict[str, object]) -> int:
     responses = [row for row in rows if row.get("event") == "HTTP_RESPONSE"]
     if [row.get("sequence") for row in responses] != list(range(1, len(responses) + 1)):
         raise BackfillError("ledger response sequence differs")
-    if len(responses) != len(completed):
+    live_completed = [value for value in completed.values() if not value.get("adopted")]
+    if len(responses) != len(live_completed):
         raise BackfillError("ledger/checkpoint counts differ")
     return len(responses)
+
+
+def _adopted_3y_evidence(project_root: Path, run_dir: Path, plan) -> dict[str, object]:
+    root = project_root / "data/landing/diagnostics/bok_ecos_treasury_page_semantics"
+    directory = run_dir.resolve()
+    if directory.parent != root.resolve() or not directory.name.startswith("run_"):
+        raise BackfillError("3Y adoption run directory differs")
+    names = {
+        "checkpoint": directory / "checkpoint.json",
+        "ledger": directory / "call_ledger.jsonl",
+        "summary": directory / "page_semantics_summary.json",
+        "landing": directory / "response_01_3Y_19981113_20260813.json",
+    }
+    if not all(path.is_file() for path in names.values()):
+        raise BackfillError("3Y adoption evidence is incomplete")
+    checkpoint = json.loads(names["checkpoint"].read_text(encoding="utf-8"))
+    summary = json.loads(names["summary"].read_text(encoding="utf-8"))
+    ledger = [json.loads(line) for line in names["ledger"].read_text(encoding="utf-8").splitlines()]
+    body = names["landing"].read_bytes()
+    body_hash = hashlib.sha256(body).hexdigest()
+    summary_hash = _sha(names["summary"])
+    if [row.get("event") for row in ledger] != ["RUN_CREATED", "HTTP_RESPONSE", "RUN_COMPLETED"]:
+        raise BackfillError("3Y adoption ledger events differ")
+    response = ledger[1]
+    if (
+        checkpoint.get("status") != "PAGE_SEMANTICS_PASS_REVIEW_REQUIRED"
+        or checkpoint.get("scope") != "3Y_19981113_20260813"
+        or checkpoint.get("plan_sha256") != plan_sha256(plan)
+        or checkpoint.get("metadata_summary_sha256") != plan.metadata_summary_sha256
+        or checkpoint.get("raw_requests") != 1
+        or checkpoint.get("retry_count") != 0
+        or checkpoint.get("normalized_writes") != 0
+        or checkpoint.get("landing_sha256") != body_hash
+        or checkpoint.get("summary_sha256") != summary_hash
+        or response.get("sequence") != 1
+        or response.get("status_code") != 200
+        or response.get("operation") != OPERATION
+        or response.get("response_bytes") != len(body)
+        or response.get("response_sha256") != body_hash
+    ):
+        raise BackfillError("3Y adoption checkpoint/Landing/ledger differs")
+    scope = next(value for value in plan.scopes if value.tenor == "3Y")
+    frame = parse_response(
+        body, plan, scope, capture_id=checkpoint["run_id"],
+        captured_at_utc=response["captured_at_utc"],
+        landing_response_sha256=body_hash,
+    )
+    if (
+        summary.get("declared_total") != len(frame)
+        or summary.get("returned_rows") != len(frame)
+        or summary.get("unique_dates") != frame["date"].nunique()
+        or summary.get("first_date") != frame["date"].min()
+        or summary.get("last_date") != frame["date"].max()
+        or summary.get("raw_requests") != 1
+        or summary.get("retry_count") != 0
+        or summary.get("normalized_writes") != 0
+    ):
+        raise BackfillError("3Y adoption summary differs")
+    return {
+        "body": body, "landing_sha256": body_hash,
+        "captured_at_utc": response["captured_at_utc"],
+        "capture_id": checkpoint["run_id"], "rows": len(frame),
+        "first_date": frame["date"].min(), "last_date": frame["date"].max(),
+        "source_run": str(directory.relative_to(project_root)).replace("\\", "/"),
+        "source_ledger_sha256": _sha(names["ledger"]),
+        "source_checkpoint_sha256": _sha(names["checkpoint"]),
+        "source_summary_sha256": summary_hash,
+    }
 
 
 def _merge_existing(project_root: Path, captured: pd.DataFrame) -> pd.DataFrame:
@@ -149,7 +219,8 @@ def _merge_existing(project_root: Path, captured: pd.DataFrame) -> pd.DataFrame:
 
 def run_backfill(
     *, project_root: Path, plan_path: Path, approve_plan_sha256: str,
-    resume_run_dir: Path | None = None, session=None, sleep_fn=time.sleep,
+    resume_run_dir: Path | None = None, adopt_3y_page_run_dir: Path | None = None,
+    session=None, sleep_fn=time.sleep,
     jitter_fn=random.uniform,
 ) -> dict[str, object]:
     plan = load_plan(plan_path)
@@ -161,7 +232,10 @@ def run_backfill(
     if not key:
         raise BackfillError(f"{API_KEY_ENV} is required")
     landing_root = project_root / LANDING_RELATIVE
+    adoption = None
     if resume_run_dir is None:
+        if adopt_3y_page_run_dir is not None:
+            adoption = _adopted_3y_evidence(project_root, adopt_3y_page_run_dir, plan)
         run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "_" + uuid4().hex
         run_dir = landing_root / f"run_{run_id}"
         run_dir.mkdir(parents=True, exist_ok=False)
@@ -169,7 +243,8 @@ def run_backfill(
             "version": 1, "dataset": CONTRACT.name, "contract_version": CONTRACT.version,
             "run_id": run_id, "plan_sha256": actual_plan_hash,
             "metadata_summary_sha256": plan.metadata_summary_sha256,
-            "status": "CREATED", "max_raw_requests": MAX_REQUESTS, "completed": {},
+            "status": "CREATED", "max_raw_requests": MAX_REQUESTS - (1 if adoption else 0),
+            "adopted_scopes": ["3Y"] if adoption else [], "completed": {},
         }
         _atomic_replace(run_dir / "checkpoint.json", checkpoint)
     else:
@@ -193,7 +268,34 @@ def run_backfill(
     with _lock(landing_root, run_id):
         ledger.append("RUN_RESUMED" if resume_run_dir else "RUN_CREATED", run_id=run_id,
                       plan_sha256=actual_plan_hash, metadata_summary_file=str(metadata_path.relative_to(project_root)))
-        client = Client(session or requests.Session(), ledger, key, initial)
+        if adoption is not None:
+            landing = run_dir / "response_02_3Y.json"
+            _immutable_bytes(landing, adoption["body"])
+            completed["3Y"] = {
+                "landing_file": landing.name, "landing_sha256": adoption["landing_sha256"],
+                "captured_at_utc": adoption["captured_at_utc"],
+                "capture_id": adoption["capture_id"], "rows": adoption["rows"],
+                "first_date": adoption["first_date"], "last_date": adoption["last_date"],
+                "adopted": True, "source_run": adoption["source_run"],
+                "source_ledger_sha256": adoption["source_ledger_sha256"],
+                "source_checkpoint_sha256": adoption["source_checkpoint_sha256"],
+                "source_summary_sha256": adoption["source_summary_sha256"],
+            }
+            checkpoint["status"] = "IN_PROGRESS"
+            _atomic_replace(run_dir / "checkpoint.json", checkpoint)
+            ledger.append(
+                "ADOPTED_RESPONSE", scope="3Y", operation=OPERATION,
+                landing_file=landing.name, response_sha256=adoption["landing_sha256"],
+                rows=adoption["rows"], source_run=adoption["source_run"],
+                source_ledger_sha256=adoption["source_ledger_sha256"],
+                source_checkpoint_sha256=adoption["source_checkpoint_sha256"],
+                source_summary_sha256=adoption["source_summary_sha256"],
+                network_requests=0,
+            )
+        client = Client(
+            session or requests.Session(), ledger, key, initial,
+            int(checkpoint["max_raw_requests"]),
+        )
         for sequence, scope in enumerate(plan.scopes, 1):
             landing = run_dir / f"response_{sequence:02d}_{scope.tenor}.json"
             if scope.tenor in completed:
@@ -206,20 +308,21 @@ def run_backfill(
                     raise BackfillError("uncheckpointed Landing cannot be adopted")
                 if client.requests:
                     sleep_fn(jitter_fn(MIN_THROTTLE_SECONDS, MAX_THROTTLE_SECONDS))
-                body, captured = client.get(plan, scope, sequence, landing)
+                body, captured = client.get(plan, scope, client.requests + 1, landing)
                 frame = parse_response(
                     body, plan, scope, capture_id=run_id, captured_at_utc=captured,
                     landing_response_sha256=_sha(landing),
                 )
                 completed[scope.tenor] = {
                     "landing_file": landing.name, "landing_sha256": _sha(landing),
-                    "captured_at_utc": captured, "rows": len(frame),
+                    "captured_at_utc": captured, "capture_id": run_id, "rows": len(frame),
                     "first_date": frame["date"].min(), "last_date": frame["date"].max(),
                 }
                 checkpoint["status"] = "IN_PROGRESS"
                 _atomic_replace(run_dir / "checkpoint.json", checkpoint)
             frame = parse_response(
-                body, plan, scope, capture_id=run_id, captured_at_utc=captured,
+                body, plan, scope, capture_id=completed[scope.tenor].get("capture_id", run_id),
+                captured_at_utc=captured,
                 landing_response_sha256=_sha(landing),
             )
             if len(frame) != completed[scope.tenor]["rows"]:
@@ -237,7 +340,10 @@ def run_backfill(
             "status": "ARTIFACT_COMPLETE_PROVENANCE_LIMITED",
             "run_id": run_id, "plan_sha256": actual_plan_hash,
             "metadata_summary_sha256": plan.metadata_summary_sha256,
-            "raw_requests": MAX_REQUESTS, "rows_in_capture": len(captured_frame),
+            "raw_requests": int(checkpoint["max_raw_requests"]),
+            "source_responses": MAX_REQUESTS,
+            "adopted_scopes": checkpoint.get("adopted_scopes", []),
+            "rows_in_capture": len(captured_frame),
             "rows_total": len(merged), "first_date": merged["date"].min(),
             "last_date": merged["date"].max(),
             "publication_revision_semantics": "unknown; predictive use blocked",
@@ -247,12 +353,16 @@ def run_backfill(
         }
         _atomic_replace(project_root / STATE_RELATIVE, state)
         checkpoint.update({
-            "status": "DATA_COMPLETE_REVIEW_REQUIRED", "raw_requests": MAX_REQUESTS,
+            "status": "DATA_COMPLETE_REVIEW_REQUIRED",
+            "raw_requests": int(checkpoint["max_raw_requests"]),
+            "source_responses": MAX_REQUESTS,
             "rows_in_capture": len(captured_frame), "rows_total": len(merged),
             "state_sha256": _sha(project_root / STATE_RELATIVE),
         })
         _atomic_replace(run_dir / "checkpoint.json", checkpoint)
-        ledger.append("RUN_COMPLETED", status=checkpoint["status"], raw_requests=MAX_REQUESTS,
+        ledger.append("RUN_COMPLETED", status=checkpoint["status"],
+                      raw_requests=int(checkpoint["max_raw_requests"]),
+                      source_responses=MAX_REQUESTS,
                       rows_in_capture=len(captured_frame), rows_total=len(merged),
                       state_sha256=checkpoint["state_sha256"])
     return {"run_dir": str(run_dir), **checkpoint}
@@ -264,6 +374,7 @@ def main(argv=None) -> int:
     parser.add_argument("--plan", type=Path, required=True)
     parser.add_argument("--approve-plan-sha256", required=True)
     parser.add_argument("--resume-run-dir", type=Path)
+    parser.add_argument("--adopt-3y-page-run-dir", type=Path)
     parser.add_argument("--confirm-live-historical-backfill", action="store_true")
     args = parser.parse_args(argv)
     if not args.confirm_live_historical_backfill:
@@ -273,6 +384,7 @@ def main(argv=None) -> int:
             project_root=args.project_root.resolve(), plan_path=args.plan.resolve(),
             approve_plan_sha256=args.approve_plan_sha256,
             resume_run_dir=args.resume_run_dir,
+            adopt_3y_page_run_dir=args.adopt_3y_page_run_dir,
         )
     except (BackfillError, PilotStopped, requests.RequestException) as error:
         key = os.environ.get(API_KEY_ENV, "")
