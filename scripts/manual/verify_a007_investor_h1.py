@@ -150,10 +150,14 @@ def _atomic_new(
 
 def verify_retained_run(
     *, project_root: Path, run_dir: Path, write_evidence: bool = False,
+    diagnostic_support=support,
+    landing_name: str = "a007_investor_h1",
+    expected_end_date: str = "20120104",
+    verification_schema: str = "a007.investor_h1.offline_verification",
 ) -> dict[str, object]:
     project_root = project_root.resolve()
     run_dir = _inside(run_dir, project_root)
-    expected_parent = (project_root / "data/landing/diagnostics/a007_investor_h1").resolve()
+    expected_parent = (project_root / "data/landing/diagnostics" / landing_name).resolve()
     if run_dir.parent.resolve() != expected_parent:
         raise PilotStopped("OFFLINE_RUN_LOCATION_INVALID")
     paths = {name: _inside(run_dir / name, project_root) for name in (BODY, PROVENANCE, MANIFEST, LEDGER)}
@@ -163,7 +167,7 @@ def verify_retained_run(
     manifest = _json(paths[MANIFEST])
     provenance = _json(paths[PROVENANCE])
     body_object = _json(paths[BODY])
-    dates = support.expected_dates(project_root)
+    dates = diagnostic_support.expected_dates(project_root)
     try:
         ledger = [json.loads(line) for line in paths[LEDGER].read_text(encoding="utf-8").splitlines()]
     except (UnicodeError, json.JSONDecodeError) as error:
@@ -171,7 +175,7 @@ def verify_retained_run(
     if not ledger or any(not isinstance(item, dict) for item in ledger):
         raise PilotStopped("OFFLINE_LEDGER_INVALID")
     _credential_scan(paths, (manifest, provenance, body_object, ledger), project_root)
-    expected_manifest = support.manifest_payload(
+    expected_manifest = diagnostic_support.manifest_payload(
         run_id=run_dir.name, created_at_utc=str(manifest.get("created_at_utc")), dates=dates,
     )
     if manifest != expected_manifest:
@@ -190,8 +194,8 @@ def verify_retained_run(
     ):
         raise PilotStopped("OFFLINE_LEDGER_CHAIN_MISMATCH")
     expected_scope = {
-        "bld": support.BUSINESS_BLD, "scope": support.SCOPE_ID,
-        "params": support.SCOPE, "business_request_limit": 1,
+        "bld": diagnostic_support.BUSINESS_BLD, "scope": diagnostic_support.SCOPE_ID,
+        "params": diagnostic_support.SCOPE, "business_request_limit": 1,
     }
     if any(scopes[0].get(key) != value for key, value in expected_scope.items()):
         raise PilotStopped("OFFLINE_REQUEST_SCOPE_MISMATCH")
@@ -200,8 +204,8 @@ def verify_retained_run(
     if (
         call.get("method") != "POST" or call.get("raw_sequence") != 6
         or parsed_url.scheme != "https" or parsed_url.netloc != "data.krx.co.kr"
-        or parsed_url.path != support.BUSINESS_ENDPOINT_PATH or parsed_url.query or parsed_url.fragment
-        or call.get("scope") != support.SCOPE_ID
+        or parsed_url.path != diagnostic_support.BUSINESS_ENDPOINT_PATH or parsed_url.query or parsed_url.fragment
+        or call.get("scope") != diagnostic_support.SCOPE_ID
         or call.get("body_file") != BODY or call.get("provenance_file") != PROVENANCE
     ):
         raise PilotStopped("OFFLINE_BUSINESS_CALL_MISMATCH")
@@ -211,24 +215,24 @@ def verify_retained_run(
         call.get("response_sha256") != body_sha or call.get("response_bytes") != len(body)
         or provenance.get("body_sha256") != body_sha or provenance.get("response_bytes") != len(body)
         or provenance.get("http_status_code") != 200 or provenance.get("raw_sequence") != 6
-        or provenance.get("run_id") != run_dir.name or provenance.get("scope_id") != support.SCOPE_ID
-        or provenance.get("scope_sha256") != support.scope_sha256(dates)
+        or provenance.get("run_id") != run_dir.name or provenance.get("scope_id") != diagnostic_support.SCOPE_ID
+        or provenance.get("scope_sha256") != diagnostic_support.scope_sha256(dates)
         or provenance.get("expected_dates") != list(dates)
         or provenance.get("ledger_relative_path") != paths[LEDGER].relative_to(project_root).as_posix()
     ):
         raise PilotStopped("OFFLINE_PROVENANCE_CHAIN_MISMATCH")
 
-    classification = support.classify_response(body, dates)
+    classification = diagnostic_support.classify_response(body, dates)
     if (
         classification.classification != "PRE_AVAILABILITY_COLLAPSE"
-        or classification.source_rows != 1 or classification.observed_dates != ("20120104",)
+        or classification.source_rows != 1 or classification.observed_dates != (expected_end_date,)
         or classification.positive_total_dates != 0
     ):
         raise PilotStopped("OFFLINE_NOT_EXACT_H1_COLLAPSE")
     terminal = passed[0]
     if any(terminal.get(key) != value for key, value in {
-        "scope": support.SCOPE_ID, "classification": "PRE_AVAILABILITY_COLLAPSE",
-        "source_rows": 1, "observed_dates": ["20120104"], "positive_total_dates": 0,
+        "scope": diagnostic_support.SCOPE_ID, "classification": "PRE_AVAILABILITY_COLLAPSE",
+        "source_rows": 1, "observed_dates": [expected_end_date], "positive_total_dates": 0,
         "raw_http_requests": 6, "business_requests": 1,
     }.items()):
         raise PilotStopped("OFFLINE_TERMINAL_EVENT_MISMATCH")
@@ -241,16 +245,16 @@ def verify_retained_run(
     if abs((recorded_time - source_time).total_seconds()) > 300:
         raise PilotStopped("CURRENT_DATETIME_LEDGER_TIME_MISMATCH")
     evidence = {
-        "verification_schema": "a007.investor_h1.offline_verification", "version": 1,
+        "verification_schema": verification_schema, "version": 1,
         "run_id": run_dir.name, "classification": classification.classification,
-        "source_rows": 1, "observed_dates": ["20120104"], "positive_total_dates": 0,
+        "source_rows": 1, "observed_dates": [expected_end_date], "positive_total_dates": 0,
         "expected_date_count": len(dates), "coverage_start": dates[0], "coverage_end": dates[-1],
         "source_current_datetime": classification.source_current_datetime,
         "raw_http_calls": 6, "authentication_calls": 5, "business_calls": 1, "http_200_calls": 6,
         "original_artifact_sha256": original_hashes, "body_sha256": body_sha,
-        "scope_sha256": support.scope_sha256(dates),
+        "scope_sha256": diagnostic_support.scope_sha256(dates),
         "request_evidence": {
-            "bld": support.BUSINESS_BLD, "params": dict(support.SCOPE), "method": "POST",
+            "bld": diagnostic_support.BUSINESS_BLD, "params": dict(diagnostic_support.SCOPE), "method": "POST",
             "endpoint": call["url"],
             "limitation": "retained ledger validates scope; serialized wire-body bytes were not retained",
         },

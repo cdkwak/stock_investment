@@ -1,8 +1,11 @@
 # A007 Investor H2 historical availability diagnostic
 
-This is a prepared, **unexecuted** Landing-only diagnostic. This preparation
-does not authorize live access. It must not run while another KRX stream owns
-the shared D lock.
+The single authorized Landing-only diagnostic is retained at
+`20260813T105434Z_e4ea0268a64947a293293e5989f42c8c`; H2 must not be run again.
+Its reproducible zero-network audit confirms five authentication calls plus one
+business call, all HTTP 200, and exact `PRE_AVAILABILITY_COLLAPSE`: the only row
+is `2014-01-03` with every component and total zero. Body SHA-256 is
+`f2c0e796a69b989dd1a0b6048d7e4b13d23e0e6e0907bb26d976f3166ae49f4a`.
 
 The frozen scope is exactly one authenticated `MDCSTAT30301` KOSPI volume
 request for `2012-01-05..2014-01-03`. The expected set is exactly 494 canonical
@@ -29,15 +32,14 @@ HTML/restriction content, HTTP failure, malformed JSON, unexpected fields,
 duplicate/out-of-scope dates, invalid or negative integers, or component/total
 mismatch stops immediately. There is no retry under any classification.
 
-Only a separately authorized operator may execute it, with every guard:
+Reproduce the audit without network or writes (default dry-run):
 
 ```powershell
-.\.venv\Scripts\python.exe .\scripts\manual\diagnose_a007_investor_h2.py `
-  --acknowledge-no-active-krx-stream `
-  --confirm-one-live-request `
-  --confirm-landing-only `
-  --confirm-scope 20120105_20140103_KOSPI_volume_H2_availability
+.\.venv\Scripts\python.exe .\scripts\manual\verify_a007_investor_h2.py `
+  .\data\landing\diagnostics\a007_investor_h2\20260813T105434Z_e4ea0268a64947a293293e5989f42c8c
 ```
 
-Preserve any single Landing result. Never retry H2, synthesize dates or zeros,
-or resume Investor from this diagnostic alone.
+The H2 wrapper reuses the hardened H1 verifier, including exact manifest and
+request-chain regeneration, credential scan, original-artifact CAS, and optional
+content-addressed append-only evidence. Preserve the Landing result. Never retry
+H2, synthesize dates or zeros, or resume Investor from this diagnostic alone.
