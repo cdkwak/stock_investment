@@ -379,6 +379,20 @@ def test_snapshot_lock_reparse_path_is_rejected(tmp_path, monkeypatch):
             pass
 
 
+def test_snapshot_lock_post_open_substitution_writes_zero_bytes(tmp_path, monkeypatch):
+    root = _snapshot_lock_root(tmp_path)
+    path = root / ".write.lock"
+    path.write_bytes(b"")
+    # Windows prevents a real rename/unlink while this descriptor is open.
+    # A false samestat is the portable simulation of the directory entry being
+    # substituted between open and the first post-open identity check.
+    monkeypatch.setattr(inventory_module.os.path, "samestat", lambda left, right: False)
+    with pytest.raises(RuntimeError, match="lock path identity differs"):
+        with inventory_module._snapshot_lock(tmp_path, root):
+            pass
+    assert path.read_bytes() == b""
+
+
 def test_input_tree_mutation_during_scan_is_rejected(tmp_path, monkeypatch):
     contract = _contract()
     path = _write(tmp_path / "data/normalized/registered", _rows())

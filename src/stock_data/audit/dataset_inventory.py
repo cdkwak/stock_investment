@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import stat
 import tempfile
 from typing import Mapping
 from uuid import uuid4
@@ -218,13 +219,31 @@ def _snapshot_lock(project_root: Path, snapshot_root: Path):
     descriptor = os.open(path, flags, 0o600)
     acquired = False
     try:
+        # Opening and validating are separate operations on platforms without
+        # O_NOFOLLOW. Validate the opened object and its current directory
+        # entry before writing even the Windows lock byte.
+        _assert_plain_components(project_root, path)
+        descriptor_status = os.fstat(descriptor)
+        path_status = path.stat()
+        if (
+            not stat.S_ISREG(descriptor_status.st_mode)
+            or not path.is_file()
+            or not os.path.samestat(descriptor_status, path_status)
+        ):
+            raise RuntimeError("inventory snapshot lock path identity differs")
         # Windows byte-range locks require the byte to exist. Initializing an
         # empty stable lock file does not confer ownership.
-        if os.fstat(descriptor).st_size == 0:
+        if descriptor_status.st_size == 0:
             os.write(descriptor, b"\n")
             os.fsync(descriptor)
         _assert_plain_components(project_root, path)
-        if not path.is_file() or not os.path.samestat(os.fstat(descriptor), path.stat()):
+        descriptor_status = os.fstat(descriptor)
+        path_status = path.stat()
+        if (
+            not stat.S_ISREG(descriptor_status.st_mode)
+            or not path.is_file()
+            or not os.path.samestat(descriptor_status, path_status)
+        ):
             raise RuntimeError("inventory snapshot lock path identity differs")
         acquired = _try_advisory_lock(descriptor)
         if not acquired:
