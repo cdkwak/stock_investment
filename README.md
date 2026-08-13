@@ -61,6 +61,8 @@ Passing a feasibility pilot does not authorize a bulk backfill.
 - [`docs/DATA_API_INVENTORY.md`](docs/DATA_API_INVENTORY.md) describes provider
   contracts, while [`docs/DATA_STATUS.md`](docs/DATA_STATUS.md) records verified
   coverage, blockers, and availability rules.
+- [`docs/PROJECT_ROADMAP.md`](docs/PROJECT_ROADMAP.md) defines the long-term
+  domain boundaries and development sequence.
 - [`docs/runbooks/`](docs/runbooks/) contains reproducible, approval-gated
   operating procedures, including the
   [authenticated pykrx historical plan](docs/runbooks/PYKRX_AUTHENTICATED_HISTORICAL_PLAN.md).
