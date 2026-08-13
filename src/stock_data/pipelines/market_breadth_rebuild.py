@@ -175,6 +175,56 @@ def _read_partition(
     return frame
 
 
+def _read_legacy_existing_breadth_partition(
+    path: Path, *, expected_market: str, expected_year: int
+) -> pd.DataFrame:
+    """Read the retained breadth layout without accepting schema drift.
+
+    The 63 pre-rebuild files have the exact contract field names, order, and
+    Arrow types, but pandas originally wrote every field nullable.  That single
+    all-nullable physical pattern is accepted only for the existing dataset;
+    staged/rebuilt files continue through ``_read_partition`` and therefore
+    must have the exact contract schema, including nullability.
+    """
+    schema = pq.ParquetFile(path).schema_arrow
+    expected = contract_arrow_schema(KR_MARKET_BREADTH_DAILY)
+    actual_names_types = [(field.name, field.type) for field in schema]
+    expected_names_types = [(field.name, field.type) for field in expected]
+    if actual_names_types != expected_names_types:
+        raise MarketBreadthRebuildError(
+            f"legacy existing logical schema differs from contract: {path}"
+        )
+    actual_nullability = tuple(field.nullable for field in schema)
+    expected_nullability = tuple(field.nullable for field in expected)
+    known_legacy_nullability = (True,) * len(expected)
+    if actual_nullability not in {expected_nullability, known_legacy_nullability}:
+        raise MarketBreadthRebuildError(
+            f"legacy existing physical nullability is unknown: {path}"
+        )
+    frame = restore_contract_dates(pd.read_parquet(path), KR_MARKET_BREADTH_DAILY)
+    if list(frame.columns) != list(KR_MARKET_BREADTH_DAILY.column_names):
+        raise MarketBreadthRebuildError(
+            f"legacy existing dataframe schema/order differs: {path}"
+        )
+    frame = frame.sort_values(
+        list(KR_MARKET_BREADTH_DAILY.sort_key), kind="stable"
+    ).reset_index(drop=True)
+    try:
+        validate_market_breadth(frame)
+    except Exception as error:
+        raise MarketBreadthRebuildError(
+            f"legacy existing values fail validation: {path}"
+        ) from error
+    if not frame["market"].eq(expected_market).all():
+        raise MarketBreadthRebuildError(
+            f"row market differs from partition path: {path}"
+        )
+    years = pd.to_datetime(frame["date"], errors="raise").dt.year
+    if not years.eq(expected_year).all():
+        raise MarketBreadthRebuildError(f"row year differs from partition path: {path}")
+    return frame
+
+
 def _semantic_fingerprint(frame: pd.DataFrame) -> str:
     ordered = frame.sort_values(
         list(KR_MARKET_BREADTH_DAILY.primary_key), kind="stable"
@@ -285,9 +335,8 @@ def _verify_existing_preserved(project_root: Path, rebuilt: pd.DataFrame) -> dic
         raise MarketBreadthRebuildError("existing output root is required")
     existing_partitions = _partitions(root)
     frames = [
-        _read_partition(
-            existing_partitions[key], KR_MARKET_BREADTH_DAILY, validate_market_breadth,
-            expected_market=key[0], expected_year=key[1],
+        _read_legacy_existing_breadth_partition(
+            existing_partitions[key], expected_market=key[0], expected_year=key[1],
         )
         for key in sorted(existing_partitions)
     ]

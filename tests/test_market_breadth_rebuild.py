@@ -28,6 +28,17 @@ def _write(root: Path, relative: str, frame: pd.DataFrame, contract) -> None:
     pq.write_table(dataframe_to_contract_table(frame, contract), path)
 
 
+def _write_legacy_breadth(path: Path, frame: pd.DataFrame) -> None:
+    """Match the retained 63-file schema: exact types, all fields nullable."""
+    exact = dataframe_to_contract_table(frame, KR_MARKET_BREADTH_DAILY)
+    legacy_schema = pa.schema([
+        pa.field(field.name, field.type, nullable=True) for field in exact.schema
+    ])
+    arrays = [pa.array(exact.column(index), type=field.type) for index, field in enumerate(legacy_schema)]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pq.write_table(pa.Table.from_arrays(arrays, schema=legacy_schema), path)
+
+
 def _fixtures(
     root: Path, *, wrong_existing: bool = False, existing_state: bool = False
 ) -> Path:
@@ -126,6 +137,44 @@ def test_dry_run_preserves_existing_values_and_records_retained_lineage(tmp_path
     )
     assert output.read_bytes() == original
     assert not (tmp_path / "data/state/kr_market_breadth_daily_rebuild.json").exists()
+
+
+def test_dry_run_accepts_only_known_all_nullable_legacy_existing_schema(tmp_path: Path) -> None:
+    output = _fixtures(tmp_path)
+    frame = pd.read_parquet(output)
+    _write_legacy_breadth(output, frame)
+    schema = pq.ParquetFile(output).schema_arrow
+    assert all(field.nullable for field in schema)
+    result = rebuild_market_breadth(project_root=tmp_path, mode="dry-run")
+    assert result["status"] == "DRY_RUN_PASS"
+    assert result["state"]["existing_values_preserved"]["existing_rows"] == 1
+
+
+@pytest.mark.parametrize("fault", ["dtype", "extra", "reorder", "null", "mixed_nullability"])
+def test_legacy_existing_rejects_schema_and_value_drift(
+    tmp_path: Path, fault: str
+) -> None:
+    output = _fixtures(tmp_path)
+    frame = pd.read_parquet(output)
+    exact = dataframe_to_contract_table(frame, KR_MARKET_BREADTH_DAILY)
+    fields = [pa.field(field.name, field.type, nullable=True) for field in exact.schema]
+    arrays = [exact.column(index) for index in range(len(fields))]
+    if fault == "dtype":
+        fields[2] = pa.field("advancing", pa.int32(), nullable=True)
+        arrays[2] = pa.array([1], type=pa.int32())
+    elif fault == "extra":
+        fields.append(pa.field("unexpected", pa.int64(), nullable=True))
+        arrays.append(pa.array([1], type=pa.int64()))
+    elif fault == "reorder":
+        fields[2], fields[3] = fields[3], fields[2]
+        arrays[2], arrays[3] = arrays[3], arrays[2]
+    elif fault == "null":
+        arrays[2] = pa.array([None], type=pa.int64())
+    else:
+        fields[0] = pa.field(fields[0].name, fields[0].type, nullable=False)
+    pq.write_table(pa.Table.from_arrays(arrays, schema=pa.schema(fields)), output)
+    with pytest.raises(MarketBreadthRebuildError):
+        rebuild_market_breadth(project_root=tmp_path, mode="dry-run")
 
 
 def test_rebuild_fails_closed_if_an_existing_value_would_change(tmp_path: Path) -> None:
