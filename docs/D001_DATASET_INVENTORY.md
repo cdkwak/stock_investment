@@ -13,7 +13,7 @@ bodies. Landing is summarized only by file extension, count, and bytes.
 ## Report identity
 
 - report schema: `stock_data.dataset_inventory`
-- schema version: `1`
+- schema version: `2`
 - deterministic key for an artifact root: `(layer, relative_root)`
 - registered dataset association: exact contract name from Parquet schema
   metadata when present, otherwise exact artifact-root directory name
@@ -33,8 +33,8 @@ associating to the exact leaf dataset name or Parquet `dataset` metadata.
 
 ## Verification levels
 
-- files, repository-relative file manifest, partitions, bytes, and rows: exact
-  Parquet metadata (no Parquet body hash/read required)
+- files, repository-relative file manifest, partitions, bytes, rows, and
+  SHA-256: exact current artifact evidence
 - logical contract schema: column-name and dtype comparison against the contract;
   physical Arrow nullability is reported separately and never by itself changes
   this result
@@ -53,10 +53,12 @@ State JSON is summarized using a fixed allowlist (`dataset`, `status`, task id,
 and counts of operational collections). Error text, credentials, request
 parameters, tokens, and arbitrary values are never emitted.
 
-Generated reports below `data/state/audits/` are excluded from operational
-state discovery. This prevents a saved inventory JSON from ingesting its own
-previous SHA-256 on the next run, so repeated runs over unchanged datasets and
-operational state remain byte-for-byte deterministic.
+Explicit state-path aliases cover retained multi-dataset and versioned
+checkpoints whose filename or internal short name differs from the registered
+Dataset Contract. Nested immutable audit states are included and labeled
+`IMMUTABLE_AUDIT`; only inventory snapshots identified by their report schema
+are excluded. This avoids false missing-state results without treating an audit
+as an operational checkpoint.
 
 ## Output and mutation
 
@@ -64,3 +66,9 @@ Default operation prints deterministic JSON and concise Markdown to stdout and
 does not create a file. JSON/Markdown files are written atomically only when an
 explicit output path is supplied. The audit never changes datasets, states,
 checkpoints, registries, or Landing.
+
+`--immutable-snapshot` independently rebuilds the report twice and creates or
+reuses
+`data/state/audits/dataset_inventory_v2/<inventory SHA-256>.json` by durable
+temporary file plus no-overwrite hard link. The normal command remains dry-run;
+the snapshot option must be explicit.

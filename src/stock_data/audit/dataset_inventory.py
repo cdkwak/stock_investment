@@ -3,9 +3,11 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 import hashlib
 import json
+import os
 from pathlib import Path
 import tempfile
 from typing import Mapping
+from uuid import uuid4
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -33,10 +35,56 @@ STATE_COUNT_FIELDS = (
     "progress",
 )
 STATE_REPORT_DIRECTORY = "audits"
+IMMUTABLE_SNAPSHOT_RELATIVE = Path("data/state/audits/dataset_inventory_v2")
+ARTIFACT_ROOT_ALIASES: Mapping[tuple[str, str], str] = {
+    (
+        "published",
+        "data/published/c007_kospi200_derivatives_bridge/kr_kospi200_futures_provider_bridge_daily",
+    ): "kr_kospi200_futures_provider_bridge_daily",
+    (
+        "published",
+        "data/published/c007_kospi200_derivatives_bridge/kr_kospi200_options_provider_bridge_daily",
+    ): "kr_kospi200_options_provider_bridge_daily",
+}
+STATE_PATH_ALIASES: Mapping[str, tuple[str, ...]] = {
+    "kr_kosdaq150_futures_daily": ("data/state/d004_kosdaq150_retained_promotion.json",),
+    "kr_kosdaq150_options_daily": ("data/state/d004_kosdaq150_retained_promotion.json",),
+    "kr_market_investor_net_purchase_daily": ("data/state/legacy_market_investor_import.json",),
+    "kr_short_selling_balance_daily": ("data/state/kr_short_selling_balance_daily_v2.json",),
+    "kr_short_selling_investor_daily": ("data/state/kr_short_selling_investor_daily_v2.json",),
+    "kr_short_selling_trading_daily": ("data/state/kr_short_selling_trading_daily_v2.json",),
+    "krx_legacy_kospi200_futures_daily": ("data/state/legacy_kospi200_derivatives_2010_2019.json",),
+    "krx_legacy_kospi200_options_daily": ("data/state/legacy_kospi200_derivatives_2010_2019.json",),
+    "kr_equity_canonical_universe_daily": ("data/state/kr_equity_daily_backfill.json",),
+    "kr_kospi200_futures_provider_bridge_daily": ("data/state/kospi200_derivatives_bridge_2010_present.json",),
+    "kr_kospi200_options_provider_bridge_daily": ("data/state/kospi200_derivatives_bridge_2010_present.json",),
+    "kr_market_investor_net_purchase_bridge_daily": ("data/state/investor_net_purchase_bridge.json",),
+}
+_REPARSE_POINT = 0x400
 
 
 def _relative(path: Path, root: Path) -> str:
     return path.resolve().relative_to(root.resolve()).as_posix()
+
+
+def _is_redirect(path: Path) -> bool:
+    status = path.lstat()
+    return path.is_symlink() or bool(getattr(status, "st_file_attributes", 0) & _REPARSE_POINT)
+
+
+def _assert_plain_components(project_root: Path, path: Path) -> None:
+    root = project_root.resolve()
+    try:
+        relative = path.absolute().relative_to(root)
+    except ValueError as error:
+        raise RuntimeError(f"inventory path escapes project root: {path}") from error
+    if _is_redirect(root):
+        raise RuntimeError("inventory project root is redirected")
+    current = root
+    for component in relative.parts:
+        current /= component
+        if current.exists() and _is_redirect(current):
+            raise RuntimeError(f"inventory path component is redirected: {current}")
 
 
 def _sha256(path: Path) -> str:
@@ -45,6 +93,44 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _sha256_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def _canonical_bytes(value: object) -> bytes:
+    return (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+
+
+def _input_tree_manifest(project_root: Path) -> list[dict[str, object]]:
+    paths: list[Path] = []
+    for layer in LAYERS:
+        root = project_root / "data" / layer
+        if root.exists():
+            paths.extend(path for path in root.rglob("*.parquet") if path.is_file())
+    state_root = project_root / "data/state"
+    if state_root.exists():
+        snapshot_root = project_root / IMMUTABLE_SNAPSHOT_RELATIVE
+        for path in state_root.rglob("*.json"):
+            if snapshot_root in path.parents:
+                continue
+            if STATE_REPORT_DIRECTORY in path.relative_to(state_root).parts:
+                try:
+                    payload = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, UnicodeError, json.JSONDecodeError):
+                    payload = None
+                if isinstance(payload, dict) and payload.get("report_schema") == REPORT_SCHEMA:
+                    continue
+            paths.append(path)
+    result = []
+    for path in sorted(set(paths), key=lambda value: value.as_posix()):
+        _assert_plain_components(project_root, path)
+        result.append({
+            "path": _relative(path, project_root), "bytes": path.stat().st_size,
+            "sha256": _sha256(path),
+        })
+    return result
 
 
 def _ignored(relative: Path) -> str | None:
@@ -381,6 +467,10 @@ def _safe_state_summary(path: Path, project_root: Path) -> dict[str, object]:
         result["parse_status"] = "NON_OBJECT_JSON"
         result["linked_datasets"] = []
         return result
+    if payload.get("report_schema") == REPORT_SCHEMA:
+        result["parse_status"] = "INVENTORY_SNAPSHOT_EXCLUDED"
+        result["linked_datasets"] = []
+        return result
     result["parse_status"] = "OK"
     for field in STATE_SCALAR_FIELDS:
         value = payload.get(field)
@@ -396,8 +486,18 @@ def _safe_state_summary(path: Path, project_root: Path) -> dict[str, object]:
     if isinstance(payload.get("dataset"), str):
         linked.add(payload["dataset"])
     if isinstance(payload.get("datasets"), dict):
-        linked.update(str(value) for value in payload["datasets"])
+        linked.update(str(value) for value in payload["datasets"].keys())
+    if isinstance(payload.get("datasets"), list):
+        linked.update(
+            str(value["dataset"])
+            for value in payload["datasets"]
+            if isinstance(value, dict) and isinstance(value.get("dataset"), str)
+        )
     result["linked_datasets"] = sorted(linked)
+    result["state_kind"] = (
+        "IMMUTABLE_AUDIT" if STATE_REPORT_DIRECTORY in path.relative_to(project_root / "data/state").parts
+        else "OPERATIONAL"
+    )
     return result
 
 
@@ -405,11 +505,11 @@ def _states(project_root: Path) -> list[dict[str, object]]:
     state_root = project_root / "data" / "state"
     if not state_root.exists():
         return []
-    return [
+    states = [
         _safe_state_summary(path, project_root)
         for path in sorted(state_root.rglob("*.json"))
-        if path.relative_to(state_root).parts[0] != STATE_REPORT_DIRECTORY
     ]
+    return [state for state in states if state["parse_status"] != "INVENTORY_SNAPSHOT_EXCLUDED"]
 
 
 def _landing_summary(project_root: Path) -> dict[str, object]:
@@ -439,13 +539,18 @@ def _associate_states(dataset: str, states: list[dict[str, object]]) -> list[dic
     direct_name = f"{dataset}.json"
     matched = []
     for state in states:
-        if dataset in state.get("linked_datasets", []) or Path(str(state["path"])).name == direct_name:
+        aliased_paths = STATE_PATH_ALIASES.get(dataset, ())
+        if (
+            dataset in state.get("linked_datasets", [])
+            or Path(str(state["path"])).name == direct_name
+            or state["path"] in aliased_paths
+        ):
             matched.append(
                 {
                     key: state[key]
                     for key in (
                         "path", "parse_status", "dataset", "status", "task_id",
-                        "operational_counts", "sha256",
+                        "operational_counts", "sha256", "state_kind",
                     )
                     if key in state
                 }
@@ -488,6 +593,7 @@ def _artifact_record(
                 "rows": parquet.metadata.num_rows,
                 "bytes": path.stat().st_size,
                 "schema_id": schema_buckets[signature]["schema_id"],
+                "sha256": _sha256(path),
             }
         )
         metadata_name = _dataset_metadata(parquet.schema_arrow)
@@ -496,9 +602,20 @@ def _artifact_record(
     schema_groups = sorted(schema_buckets.values(), key=lambda item: item["schema_id"])
     inferred_name = artifact_root.name
     association_status = "ROOT_NAME"
+    root_alias = ARTIFACT_ROOT_ALIASES.get((layer, _relative(artifact_root, project_root)))
+    if root_alias is not None:
+        inferred_name = root_alias
+        association_status = "REGISTERED_LAYER_ROOT_ALIAS"
     if len(metadata_names) == 1:
-        inferred_name = next(iter(metadata_names))
-        association_status = "PARQUET_METADATA"
+        metadata_name = next(iter(metadata_names))
+        if root_alias is not None and metadata_name != root_alias:
+            association_status = "CONFLICTING_ROOT_ALIAS_AND_PARQUET_METADATA"
+        else:
+            inferred_name = metadata_name
+            association_status = (
+                "ROOT_ALIAS_CONFIRMED_BY_PARQUET_METADATA"
+                if root_alias is not None else "PARQUET_METADATA"
+            )
     elif len(metadata_names) > 1:
         association_status = "CONFLICTING_PARQUET_METADATA"
     contract = None if layer == "landing" else contracts.get(inferred_name)
@@ -544,6 +661,8 @@ def build_inventory(
     if max_key_rows < 0 or max_scan_rows < 0:
         raise ValueError("scan row limits must be non-negative")
     project_root = project_root.resolve()
+    _assert_plain_components(project_root, project_root)
+    pre_scan_manifest = _input_tree_manifest(project_root)
     contracts = dict(CONTRACTS if contracts is None else contracts)
     states = _states(project_root)
     grouped: dict[tuple[str, Path], list[Path]] = defaultdict(list)
@@ -597,7 +716,9 @@ def build_inventory(
     for artifact in artifacts:
         if artifact["registration"] == "UNREGISTERED":
             issue_counts["unregistered_artifacts"] += 1
-        if artifact["dataset_association"] == "CONFLICTING_PARQUET_METADATA":
+        if artifact["dataset_association"] in {
+            "CONFLICTING_PARQUET_METADATA", "CONFLICTING_ROOT_ALIAS_AND_PARQUET_METADATA",
+        }:
             issue_counts["metadata_dataset_conflicts"] += 1
         if artifact["contract_schema"]["status"] == "FAIL":
             issue_counts["schema_failures"] += 1
@@ -612,7 +733,7 @@ def build_inventory(
         if not artifact["layer_matches_contract"]:
             issue_counts["layer_mismatches"] += 1
     issue_counts["missing_registered_artifacts"] = len(missing)
-    return {
+    report = {
         "report_schema": REPORT_SCHEMA,
         "report_version": REPORT_VERSION,
         "scope": {
@@ -639,6 +760,23 @@ def build_inventory(
         "ignored_artifacts": ignored,
         "classification": "READ_ONLY_INVENTORY_NOT_DATA_COMPLETE_ASSERTION",
     }
+    evidence = {
+        "artifact_files": [
+            {"path": item["path"], "bytes": item["bytes"], "rows": item["rows"], "sha256": item["sha256"]}
+            for artifact in artifacts for item in artifact["file_manifest"]
+        ],
+        "state_files": [
+            {"path": item["path"], "bytes": item["bytes"], "sha256": item["sha256"]}
+            for item in states
+        ],
+    }
+    post_scan_manifest = _input_tree_manifest(project_root)
+    if post_scan_manifest != pre_scan_manifest:
+        raise RuntimeError("inventory inputs changed during scan")
+    report["input_tree_manifest_sha256"] = _sha256_bytes(_canonical_bytes(pre_scan_manifest))
+    report["evidence_manifest_sha256"] = _sha256_bytes(_canonical_bytes(evidence))
+    report["inventory_sha256"] = _sha256_bytes(_canonical_bytes(report))
+    return report
 
 
 def render_markdown(report: Mapping[str, object]) -> str:
@@ -726,3 +864,59 @@ def write_outputs(
         _write_text_atomic(json_output, serialize_json(report))
     if markdown_output is not None:
         _write_text_atomic(markdown_output, render_markdown(report) + "\n")
+
+
+def write_immutable_snapshot(
+    project_root: Path,
+    report: Mapping[str, object],
+    *,
+    contracts: Mapping[str, DatasetContract] | None = None,
+    max_key_rows: int = 1_000_000,
+    max_scan_rows: int = 1_000_000,
+) -> dict[str, object]:
+    """Independently rebuild and atomically create one content-addressed snapshot."""
+    project_root = project_root.resolve()
+    supplied = dict(report)
+    digest = supplied.pop("inventory_sha256", None)
+    if digest != _sha256_bytes(_canonical_bytes(supplied)):
+        raise ValueError("inventory digest differs")
+    rebuilt = build_inventory(
+        project_root, contracts=contracts, max_key_rows=max_key_rows, max_scan_rows=max_scan_rows
+    )
+    if _canonical_bytes(rebuilt) != _canonical_bytes(report):
+        raise RuntimeError("inventory differs from independent current rebuild")
+    root = project_root / IMMUTABLE_SNAPSHOT_RELATIVE
+    current = project_root
+    for component in IMMUTABLE_SNAPSHOT_RELATIVE.parts:
+        current /= component
+        current.mkdir(exist_ok=True)
+        _assert_plain_components(project_root, current)
+    target = root / f"{digest}.json"
+    body = serialize_json(rebuilt).encode("utf-8")
+    if target.exists():
+        if not target.is_file() or target.read_bytes() != body:
+            raise RuntimeError("immutable inventory snapshot differs")
+        return {"status": "ALREADY_RECORDED", "path": _relative(target, project_root), "inventory_sha256": digest}
+    temporary = target.with_name(f".{target.name}.{uuid4().hex}.tmp")
+    try:
+        descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(body)
+            stream.flush()
+            os.fsync(stream.fileno())
+        # A second exact rebuild is the compare-and-scan boundary immediately
+        # before immutable publication.
+        immediate = build_inventory(
+            project_root, contracts=contracts, max_key_rows=max_key_rows, max_scan_rows=max_scan_rows
+        )
+        if _canonical_bytes(immediate) != _canonical_bytes(report):
+            raise RuntimeError("inventory inputs changed before snapshot publication")
+        try:
+            os.link(temporary, target)
+        except FileExistsError:
+            if not target.is_file() or target.read_bytes() != body:
+                raise RuntimeError("immutable inventory snapshot collision")
+            return {"status": "ALREADY_RECORDED", "path": _relative(target, project_root), "inventory_sha256": digest}
+    finally:
+        temporary.unlink(missing_ok=True)
+    return {"status": "CREATED", "path": _relative(target, project_root), "inventory_sha256": digest}

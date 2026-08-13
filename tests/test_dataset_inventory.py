@@ -6,12 +6,15 @@ from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pytest
 
+import stock_data.audit.dataset_inventory as inventory_module
 from stock_data.audit.dataset_inventory import (
     REPORT_SCHEMA,
     build_inventory,
     render_markdown,
     serialize_json,
+    write_immutable_snapshot,
     write_outputs,
 )
 from stock_data.contracts.base import ColumnContract, DatasetContract
@@ -75,6 +78,7 @@ def test_reports_unregistered_artifact(tmp_path):
             "rows": 2,
             "bytes": artifact["bytes"],
             "schema_id": artifact["physical_schemas"][0]["schema_id"],
+            "sha256": artifact["file_manifest"][0]["sha256"],
         }
     ]
 
@@ -208,3 +212,79 @@ def test_saved_audit_output_is_not_reingested_as_operational_state(tmp_path):
         "data/state/registered.json"
     ]
     assert all(not state["path"].startswith("data/state/audits/") for state in second["states"])
+
+
+def test_state_aliases_and_nested_immutable_audits_avoid_false_missing_state(tmp_path):
+    contract = _contract("kr_short_selling_balance_daily")
+    _write(tmp_path / "data/normalized/kr_short_selling_balance_daily", _rows())
+    state_root = tmp_path / "data/state"
+    state_root.mkdir(parents=True)
+    (state_root / "kr_short_selling_balance_daily_v2.json").write_text(
+        json.dumps({"dataset": "balance", "status": "complete"}), encoding="utf-8"
+    )
+    nested = state_root / "audits/global/immutable.json"
+    nested.parent.mkdir(parents=True)
+    nested.write_text(
+        json.dumps({"audit_schema": "fixture", "dataset": "kr_short_selling_balance_daily"}),
+        encoding="utf-8",
+    )
+    report = build_inventory(tmp_path, contracts={contract.name: contract}, max_key_rows=10)
+    artifact = report["artifacts"][0]
+    assert artifact["state_presence"] == "PRESENT"
+    assert [state["state_kind"] for state in artifact["states"]] == ["IMMUTABLE_AUDIT", "OPERATIONAL"]
+    assert report["summary"]["state_files"] == 2
+
+
+def test_registered_nested_root_alias_is_confirmed(tmp_path):
+    contract = _contract("kr_kospi200_futures_provider_bridge_daily")
+    root = tmp_path / "data/published/c007_kospi200_derivatives_bridge/kr_kospi200_futures_provider_bridge_daily"
+    _write(root, _rows())
+    report = build_inventory(tmp_path, contracts={contract.name: contract}, max_key_rows=10)
+    artifact = report["artifacts"][0]
+    assert artifact["dataset"] == contract.name
+    assert artifact["dataset_association"] == "REGISTERED_LAYER_ROOT_ALIAS"
+    assert artifact["registration"] == "REGISTERED"
+
+
+def test_immutable_snapshot_is_content_addressed_idempotent_and_rejects_forgery(tmp_path):
+    contract = _contract()
+    _write(tmp_path / "data/normalized/registered", _rows())
+    report = build_inventory(tmp_path, contracts={contract.name: contract}, max_key_rows=10)
+    first = write_immutable_snapshot(
+        tmp_path, report, contracts={contract.name: contract}, max_key_rows=10
+    )
+    second = write_immutable_snapshot(
+        tmp_path, report, contracts={contract.name: contract}, max_key_rows=10
+    )
+    assert first["status"] == "CREATED"
+    assert second["status"] == "ALREADY_RECORDED"
+    assert Path(tmp_path, first["path"]).read_text("utf-8") == serialize_json(report)
+    forged = dict(report)
+    forged["classification"] = "FORGED"
+    try:
+        write_immutable_snapshot(
+            tmp_path, forged, contracts={contract.name: contract}, max_key_rows=10
+        )
+    except ValueError as error:
+        assert "digest differs" in str(error)
+    else:
+        raise AssertionError("forged report was accepted")
+
+
+def test_input_tree_mutation_during_scan_is_rejected(tmp_path, monkeypatch):
+    contract = _contract()
+    path = _write(tmp_path / "data/normalized/registered", _rows())
+    original = inventory_module._artifact_record
+    changed = False
+
+    def changing(**kwargs):
+        nonlocal changed
+        result = original(**kwargs)
+        if not changed:
+            changed = True
+            path.write_bytes(path.read_bytes() + b"mutation")
+        return result
+
+    monkeypatch.setattr(inventory_module, "_artifact_record", changing)
+    with pytest.raises(RuntimeError, match="inputs changed during scan"):
+        build_inventory(tmp_path, contracts={contract.name: contract}, max_key_rows=10)
