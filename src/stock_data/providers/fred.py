@@ -18,12 +18,16 @@ URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"
 
 
 def fetch_series(
-    series_id: str, start: date | None = None, *, session=requests,
+    series_id: str, start: date | None = None, *, end: date | None = None, session=requests,
     capture_root: Path | None = None,
 ) -> pd.DataFrame:
     params = {"id": series_id}
     if start is not None:
         params["cosd"] = start.isoformat()
+    if end is not None:
+        if start is not None and end < start:
+            raise ValueError("FRED end must be on or after start")
+        params["coed"] = end.isoformat()
     response = session.get(URL, params=params, headers={"User-Agent":"stock-investment-rev1/0.1"}, timeout=30)
     if capture_root is not None:
         capture_public_response(
@@ -46,11 +50,11 @@ def fetch_series(
 
 
 def fetch_dataset(
-    series_ids: tuple[str, ...], start: date | None = None, *, session=requests,
+    series_ids: tuple[str, ...], start: date | None = None, *, end: date | None = None, session=requests,
     capture_root: Path | None = None,
 ) -> pd.DataFrame:
     frames = [fetch_series(
-        series_id, start, session=session, capture_root=capture_root,
+        series_id, start, end=end, session=session, capture_root=capture_root,
     ) for series_id in series_ids]
     result = frames[0]
     for frame in frames[1:]:
