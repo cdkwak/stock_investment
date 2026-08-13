@@ -15,6 +15,22 @@ are zero, so it satisfies the exact `PRE_AVAILABILITY_COLLAPSE` branch. A scan
 against locally configured secret values and common credential/key labels found
 no persisted credential. H1 must not be executed again.
 
+The audit is reproducible without network access. Dry-run is the default and
+does not write beneath the retained run:
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\manual\verify_a007_investor_h1.py `
+  .\data\landing\diagnostics\a007_investor_h1\20260813T103525Z_47ad701d154b430e89f18434bd152031
+```
+
+The verifier regenerates the manifest from the checksum-bound current canonical
+date sources, validates the full request/ledger/provenance/hash/classification
+chain, checks locally configured KRX values and sensitive key names without
+persisting or printing secret values, and rechecks the original artifact hashes
+after verification. `--write-append-only-evidence` explicitly opts into an
+immutable content-addressed JSON under the run's `offline_verifications/`
+directory. Repeating the same write is idempotent; conflicting content stops.
+
 The frozen scope is exactly one authenticated `MDCSTAT30301` KOSPI volume
 request for `2010-01-04..2012-01-04`. The expected set is exactly 502 canonical
 KOSPI dates derived from checksum-bound retained 2010, 2011, and 2012 universe
