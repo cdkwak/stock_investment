@@ -45,9 +45,10 @@ started; current scope is in [Backtest status](BACKTEST_STATUS.md).
 - A single post-cooldown KRX Investor sentinel returned HTTP 200 with retry 0, proving
   access recovery for that scope, but again returned only the positive range-end row.
   Investor historical collection remains stopped on source semantics.
-- Free KRX Open API coverage is confirmed to start in 2010 for futures/options.
-  Pre-2010 history now requires user-approved paid-source coverage and licensing;
-  the preferred source and acceptance gate are recorded in the Data dashboard.
+- Free KRX Open API coverage starts in 2010, but logged-in KRX Basic Statistics
+  manually returned KOSPI200 futures from 1996-05-06 and options from 1997-07-07.
+  Paid KRX/FnGuide sourcing is deferred; bulk-use terms and a bounded collector
+  pilot are the remaining free-route gates recorded in the Data dashboard.
 - OpenDART now has one retained known-positive combined paid/free-issue row with
   verified economic terms. Original and corrected receipt identities differ, so
   canonical corporate-action identity and adjustment accounting remain blocked.

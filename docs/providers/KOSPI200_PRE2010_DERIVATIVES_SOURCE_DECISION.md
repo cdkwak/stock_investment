@@ -1,46 +1,61 @@
 # KOSPI200 pre-2010 derivatives source decision
 
-Status: **SOURCE_FOUND_WITH_LIMITS / LICENSE_GATE**
+Status: **FREE_OFFICIAL_SOURCE_CONFIRMED / BULK_USE_TERMS_GATE**
 
-The free KRX Open API cannot fill this gap: its service catalogue limits futures
-and options daily trading data to 2010-01-04 onward. The preferred authoritative
-source is therefore the paid KRX Data Marketplace daily futures and options
-products. FnGuide DataGuide is a fallback only if the vendor confirms the exact
-historical coverage and permitted use in writing.
+The free KRX Open API begins in 2010, but the logged-in KRX Data Marketplace
+Basic Statistics screens retain earlier official observations. Bounded manual
+queries reproduced KOSPI200 futures on 1996-05-06 and KOSPI200 options on
+1997-07-07, plus representative dates in 1998, 2000, 2008, and 2009. Paid KRX
+products and FnGuide are therefore fallbacks, not the next action.
 
-## Required scope
+## Confirmed free scope
 
-- KOSPI200 futures: listing inception in May 1996 through 2009-12-30.
-- KOSPI200 options: 1997-07-07 through 2009-12-30.
-- All listed contracts, with trade date, product/contract identity, maturity or
-  expiry, OHLC, settlement price, volume, open interest, underlying, session,
-  field units, and any historical specification changes.
-- Raw contract rows only. A continuous contract or adjustment policy is a later,
-  separately versioned Derived-layer decision.
+- **All Issues Prices** returns every listed contract for a selected historical
+  date, including expired futures and option strikes/maturities. Confirmed fields
+  include contract code/name, OHLC, change, settlement or next-day base price,
+  spot or implied volatility where applicable, volume, turnover, and open interest.
+- **Individual Issue Price Trend** exposes one contract over a range and includes
+  date, OHLC, spot, settlement, volume, turnover, and open interest. An expired
+  December 2022 contract was returned; the bounded check did not establish that
+  the selector can address every 1996/1997 contract.
+- **Nearest-Month Futures/Options Trend**, **Futures Basis**, and **Options P/C
+  Ratio** returned inception-period rows. Range queries are limited by the UI to
+  two years.
+- **Strike/Maturity Price Table** exposes a current CALL/strike/PUT maturity matrix
+  but no historical date control, so it is not a historical reconstruction route.
+- All inspected result screens expose a download control. Excel and CSV choices
+  were explicitly verified on All Issues Prices and Strike/Maturity Price Table;
+  no file was downloaded in this audit.
 
-Before purchase, obtain a written coverage statement, sample files spanning first
-listing/expiry and the 2009-to-2010 boundary, delivery format, revision policy,
-price, and a license that permits personal internal research and derived results.
-Academic users should ask whether the published education/public-interest discount
-applies. Do not buy or contact a vendor without user approval.
+The authoritative all-contract route is therefore technically feasible through
+All Issues Prices. Using retained Korean trading dates as a planning estimate,
+1996-05-06..2009-12-30 requires 3,496 futures-date queries and
+1997-07-07..2009-12-30 requires 3,153 options-date queries (6,649 total). The
+four range-series screens can each be partitioned into seven two-year-or-shorter
+requests. These are planning counts, not authorization to automate or collect.
 
-## Acceptance boundary
+## Remaining gate
 
-Accept a source only when source-owned contract identities, exact coverage starts,
-session meaning, units, missing-value conventions, revision behavior, and license
-are explicit. Retain provider files in Landing and keep the pre-2010 provider/session
-boundary visible in any bridge. Do not infer missing contracts, continuous rolls,
-or back-adjustments.
+Before any bulk request, obtain or record an official interpretation of the site
+and market-data terms for automated retrieval, persistent personal-research storage,
+and derived-result use. The website terms prohibit copying, distributing, or
+transmitting site information without prior KRX permission and defer market-data
+use to separate terms. Free screen access alone is not a redistribution or bulk-use
+license.
 
-## Authoritative references
+If bulk use is permitted, implement a resumable Landing-first collector with exact
+date/product checkpoints, conservative pacing, retry zero for the pilot, immutable
+request ledgers, and contract/schema validation. Preserve raw contract rows; any
+continuous-contract or adjustment policy belongs in a later versioned Derived layer.
+Only if KRX declines permission or the free screen cannot be collected reliably
+should paid KRX history or a written-coverage FnGuide quote be reconsidered.
 
+## Evidence
+
+- [Bounded Basic Statistics audit](../data/audits/KRX_BASIC_STATS_PRE2010_DERIVATIVES_AUDIT.md)
+- [KRX Data Marketplace terms](https://data.krx.co.kr/contents/MDC/INFO/informationController/MDCINFO003.cmd)
 - [KRX Open API service list](https://openapi.krx.co.kr/contents/OPP/INFO/service/OPPINFO004.cmd)
 - [KRX futures data products](https://data.krx.co.kr/contents/MDC/DATA/datasale/index.cmd?prodType=FF&viewNm=dataProdList)
 - [KRX options data products](https://data.krx.co.kr/contents/MDC/DATA/datasale/index.cmd?prodType=FO&viewNm=dataProdList)
-- [KRX data purchase process](https://openapi.krx.co.kr/contents/OPP/DATA/OPPDATA001.jsp)
-- [KRX data licensing](https://openapi.krx.co.kr/contents/OPP/DATA/OPPDATA004.jsp)
-- [KRX distribution products](https://openapi.krx.co.kr/contents/OPP/DATA/OPPDATA002.jsp)
-- [FnGuide DataGuide time-series guide](https://help-dataguide.fnguide.com/ko/articles/%EC%8B%9C%EA%B3%84%EC%97%B4-%EB%8D%B0%EC%9D%B4%ED%84%B0-%EB%B6%84%EC%84%9D%ED%95%98%EA%B8%B0-%EC%8B%9C%EA%B3%84%EC%97%B4)
 
-KRX data-product contact details are published on the purchase page. They are an
-external-action gate, not authorization for this repository to place an order.
+Do not purchase, contact a vendor, or start bulk collection without user approval.
