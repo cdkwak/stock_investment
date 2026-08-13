@@ -41,5 +41,17 @@ Retained run hashes: checkpoint
 ledger `325c6aae3d8956c0dcb239b25b99cd546945253d63bd0a0300c6ac8e657c27be`,
 manifest `61e5e11c2f0bd8a4dc1f7d7b4e3d732728dabe41c95995421d4cdda03f099b68`.
 
+The zero-network lineage audit independently rechecks that the retained list
+request used `last_reprt_at=N`, then compares the retained list and terms rows.
+It finds list receipt `20220406002324`, terms receipt `20220614000068`, and no
+explicit parent/original/supersession receipt field in either source row. The
+terms receipt's date prefix is also outside the list request's
+`2022-04-01..2022-04-15` window. The resulting decisions are therefore
+`PARENT_EDGE_UNAVAILABLE_IN_RETAINED_EVIDENCE` and
+`SEMANTICS_UNRESOLVED`; neither issuer/date/name proximity nor matching economic
+terms may be used to manufacture the missing edge. The reusable audit is
+`scripts/manual/audit_opendart_revision_lineage.py` and performs no network or
+persistent-data writes.
+
 Official field definitions remain in the archived
 [OpenDART pilot record](../../archive/2026-08-data-phase/OPENDART_FREE_ISSUE_PILOT.md).
