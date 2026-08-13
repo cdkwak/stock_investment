@@ -114,7 +114,18 @@ def _credential_scan(paths: dict[str, Path], parsed: tuple[object, ...], project
         raise PilotStopped("OFFLINE_CONFIGURED_CREDENTIAL_PRESENT")
 
 
-def _atomic_new(path: Path, body: bytes, project_root: Path) -> str:
+def _assert_original_hashes(paths: dict[str, Path], expected: dict[str, str]) -> None:
+    if {name: _sha(path) for name, path in paths.items()} != expected:
+        raise PilotStopped("OFFLINE_ORIGINAL_ARTIFACT_CHANGED")
+
+
+def _atomic_new(
+    path: Path,
+    body: bytes,
+    project_root: Path,
+    *,
+    assert_source_unchanged,
+) -> str:
     path.parent.mkdir(parents=True, exist_ok=True)
     _inside(path.parent, project_root)
     _inside(path, project_root)
@@ -125,8 +136,10 @@ def _atomic_new(path: Path, body: bytes, project_root: Path) -> str:
             stream.flush()
             os.fsync(stream.fileno())
         try:
+            assert_source_unchanged()
             os.link(temporary, path)
         except FileExistsError:
+            assert_source_unchanged()
             if _inside(path, project_root).read_bytes() != body:
                 raise PilotStopped("OFFLINE_EVIDENCE_COLLISION")
             return "ALREADY_VERIFIED"
@@ -252,9 +265,9 @@ def verify_retained_run(
         status = _atomic_new(
             target, json.dumps(evidence, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8"),
             project_root,
+            assert_source_unchanged=lambda: _assert_original_hashes(paths, original_hashes),
         )
-    if {name: _sha(path) for name, path in paths.items()} != original_hashes:
-        raise PilotStopped("OFFLINE_ORIGINAL_ARTIFACT_CHANGED")
+    _assert_original_hashes(paths, original_hashes)
     return {"status": status, "path": target.relative_to(project_root).as_posix(), **evidence}
 
 

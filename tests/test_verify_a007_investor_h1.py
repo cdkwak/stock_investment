@@ -37,9 +37,20 @@ def _hashes(run: Path) -> dict[str, str]:
     return {name: hashlib.sha256((run / name).read_bytes()).hexdigest() for name in ARTIFACTS}
 
 
+def _evidence_snapshot(run: Path) -> dict[str, str]:
+    root = run / verifier.EVIDENCE_ROOT
+    if not root.exists():
+        return {}
+    return {
+        path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(root.rglob("*")) if path.is_file()
+    }
+
+
 def test_actual_h1_run_reproduces_exact_audit_without_writes():
     run = _actual_run()
     before = _hashes(run)
+    evidence_before = _evidence_snapshot(run)
     result = verifier.verify_retained_run(
         project_root=Path("."), run_dir=run, write_evidence=False,
     )
@@ -55,7 +66,7 @@ def test_actual_h1_run_reproduces_exact_audit_without_writes():
     assert result["network_calls"] == 0
     assert result["body_sha256"] == "6ead29ac104ea3da7499b31e089e2f3634107d452a62278fc02d3859f4003c32"
     assert _hashes(run) == before
-    assert not (run / verifier.EVIDENCE_ROOT).exists()
+    assert _evidence_snapshot(run) == evidence_before
 
 
 def test_append_only_evidence_is_content_addressed_idempotent_and_preserves_originals(tmp_path, monkeypatch):
@@ -108,16 +119,47 @@ def test_existing_content_address_collision_is_rejected(tmp_path, monkeypatch):
 
 def test_original_mutation_during_evidence_write_is_detected(tmp_path, monkeypatch):
     project, run = _copy_run(tmp_path, monkeypatch)
-    original_writer = verifier._atomic_new
+    dry = verifier.verify_retained_run(project_root=project, run_dir=run)
+    target = project / dry["path"]
+    original_assert = verifier._assert_original_hashes
+    calls = 0
 
-    def mutate_then_write(path, body, project_root):
-        ledger = run / "call_ledger.jsonl"
-        ledger.write_bytes(ledger.read_bytes() + b"\n")
-        return original_writer(path, body, project_root)
+    def mutate_at_publish_boundary(paths, expected):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            ledger = run / "call_ledger.jsonl"
+            ledger.write_bytes(ledger.read_bytes() + b"\n")
+        return original_assert(paths, expected)
 
-    monkeypatch.setattr(verifier, "_atomic_new", mutate_then_write)
+    monkeypatch.setattr(verifier, "_assert_original_hashes", mutate_at_publish_boundary)
     with pytest.raises(PilotStopped, match="OFFLINE_ORIGINAL_ARTIFACT_CHANGED"):
         verifier.verify_retained_run(project_root=project, run_dir=run, write_evidence=True)
+    assert calls == 1
+    assert not target.exists()
+
+
+def test_existing_evidence_acceptance_rechecks_originals(tmp_path, monkeypatch):
+    project, run = _copy_run(tmp_path, monkeypatch)
+    first = verifier.verify_retained_run(project_root=project, run_dir=run, write_evidence=True)
+    target = project / first["path"]
+    evidence_before = target.read_bytes()
+    original_assert = verifier._assert_original_hashes
+    calls = 0
+
+    def mutate_before_acceptance(paths, expected):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            ledger = run / "call_ledger.jsonl"
+            ledger.write_bytes(ledger.read_bytes() + b"\n")
+        return original_assert(paths, expected)
+
+    monkeypatch.setattr(verifier, "_assert_original_hashes", mutate_before_acceptance)
+    with pytest.raises(PilotStopped, match="OFFLINE_ORIGINAL_ARTIFACT_CHANGED"):
+        verifier.verify_retained_run(project_root=project, run_dir=run, write_evidence=True)
+    assert calls == 2
+    assert target.read_bytes() == evidence_before
 
 
 def test_cli_defaults_to_dry_run(monkeypatch, capsys):
