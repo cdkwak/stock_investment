@@ -18,16 +18,16 @@ official continuous coverage.
 | Korean source verification | authenticated pykrx 1.2.8 | bounded manual smoke passed; 5/5 public probes, 12 raw HTTP requests | automation remains dataset-specific; only the reviewed A007 single-stream collector is currently enabled |
 | Korean equity price/cap/universe | marcap + KRX Open API + FSC data.go.kr | complete, 1995-05-02..2026-08-07 | daily incremental |
 | Korean Open API history | KRX Open API | complete, 2010-01-04..2019-12-30 | daily ledger/checkpoint retained |
-| Korean short selling | authenticated pykrx 1.2.8 | Trading DATA_COMPLETE; Balance safely PAUSED at 3,849/4,958 scopes and 4,512,205 rows after KRX returned HTTP-200 restriction HTML for `20240425_KOSDAQ`; Investor not started | do not retry automatically; preserve the failed Landing/ledger evidence and resume only after a separately reviewed access-recovery gate |
-| `global_index_price_daily` | Yahoo chart API | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 49,051 rows through 2026-08-07 | canonical read, PK, OHLC, null, infinity, and gap audit pass; retained collection has no lossless Landing or call ledger |
-| `fred_treasury_yield_daily` | FRED | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 16,853 weekdays, 1962-01-02..2026-08-06 | source-series nulls are preserved; retained state is only a coarse completion marker |
-| `fred_usd_fx_daily` | FRED | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 14,500 weekdays, 1971-01-04..2026-07-31 | source-series nulls are preserved; retained state is only a coarse completion marker |
+| Korean short selling | authenticated pykrx 1.2.8 | Trading DATA_COMPLETE; Balance DATA_COMPLETE, 4,958/4,958 scopes and 6,035,958 rows; final deterministic audit PASS | Investor STOPPED after exactly one boundary business call returned only the range end date (1/501 expected dates); preserve Landing/ledger and redesign the range gate without retrying or synthesizing zeros |
+| `global_index_price_daily` | Yahoo chart API | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 49,051 rows through 2026-08-07 | canonical read, PK, OHLC, null, infinity, and gap audit pass; immutable content-addressed local-artifact audit retained, but collection has no lossless Landing or call ledger |
+| `fred_treasury_yield_daily` | FRED | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 16,853 weekdays, 1962-01-02..2026-08-06 | source-series nulls are preserved; immutable content-addressed local-artifact audit retained, while source-response provenance remains unavailable |
+| `fred_usd_fx_daily` | FRED | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 14,500 weekdays, 1971-01-04..2026-07-31 | source-series nulls are preserved; immutable content-addressed local-artifact audit retained, while source-response provenance remains unavailable |
 | `kr_market_investor_trading_daily` | Toss Securities | DATA_COMPLETE; 2014-07-01..2026-08-11, KOSPI/KOSDAQ, 5,946 rows | historical secondary; preserve the source `updatedAt`-derived `availability_date` |
 | `kr_treasury_yield_daily` | Toss Securities | ARTIFACT_COMPLETE / PREDICTIVE_USE_BLOCKED; 2019-01-02..2026-08-10, six tenors, 11,162 rows | percent yield semantics verified; source volume unit and observation availability are unknown |
 | Toss per-symbol short/program/lending/credit | Toss Securities | not survivorship safe; delisted sample returned `stock-not-found` for all four operations | official program screen `MDCSTAT02601` needs a post-A007 request-contract pilot; official credit market aggregates do not replace per-symbol shares/ratios |
 | KB realtime | KB Securities | earlier OAuth success reported; 2026-08-11 fresh check failed with HTTP 500, result `9999`, process `E021`; IVSA0070 not called | verify app-key authorization externally, then authorize a new one-shot validation |
 | Market breadth | canonical universe + Korean equity prices | complete, 1995-05-03..2026-08-07 | daily incremental |
-| `us_treasury_spread_daily` | FRED yields | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 16,853 rows, 1962-01-02..2026-08-06 | exact local parity with retained yields; no independent state file |
+| `us_treasury_spread_daily` | FRED yields | ARTIFACT_COMPLETE / PROVENANCE_LIMITED; 16,853 rows, 1962-01-02..2026-08-06 | deterministic offline state records exact input-state/files, output hashes, formulas, validation, and `api_calls=0` |
 | `kr_market_liquidity_daily` | FSC/KOFIA public API | complete, 2021-10-26..2026-08-05 | daily incremental |
 | `kr_credit_balance_daily` | FSC/KOFIA public API | complete, 2021-11-09..2026-08-05 | daily incremental |
 | `kr_kospi200_futures_daily` | FSC derivatives public API | complete, 2020-01-02..2026-08-07; 1,620 dates | daily incremental |
@@ -40,7 +40,7 @@ official continuous coverage.
 | `kr_stock_lending_participant_daily` | FSC stock-lending public API | DATA_COMPLETE, 2021-04-01..2026-08-10; 11,472 rows, 1,290 source dates | 27 source-absent dates versus detail intentionally preserved |
 | `kr_equity_dividend` | FSC dividend public API | one current snapshot complete, 71,652 source events; no historical point-in-time series | define versioned incremental snapshot policy |
 | `kr_equity_dividend_source_observation` | retained FSC dividend Landing snapshot | ARTIFACT_COMPLETE, 71,652 immutable source observations at `basDt=2026-08-08` | non-PIT/non-predictive; append future independently captured snapshots by Landing hash |
-| `kr_equity_rights_schedule` | FSC rights public API | source diagnostic complete; canonical event dataset BLOCKED, 0 rows | source-observation contract is implementable; economic adjustment terms and a canonical event key remain unverified |
+| `kr_equity_rights_schedule` | FSC rights public API | PARTIAL_DIAGNOSTIC_SOURCE_OBSERVATION; one immutable Normalized row from retained 2019-12-31 diagnostic | declared 12/returned 1; canonical event identity, historical completeness, and economic adjustment terms remain BLOCKED |
 | Corporate-action source boundary | FSC/data.go.kr local official guides | analysis complete; no new dataset | verify split/merger/reduction economic-term source before deriving adjustments |
 | Adjusted price / total return | none selected | not started | define corporate-action accounting policy and source |
 | 2020+ official equity | FSC stock price/listed APIs | complete, 2020-01-02..2026-08-07 | daily incremental |
@@ -83,7 +83,7 @@ remain in landing and never overwrite normalized data.
 | Dataset | Source snapshot / as-of | Event-effective fields | Announcement field | Historical predictive use |
 |---|---|---|---|---|
 | `kr_equity_dividend` | `date` (`basDt`) | record, cash-payment, stock-delivery dates | not provided | from the captured source snapshot date only; event dates are not knowledge dates |
-| `kr_equity_rights_schedule` | one retained successful diagnostic snapshot (`basDt` 2019-12-31) | exercise and registry-close dates | not provided | source observations may be retained immutably by response hash + item ordinal; canonical event identity and historical knowledge remain blocked |
+| `kr_equity_rights_schedule` | one retained successful diagnostic snapshot (`basDt` 2019-12-31) | exercise and registry-close dates | not provided | one observation is retained immutably by response hash + item ordinal; declared 12/returned 1, so canonical event identity and historical knowledge remain blocked |
 | `kr_equity_master` | `source_date` | listing, delisting, deposit registration/cancellation dates | not provided | only when `source_date <= as_of`; missing `source_date` is ineligible for predictive features |
 | `kr_treasury_yield_daily` | unavailable from the retained source response | candle date | not provided | blocked for predictive features until a defensible observation-availability policy exists |
 
@@ -170,7 +170,10 @@ layer does not shift either date.
   credential gate; no values or coverage before 2015 are inferred.
 - The one-call B002-P1 Rights diagnostic returned HTTP 200/result `00` with
   12 source records reported and one retained item (page size one). It proves
-  source usability only, not historical coverage. B002-P2 found that an
+  source usability only, not historical coverage. That retained item is now
+  promoted as one immutable Normalized source observation with the exact
+  envelope/body/ledger/handoff hash chain; this does not change the canonical
+  or economic-event blocker. B002-P2 found that an
   immutable source-observation contract can use response-body SHA-256 plus item
   ordinal as its key and append later corrections, but the response does not
   provide ratios, share quantities, issue price, adjustment factors, or a safe
