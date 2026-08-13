@@ -8,6 +8,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from scripts.manual import a007_investor_s1_diagnostic_support as support
 from scripts.manual import diagnose_a007_investor_range as base_runner
@@ -55,6 +57,23 @@ class _Authenticated:
         return True
 
 
+class _AuthenticatedSession(requests.Session):
+    is_authenticated = True
+
+    def is_valid(self):
+        return True
+
+
+class _AuthenticatedWrapper:
+    is_authenticated = True
+
+    def __init__(self, session: requests.Session):
+        self.session = session
+
+    def is_valid(self):
+        return True
+
+
 def test_s1_plan_is_exact_single_kospi_volume_request():
     assert support.SCOPE == {
         "strtDd": "20240807", "endDd": "20260807",
@@ -69,6 +88,10 @@ def test_s1_plan_is_exact_single_kospi_volume_request():
     assert support.EXPECTED_RAW_HTTP_REQUESTS == 6
     assert runner.LANDING_ROOT.name == "a007_investor_s1"
     assert runner.D_OWNED_LOCK_PATH.name == "d_owned_krx_short_selling.lock"
+    assert support.EXPECTED_BUSINESS_DATA == {
+        "bld": support.BUSINESS_BLD, "strtDd": "20240807",
+        "endDd": "20260807", "inqCondTpCd": "1", "mktTpCd": "1",
+    }
 
 
 def test_expected_dates_are_bound_to_exact_retained_files(tmp_path, monkeypatch):
@@ -115,6 +138,17 @@ def test_s1_classifier_accepts_only_exact_canonical_set():
     assert result.observed_dates == FIXTURE_DATES
 
 
+def test_s1_classifier_rejects_extra_row_and_top_level_fields():
+    payload = json.loads(_body())
+    payload["OutBlock_1"][0]["UNEXPECTED"] = "x"
+    with pytest.raises(PilotStopped, match="SCHEMA_MISMATCH:0:extra=UNEXPECTED"):
+        support.classify_response(json.dumps(payload).encode(), FIXTURE_DATES)
+    payload = json.loads(_body())
+    payload["extra"] = []
+    with pytest.raises(PilotStopped, match="TOP_LEVEL_SCHEMA_MISMATCH"):
+        support.classify_response(json.dumps(payload).encode(), FIXTURE_DATES)
+
+
 def test_cli_requires_all_explicit_confirmations(monkeypatch):
     monkeypatch.setattr("sys.argv", ["diagnose_a007_investor_s1.py"])
     assert runner.main() == 2
@@ -151,17 +185,19 @@ def test_simulated_s1_runs_are_unique_landing_only_and_exactly_one_call(
 
     monkeypatch.setattr(requests.Session, "request", fake_request)
 
+    authenticated_session = _AuthenticatedSession()
+
     def authenticate():
-        session = requests.Session()
         for _ in range(5):
-            session.get(
+            authenticated_session.get(
                 "https://data.krx.co.kr/contents/MDC/COMS/client/MDCCOMS001.cmd"
             )
-        return _Authenticated()
+        return _AuthenticatedWrapper(authenticated_session)
 
     def execute():
-        requests.Session().post(
-            "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd"
+        authenticated_session.post(
+            "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd",
+            data=dict(support.EXPECTED_BUSINESS_DATA),
         )
 
     results = [
@@ -222,16 +258,20 @@ def test_s1_fails_closed_when_auth_path_uses_fewer_than_five_raw_calls(
         lambda *args, **kwargs: _response(_body()),
     )
 
+    authenticated_session = _AuthenticatedSession()
+
     def execute():
-        requests.Session().post(
-            "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd"
+        authenticated_session.post(
+            "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd",
+            data=dict(support.EXPECTED_BUSINESS_DATA),
         )
 
     with pytest.raises(PilotStopped, match="RAW_REQUEST_COUNT_MISMATCH:1/6"):
         base_runner.run_diagnostic(
             env_file=env, project_root=project, landing_root=landing,
             lock_path=project / "data/state/d_owned_krx_short_selling.lock",
-            session_getter=_Authenticated, execute_probe=execute,
+            session_getter=lambda: _AuthenticatedWrapper(authenticated_session),
+            execute_probe=execute,
             diagnostic_support=support,
         )
     run_dir = next(landing.iterdir())
@@ -241,3 +281,92 @@ def test_s1_fails_closed_when_auth_path_uses_fewer_than_five_raw_calls(
     ]
     assert events.count("HTTP_RESPONSE") == 1
     assert events[-1] == "DIAGNOSTIC_STOPPED"
+
+
+@pytest.mark.parametrize(
+    "method,data,extra_kwargs,reason",
+    [
+        ("GET", support.EXPECTED_BUSINESS_DATA, {}, "BUSINESS_METHOD_MISMATCH"),
+        ("POST", None, {}, "BUSINESS_DATA_MISSING"),
+        ("POST", {**support.EXPECTED_BUSINESS_DATA, "extra": "x"}, {}, "BUSINESS_DATA_MISMATCH"),
+        ("POST", {**support.EXPECTED_BUSINESS_DATA, "strtDd": "20240808"}, {}, "BUSINESS_DATA_MISMATCH"),
+        ("POST", support.EXPECTED_BUSINESS_DATA, {"params": {"x": "1"}}, "BUSINESS_QUERY_PARAMS_FORBIDDEN"),
+    ],
+)
+def test_wrong_business_transaction_fails_before_network(
+    tmp_path, monkeypatch, method, data, extra_kwargs, reason
+):
+    project = tmp_path / "project"
+    landing = project / "data/landing/diagnostics/a007_investor_s1"
+    env = project / ".env"
+    project.mkdir()
+    env.write_text("KRX_ID=user\nKRX_PW=password\n", encoding="utf-8")
+    monkeypatch.delenv("KRX_ID", raising=False)
+    monkeypatch.delenv("KRX_PW", raising=False)
+    monkeypatch.setattr(base_runner.importlib.metadata, "version", lambda unused: "1.2.8")
+    _patch_fixture_plan(monkeypatch)
+    session = _AuthenticatedSession()
+    network_calls = 0
+
+    def fake_request(*args, **kwargs):
+        nonlocal network_calls
+        network_calls += 1
+        return _response(_body())
+
+    monkeypatch.setattr(requests.Session, "request", fake_request)
+
+    def execute():
+        session.request(
+            method, "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd",
+            data=data, **extra_kwargs,
+        )
+
+    with pytest.raises(PilotStopped, match=reason):
+        base_runner.run_diagnostic(
+            env_file=env, project_root=project, landing_root=landing,
+            lock_path=project / "data/state/d_owned_krx_short_selling.lock",
+            session_getter=lambda: _AuthenticatedWrapper(session), execute_probe=execute,
+            diagnostic_support=support,
+        )
+    assert network_calls == 0
+    run_dir = next(landing.iterdir())
+    assert not (run_dir / "response.json").exists()
+
+
+def test_retry_enabled_auth_session_fails_before_business_network(tmp_path, monkeypatch):
+    project = tmp_path / "project"
+    landing = project / "data/landing/diagnostics/a007_investor_s1"
+    env = project / ".env"
+    project.mkdir()
+    env.write_text("KRX_ID=user\nKRX_PW=password\n", encoding="utf-8")
+    monkeypatch.delenv("KRX_ID", raising=False)
+    monkeypatch.delenv("KRX_PW", raising=False)
+    monkeypatch.setattr(base_runner.importlib.metadata, "version", lambda unused: "1.2.8")
+    _patch_fixture_plan(monkeypatch)
+    session = _AuthenticatedSession()
+    session.mount("https://", HTTPAdapter(max_retries=Retry(total=1)))
+    called = False
+
+    def execute():
+        nonlocal called
+        called = True
+
+    with pytest.raises(PilotStopped, match="RETRY_ENABLED_OR_UNKNOWN:https://"):
+        base_runner.run_diagnostic(
+            env_file=env, project_root=project, landing_root=landing,
+            lock_path=project / "data/state/d_owned_krx_short_selling.lock",
+            session_getter=lambda: _AuthenticatedWrapper(session), execute_probe=execute,
+            diagnostic_support=support,
+        )
+    assert not called
+
+
+def test_zero_retry_is_explicitly_installed_on_every_auth_adapter():
+    session = _AuthenticatedSession()
+    base_runner._install_verified_zero_retry(session)
+    for adapter in session.adapters.values():
+        retry = adapter.max_retries
+        assert (
+            retry.total, retry.connect, retry.read, retry.redirect,
+            retry.status, retry.other,
+        ) == (0, 0, 0, 0, 0, 0)

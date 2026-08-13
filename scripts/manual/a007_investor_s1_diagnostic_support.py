@@ -21,12 +21,20 @@ BUSINESS_ENDPOINT_PATH = "/comm/bldAttendant/getJsonData.cmd"
 MAX_BUSINESS_REQUESTS = 1
 MAX_RAW_HTTP_REQUESTS = 6
 EXPECTED_RAW_HTTP_REQUESTS = 6
+REQUIRE_ZERO_RETRY_AUTH_SESSION = True
 SCOPE_ID = "20240807_20260807_KOSPI_volume_S1_diagnostic"
 SCOPE = {
     "strtDd": "20240807",
     "endDd": "20260807",
     "inqCondTpCd": 1,
     "mktTpCd": 1,
+}
+EXPECTED_BUSINESS_DATA = {
+    "bld": BUSINESS_BLD,
+    "strtDd": SCOPE["strtDd"],
+    "endDd": SCOPE["endDd"],
+    "inqCondTpCd": str(SCOPE["inqCondTpCd"]),
+    "mktTpCd": str(SCOPE["mktTpCd"]),
 }
 EXPECTED_DATE_COUNT = 485
 EXPECTED_DATE_SHA256 = (

@@ -27,6 +27,12 @@ All four confirmations are required. PASS requires exactly six total raw HTTP
 requests (five authentication and one business), exactly one business request,
 no redirect, retry count zero, and one shared D-owned lock. Any different raw
 request count is preserved and stopped as an authentication-path anomaly.
+Before business I/O, the runner rejects a retry-enabled/unknown transport and
+installs explicit zeroes for total, connect, read, redirect, status, and other
+retry dimensions on the authenticated session. The business transaction must
+be POST with exactly `bld`, `strtDd`, `endDd`, `inqCondTpCd`, and `mktTpCd`
+and their frozen S1 values; missing, extra, query, JSON, or wrong values fail
+before the business network call.
 
 ## Evidence and stop gates
 
@@ -37,9 +43,10 @@ and append-only call ledger. The manifest records all 485 expected dates, their
 frozen digest, exact canonical source file hashes, scope, caps, and zero-write
 semantics.
 
-PASS is `S1_FULL_RANGE_CONFIRMED`: exactly 485 unique expected dates, exact
-source fields, nonnegative integers, component/total equality, and at least one
-positive total. HTML/restriction/error content, empty output, a one-date
+PASS is `S1_FULL_RANGE_CONFIRMED`: exactly the `OutBlock_1` top-level JSON
+shape, exactly 485 unique expected dates, exact row source fields, nonnegative
+integers, component/total equality, and at least one positive total.
+HTML/restriction/error content, empty output, a one-date
 collapse, any subset/extra/duplicate date, schema drift, bad totals, a second
 business request, or a seventh raw request stops immediately. Preserve the
 attempt and do not retry. A PASS supports planning the next bounded discovery

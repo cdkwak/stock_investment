@@ -21,6 +21,7 @@ from typing import Callable
 from uuid import uuid4
 
 import requests
+from urllib3.util.retry import Retry
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -114,6 +115,7 @@ class HttpCapture:
         self.business_count = 0
         self._original: Callable | None = None
         self._response: requests.Response | None = None
+        self._business_session: requests.Session | None = None
 
     def __enter__(self):
         self._original = requests.Session.request
@@ -128,11 +130,38 @@ class HttpCapture:
         if self._original is not None:
             requests.Session.request = self._original
 
+    def authorize_business_session(self, session: requests.Session) -> None:
+        self._business_session = session
+
+    def _verify_business_request(
+        self, session: requests.Session, method: object, kwargs: dict[str, object]
+    ) -> None:
+        expected = getattr(self.support, "EXPECTED_BUSINESS_DATA", None)
+        if expected is None:
+            return
+        if session is not self._business_session:
+            raise PilotStopped("BUSINESS_SESSION_MISMATCH")
+        if str(method).upper() != "POST":
+            raise PilotStopped("BUSINESS_METHOD_MISMATCH")
+        if kwargs.get("params") not in (None, {}):
+            raise PilotStopped("BUSINESS_QUERY_PARAMS_FORBIDDEN")
+        if kwargs.get("json") is not None:
+            raise PilotStopped("BUSINESS_JSON_BODY_FORBIDDEN")
+        supplied = kwargs.get("data")
+        if not isinstance(supplied, dict):
+            raise PilotStopped("BUSINESS_DATA_MISSING")
+        normalized = {str(key): str(value) for key, value in supplied.items()}
+        if normalized != expected:
+            raise PilotStopped("BUSINESS_DATA_MISMATCH")
+
     def _request(self, session, method, url, **kwargs):
         path = requests.utils.urlparse(str(url)).path
         authentication = path in AUTH_ENDPOINT_PATHS
         if not authentication and path != self.support.BUSINESS_ENDPOINT_PATH:
             raise PilotStopped(f"UNAPPROVED_ENDPOINT:{path}")
+        if not authentication:
+            # Validate the complete transaction before counters or network I/O.
+            self._verify_business_request(session, method, kwargs)
         if self.raw_count >= self.support.MAX_RAW_HTTP_REQUESTS:
             self.ledger.append(
                 "HTTP_BUDGET_EXHAUSTED", maximum=self.support.MAX_RAW_HTTP_REQUESTS
@@ -224,6 +253,48 @@ def _default_session_getter():
     return get_session()
 
 
+def _zero_retry() -> Retry:
+    return Retry(
+        total=0, connect=0, read=0, redirect=0, status=0, other=0,
+        allowed_methods=frozenset(), raise_on_redirect=False, raise_on_status=False,
+    )
+
+
+def _retry_is_enabled(retry: Retry) -> bool:
+    if retry.total not in (0, False):
+        return True
+    dimensions = (
+        retry.connect, retry.read, retry.redirect, retry.status,
+        getattr(retry, "other", 0),
+    )
+    # With total=0, urllib3's inherited None dimensions cannot retry. They are
+    # replaced by explicit zeroes immediately after this preflight.
+    return any(value not in (None, 0, False) for value in dimensions)
+
+
+def _install_verified_zero_retry(session: requests.Session) -> None:
+    if not isinstance(session, requests.Session):
+        raise PilotStopped("AUTH_SESSION_TYPE_MISMATCH")
+    for prefix, adapter in session.adapters.items():
+        retry = getattr(adapter, "max_retries", None)
+        if not isinstance(retry, Retry) or _retry_is_enabled(retry):
+            raise PilotStopped(f"RETRY_ENABLED_OR_UNKNOWN:{prefix}")
+    strict = _zero_retry()
+    for adapter in session.adapters.values():
+        adapter.max_retries = strict
+    for prefix, adapter in session.adapters.items():
+        retry = getattr(adapter, "max_retries", None)
+        if not isinstance(retry, Retry) or _retry_is_enabled(retry):
+            raise PilotStopped(f"ZERO_RETRY_INSTALL_FAILED:{prefix}")
+
+
+def _authenticated_transport(value: object) -> requests.Session:
+    transport = getattr(value, "session", None)
+    if not isinstance(transport, requests.Session):
+        raise PilotStopped("AUTH_TRANSPORT_SESSION_TYPE_MISMATCH")
+    return transport
+
+
 def _default_execute_probe(diagnostic_support=default_support) -> None:
     with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
         from pykrx.website.krx.market import core
@@ -287,6 +358,10 @@ def run_diagnostic(
                 session = session_getter()
                 if session is None or not getattr(session, "is_authenticated", False) or not session.is_valid():
                     raise PilotStopped("AUTHENTICATION_FAILED")
+                if getattr(diagnostic_support, "REQUIRE_ZERO_RETRY_AUTH_SESSION", False):
+                    transport = _authenticated_transport(session)
+                    _install_verified_zero_retry(transport)
+                    capture.authorize_business_session(transport)
                 ledger.append(
                     "SCOPE_STARTED", bld=diagnostic_support.BUSINESS_BLD,
                     scope=diagnostic_support.SCOPE_ID,

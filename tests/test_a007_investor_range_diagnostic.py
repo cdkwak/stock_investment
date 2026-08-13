@@ -96,7 +96,7 @@ def test_runner_is_diagnostic_only_retry_zero_and_uses_shared_lock():
     assert "to_parquet" not in source
     assert "data/normalized" not in source
     assert "checkpoint" not in inspect.getsource(runner.run_diagnostic).lower()
-    assert "for attempt" not in source and "Retry" not in source
+    assert "for attempt" not in source
     assert runner.D_OWNED_LOCK_PATH.name == "d_owned_krx_short_selling.lock"
 
 

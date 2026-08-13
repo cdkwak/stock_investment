@@ -117,6 +117,8 @@ def classify_exact_response(
         raise PilotStopped("INVALID_JSON_ROOT")
     if payload.get("_error_code") or payload.get("error") or payload.get("errors"):
         raise PilotStopped("SOURCE_ERROR_PAYLOAD")
+    if set(payload) != {"OutBlock_1"}:
+        raise PilotStopped("TOP_LEVEL_SCHEMA_MISMATCH")
     rows = payload.get("OutBlock_1")
     if not isinstance(rows, list):
         raise PilotStopped("EXPECTED_BLOCK_MISSING")
@@ -131,6 +133,9 @@ def classify_exact_response(
         missing = sorted(set(SOURCE_FIELDS) - set(row))
         if missing:
             raise PilotStopped(f"SCHEMA_MISMATCH:{index}:{','.join(missing)}")
+        extra = sorted(set(row) - set(SOURCE_FIELDS))
+        if extra:
+            raise PilotStopped(f"SCHEMA_MISMATCH:{index}:extra={','.join(extra)}")
         raw_date = str(row["TRD_DD"]).strip()
         try:
             parsed_date = datetime.strptime(raw_date, "%Y/%m/%d").strftime("%Y%m%d")
