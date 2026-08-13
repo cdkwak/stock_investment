@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from contextlib import contextmanager
+from datetime import datetime, timezone
+import errno
 import hashlib
 import json
 import os
@@ -37,6 +39,8 @@ STATE_COUNT_FIELDS = (
 )
 STATE_REPORT_DIRECTORY = "audits"
 IMMUTABLE_SNAPSHOT_RELATIVE = Path("data/state/audits/dataset_inventory_v2")
+SNAPSHOT_LOCK_SCHEMA = "stock_data.dataset_inventory.snapshot_lock"
+_PROCESS_STARTED_AT_UTC = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 ARTIFACT_ROOT_ALIASES: Mapping[tuple[str, str], str] = {
     (
         "published",
@@ -146,30 +150,115 @@ def _input_tree_manifest(project_root: Path) -> list[dict[str, object]]:
     return result
 
 
+def _try_advisory_lock(descriptor: int) -> bool:
+    """Acquire one process-lifetime byte lock without waiting."""
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as error:
+        if error.errno in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
+            return False
+        raise
+    return True
+
+
+def _release_advisory_lock(descriptor: int) -> None:
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    if os.name == "nt":
+        import msvcrt
+
+        msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+
+
+def _lock_owner_hint(descriptor: int) -> str:
+    """Return bounded, non-authoritative diagnostics for a contended lock."""
+    try:
+        # Windows denies reads that overlap the locked first byte. The owner
+        # payload is canonical JSON, so reconstruct its leading ``{`` while
+        # reading only the unlocked remainder.
+        offset = 1 if os.name == "nt" else 0
+        os.lseek(descriptor, offset, os.SEEK_SET)
+        raw = os.read(descriptor, 4096)
+        if offset:
+            raw = b"{" + raw
+        payload = json.loads(raw.decode("utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return "owner metadata unavailable"
+    if not isinstance(payload, dict) or payload.get("schema") != SNAPSHOT_LOCK_SCHEMA:
+        return "owner metadata unavailable"
+    return (
+        f"owner pid={payload.get('pid')!r}, "
+        f"process_started_at_utc={payload.get('process_started_at_utc')!r}, "
+        f"acquired_at_utc={payload.get('acquired_at_utc')!r}"
+    )
+
+
 @contextmanager
 def _snapshot_lock(project_root: Path, snapshot_root: Path):
     """Serialize inventory rebuild/CAS/publication; this is not a data-writer lock."""
     _assert_plain_components(project_root, snapshot_root)
     path = snapshot_root / ".write.lock"
-    token = uuid4().hex.encode("ascii")
+    _assert_plain_components(project_root, path)
+    flags = os.O_CREAT | os.O_RDWR
+    if hasattr(os, "O_BINARY"):
+        flags |= os.O_BINARY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(path, flags, 0o600)
+    acquired = False
     try:
-        descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError:
-        raise RuntimeError("another inventory snapshot writer holds the lock") from None
-    try:
-        with os.fdopen(descriptor, "wb") as stream:
-            stream.write(token)
-            stream.flush()
-            os.fsync(stream.fileno())
+        # Windows byte-range locks require the byte to exist. Initializing an
+        # empty stable lock file does not confer ownership.
+        if os.fstat(descriptor).st_size == 0:
+            os.write(descriptor, b"\n")
+            os.fsync(descriptor)
         _assert_plain_components(project_root, path)
-        if not path.is_file() or path.read_bytes() != token:
+        if not path.is_file() or not os.path.samestat(os.fstat(descriptor), path.stat()):
+            raise RuntimeError("inventory snapshot lock path identity differs")
+        acquired = _try_advisory_lock(descriptor)
+        if not acquired:
+            hint = _lock_owner_hint(descriptor)
+            raise RuntimeError(f"another inventory snapshot writer holds the lock ({hint})")
+        owner = {
+            "acquired_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "pid": os.getpid(),
+            "process_started_at_utc": _PROCESS_STARTED_AT_UTC,
+            "schema": SNAPSHOT_LOCK_SCHEMA,
+            "token": uuid4().hex,
+            "version": 1,
+        }
+        body = _canonical_bytes(owner)
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        os.write(descriptor, body)
+        os.ftruncate(descriptor, len(body))
+        os.fsync(descriptor)
+        _assert_plain_components(project_root, path)
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        retained_body = os.read(descriptor, len(body) + 1)
+        if (
+            not path.is_file()
+            or not os.path.samestat(os.fstat(descriptor), path.stat())
+            or retained_body != body
+        ):
             raise RuntimeError("inventory snapshot lock ownership differs")
         yield
     finally:
-        if path.exists():
-            _assert_plain_components(project_root, path)
-            if path.is_file() and path.read_bytes() == token:
-                path.unlink()
+        try:
+            if acquired:
+                _release_advisory_lock(descriptor)
+        finally:
+            os.close(descriptor)
 
 
 def _ignored(relative: Path) -> str | None:

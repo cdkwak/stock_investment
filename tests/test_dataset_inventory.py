@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from datetime import date
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
+import time
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -281,6 +285,98 @@ def test_immutable_snapshot_is_content_addressed_idempotent_and_rejects_forgery(
         assert "digest differs" in str(error)
     else:
         raise AssertionError("forged report was accepted")
+
+
+def _snapshot_lock_root(tmp_path: Path) -> Path:
+    root = tmp_path / inventory_module.IMMUTABLE_SNAPSHOT_RELATIVE
+    root.mkdir(parents=True)
+    return root
+
+
+def test_snapshot_lock_rejects_live_holder_and_records_owner_metadata(tmp_path):
+    root = _snapshot_lock_root(tmp_path)
+    path = root / ".write.lock"
+    with inventory_module._snapshot_lock(tmp_path, root):
+        with pytest.raises(RuntimeError, match=rf"another inventory snapshot writer.*pid={os.getpid()}"):
+            with inventory_module._snapshot_lock(tmp_path, root):
+                raise AssertionError("contended lock was acquired")
+    owner = json.loads(path.read_text(encoding="utf-8"))
+    assert owner == {
+        "acquired_at_utc": owner["acquired_at_utc"],
+        "pid": os.getpid(),
+        "process_started_at_utc": inventory_module._PROCESS_STARTED_AT_UTC,
+        "schema": inventory_module.SNAPSHOT_LOCK_SCHEMA,
+        "token": owner["token"],
+        "version": 1,
+    }
+    assert len(owner["token"]) == 32
+    assert path.is_file()
+
+
+def test_snapshot_lock_is_released_after_normal_exception(tmp_path):
+    root = _snapshot_lock_root(tmp_path)
+    with pytest.raises(LookupError, match="injected"):
+        with inventory_module._snapshot_lock(tmp_path, root):
+            raise LookupError("injected")
+    with inventory_module._snapshot_lock(tmp_path, root):
+        pass
+
+
+def test_snapshot_lock_rewrites_legacy_or_corrupt_unheld_file(tmp_path):
+    root = _snapshot_lock_root(tmp_path)
+    path = root / ".write.lock"
+    path.write_bytes(b"legacy-token-not-json")
+    with inventory_module._snapshot_lock(tmp_path, root):
+        pass
+    owner = json.loads(path.read_text(encoding="utf-8"))
+    assert owner["schema"] == inventory_module.SNAPSHOT_LOCK_SCHEMA
+    assert owner["pid"] == os.getpid()
+
+
+def test_snapshot_lock_survives_killed_holder_without_manual_deletion(tmp_path):
+    root = _snapshot_lock_root(tmp_path)
+    ready = tmp_path / "holder.ready"
+    source_root = Path(__file__).resolve().parents[1] / "src"
+    code = (
+        "from pathlib import Path\n"
+        "import sys,time\n"
+        f"sys.path.insert(0, {str(source_root)!r})\n"
+        "from stock_data.audit.dataset_inventory import _snapshot_lock\n"
+        f"project=Path({str(tmp_path)!r})\n"
+        f"root=Path({str(root)!r})\n"
+        f"ready=Path({str(ready)!r})\n"
+        "with _snapshot_lock(project, root):\n"
+        "    ready.write_text('ready', encoding='utf-8')\n"
+        "    time.sleep(120)\n"
+    )
+    process = subprocess.Popen([sys.executable, "-c", code])
+    try:
+        deadline = time.monotonic() + 15
+        while not ready.exists() and process.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert ready.exists(), f"holder did not acquire lock; exit={process.poll()}"
+        process.kill()
+        process.wait(timeout=10)
+        assert (root / ".write.lock").is_file()
+        with inventory_module._snapshot_lock(tmp_path, root):
+            pass
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=10)
+
+
+def test_snapshot_lock_reparse_path_is_rejected(tmp_path, monkeypatch):
+    root = _snapshot_lock_root(tmp_path)
+    path = root / ".write.lock"
+    original = inventory_module._is_redirect
+    monkeypatch.setattr(
+        inventory_module, "_is_redirect",
+        lambda candidate: candidate.absolute() == path.absolute() or original(candidate),
+    )
+    with pytest.raises(RuntimeError, match="redirected"):
+        with inventory_module._snapshot_lock(tmp_path, root):
+            pass
 
 
 def test_input_tree_mutation_during_scan_is_rejected(tmp_path, monkeypatch):

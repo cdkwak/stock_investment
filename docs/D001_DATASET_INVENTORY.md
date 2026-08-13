@@ -79,6 +79,10 @@ An inventory-specific exclusive lock serializes the final independent rebuild,
 CAS rebuild, and publication. It is not a lock for every Data writer and does
 not claim to freeze the repository indefinitely: the immutable report is exact
 point-in-time evidence for its successfully completed, unchanged pre/post scan.
+The stable `.write.lock` uses a nonblocking kernel advisory lock, so ownership
+is released automatically if the writer process is terminated. Its redacted
+PID/process-start/acquisition metadata is diagnostic only; file existence never
+proves a live owner and no PID- or age-based stale-lock deletion is performed.
 If artifact, state, or Landing metadata changes before publication, the CAS
 fails and no snapshot is linked. Existing targets and all parent components are
 rechecked for symlinks, junctions, and reparse points before reads and links.
