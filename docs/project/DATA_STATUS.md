@@ -29,7 +29,9 @@ complete, with zero additional network calls during adoption and rebuilding.
   history remains provenance-limited.
 - KRX Investor access recovered on one post-cooldown sentinel, but the source again
   returned only the positive range-end row; historical-range semantics remain stopped.
-  KB Securities is externally blocked. OpenDART now has one retained known-positive
+  KB Securities authentication is not globally blocked: a 2026-08-13 scheduled run
+  issued a token and completed IVSA0070. The E021 sentinel used a different, invalid
+  flat token envelope and has been retired. OpenDART now has one retained known-positive
   combined paid/free-issue observation, but canonical revision/event identity is unresolved.
 - Stock-issuance source history is complete as a non-predictive source-observation
   artifact: 152,676 rows with signed counts and invalid/out-of-range date tokens
@@ -79,7 +81,7 @@ complete, with zero additional network calls during adoption and rebuilding.
 | FRED USD FX | Normalized | Available history-present | 1971-01-04..2026-08-07; 14,505 rows | ARTIFACT_COMPLETE | SOURCE_MAX_COMPLETE | PREDICTIVE_USE_BLOCKED | Bounded refreshes; preserve source nulls and observed source endpoint |
 | BOK ECOS Korean Treasury yields | Normalized | Official available history-present | 1998-11-13..2026-08-13; 29,674 rows, six tenors | ARTIFACT_COMPLETE | SOURCE_MAX_COMPLETE | PREDICTIVE_USE_BLOCKED | Evidence publication/revision timing before predictive use |
 | Toss Korean Treasury yields | Normalized | Available source history-present | 2019-01-02..2026-08-10; 11,162 rows | ARTIFACT_COMPLETE | SOURCE_MAX_COMPLETE | PREDICTIVE_USE_BLOCKED | Resolve source volume unit and observation availability |
-| KB Securities realtime snapshots | Landing / Normalized | Realtime onward | No accepted market snapshot; token pilot stopped at HTTP 500 / `E021` | BLOCKED | UNKNOWN | NOT_READY | External provider/app-key authorization |
+| KB Securities daily market snapshots | Landing / Normalized | One provisional snapshot per trading day near 17:00 KST | Successful reference IVSA0070 run on 2026-08-13; Rev1 baseline used an invalid flat OAuth envelope and stopped at E021 before market access | IMPLEMENTED | DAILY_INCREMENT | NOT_READY | Canonical nested KB token envelope restored; no reusable token cache exists, so await the next bounded scheduled capture |
 
 ## 4. Historical Coverage Gaps
 
@@ -121,7 +123,7 @@ roll, back adjustment, or continuous-contract accounting.
 | KRX Investor range semantics | Short-selling Investor | STOPPED_SOURCE_SEMANTICS | Post-cooldown one-call sentinel returned HTTP 200 but only the positive range-end row | No active stream | New official source evidence or a separately reviewed semantic design; no further probe |
 | Pre-2010 derivatives source | Futures / options / PCR | FREE_OFFICIAL_SOURCE_CONFIRMED / BULK_USE_TERMS_GATE | Logged-in KRX Basic Statistics returned futures from 1996-05-06 and options from 1997-07-07; no files downloaded | No active stream | Clarify automated bulk/internal-research terms, then review one retry-zero Landing-first pilot |
 | Derivatives investor statistics | Futures net purchase / broader futures-options targets | NARROW_DATASET_COMPLETE / BROADER_TARGETS_DEFERRED | 28 CSVs promoted exactly to 33,670 normalized rows after binding `[15007]`, KOSPI200 futures, ALL, 거래대금 순매수, 백만원 | No active stream; zero calls for import | Narrow dataset maintenance only; do not conflate it with broader targets |
-| KB token/access | KB realtime snapshots | BLOCKED_EXTERNAL | Token pilot stopped before market/account/order calls | No active stream | Provider/app-key authorization |
+| KB daily snapshot | Seven provisional snapshot contracts | AUTH_PATH_CORRECTED / DAILY_RUNNER_READY | The successful 2026-08-13 path used the official nested `dataHeader`/`dataBody` token request; the E021 flat-envelope sentinel is retained only as failed-path evidence | No active stream | One bounded retry-zero daily capture with the corrected canonical path; never reuse the retired flat request |
 | Dividend snapshot append | Dividend observations | WAITING_FOR_SOURCE_CHANGE | Latest bounded request was valid-empty | No active stream | New non-empty source snapshot |
 
 ## 7. Blockers and Next Actions
@@ -135,7 +137,7 @@ roll, back adjustment, or continuous-contract accounting.
 | BOK/FRED/Toss rates | Historical knowledge/revision availability is incomplete | Establish availability/vintage policy before predictive use | Valid artifacts and bounded retained source observations |
 | Yahoo/FRED legacy provenance | Historical raw responses were not retained | Accept permanent limit; enforce capture on all future refreshes | Immutable local-artifact audits plus new refresh ledgers |
 | OpenDART | One combined paid/free success row confirms that operation's schema and economic terms, but original/corrected receipts differ | Define revision lineage and date-filter behavior before any canonical event or broad backfill | [Known-positive audit](../data/audits/OPENDART_FREE_ISSUE_KNOWN_POSITIVE_AUDIT.md) |
-| KB realtime | Provider returned token process `E021` | External authorization resolution | One bounded retry-free token pilot; no downstream call |
+| KB daily snapshots | The Rev1 sentinel diverged from the known-successful official request envelope; its in-memory 24-hour token was not cached and is no longer recoverable from the completed process | Use only the corrected nested token path for the next once-daily run; do not issue a token merely for diagnosis | Successful reference status at 2026-08-13 18:12 KST plus retained E021 flat-envelope evidence |
 | Stock-lending execution accounting | Exact task-level calls cannot be reconstructed | Governance acceptance of permanent execution-accounting limitation | 333 unique retained responses and exact Landing-to-Normalized reconciliation |
 
 ## 8. References

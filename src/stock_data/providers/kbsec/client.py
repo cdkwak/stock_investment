@@ -11,7 +11,7 @@ import requests
 TOKEN_PATH = "/oauth2/token"
 MARKET_SUMMARY_PATH = "/api/v1/ivsa0070"
 HEADER_KEYS = frozenset({"ipAddr", "macAddr"})
-TOKEN_BODY_KEYS = frozenset({"grant_type", "appKey", "appSecret"})
+TOKEN_BODY_KEYS = frozenset({"grantType", "appKey", "appSecret"})
 
 
 class KBSecError(RuntimeError): pass
@@ -73,8 +73,6 @@ class KBSecClient:
         self._token = None; self._expires_at = 0.0
 
     def _send_json(self, path, *, headers=None, payload):
-        if path == TOKEN_PATH and set(payload) != TOKEN_BODY_KEYS:
-            raise KBSecConfigurationError("invalid KB B2C token payload keys")
         try:
             response = self.session.post(self.base_url + path, headers=headers, json=payload, timeout=(3.05, 10.0))
         except requests.RequestException:
@@ -93,6 +91,8 @@ class KBSecClient:
         payload = {"dataHeader": {"ipAddr": "127.0.0.1", "macAddr": "00:00:00:00:00:00"}, "dataBody": dict(body)}
         if set(payload["dataHeader"]) != HEADER_KEYS:
             raise KBSecConfigurationError("invalid KB dataHeader keys")
+        if path == TOKEN_PATH and set(payload["dataBody"]) != TOKEN_BODY_KEYS:
+            raise KBSecConfigurationError("invalid KB B2C token payload keys")
         result, http_status = self._send_json(path, headers=headers, payload=payload)
         if not isinstance(result.get("dataHeader"), dict) or not isinstance(result.get("dataBody"), dict):
             raise KBSecResponseError("KB API envelope is invalid")
@@ -101,8 +101,12 @@ class KBSecClient:
     def access_token(self):
         now = float(self.clock())
         if self._token and now < self._expires_at - 60: return self._token
-        payload, http_status = self._send_json(TOKEN_PATH, payload={"grant_type": "client_credentials", "appKey": self.app_key, "appSecret": self.app_secret})
-        token = payload.get("access_token")
+        payload, http_status = self._post(
+            TOKEN_PATH,
+            body={"grantType": "client_credentials", "appKey": self.app_key, "appSecret": self.app_secret},
+        )
+        data_body = payload["dataBody"]
+        token = data_body.get("access_token")
         if not isinstance(token, str) or not token:
             header = payload.get("dataHeader") if isinstance(payload.get("dataHeader"), dict) else {}
             raise KBSecBusinessError(
@@ -112,7 +116,7 @@ class KBSecClient:
                 process_code=self._safe(header.get("processCode")),
                 process_message=self._safe(header.get("processMessage")),
             )
-        try: expires = int(payload.get("expires_in"))
+        try: expires = int(data_body.get("expires_in"))
         except (TypeError, ValueError): raise KBSecResponseError("invalid token expiry") from None
         if expires <= 0: raise KBSecResponseError("invalid token response")
         self._token, self._expires_at = token, now + expires

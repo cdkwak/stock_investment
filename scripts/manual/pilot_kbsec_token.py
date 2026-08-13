@@ -74,7 +74,8 @@ def main() -> int:
             "attempt": 1, "retry_count": 0, "started_at_utc": iso_utc(started),
             "completed_at_utc": iso_utc(completed), "http_status": landing.get("http_status"),
             "response_sha256": landing.get("raw_response_sha256"), "outcome": status,
-            "request_body_keys": ["appKey", "appSecret", "grant_type"],
+            "request_envelope_keys": ["dataHeader", "dataBody"],
+            "request_data_body_keys": ["appKey", "appSecret", "grantType"],
             "credential_names": list(REQUIRED), "credential_values_persisted": False,
         }
         ledger_path.parent.mkdir(parents=True, exist_ok=True)

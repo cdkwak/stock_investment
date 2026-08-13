@@ -62,6 +62,10 @@ started; current scope is in [Backtest status](BACKTEST_STATUS.md).
   dataset: 33,670 rows across 6,734 dates, 1999-04-26..2026-08-13, with exact
   Landing-to-Normalized audit and no network calls. Broader investor-trading targets
   remain separate.
+- KB daily snapshot ingestion is prepared as a one-attempt-per-trading-day 17:00 KST
+  append-only task. A successful 2026-08-13 reference run proved access; the Rev1
+  E021 sentinel used a different flat OAuth envelope. The official nested envelope
+  is now canonical, with the next bounded daily capture still pending.
 - Inventory tests: `23 passed, 1 skipped`. Main-worktree Markdown links: 38 checked,
   zero broken; stale pre-consolidation control/runbook paths: zero.
 

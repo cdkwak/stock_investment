@@ -29,14 +29,14 @@ KB_MARKET_BREADTH_SNAPSHOT = _dataset("kb_market_breadth_snapshot", "Provisional
 KB_PROGRAM_TRADING_SNAPSHOT = _dataset("kb_program_trading_snapshot", "Provisional KB program trading summary.", (), (
     ColumnContract("arbitrage_net_buy", "int64", True), ColumnContract("non_arbitrage_net_buy", "int64", True),
 ))
-KB_INVESTOR_FLOW_SNAPSHOT = _dataset("kb_investor_flow_snapshot", "Provisional KB investor flow by class.", ("investor_code",), (
+KB_INVESTOR_FLOW_SNAPSHOT = _dataset("kb_investor_flow_snapshot", "Provisional KB investor net-purchase flow by class, including KOSPI/KOSDAQ, futures, CALL/PUT, STAR futures and stock futures source fields.", ("investor_code",), (
     ColumnContract("investor_code", "string", False), ColumnContract("investor_name", "string", False),
     *(ColumnContract(name, "int64", True) for name in ("kospi_net_buy", "kosdaq_net_buy", "futures_net_buy", "call_option_net_buy", "put_option_net_buy", "star_futures_net_buy", "stock_futures_net_buy")),
 ))
 KB_MARKET_LIQUIDITY_SNAPSHOT = _dataset("kb_market_liquidity_snapshot", "Provisional KB market liquidity balances.", (), tuple(
     ColumnContract(name, "float64", True) for name in ("customer_deposit", "customer_deposit_change", "receivables", "receivables_change", "credit_balance", "credit_balance_change", "futures_deposit", "futures_deposit_change")
 ))
-KB_DERIVATIVES_SUMMARY_SNAPSHOT = _dataset("kb_derivatives_summary_snapshot", "Provisional KB derivative quotes.", ("instrument_code",), (
+KB_DERIVATIVES_SUMMARY_SNAPSHOT = _dataset("kb_derivatives_summary_snapshot", "Provisional KB derivative quote/volume/open-interest summary.", ("instrument_code",), (
     ColumnContract("instrument_code", "string", False), ColumnContract("instrument_name", "string", False),
     ColumnContract("current_price", "float64", True), ColumnContract("change_direction_code", "string", True),
     ColumnContract("change", "float64", True), ColumnContract("change_pct", "float64", True),

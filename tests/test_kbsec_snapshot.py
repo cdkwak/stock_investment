@@ -102,8 +102,11 @@ class RecordingAdapter(requests.adapters.BaseAdapter):
         self.requests.append(request)
         reply = requests.Response(); reply.status_code = 200; reply.request = request
         reply.headers["Content-Type"] = "application/json"
-        reply._content = json.dumps({"access_token": "returned-token", "token_type": "Bearer",
-                                     "expires_in": 86400}).encode()
+        reply._content = json.dumps({
+            "dataHeader": {"resultCode": "200", "processCode": "0000"},
+            "dataBody": {"access_token": "returned-token", "token_type": "Bearer",
+                         "expires_in": 86400},
+        }).encode()
         return reply
     def close(self): pass
 
@@ -117,9 +120,10 @@ def test_prepared_token_request_has_exact_serialized_keys_and_endpoint():
     prepared = adapter.requests[0]
     serialized = json.loads(prepared.body)
     assert prepared.url == "https://developer.kbsec.com:32484/oauth2/token"
-    assert set(serialized) == {"grant_type", "appKey", "appSecret"}
-    assert serialized["grant_type"] == "client_credentials"
-    assert "dataHeader" not in serialized and "dataBody" not in serialized
+    assert set(serialized) == {"dataHeader", "dataBody"}
+    assert set(serialized["dataHeader"]) == {"ipAddr", "macAddr"}
+    assert set(serialized["dataBody"]) == {"grantType", "appKey", "appSecret"}
+    assert serialized["dataBody"]["grantType"] == "client_credentials"
     assert "ordrCtnMtrCsntF" not in prepared.body.decode()
 
 
