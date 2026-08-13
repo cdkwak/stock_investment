@@ -8,6 +8,9 @@ from scripts.manual.fred_alfred_revision_pilot_support import (
     parse_revision_observations,
 )
 from scripts.manual.pilot_fred_alfred_revision import finalize_failed_scope_offline
+from scripts.manual.pilot_fred_alfred_bounded_realtime import (
+    public_parameters, validate_bounded_response,
+)
 
 
 def _body(value):
@@ -45,6 +48,11 @@ def test_compare_current_to_retained_does_not_persist_values(tmp_path):
     },), root)
     assert result["classifications"]["EXACT_MATCH"] == 1
     assert result["values_persisted"] is False
+    bounded = compare_current_to_retained(({
+        "realtime_start": "2026-08-07", "realtime_end": "2026-08-12",
+        "date": "2026-08-06", "value": "4.21", "numeric_value": 4.21,
+    },), root, terminal_realtime_end="2026-08-12")
+    assert bounded["compared_rows"] == 1
 
 
 def test_finalize_failed_scope_reconciles_two_retained_calls(tmp_path):
@@ -73,3 +81,27 @@ def test_finalize_failed_scope_reconciles_two_retained_calls(tmp_path):
     result = finalize_failed_scope_offline(project, run)
     assert result["status"] == "PILOT_STOPPED_SCOPE_TOO_BROAD"
     assert result["network_requests_during_finalization"] == 0
+
+
+def test_bounded_realtime_plan_is_one_small_exact_scope():
+    params = public_parameters()
+    assert params["output_type"] == "1"
+    assert params["realtime_start"] == "2026-08-07"
+    assert params["realtime_end"] == "2026-08-12"
+    assert params["limit"] == "128"
+    assert "api_key" not in params
+
+
+def test_bounded_realtime_response_validates_exact_scope():
+    payload = {
+        **public_parameters(), "output_type": 1, "count": 1, "offset": 0,
+        "limit": 128, "observations": [{
+            "realtime_start": "2026-08-07", "realtime_end": "2026-08-12",
+            "date": "2026-08-06", "value": "4.21",
+        }],
+    }
+    rows = validate_bounded_response(_body(payload))
+    assert rows[0]["numeric_value"] == 4.21
+    payload["count"] = 2
+    with pytest.raises(FredAlfredPilotError, match="incomplete"):
+        validate_bounded_response(_body(payload))

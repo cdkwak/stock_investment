@@ -84,6 +84,7 @@ def parse_revision_observations(body: bytes) -> tuple[dict[str, object], ...]:
 
 def compare_current_to_retained(
     observations: tuple[dict[str, object], ...], retained_root: Path,
+    *, terminal_realtime_end: str = "9999-12-31",
 ) -> dict[str, object]:
     files = sorted(retained_root.rglob("data.parquet"))
     if not files:
@@ -96,7 +97,7 @@ def compare_current_to_retained(
     retained_values = dict(zip(dates, retained["dgs10"], strict=True))
     # output_type=2 returns one row per observation/vintage pair.  A realtime
     # interval ending 9999-12-31 is the current FRED value represented by that row.
-    current = [row for row in observations if row["realtime_end"] == "9999-12-31"]
+    current = [row for row in observations if row["realtime_end"] == terminal_realtime_end]
     compared = []
     for row in current:
         expected = retained_values.get(str(row["date"]))
