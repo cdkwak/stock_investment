@@ -59,9 +59,11 @@ Passing a feasibility pilot does not authorize a bulk backfill.
   diagnostics, pilots, migrations, and backfills.
 - [`tests/`](tests/) contains the offline unit test suite and fixtures.
 - [`docs/DATA_API_INVENTORY.md`](docs/DATA_API_INVENTORY.md) describes provider
-  contracts, while [`docs/DATA_STATUS.md`](docs/DATA_STATUS.md) records verified
+  contracts, while [`docs/project/DATA_STATUS.md`](docs/project/DATA_STATUS.md) records verified
   coverage, blockers, and availability rules.
-- [`docs/PROJECT_ROADMAP.md`](docs/PROJECT_ROADMAP.md) defines the long-term
+- [`docs/project/PROJECT_STATUS.md`](docs/project/PROJECT_STATUS.md) is the first
+  project-state document to read at session start.
+- [`docs/project/PROJECT_ROADMAP.md`](docs/project/PROJECT_ROADMAP.md) defines the long-term
   domain boundaries and development sequence.
 - [`docs/runbooks/`](docs/runbooks/) contains reproducible, approval-gated
   operating procedures, including the

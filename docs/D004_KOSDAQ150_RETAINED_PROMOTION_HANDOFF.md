@@ -92,7 +92,7 @@ are read back and compared before the atomic state manifest is written at
 - `tests/test_retained_derivatives_promotion.py`
 - `docs/D004_KOSDAQ150_RETAINED_PROMOTION_HANDOFF.md`
 
-No contract, registry, `DATA_STATUS.md`, shared task-state, or provider code was
+No contract, registry, `project/DATA_STATUS.md`, shared task-state, or provider code was
 changed. No commit or push was made.
 
 ## Reproduction

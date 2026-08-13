@@ -8,6 +8,15 @@
 - Do not import runtime code from it.
 - Reuse only verified behavior, API handling, and edge cases.
 
+## Project-control documents
+- Read `docs/project/PROJECT_STATUS.md` first at session start.
+- Read `docs/project/PROJECT_ROADMAP.md` only for prioritization or architecture decisions.
+- Read only the status document for the domain currently being worked on.
+- Only the lead agent may update `docs/project/PROJECT_STATUS.md`.
+- Domain owners may update their own domain status document.
+- Status documents represent current state; replace stale facts instead of appending logs.
+- Keep detailed inventories, contracts, runbooks, checkpoints, and ledgers outside `docs/project/`.
+
 ## Current Scope
 Current priority: Data Layer.
 
