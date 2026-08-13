@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from scripts.manual import a007_investor_range_diagnostic_support as default_support
 from scripts.manual.a007_investor_range_diagnostic_support import (
     BUSINESS_BLD,
     BUSINESS_ENDPOINT_PATH,
@@ -99,12 +100,16 @@ class HttpCapture:
     def __init__(
         self, *, ledger: AppendOnlyLedger, run_dir: Path, project_root: Path,
         credential_values: tuple[str, ...], run_id: str,
+        diagnostic_support=default_support,
+        expected_dates: tuple[str, ...] = EXPECTED_DATES,
     ) -> None:
         self.ledger = ledger
         self.run_dir = run_dir
         self.project_root = project_root
         self.credential_values = credential_values
         self.run_id = run_id
+        self.support = diagnostic_support
+        self.expected_dates = expected_dates
         self.raw_count = 0
         self.business_count = 0
         self._original: Callable | None = None
@@ -126,13 +131,21 @@ class HttpCapture:
     def _request(self, session, method, url, **kwargs):
         path = requests.utils.urlparse(str(url)).path
         authentication = path in AUTH_ENDPOINT_PATHS
-        if not authentication and path != BUSINESS_ENDPOINT_PATH:
+        if not authentication and path != self.support.BUSINESS_ENDPOINT_PATH:
             raise PilotStopped(f"UNAPPROVED_ENDPOINT:{path}")
-        if self.raw_count >= MAX_RAW_HTTP_REQUESTS:
-            self.ledger.append("HTTP_BUDGET_EXHAUSTED", maximum=MAX_RAW_HTTP_REQUESTS)
+        if self.raw_count >= self.support.MAX_RAW_HTTP_REQUESTS:
+            self.ledger.append(
+                "HTTP_BUDGET_EXHAUSTED", maximum=self.support.MAX_RAW_HTTP_REQUESTS
+            )
             raise BudgetExceeded("raw HTTP budget exhausted")
-        if not authentication and self.business_count >= MAX_BUSINESS_REQUESTS:
-            self.ledger.append("BUSINESS_BUDGET_EXHAUSTED", maximum=MAX_BUSINESS_REQUESTS)
+        if (
+            not authentication
+            and self.business_count >= self.support.MAX_BUSINESS_REQUESTS
+        ):
+            self.ledger.append(
+                "BUSINESS_BUDGET_EXHAUSTED",
+                maximum=self.support.MAX_BUSINESS_REQUESTS,
+            )
             raise BudgetExceeded("business request budget exhausted")
         self.raw_count += 1
         if not authentication:
@@ -174,14 +187,14 @@ class HttpCapture:
                 "captured_at_utc": utc_now(),
                 "content_type": response.headers.get("Content-Type", ""),
                 "dataset": "kr_short_selling_investor_daily",
-                "expected_dates": list(EXPECTED_DATES),
+                "expected_dates": list(self.expected_dates),
                 "http_status_code": response.status_code,
                 "ledger_relative_path": _project_relative(self.ledger.path, self.project_root),
                 "raw_sequence": raw_sequence,
                 "response_bytes": len(response.content),
                 "run_id": self.run_id,
-                "scope_id": SCOPE_ID,
-                "scope_sha256": scope_sha256(),
+                "scope_id": self.support.SCOPE_ID,
+                "scope_sha256": self.support.scope_sha256(self.expected_dates),
                 "version": 1,
             }
             _atomic_json_new(provenance_path, provenance)
@@ -189,7 +202,7 @@ class HttpCapture:
                 "body_file": BODY_NAME,
                 "provenance_file": PROVENANCE_NAME,
                 "response_sha256": body_hash,
-                "scope": SCOPE_ID,
+                "scope": self.support.SCOPE_ID,
             })
             self._response = response
         self.ledger.append("HTTP_RESPONSE", **entry)
@@ -211,7 +224,7 @@ def _default_session_getter():
     return get_session()
 
 
-def _default_execute_probe() -> None:
+def _default_execute_probe(diagnostic_support=default_support) -> None:
     with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
         from pykrx.website.krx.market import core
     candidates = []
@@ -219,14 +232,15 @@ def _default_execute_probe() -> None:
         if isinstance(value, type):
             try:
                 operation = value()
-                if getattr(operation, "bld", None) == BUSINESS_BLD:
+                if getattr(operation, "bld", None) == diagnostic_support.BUSINESS_BLD:
                     candidates.append(operation)
             except Exception:
                 pass
     if len(candidates) != 1:
         raise PilotStopped(f"CORE_OPERATION_UNRESOLVED:{len(candidates)}")
     candidates[0].fetch(
-        SCOPE["strtDd"], SCOPE["endDd"], SCOPE["inqCondTpCd"], SCOPE["mktTpCd"]
+        diagnostic_support.SCOPE["strtDd"], diagnostic_support.SCOPE["endDd"],
+        diagnostic_support.SCOPE["inqCondTpCd"], diagnostic_support.SCOPE["mktTpCd"]
     )
 
 
@@ -234,14 +248,16 @@ def run_diagnostic(
     *, env_file: Path, project_root: Path = ROOT, landing_root: Path = LANDING_ROOT,
     lock_path: Path = D_OWNED_LOCK_PATH, session_getter: Callable | None = None,
     execute_probe: Callable[[], None] | None = None,
+    diagnostic_support=default_support,
 ) -> dict[str, object]:
-    if importlib.metadata.version("pykrx") != PYKRX_VERSION:
-        raise PilotStopped(f"pykrx must equal {PYKRX_VERSION}")
+    if importlib.metadata.version("pykrx") != diagnostic_support.PYKRX_VERSION:
+        raise PilotStopped(f"pykrx must equal {diagnostic_support.PYKRX_VERSION}")
     project_root = project_root.resolve()
     landing_root = landing_root.resolve()
     lock_path = lock_path.resolve()
     _project_relative(landing_root, project_root)
     _project_relative(lock_path, project_root)
+    expected_dates = diagnostic_support.expected_dates(project_root)
     krx_id, krx_pw = _load_credentials(env_file)
     if not krx_id or not krx_pw:
         raise PilotStopped("KRX credentials are not configured")
@@ -252,28 +268,45 @@ def run_diagnostic(
     ledger = AppendOnlyLedger(run_dir / LEDGER_NAME, credential_values=credentials)
     _atomic_json_new(
         run_dir / MANIFEST_NAME,
-        manifest_payload(run_id=run_id, created_at_utc=utc_now()),
+        diagnostic_support.manifest_payload(
+            run_id=run_id, created_at_utc=utc_now(), dates=expected_dates
+        ),
     )
     session_getter = session_getter or _default_session_getter
-    execute_probe = execute_probe or _default_execute_probe
+    execute_probe = execute_probe or (
+        lambda: _default_execute_probe(diagnostic_support)
+    )
     try:
         with d_owned_run_lock(lock_path, run_id=run_id):
             with HttpCapture(
                 ledger=ledger, run_dir=run_dir, project_root=project_root,
                 credential_values=credentials, run_id=run_id,
+                diagnostic_support=diagnostic_support,
+                expected_dates=expected_dates,
             ) as capture:
                 session = session_getter()
                 if session is None or not getattr(session, "is_authenticated", False) or not session.is_valid():
                     raise PilotStopped("AUTHENTICATION_FAILED")
                 ledger.append(
-                    "SCOPE_STARTED", bld=BUSINESS_BLD, scope=SCOPE_ID,
-                    params=dict(SCOPE), business_request_limit=MAX_BUSINESS_REQUESTS,
+                    "SCOPE_STARTED", bld=diagnostic_support.BUSINESS_BLD,
+                    scope=diagnostic_support.SCOPE_ID,
+                    params=dict(diagnostic_support.SCOPE),
+                    business_request_limit=diagnostic_support.MAX_BUSINESS_REQUESTS,
                 )
                 execute_probe()
                 response = capture.take_exact_response()
-                classification = classify_response(response.content)
+                expected_raw = getattr(
+                    diagnostic_support, "EXPECTED_RAW_HTTP_REQUESTS", None
+                )
+                if expected_raw is not None and capture.raw_count != expected_raw:
+                    raise PilotStopped(
+                        f"RAW_REQUEST_COUNT_MISMATCH:{capture.raw_count}/{expected_raw}"
+                    )
+                classification = diagnostic_support.classify_response(
+                    response.content, expected_dates
+                )
                 ledger.append(
-                    "DIAGNOSTIC_PASSED", scope=SCOPE_ID,
+                    "DIAGNOSTIC_PASSED", scope=diagnostic_support.SCOPE_ID,
                     classification=classification.classification,
                     source_rows=classification.source_rows,
                     observed_dates=list(classification.observed_dates),

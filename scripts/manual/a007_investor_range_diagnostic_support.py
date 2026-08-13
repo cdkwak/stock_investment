@@ -52,10 +52,16 @@ class DiagnosticClassification:
     positive_total_dates: int
 
 
-def scope_sha256() -> str:
+def expected_dates(unused_project_root=None) -> tuple[str, ...]:
+    """Return the immutable dates used by the original recent-range probe."""
+
+    return EXPECTED_DATES
+
+
+def scope_sha256(dates: tuple[str, ...] = EXPECTED_DATES) -> str:
     payload = {
         "bld": BUSINESS_BLD,
-        "expected_dates": EXPECTED_DATES,
+        "expected_dates": dates,
         "scope": SCOPE,
         "scope_id": SCOPE_ID,
     }
@@ -63,11 +69,14 @@ def scope_sha256() -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def manifest_payload(*, run_id: str, created_at_utc: str) -> dict[str, object]:
+def manifest_payload(
+    *, run_id: str, created_at_utc: str,
+    dates: tuple[str, ...] = EXPECTED_DATES,
+) -> dict[str, object]:
     return {
         "business_request_limit": MAX_BUSINESS_REQUESTS,
         "created_at_utc": created_at_utc,
-        "expected_dates": list(EXPECTED_DATES),
+        "expected_dates": list(dates),
         "historical_failed_scope_retried": False,
         "normalized_writes": False,
         "checkpoint_writes": False,
@@ -79,7 +88,7 @@ def manifest_payload(*, run_id: str, created_at_utc: str) -> dict[str, object]:
         "run_id": run_id,
         "scope": dict(SCOPE),
         "scope_id": SCOPE_ID,
-        "scope_sha256": scope_sha256(),
+        "scope_sha256": scope_sha256(dates),
         "version": 1,
     }
 
@@ -94,7 +103,9 @@ def _integer(value: object, field: str) -> int:
     return parsed
 
 
-def classify_response(body: bytes) -> DiagnosticClassification:
+def classify_exact_response(
+    body: bytes, *, dates: tuple[str, ...], classification: str,
+) -> DiagnosticClassification:
     stripped = body.lstrip()
     if stripped.startswith(b"<"):
         raise PilotStopped("HTML_OR_RESTRICTION_RESPONSE")
@@ -134,7 +145,7 @@ def classify_response(body: bytes) -> DiagnosticClassification:
 
     if len(set(observed)) != len(observed):
         raise PilotStopped("DUPLICATE_SOURCE_DATE")
-    expected = set(EXPECTED_DATES)
+    expected = set(dates)
     actual = set(observed)
     if actual != expected:
         missing = ",".join(sorted(expected - actual)) or "-"
@@ -145,9 +156,17 @@ def classify_response(body: bytes) -> DiagnosticClassification:
     if positive_total_dates == 0:
         raise PilotStopped("NO_POSITIVE_KNOWN_RECENT_OBSERVATION")
     return DiagnosticClassification(
-        classification="MULTI_DATE_RANGE_CONFIRMED",
+        classification=classification,
         source_rows=len(rows),
         observed_dates=tuple(sorted(observed)),
         positive_total_dates=positive_total_dates,
+    )
+
+
+def classify_response(
+    body: bytes, dates: tuple[str, ...] = EXPECTED_DATES,
+) -> DiagnosticClassification:
+    return classify_exact_response(
+        body, dates=dates, classification="MULTI_DATE_RANGE_CONFIRMED"
     )
 
