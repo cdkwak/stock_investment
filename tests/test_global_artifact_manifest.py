@@ -221,3 +221,148 @@ def test_build_all_has_stable_dataset_order(tmp_path: Path):
     assert checkpoint.read_bytes() == checkpoint_before
     assert all("data/state/audits/global_normalized_artifacts/" in result["path"]
                for result in writes)
+
+
+def test_mutation_during_scan_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _write_all(tmp_path)
+    dataset_root = tmp_path / "data/normalized" / GLOBAL_INDEX_PRICE_DAILY.name
+    victim = dataset_root / "symbol=SP500/year=2025/data.parquet"
+    original_read = pd.read_parquet
+    calls = {"count": 0}
+
+    def mutate_after_read(path, *args, **kwargs):
+        result = original_read(path, *args, **kwargs)
+        calls["count"] += 1
+        if calls["count"] == 1:
+            victim.write_bytes(victim.read_bytes() + b"changed-during-scan")
+        return result
+
+    monkeypatch.setattr("stock_data.audit.global_artifact_manifest.pd.read_parquet",
+                        mutate_after_read)
+    with pytest.raises(GlobalArtifactAuditError, match="changed during audit"):
+        build_dataset_audit(tmp_path, GLOBAL_INDEX_PRICE_DAILY.name)
+
+
+def test_mutation_between_build_and_write_is_rejected_without_state(tmp_path: Path):
+    _write_all(tmp_path)
+    report = build_dataset_audit(tmp_path, GLOBAL_INDEX_PRICE_DAILY.name)
+    write_dataset_atomic(
+        _global_frame(close=104.0),
+        tmp_path / "data/normalized" / GLOBAL_INDEX_PRICE_DAILY.name,
+        GLOBAL_INDEX_PRICE_DAILY, validate_global_index,
+    )
+    with pytest.raises(GlobalArtifactAuditError, match="independent rebuild"):
+        write_audit_state(tmp_path, report)
+    assert not (tmp_path / "data/state/audits").exists()
+
+
+def test_mutation_after_writer_rebuild_fails_immediate_creation_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    _write_all(tmp_path)
+    report = build_dataset_audit(tmp_path, GLOBAL_INDEX_PRICE_DAILY.name)
+    module = __import__("stock_data.audit.global_artifact_manifest", fromlist=["build_dataset_audit"])
+    original_build = module.build_dataset_audit
+    victim = tmp_path / "data/normalized/global_index_price_daily/symbol=SP500/year=2025/data.parquet"
+
+    def rebuild_then_mutate(*args, **kwargs):
+        rebuilt = original_build(*args, **kwargs)
+        victim.write_bytes(victim.read_bytes() + b"changed-after-rebuild")
+        return rebuilt
+
+    monkeypatch.setattr(module, "build_dataset_audit", rebuild_then_mutate)
+    with pytest.raises(GlobalArtifactAuditError, match="before state creation|state creation gate"):
+        write_audit_state(tmp_path, report)
+    assert not list((tmp_path / "data/state/audits").rglob("*.json"))
+
+
+def test_forged_pass_and_manifest_are_independently_rejected(tmp_path: Path):
+    _write_all(tmp_path)
+    report = build_dataset_audit(tmp_path, FRED_TREASURY_YIELD_DAILY.name)
+    report["summary"]["rows"] = 999
+    report["summary"]["validation_status"] = "PASS"
+    report["file_manifest"][0]["sha256"] = "0" * 64
+    report.pop("audit_manifest_sha256")
+    report["audit_manifest_sha256"] = hashlib.sha256(
+        (json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n")
+        .encode("utf-8")
+    ).hexdigest()
+    with pytest.raises(GlobalArtifactAuditError, match="independent rebuild"):
+        write_audit_state(tmp_path, report)
+    assert not (tmp_path / "data/state/audits").exists()
+
+
+def test_state_parent_directory_redirect_is_rejected(tmp_path: Path):
+    _write_all(tmp_path)
+    report = build_dataset_audit(tmp_path, FRED_USD_FX_DAILY.name)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    redirected = tmp_path / "data/state/audits"
+    redirected.parent.mkdir(parents=True)
+    try:
+        redirected.symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("directory symlink creation is unavailable")
+    with pytest.raises(GlobalArtifactAuditError, match="redirected path component"):
+        write_audit_state(tmp_path, report)
+    assert not list(outside.rglob("*.json"))
+
+
+def test_schema_order_year_null_and_domain_failures_are_explicit(tmp_path: Path):
+    contract = GLOBAL_INDEX_PRICE_DAILY
+    root = tmp_path / "data/normalized" / contract.name
+    path = root / "symbol=SP500/year=2025/data.parquet"
+    path.parent.mkdir(parents=True)
+    wrong_order = pa.schema([
+        pa.field("symbol", pa.string(), nullable=False),
+        pa.field("date", pa.date32(), nullable=False),
+        *list(contract_arrow_schema(contract))[2:],
+    ])
+    row = {
+        "date": date(2025, 1, 2), "symbol": "SP500", "source_ticker": "^GSPC",
+        "open": 100.0, "high": 90.0, "low": 95.0, "close": 105.0, "volume": 1,
+    }
+    pq.write_table(pa.Table.from_pylist([row], schema=wrong_order), path)
+    schema_report = build_dataset_audit(tmp_path, contract.name)
+    assert schema_report["checks"]["contract_schema_types_and_order"]["status"] == "FAIL"
+    assert schema_report["checks"]["primary_key"]["status"] == "NOT_RUN_SCHEMA_MISMATCH"
+
+    shutil_root = root.parent / "saved"
+    root.replace(shutil_root)
+    path = root / "symbol=SP500/year=2024/data.parquet"
+    path.parent.mkdir(parents=True)
+    nullable_schema = pa.schema([
+        pa.field(field.name, field.type, nullable=True)
+        for field in contract_arrow_schema(contract)
+    ])
+    null_bad = dict(row, date=None, high=110.0, low=90.0)
+    pq.write_table(pa.Table.from_pylist([null_bad], schema=nullable_schema), path)
+    value_report = build_dataset_audit(tmp_path, contract.name)
+    assert value_report["checks"]["partition_rows"]["status"] == "FAIL"
+    assert value_report["checks"]["nulls"]["non_nullable_violations"]["date"] == 1
+    assert value_report["checks"]["domain_validation"]["status"] == "PASS"
+
+    path.unlink()
+    wrong_year = dict(row, date=date(2025, 1, 2), high=90.0, low=95.0)
+    pq.write_table(pa.Table.from_pylist([wrong_year], schema=contract_arrow_schema(contract)), path)
+    year_domain = build_dataset_audit(tmp_path, contract.name)
+    assert year_domain["checks"]["partition_rows"]["status"] == "FAIL"
+    assert year_domain["checks"]["domain_validation"]["status"] == "FAIL"
+
+
+def test_reparse_state_component_is_rejected_even_without_symlink_privilege(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    _write_all(tmp_path)
+    report = build_dataset_audit(tmp_path, FRED_USD_FX_DAILY.name)
+    redirected = tmp_path / "data/state/audits"
+    redirected.mkdir(parents=True)
+    original = __import__("stock_data.audit.global_artifact_manifest", fromlist=["_is_redirect"])
+    original_check = original._is_redirect
+    monkeypatch.setattr(
+        "stock_data.audit.global_artifact_manifest._is_redirect",
+        lambda path: path.absolute() == redirected.absolute() or original_check(path),
+    )
+    with pytest.raises(GlobalArtifactAuditError, match="redirected path component"):
+        write_audit_state(tmp_path, report)
+    assert not list(redirected.rglob("*.json"))

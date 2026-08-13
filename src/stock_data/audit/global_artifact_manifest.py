@@ -25,6 +25,7 @@ from stock_data.contracts.global_market import (
     FRED_USD_FX_DAILY,
     GLOBAL_INDEX_PRICE_DAILY,
 )
+from stock_data.contracts.registry import CONTRACTS as REGISTERED_CONTRACTS
 from stock_data.storage.contract_arrow import contract_arrow_schema, restore_contract_dates
 from stock_data.validation.global_market import validate_fred, validate_global_index
 
@@ -33,13 +34,13 @@ AUDIT_SCHEMA = "stock_data.global_normalized_artifact_manifest"
 AUDIT_VERSION = 1
 PROVENANCE_STATUS = "PROVENANCE_LIMITED_NO_RETAINED_LANDING"
 DEFAULT_STATE_RELATIVE = Path("data/state/audits/global_normalized_artifacts")
+_SUPPORTED_NAMES = frozenset({
+    GLOBAL_INDEX_PRICE_DAILY.name,
+    FRED_TREASURY_YIELD_DAILY.name,
+    FRED_USD_FX_DAILY.name,
+})
 CONTRACTS: Mapping[str, DatasetContract] = {
-    contract.name: contract
-    for contract in (
-        GLOBAL_INDEX_PRICE_DAILY,
-        FRED_TREASURY_YIELD_DAILY,
-        FRED_USD_FX_DAILY,
-    )
+    name: REGISTERED_CONTRACTS[name] for name in sorted(_SUPPORTED_NAMES)
 }
 VALIDATORS = {
     GLOBAL_INDEX_PRICE_DAILY.name: validate_global_index,
@@ -50,6 +51,9 @@ VALIDATORS = {
 
 class GlobalArtifactAuditError(RuntimeError):
     pass
+
+
+_REPARSE_POINT = 0x400
 
 
 def _canonical_bytes(value: object) -> bytes:
@@ -71,9 +75,40 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _is_redirect(path: Path) -> bool:
+    try:
+        status = path.lstat()
+    except OSError as error:
+        raise GlobalArtifactAuditError(f"cannot inspect path topology: {path}") from error
+    return path.is_symlink() or bool(getattr(status, "st_file_attributes", 0) & _REPARSE_POINT)
+
+
+def _assert_plain_components(
+    project_root: Path, path: Path, *, require_final: bool = True,
+) -> None:
+    """Reject symlinks and Windows junction/reparse points in a logical path."""
+    root = project_root.absolute()
+    candidate = path.absolute()
+    try:
+        relative = candidate.relative_to(root)
+    except ValueError as error:
+        raise GlobalArtifactAuditError(f"path escapes project root: {path}") from error
+    if not root.exists() or not root.is_dir() or _is_redirect(root):
+        raise GlobalArtifactAuditError("project root topology is unsafe")
+    current = root
+    for index, component in enumerate(relative.parts):
+        current = current / component
+        if not current.exists():
+            if require_final or index < len(relative.parts) - 1:
+                raise GlobalArtifactAuditError(f"required logical path is missing: {current}")
+            return
+        if _is_redirect(current):
+            raise GlobalArtifactAuditError(f"redirected path component is forbidden: {current}")
+
+
 def _relative(path: Path, project_root: Path) -> str:
     try:
-        return path.resolve().relative_to(project_root.resolve()).as_posix()
+        return path.absolute().relative_to(project_root.absolute()).as_posix()
     except ValueError as error:
         raise GlobalArtifactAuditError(f"artifact path escapes project root: {path}") from error
 
@@ -134,13 +169,32 @@ def _validate_partition_rows(
     return True
 
 
-def _dataset_files(dataset_root: Path) -> tuple[list[Path], list[Path]]:
+def _whole_tree_manifest(dataset_root: Path, project_root: Path) -> list[dict[str, object]]:
+    """Fingerprint every directory and file without following redirects."""
+    _assert_plain_components(project_root, dataset_root)
+    entries: list[dict[str, object]] = []
+    for path in sorted(dataset_root.rglob("*"), key=lambda value: value.as_posix()):
+        _assert_plain_components(project_root, path)
+        relative = path.relative_to(dataset_root).as_posix()
+        if path.is_dir():
+            entries.append({"path": relative, "type": "directory"})
+        elif path.is_file():
+            entries.append({
+                "path": relative, "type": "file", "bytes": path.stat().st_size,
+                "sha256": _sha256_file(path),
+            })
+        else:
+            raise GlobalArtifactAuditError(f"unsupported artifact path type: {path}")
+    return entries
+
+
+def _dataset_files(dataset_root: Path, project_root: Path) -> tuple[list[Path], list[Path]]:
     if not dataset_root.is_dir():
         raise GlobalArtifactAuditError(f"Normalized dataset is missing: {dataset_root.name}")
+    _assert_plain_components(project_root, dataset_root)
     all_files = sorted(path for path in dataset_root.rglob("*") if path.is_file())
     for path in all_files:
-        if path.is_symlink():
-            raise GlobalArtifactAuditError("symlinked artifact files are not auditable")
+        _assert_plain_components(project_root, path)
     parquet = [path for path in all_files if path.name == "data.parquet"]
     unexpected = [path for path in all_files if path not in parquet]
     if not parquet:
@@ -150,13 +204,18 @@ def _dataset_files(dataset_root: Path) -> tuple[list[Path], list[Path]]:
 
 def build_dataset_audit(project_root: Path, dataset: str) -> dict[str, object]:
     """Build one deterministic exact audit without writing state or reading Landing."""
-    project_root = project_root.resolve()
+    project_root = project_root.absolute()
+    _assert_plain_components(project_root, project_root)
     try:
         contract = CONTRACTS[dataset]
     except KeyError as error:
         raise ValueError(f"unsupported global dataset: {dataset}") from error
     dataset_root = project_root / "data" / "normalized" / dataset
-    parquet_files, unexpected_files = _dataset_files(dataset_root)
+    expected_root = Path("data") / "normalized" / dataset
+    if _relative(dataset_root, project_root) != expected_root.as_posix():
+        raise GlobalArtifactAuditError("dataset logical root differs")
+    pre_scan_tree = _whole_tree_manifest(dataset_root, project_root)
+    parquet_files, unexpected_files = _dataset_files(dataset_root, project_root)
     expected = contract_arrow_schema(contract)
     expected_names_types = [(field.name, field.type) for field in expected]
     schema_groups: dict[str, dict[str, object]] = {}
@@ -180,8 +239,9 @@ def build_dataset_audit(project_root: Path, dataset: str) -> dict[str, object]:
         if not schema.equals(expected, check_metadata=False):
             physical_nullability_mismatches.append(relative)
         partition_values = _partition_values(path, dataset_root, contract)
-        frame = restore_contract_dates(pd.read_parquet(path), contract)
-        if list(frame.columns) == list(contract.column_names):
+        frame = pd.read_parquet(path)
+        if actual_names_types == expected_names_types and list(frame.columns) == list(contract.column_names):
+            frame = restore_contract_dates(frame, contract)
             frame = frame[list(contract.column_names)]
             if not _validate_partition_rows(frame, partition_values, contract):
                 partition_failures.append(relative)
@@ -208,6 +268,20 @@ def build_dataset_audit(project_root: Path, dataset: str) -> dict[str, object]:
         }
         for path in unexpected_files
     ]
+    pre_files = {
+        value["path"]: (value["bytes"], value["sha256"])
+        for value in pre_scan_tree if value["type"] == "file"
+    }
+    scanned_files = {
+        str(Path(value["path"]).relative_to(dataset_root.relative_to(project_root))).replace("\\", "/"):
+        (value["bytes"], value["sha256"])
+        for value in [*file_manifest, *unexpected_manifest]
+    }
+    if scanned_files != pre_files:
+        raise GlobalArtifactAuditError("Normalized artifact file changed during audit")
+    post_scan_tree = _whole_tree_manifest(dataset_root, project_root)
+    if post_scan_tree != pre_scan_tree:
+        raise GlobalArtifactAuditError("Normalized artifact tree changed during audit")
     total_rows = sum(int(value["rows"]) for value in file_manifest)
     schema_status = "PASS" if not type_or_order_mismatches else "FAIL"
     if schema_status == "PASS":
@@ -326,6 +400,8 @@ def build_dataset_audit(project_root: Path, dataset: str) -> dict[str, object]:
             "collector_checkpoint_modified": False,
             "artifact_root": _relative(dataset_root, project_root),
         },
+        "whole_tree_manifest": pre_scan_tree,
+        "whole_tree_manifest_sha256": _sha256_bytes(_canonical_bytes(pre_scan_tree)),
         "contract": _contract_record(contract),
         "physical_schemas": sorted(schema_groups.values(), key=lambda value: value["schema_sha256"]),
         "file_manifest": file_manifest,
@@ -358,7 +434,8 @@ def _state_path(project_root: Path, report: Mapping[str, object]) -> Path:
 
 def write_audit_state(project_root: Path, report: Mapping[str, object]) -> dict[str, object]:
     """Atomically create one content-addressed immutable audit state."""
-    project_root = project_root.resolve()
+    project_root = project_root.absolute()
+    _assert_plain_components(project_root, project_root)
     expected = dict(report)
     supplied_digest = expected.pop("audit_manifest_sha256", None)
     digest = _sha256_bytes(_canonical_bytes(expected))
@@ -381,12 +458,39 @@ def write_audit_state(project_root: Path, report: Mapping[str, object]) -> dict[
         or report["scope"].get("collector_checkpoint_modified") is not False
     ):
         raise GlobalArtifactAuditError("audit state identity or provenance boundary differs")
+    # Never trust a caller-supplied PASS, manifest, digest, or contract copy.
+    # Rebuild from the registered contract and current artifacts, then compare
+    # the complete canonical report before considering a persistent write.
+    rebuilt = build_dataset_audit(project_root, str(dataset))
+    if _canonical_bytes(rebuilt) != _canonical_bytes(report):
+        raise GlobalArtifactAuditError("supplied audit differs from current independent rebuild")
+    dataset_root = project_root / "data" / "normalized" / str(dataset)
+    if _whole_tree_manifest(dataset_root, project_root) != report.get("whole_tree_manifest"):
+        raise GlobalArtifactAuditError("Normalized artifact tree changed before state creation")
     target = _state_path(project_root, report)
-    _relative(target, project_root)
+    expected_parent = project_root / DEFAULT_STATE_RELATIVE / str(dataset)
+    if target.parent.absolute() != expected_parent.absolute():
+        raise GlobalArtifactAuditError("audit state logical root differs")
     body = json.dumps(
         report, ensure_ascii=False, sort_keys=True, indent=2
     ).encode("utf-8") + b"\n"
-    target.parent.mkdir(parents=True, exist_ok=True)
+    # Create each missing directory, checking the exact logical chain after
+    # every step so an existing symlink/junction cannot redirect state writes.
+    current = project_root
+    for component in (DEFAULT_STATE_RELATIVE / str(dataset)).parts:
+        current = current / component
+        current.mkdir(exist_ok=True)
+        _assert_plain_components(project_root, current)
+        if not current.is_dir():
+            raise GlobalArtifactAuditError("audit state parent topology differs")
+    _assert_plain_components(project_root, target.parent)
+    # Immediate compare-and-scan gate before the first state-file operation.
+    immediate = build_dataset_audit(project_root, str(dataset))
+    if _canonical_bytes(immediate) != _canonical_bytes(report):
+        raise GlobalArtifactAuditError("Normalized artifact changed immediately before state creation")
+    if _whole_tree_manifest(dataset_root, project_root) != report.get("whole_tree_manifest"):
+        raise GlobalArtifactAuditError("Normalized artifact changed at state creation gate")
+    _assert_plain_components(project_root, target.parent)
     if target.exists():
         if target.is_symlink() or not target.is_file() or target.read_bytes() != body:
             raise GlobalArtifactAuditError("immutable audit state differs")
@@ -398,6 +502,7 @@ def write_audit_state(project_root: Path, report: Mapping[str, object]) -> dict[
             stream.write(body)
             stream.flush()
             os.fsync(stream.fileno())
+        _assert_plain_components(project_root, target.parent)
         try:
             os.link(temporary, target)
         except FileExistsError:
