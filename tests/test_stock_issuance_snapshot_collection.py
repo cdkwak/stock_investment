@@ -6,7 +6,8 @@ from pathlib import Path
 import pytest
 
 import scripts.manual.collect_data_go_kr_stock_issuance_snapshot as module
-from scripts.manual.data_go_kr_stock_issuance_pilot import PilotError
+from scripts.manual.data_go_kr_stock_issuance_pilot import CaptureSession, PilotError
+from stock_data.providers.data_go_kr.client import DataGoKrClient, write_landing_pages_atomic
 
 
 class Response:
@@ -59,7 +60,8 @@ def configured(tmp_path, monkeypatch):
     monkeypatch.setattr(module, "EXPECTED_TOTAL", 3)
     monkeypatch.setattr(module, "PAGE_SIZE", 2)
     monkeypatch.setattr(module, "EXPECTED_PAGES", 2)
-    monkeypatch.setattr(module, "SNAPSHOT_DATE", "20260812")
+    monkeypatch.setattr(module, "SOURCE_REFERENCE_DATE_MAX", "20260812")
+    monkeypatch.setattr(module, "SOURCE_REFERENCE_DATE_MIN_BOUND", "20200401")
     monkeypatch.setattr(module, "COUNT_RUN_ID", "count-run")
     monkeypatch.setattr(module, "COUNT_MANIFEST_SHA256", "a" * 64)
     monkeypatch.setattr(module, "_verify_count_gate", lambda root: None)
@@ -84,6 +86,7 @@ def test_checkpoint_resume_and_complete_audit(configured):
     audit = module.verify_complete_snapshot(configured, Path(a["run_root"]))
     assert audit["status"] == "OFFLINE_AUDIT_PASS" and audit["rows"] == 3
     assert audit["future_effective_rows"] == 2
+    assert audit["source_reference_date_min"] == "20260812"
     persisted = b"".join(path.read_bytes() for path in configured.rglob("*") if path.is_file())
     assert b"fixture-key" not in persisted
 
@@ -123,3 +126,40 @@ def test_active_provider_lock_blocks_before_landing(configured):
             delegate=Backend([response(1, [item(0, 1), item(1, 1)])]),
         )
     assert set((configured / "data").rglob("*")) == before
+
+
+def test_stopped_first_page_is_adopted_without_network(configured, monkeypatch):
+    monkeypatch.setattr(module, "STOPPED_FIRST_PAGE_RUN_ID", "stopped-v1")
+    monkeypatch.setattr(module, "STOPPED_FIRST_PAGE_PLAN_SHA256", "b" * 64)
+    run = configured / module.LANDING_RELATIVE / "stopped-v1"
+    page = run / "page=00001"
+    page.mkdir(parents=True)
+    backend = Backend([response(1, [item(0, 1), item(1, 1)])])
+    capture = CaptureSession(
+        backend, page, "fixture-key",
+        {"numOfRows": "2", "pageNo": "1", "resultType": "json"},
+    )
+    result = DataGoKrClient(
+        endpoint=module.ENDPOINT, service_key="fixture-key", session=capture,
+        max_attempts=1,
+    ).fetch_page(num_of_rows=2, page_no=1)
+    write_landing_pages_atomic((result.payload,), page / "response.json")
+    (run / "checkpoint.json").write_text(json.dumps({
+        "version": 1, "status": "STOPPED", "plan_sha256": "b" * 64,
+        "failed_page": 1, "network_calls": 1, "completed_pages": [],
+        "page_evidence": [],
+    }), encoding="utf-8")
+    (run / "call_ledger.jsonl").write_text(json.dumps({
+        "event": "PAGE_STOPPED", "page_no": 1, "network_calls": 1,
+        "retry_count": 0,
+    }) + "\n", encoding="utf-8")
+    before_calls = backend.calls
+    adopted = module.adopt_stopped_first_page(
+        configured, approval_sha256=module.plan_sha256(),
+    )
+    assert backend.calls == before_calls
+    assert adopted["completed_pages"] == [1] and adopted["calls_this_run"] == 0
+    adopted_run = Path(adopted["run_root"])
+    assert (adopted_run / "page=00001/raw_response.body").read_bytes() == (
+        page / "raw_response.body"
+    ).read_bytes()

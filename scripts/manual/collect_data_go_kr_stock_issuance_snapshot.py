@@ -8,6 +8,7 @@ import json
 import math
 import os
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 import time
@@ -35,11 +36,14 @@ DATASET = "kr_equity_stock_issuance_source_observation"
 LANDING_RELATIVE = Path(f"data/landing/data_go_kr/{DATASET}")
 COUNT_RUN_ID = "20260813T172157Z_3d52035e3c1643fc8336fce42227323b"
 COUNT_MANIFEST_SHA256 = "d44592d87c4d2fdd4799af6916610e74dbe2bcb7003313ac6ca7470429eb9129"
-SNAPSHOT_DATE = "20260812"
+SOURCE_REFERENCE_DATE_MAX = "20260812"
+SOURCE_REFERENCE_DATE_MIN_BOUND = "20200401"
 EXPECTED_TOTAL = 152_676
 PAGE_SIZE = 9_999
 EXPECTED_PAGES = 16
-VERSION = 1
+VERSION = 2
+STOPPED_FIRST_PAGE_RUN_ID = "20260813T172725Z_e068322b55de43d99434b377c436f1bb"
+STOPPED_FIRST_PAGE_PLAN_SHA256 = "7dad08eb3d46ffa1d30b99f9f5450e1e5ff97b3d1230ef9bb874a73f93d14298"
 
 
 class CollectionStopped(RuntimeError):
@@ -59,7 +63,10 @@ def frozen_plan() -> dict[str, object]:
     return {
         "version": VERSION, "dataset": DATASET, "endpoint": ENDPOINT,
         "operation": "getStocIssuInfo_V3", "filters": {},
-        "snapshot_date": SNAPSHOT_DATE, "expected_total": EXPECTED_TOTAL,
+        "scope_semantics": "unfiltered source history; basDt varies by row",
+        "source_reference_date_max": SOURCE_REFERENCE_DATE_MAX,
+        "source_reference_date_min_bound": SOURCE_REFERENCE_DATE_MIN_BOUND,
+        "expected_total": EXPECTED_TOTAL,
         "page_size": PAGE_SIZE, "expected_pages": EXPECTED_PAGES,
         "retry_count": 0, "parallelism": 1,
         "count_run_id": COUNT_RUN_ID,
@@ -106,7 +113,7 @@ def _verify_count_gate(project_root: Path) -> None:
         or result.get("manifest_sha256") != COUNT_MANIFEST_SHA256
         or result.get("declared_total") != EXPECTED_TOTAL
         or result.get("pages_at_9999") != EXPECTED_PAGES
-        or result.get("source_snapshot_date") != SNAPSHOT_DATE
+        or result.get("source_snapshot_date") != SOURCE_REFERENCE_DATE_MAX
     ):
         raise CollectionStopped("frozen current-scope evidence differs")
 
@@ -159,8 +166,13 @@ def _read_page(project_root: Path, run_root: Path, page_no: int, key: str) -> di
         raise CollectionStopped(f"page {page_no} count/envelope differs")
     assessment = _validate_items(
         tuple(dict(item) for item in source_items), expected_count=expected_rows,
-        expected_snapshot_date=SNAPSHOT_DATE,
+        expected_snapshot_date=None,
     )
+    if (
+        assessment["source_snapshot_date_min"] < SOURCE_REFERENCE_DATE_MIN_BOUND
+        or assessment["source_snapshot_date_max"] > SOURCE_REFERENCE_DATE_MAX
+    ):
+        raise CollectionStopped(f"page {page_no} source reference date is outside the frozen bounds")
     if any(secret in path.read_bytes() for path in files.values() for secret in _secret_variants(key)):
         raise CollectionStopped(f"configured credential found in page {page_no}")
     return {
@@ -172,6 +184,9 @@ def _read_page(project_root: Path, run_root: Path, page_no: int, key: str) -> di
         "landing_sha256": _sha(files["response.json"]),
         "captured_at_utc": call["captured_at_utc"],
         "future_effective_rows": assessment["future_effective_rows"],
+        "source_reference_date_min": assessment["source_snapshot_date_min"],
+        "source_reference_date_max": assessment["source_snapshot_date_max"],
+        "source_reference_date_distinct": assessment["source_snapshot_date_distinct"],
     }
 
 
@@ -184,6 +199,79 @@ def _new_checkpoint(run_id: str) -> dict[str, object]:
         "network_calls": 0, "retry_count": 0,
         "started_at_utc": _now(), "updated_at_utc": _now(),
     }
+
+
+def adopt_stopped_first_page(project_root: Path, *, approval_sha256: str) -> dict[str, object]:
+    """Create a v2 run by copying exact page-1 evidence; makes zero network calls."""
+    project_root = project_root.resolve()
+    if approval_sha256 != plan_sha256():
+        raise CollectionStopped("frozen plan approval digest differs")
+    _verify_count_gate(project_root)
+    key = service_key_from_environment(project_root)
+    source_run = project_root / LANDING_RELATIVE / STOPPED_FIRST_PAGE_RUN_ID
+    _assert_topology(project_root, source_run)
+    state = _load_stopped_v1_checkpoint(source_run)
+    source_evidence = _read_page(project_root, source_run, 1, key)
+    source_hashes = {
+        path.name: _sha(path) for path in _page_dir(source_run, 1).iterdir() if path.is_file()
+    }
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ_") + uuid4().hex
+    run_root = project_root / LANDING_RELATIVE / run_id
+    new_state = _new_checkpoint(run_id)
+    new_state.update({
+        "completed_pages": [1], "page_evidence": [], "network_calls": 1,
+        "adopted_source_run_id": STOPPED_FIRST_PAGE_RUN_ID,
+        "adopted_source_plan_sha256": STOPPED_FIRST_PAGE_PLAN_SHA256,
+    })
+    with _provider_lock(project_root, "issuance_adopt_" + run_id):
+        run_root.mkdir(parents=True, exist_ok=False)
+        target_page = _page_dir(run_root, 1)
+        target_page.mkdir()
+        for name in ("raw_response.body", "raw_call.json", "response.json"):
+            source = _page_dir(source_run, 1) / name
+            target = target_page / name
+            with source.open("rb") as source_stream, target.open("xb") as target_stream:
+                shutil.copyfileobj(source_stream, target_stream)
+                target_stream.flush()
+                os.fsync(target_stream.fileno())
+            if _sha(target) != source_hashes[name]:
+                raise CollectionStopped("adopted page-1 bytes differ")
+        adopted_evidence = _read_page(project_root, run_root, 1, key)
+        new_state["page_evidence"] = [adopted_evidence]
+        _append_jsonl(run_root / "call_ledger.jsonl", {
+            "event": "PAGE_ADOPTED_ZERO_NETWORK", "page_no": 1,
+            "network_calls": 0, "retry_count": 0,
+            "source_run_id": STOPPED_FIRST_PAGE_RUN_ID,
+            "source_checkpoint_status": state["status"],
+            "source_file_sha256": source_hashes,
+            "evidence": adopted_evidence, "recorded_at_utc": _now(),
+        })
+        _replace_json(run_root / "checkpoint.json", new_state)
+    return {
+        "status": "RUNNING", "run_root": str(run_root),
+        "calls_this_run": 0, "network_calls_total": 1,
+        "completed_pages": [1], "expected_pages": EXPECTED_PAGES,
+    }
+
+
+def _load_stopped_v1_checkpoint(run_root: Path) -> dict[str, object]:
+    try:
+        state = json.loads((run_root / "checkpoint.json").read_text(encoding="utf-8"))
+        ledger_lines = [json.loads(line) for line in (run_root / "call_ledger.jsonl").read_text(encoding="utf-8").splitlines()]
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise CollectionStopped("stopped v1 evidence is invalid") from error
+    if (
+        run_root.name != STOPPED_FIRST_PAGE_RUN_ID
+        or state.get("version") != 1 or state.get("status") != "STOPPED"
+        or state.get("plan_sha256") != STOPPED_FIRST_PAGE_PLAN_SHA256
+        or state.get("failed_page") != 1 or state.get("network_calls") != 1
+        or state.get("completed_pages") != [] or state.get("page_evidence") != []
+        or len(ledger_lines) != 1 or ledger_lines[0].get("event") != "PAGE_STOPPED"
+        or ledger_lines[0].get("page_no") != 1 or ledger_lines[0].get("network_calls") != 1
+        or ledger_lines[0].get("retry_count") != 0
+    ):
+        raise CollectionStopped("stopped v1 page-1 identity differs")
+    return state
 
 
 def _load_checkpoint(run_root: Path) -> dict[str, object]:
@@ -371,7 +459,8 @@ def verify_complete_snapshot(project_root: Path, run_root: Path) -> dict[str, ob
     return {
         "status": "OFFLINE_AUDIT_PASS", "network_requests": 0,
         "run_id": run_root.name, "rows": EXPECTED_TOTAL, "pages": EXPECTED_PAGES,
-        "source_snapshot_date": SNAPSHOT_DATE,
+        "source_reference_date_min": min(item["source_reference_date_min"] for item in evidence),
+        "source_reference_date_max": max(item["source_reference_date_max"] for item in evidence),
         "future_effective_rows": total_future,
         "issuance_reason_counts": dict(sorted(reason_counts.items())),
         "manifest_sha256": _sha(manifest_path),
@@ -385,12 +474,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--approve-plan-sha256")
     parser.add_argument("--max-calls", type=int, default=2)
     parser.add_argument("--start", action="store_true")
+    parser.add_argument("--adopt-stopped-first-page", action="store_true")
     parser.add_argument("--resume-run", type=Path)
     parser.add_argument("--verify-run", type=Path)
     parser.add_argument("--print-plan", action="store_true")
     args = parser.parse_args(argv)
     if args.print_plan:
         print(json.dumps({"plan": frozen_plan(), "plan_sha256": plan_sha256()}, indent=2))
+        return 0
+    if args.adopt_stopped_first_page:
+        if args.start or args.resume_run is not None or args.verify_run is not None:
+            raise SystemExit("adoption, start, resume, and verify modes are mutually exclusive")
+        print(json.dumps(adopt_stopped_first_page(
+            args.project_root, approval_sha256=str(args.approve_plan_sha256),
+        ), ensure_ascii=False, sort_keys=True, indent=2))
         return 0
     if args.verify_run is not None:
         print(json.dumps(verify_complete_snapshot(args.project_root, args.verify_run),

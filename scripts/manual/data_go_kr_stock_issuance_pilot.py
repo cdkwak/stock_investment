@@ -223,6 +223,7 @@ def _validate_items(
     reasons: set[str] = set()
     issue_dates: list[str] = []
     future_issue_dates: list[str] = []
+    snapshot_dates: list[str] = []
     for item in items:
         if set(item) != SOURCE_FIELDS:
             raise PilotError("source field set differs from the official guide")
@@ -233,6 +234,7 @@ def _validate_items(
             raise PilotError("source basDt is invalid") from error
         if expected_snapshot_date is not None and snapshot_date != expected_snapshot_date:
             raise PilotError("source basDt differs from request")
+        snapshot_dates.append(snapshot_date)
         corp = str(item["crno"]).strip()
         if re.fullmatch(r"\d{13}", corp) is None:
             raise PilotError("corporate registration number is invalid")
@@ -264,6 +266,9 @@ def _validate_items(
         "future_effective_rows": len(future_issue_dates),
         "future_effective_date_min": min(future_issue_dates) if future_issue_dates else None,
         "future_effective_date_max": max(future_issue_dates) if future_issue_dates else None,
+        "source_snapshot_date_min": min(snapshot_dates),
+        "source_snapshot_date_max": max(snapshot_dates),
+        "source_snapshot_date_distinct": len(set(snapshot_dates)),
         "issuance_reason_names": sorted(reasons),
         "unit_semantics": {"issuStckCnt": "shares"},
         "frequency_semantics": "daily source snapshot keyed by basDt; effective dates may be future",

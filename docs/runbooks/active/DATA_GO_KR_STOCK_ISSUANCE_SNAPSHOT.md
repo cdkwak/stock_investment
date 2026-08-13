@@ -1,10 +1,10 @@
-# DATA.GO.KR stock-issuance snapshot backfill
+# DATA.GO.KR stock-issuance source-history backfill
 
 Status: `PREPARED / NOT_EXECUTED`.
 
 This bounded collector is frozen to the independently audited current-scope evidence:
 
-- source snapshot: `20260812`
+- unfiltered source history: row-level `basDt` varies; frozen observed maximum `20260812`
 - declared rows: `152,676`
 - page size: `9,999`; exact pages/call cap: `16`
 - serial HTTPS, retry 0, shared DATA.GO.KR provider lock
@@ -23,5 +23,9 @@ Print and independently verify the frozen plan digest before execution:
 .\.venv\Scripts\python.exe .\scripts\manual\collect_data_go_kr_stock_issuance_snapshot.py --print-plan
 ```
 
-Start with at most two calls, audit the checkpoint/pages, then resume the exact run for
-the remaining pages. Never restart completed pages or alter the frozen count evidence.
+The original first full page was retained in stopped run
+`20260813T172725Z_e068322b55de43d99434b377c436f1bb`: it proved that the unfiltered
+operation is history, not one-date current snapshot (95 distinct `basDt` values on
+page 1). Preserve that terminal checkpoint. Adopt its exact page bytes into a new v2
+run with zero calls, audit, then resume the remaining 15 pages. Never restart completed
+pages or alter the frozen count evidence.
