@@ -589,6 +589,149 @@ def _verify_transaction_artifacts(
         raise DividendObservationError(f"{expected} transaction state fingerprint differs")
 
 
+def _preflight_transaction_layout(
+    *, dataset_root: Path, state_path: Path, paths: dict[str, Path],
+    payload: dict[str, object], validator,
+) -> tuple[str | None, ...]:
+    """Fingerprint every transaction artifact before recovery mutates any path."""
+    old_dataset = payload.get("old_dataset_sha256")
+    new_dataset = payload["new_dataset_sha256"]
+    old_state = payload.get("old_state_sha256")
+    new_state = payload["new_state_sha256"]
+
+    def classify_dataset(path: Path) -> str | None:
+        if not path.exists():
+            return None
+        if not path.is_dir():
+            raise DividendObservationError("dataset transaction path is not a directory")
+        try:
+            fingerprint = _dataset_sha256(path, validator)
+        except BaseException as error:
+            raise DividendObservationError(
+                "dataset transaction artifact cannot be fingerprinted"
+            ) from error
+        if fingerprint == old_dataset:
+            return "old"
+        if fingerprint == new_dataset:
+            return "new"
+        raise DividendObservationError("dataset transaction artifact fingerprint is unknown")
+
+    def classify_state(path: Path) -> str | None:
+        if not path.exists():
+            return None
+        if not path.is_file():
+            raise DividendObservationError("state transaction path is not a file")
+        try:
+            fingerprint = _file_sha256(path)
+        except BaseException as error:
+            raise DividendObservationError(
+                "state transaction artifact cannot be fingerprinted"
+            ) from error
+        if fingerprint == old_state:
+            return "old"
+        if fingerprint == new_state:
+            return "new"
+        raise DividendObservationError("state transaction artifact fingerprint is unknown")
+
+    layout = (
+        classify_dataset(dataset_root),
+        classify_dataset(paths["dataset_stage"]),
+        classify_dataset(paths["dataset_backup"]),
+        classify_dataset(paths["dataset_retired"]),
+        classify_state(state_path),
+        classify_state(paths["state_stage"]),
+        classify_state(paths["state_backup"]),
+        classify_state(paths["state_retired"]),
+    )
+    old = "old" if payload["had_dataset"] else None
+    # dc, ds, db, dr, sc, ss, sb, sr. Each entry is a state possible
+    # immediately after the recorded phase or its one following mutation.
+    layouts = {
+        "L0": (old, None, None, None, old, None, None, None),
+        "L1": (old, "new", None, None, old, None, None, None),
+        "L2": (old, "new", None, None, old, "new", None, None),
+        "L3": (None, "new", old, None, old, "new", None, None),
+        "L4": ("new", None, old, None, old, "new", None, None),
+        "L5": ("new", None, old, None, None, "new", old, None),
+        "L6": ("new", None, old, None, "new", None, old, None),
+        "L7": ("new", None, None, old, "new", None, old, None),
+        "L8": ("new", None, None, old, "new", None, None, old),
+        "L9": ("new", None, None, None, "new", None, None, old),
+        "L10": ("new", None, None, None, "new", None, None, None),
+    }
+    allowed_by_phase = {
+        "PREPARING": {"L0", "L1", "L2"},
+        "STAGED": {"L2"},
+        "PROMOTION_PENDING": {"L2", "L3"},
+        "DATASET_BACKED_UP": {"L3", "L4"},
+        "DATASET_PROMOTED": {"L4", "L5"},
+        "STATE_BACKED_UP": {"L5", "L6"},
+        "STATE_PROMOTED": {"L6"},
+        "VERIFIED": {"L6", "L7"},
+        "DATASET_BACKUP_RETIRED": {"L7", "L8"},
+        "BACKUPS_RETIRED": {"L8", "L9", "L10"},
+        "CLEANUP_FINISHED": {"L10"},
+        "RECOVERED_ORIGINAL": {"L0"},
+    }
+    phase = str(payload["phase"])
+    allowed = {layouts[name] for name in allowed_by_phase[phase]}
+    if phase not in _FINAL_TRANSACTION_PHASES:
+        # An earlier recovery attempt may itself have stopped between renames.
+        # Add only layouts reachable by this exact rollback algorithm from a
+        # forward layout valid for the recorded phase.
+        def rollback_states(
+            initial: tuple[str | None, ...], canonical_index: int,
+            stage_index: int, backup_index: int, had_original: bool,
+        ) -> list[tuple[str | None, ...]]:
+            current = list(initial)
+            states: list[tuple[str | None, ...]] = []
+            canonical = current[canonical_index]
+            stage = current[stage_index]
+            backup = current[backup_index]
+            if backup is not None:
+                if canonical is not None:
+                    if stage is not None:
+                        return []
+                    current[stage_index] = canonical
+                    current[canonical_index] = None
+                    states.append(tuple(current))
+                current[canonical_index] = backup
+                current[backup_index] = None
+                states.append(tuple(current))
+            elif stage is not None:
+                if (had_original and canonical is None) or (
+                    not had_original and canonical is not None
+                ):
+                    return []
+            elif not had_original and canonical is not None:
+                current[stage_index] = canonical
+                current[canonical_index] = None
+                states.append(tuple(current))
+            elif had_original and canonical is None:
+                return []
+            if current[stage_index] is not None:
+                current[stage_index] = None
+                states.append(tuple(current))
+            return states
+
+        forward = list(allowed)
+        for candidate in forward:
+            dataset_steps = rollback_states(
+                candidate, 0, 1, 2, bool(payload["had_dataset"])
+            )
+            allowed.update(dataset_steps)
+            dataset_done = dataset_steps[-1] if dataset_steps else candidate
+            state_steps = rollback_states(
+                dataset_done, 4, 5, 6, bool(payload["had_state"])
+            )
+            allowed.update(state_steps)
+    if layout not in allowed:
+        raise DividendObservationError(
+            f"transaction artifact layout contradicts journal phase {phase}"
+        )
+    return layout
+
+
 def recover_dividend_observation_transaction(
     *, dataset_root: Path, state_path: Path, validator,
 ) -> str:
@@ -598,52 +741,26 @@ def recover_dividend_observation_transaction(
         dataset_root.parent.glob(f"{marker.name}.*.tmp")
     )
     if not marker.exists() and marker_temporaries:
-        if len(marker_temporaries) != 1:
-            raise DividendObservationError("multiple orphan transaction markers exist")
-        candidate = marker_temporaries[0]
-        other_orphans = _transaction_orphans(dataset_root, state_path) - {candidate}
-        if not other_orphans:
-            candidate.unlink()
-            _fsync_directory(candidate.parent)
-            return "DISCARDED_UNINSTALLED_MARKER"
-        payload = _read_marker_payload(candidate)
-        _transaction_paths(dataset_root, state_path, payload)
-        candidate.replace(marker)
-        _fsync_directory(marker.parent)
-        marker_temporaries = []
+        raise DividendObservationError("orphan temporary transaction marker exists")
     orphans = _transaction_orphans(dataset_root, state_path)
     if not marker.exists():
         if orphans:
             raise DividendObservationError("orphan dividend append paths exist without a marker")
         return "NONE"
     if marker_temporaries:
-        if len(marker_temporaries) != 1:
-            raise DividendObservationError("ambiguous temporary transaction markers exist")
-        marker_temporaries[0].unlink()
-        _fsync_directory(marker.parent)
+        raise DividendObservationError("temporary transaction marker exists beside journal")
     try:
         payload = _read_marker_payload(marker)
     except DividendObservationError:
-        non_marker_orphans = _transaction_orphans(dataset_root, state_path)
-        pair_is_intact = (
-            (dataset_root.is_dir() and state_path.is_file())
-            or (not dataset_root.exists() and not state_path.exists())
-        )
-        if non_marker_orphans or not pair_is_intact:
-            raise
-        marker.unlink()
-        _fsync_directory(marker.parent)
-        return "DISCARDED_INCOMPLETE_INITIAL_MARKER"
+        raise
     paths = _transaction_paths(dataset_root, state_path, payload)
     unexpected = orphans - set(paths.values())
     if unexpected:
         raise DividendObservationError("ambiguous orphan dividend append paths exist")
-    for key in ("dataset_stage", "dataset_backup", "dataset_retired"):
-        if paths[key].exists() and not paths[key].is_dir():
-            raise DividendObservationError("dataset transaction path is not a directory")
-    for key in ("state_stage", "state_backup", "state_retired"):
-        if paths[key].exists() and not paths[key].is_file():
-            raise DividendObservationError("state transaction path is not a file")
+    _preflight_transaction_layout(
+        dataset_root=dataset_root, state_path=state_path, paths=paths,
+        payload=payload, validator=validator,
+    )
 
     phase = str(payload["phase"])
     if phase in _FINAL_TRANSACTION_PHASES:

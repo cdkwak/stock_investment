@@ -520,10 +520,117 @@ def test_multiple_temporary_transaction_markers_are_refused(tmp_path: Path):
     validator = lambda value: validate_data_v1(
         value, KR_EQUITY_DIVIDEND_SOURCE_OBSERVATION, allow_empty=False
     )
-    with pytest.raises(DividendObservationError, match="multiple orphan"):
+    with pytest.raises(DividendObservationError, match="orphan temporary"):
         observation_module.recover_dividend_observation_transaction(
             dataset_root=dataset_root, state_path=state_path, validator=validator
         )
+
+
+def _leave_state_promoted_transaction(
+    tmp_path: Path, monkeypatch,
+) -> tuple[Path, Path, dict[str, Path]]:
+    first = _landing(tmp_path / "first.json")
+    second = _landing(tmp_path / "second.json", snapshot_date="20260809")
+    output_root = tmp_path / "normalized"
+    state_path = tmp_path / "state.json"
+    result = build_dividend_observation(
+        landing_path=first, output_root=output_root, state_path=state_path,
+    )
+    original_replace = Path.replace
+    original_recover = observation_module.recover_dividend_observation_transaction
+    counter = {"value": 0}
+    recovery_calls = {"value": 0}
+
+    class HardCrash(BaseException):
+        pass
+
+    def crash_after_state_promotion(path: Path, target: Path):
+        outcome = original_replace(path, target)
+        if ".dividend-append." in path.name or ".dividend-append." in Path(target).name:
+            counter["value"] += 1
+            if counter["value"] == 4:
+                raise HardCrash("state promotion completed, process lost")
+        return outcome
+
+    def terminate_in_exception_recovery(**kwargs):
+        recovery_calls["value"] += 1
+        if recovery_calls["value"] == 1:
+            return original_recover(**kwargs)
+        raise HardCrash("process terminated")
+
+    monkeypatch.setattr(Path, "replace", crash_after_state_promotion)
+    monkeypatch.setattr(
+        observation_module, "recover_dividend_observation_transaction",
+        terminate_in_exception_recovery,
+    )
+    with pytest.raises(DividendObservationError, match="durable transaction recovery"):
+        build_dividend_observation(
+            landing_path=second, output_root=output_root, state_path=state_path,
+        )
+    monkeypatch.setattr(Path, "replace", original_replace)
+    monkeypatch.setattr(
+        observation_module, "recover_dividend_observation_transaction", original_recover
+    )
+    marker = observation_module._transaction_marker(result.output_root)
+    payload = observation_module._read_marker_payload(marker)
+    paths = observation_module._transaction_paths(result.output_root, state_path, payload)
+    return result.output_root, state_path, paths
+
+
+def _all_path_bytes(root: Path) -> tuple[set[str], dict[str, bytes]]:
+    directories = {
+        path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_dir()
+    }
+    files = {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in root.rglob("*") if path.is_file()
+    }
+    return directories, files
+
+
+def _recovery_validator(frame):
+    validate_data_v1(frame, KR_EQUITY_DIVIDEND_SOURCE_OBSERVATION, allow_empty=False)
+
+
+def test_corrupted_dataset_backup_preflight_mutates_nothing(tmp_path: Path, monkeypatch):
+    dataset_root, state_path, paths = _leave_state_promoted_transaction(tmp_path, monkeypatch)
+    parquet = next(paths["dataset_backup"].rglob("data.parquet"))
+    corrupted = pd.read_parquet(parquet)
+    corrupted.loc[0, "ordinary_dividend_amount"] = 123456.0
+    corrupted.to_parquet(parquet, index=False)
+    before = _all_path_bytes(tmp_path)
+    with pytest.raises(DividendObservationError, match="fingerprint is unknown"):
+        observation_module.recover_dividend_observation_transaction(
+            dataset_root=dataset_root, state_path=state_path, validator=_recovery_validator
+        )
+    assert _all_path_bytes(tmp_path) == before
+
+
+def test_corrupted_state_backup_preflight_mutates_nothing(tmp_path: Path, monkeypatch):
+    dataset_root, state_path, paths = _leave_state_promoted_transaction(tmp_path, monkeypatch)
+    paths["state_backup"].write_bytes(b"corrupted state backup\n")
+    before = _all_path_bytes(tmp_path)
+    with pytest.raises(DividendObservationError, match="fingerprint is unknown"):
+        observation_module.recover_dividend_observation_transaction(
+            dataset_root=dataset_root, state_path=state_path, validator=_recovery_validator
+        )
+    assert _all_path_bytes(tmp_path) == before
+
+
+def test_canonical_backup_identity_ambiguity_preflight_mutates_nothing(
+    tmp_path: Path, monkeypatch,
+):
+    dataset_root, state_path, paths = _leave_state_promoted_transaction(tmp_path, monkeypatch)
+    swap = dataset_root.parent / "swap"
+    dataset_root.replace(swap)
+    paths["dataset_backup"].replace(dataset_root)
+    swap.replace(paths["dataset_backup"])
+    before = _all_path_bytes(tmp_path)
+    with pytest.raises(DividendObservationError, match="layout contradicts"):
+        observation_module.recover_dividend_observation_transaction(
+            dataset_root=dataset_root, state_path=state_path, validator=_recovery_validator
+        )
+    assert _all_path_bytes(tmp_path) == before
 
 
 def test_manual_entrypoint_import_is_side_effect_free_and_explicit_call_builds(

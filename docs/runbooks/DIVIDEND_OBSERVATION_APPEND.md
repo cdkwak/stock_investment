@@ -21,6 +21,11 @@ interruption back to the verified old pair and finalizes every verified new
 pair before removing backups. Journal writes and rename parents are `fsync`ed
 where the platform supports it. Ambiguous markers, orphan paths, unexpected
 path types, or fingerprint mismatches fail closed for manual inspection.
+Recovery fingerprints every existing canonical, stage, backup, and retired
+dataset/state artifact and validates the complete layout against the durable
+journal phase before its first rename or deletion. A corrupted backup or an
+otherwise known-but-ambiguous old/new placement therefore leaves every byte in
+place for inspection.
 
 A repeated hash with different rows or manifest, a PK collision, an
 unreconciled state, or an incomplete Landing response fails without replacing
