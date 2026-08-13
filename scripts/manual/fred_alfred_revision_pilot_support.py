@@ -102,11 +102,13 @@ def compare_current_to_retained(
     for row in current:
         expected = retained_values.get(str(row["date"]))
         actual = row["numeric_value"]
-        if expected is None and actual is None:
+        expected_missing = expected is None or pd.isna(expected)
+        actual_missing = actual is None or pd.isna(actual)
+        if expected_missing and actual_missing:
             classification = "BOTH_MISSING"
-        elif expected is None:
+        elif expected_missing:
             classification = "RETAINED_MISSING"
-        elif actual is None:
+        elif actual_missing:
             classification = "FRED_MISSING"
         else:
             classification = "EXACT_MATCH" if float(expected) == float(actual) else "REVISED_OR_STALE"

@@ -53,6 +53,22 @@ def test_compare_current_to_retained_does_not_persist_values(tmp_path):
         "date": "2026-08-06", "value": "4.21", "numeric_value": 4.21,
     },), root, terminal_realtime_end="2026-08-12")
     assert bounded["compared_rows"] == 1
+    missing = compare_current_to_retained(({
+        "realtime_start": "2026-08-07", "realtime_end": "2026-08-12",
+        "date": "2026-08-06", "value": ".", "numeric_value": None,
+    },), root, terminal_realtime_end="2026-08-12")
+    assert missing["classifications"]["FRED_MISSING"] == 1
+
+
+def test_retained_nan_and_fred_missing_are_both_missing(tmp_path):
+    root = tmp_path / "normalized"
+    root.mkdir()
+    pd.DataFrame({"date": ["2026-07-03"], "dgs10": [float("nan")]}).to_parquet(root / "data.parquet")
+    result = compare_current_to_retained(({
+        "realtime_start": "2026-08-07", "realtime_end": "2026-08-12",
+        "date": "2026-07-03", "value": ".", "numeric_value": None,
+    },), root, terminal_realtime_end="2026-08-12")
+    assert result["classifications"]["BOTH_MISSING"] == 1
 
 
 def test_finalize_failed_scope_reconciles_two_retained_calls(tmp_path):

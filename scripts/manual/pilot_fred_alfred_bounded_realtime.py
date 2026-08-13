@@ -137,11 +137,75 @@ def run(project_root: Path, *, session=None) -> dict[str, object]:
             lock.unlink()
 
 
+def audit_retained_run_offline(project_root: Path, run_root: Path) -> dict[str, object]:
+    """Reconcile a completed one-call run and write an immutable audit addendum."""
+    expected_parent = (project_root / LANDING_RELATIVE).resolve()
+    run_root = run_root.resolve()
+    if run_root.parent != expected_parent:
+        raise FredAlfredPilotError("audit target must be an immediate bounded-pilot child")
+    manifest_path = run_root / "manifest.json"
+    call_paths = list(run_root.rglob("call.json"))
+    if not manifest_path.is_file() or len(call_paths) != 1:
+        raise FredAlfredPilotError("retained bounded run is not exactly one completed call")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("raw_requests") != 1 or manifest.get("retry_count") != 0 or manifest.get("normalized_mutation") is not False:
+        raise FredAlfredPilotError("retained manifest safety fields differ")
+    call = json.loads(call_paths[0].read_text(encoding="utf-8"))
+    body_path = call_paths[0].with_name(str(call.get("landing_body_file", "")))
+    body = body_path.read_bytes()
+    body_sha = hashlib.sha256(body).hexdigest()
+    if (
+        call.get("http_status") != 200
+        or call.get("request_parameters") != public_parameters()
+        or call.get("request_url") != URL
+        or call.get("response_bytes") != len(body)
+        or call.get("response_body_sha256") != body_sha
+        or manifest.get("call", {}).get("sha256") != body_sha
+    ):
+        raise FredAlfredPilotError("retained call/body/manifest evidence does not reconcile")
+    rows = validate_bounded_response(body)
+    comparison = compare_current_to_retained(
+        rows, project_root / "data/normalized/fred_treasury_yield_daily",
+        terminal_realtime_end=REALTIME_END,
+    )
+    versions: dict[str, set[float | None]] = {}
+    for row in rows:
+        versions.setdefault(str(row["date"]), set()).add(row["numeric_value"])
+    addendum = {
+        "version": 1, "status": "OFFLINE_AUDIT_PASS",
+        "audited_at_utc": datetime.now(timezone.utc).isoformat(),
+        "network_requests": 0, "raw_requests_reconciled": 1,
+        "retry_count": 0, "response_sha256": body_sha,
+        "rows": len(rows), "unique_observation_dates": len(versions),
+        "dates_with_multiple_value_versions_in_window": sum(len(values) > 1 for values in versions.values()),
+        "comparison_to_retained_corrected": comparison,
+        "correction_note": "pandas NaN in retained data is missing, not a finite retained value",
+        "normalized_mutation": False,
+    }
+    path = run_root / "offline_audit.json"
+    with path.open("x", encoding="utf-8", newline="\n") as stream:
+        json.dump(addendum, stream, ensure_ascii=False, sort_keys=True, indent=2)
+        stream.write("\n")
+    return {"offline_audit_sha256": hashlib.sha256(path.read_bytes()).hexdigest(), **addendum}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--project-root", type=Path, required=True)
     parser.add_argument("--confirm-live-one-call-pilot", action="store_true")
+    parser.add_argument("--audit-retained-run", type=Path)
     args = parser.parse_args(argv)
+    if args.audit_retained_run is not None:
+        if args.confirm_live_one_call_pilot:
+            raise SystemExit("offline audit and live mode are mutually exclusive")
+        try:
+            result = audit_retained_run_offline(
+                args.project_root.resolve(), args.audit_retained_run,
+            )
+        except FredAlfredPilotError as error:
+            raise SystemExit(str(error)) from error
+        print(json.dumps(result, ensure_ascii=False, sort_keys=True, indent=2))
+        return 0
     if not args.confirm_live_one_call_pilot:
         raise SystemExit("explicit live one-call confirmation is required")
     try:
