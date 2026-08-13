@@ -125,7 +125,12 @@ layer does not shift either date.
   indicate a gap in the completed official 1995-2026 equity datasets.
 - KB Securities remains read-only. An earlier OAuth success was reported, but the
   2026-08-11 fresh token check returned HTTP 500/result `9999`/process `E021`, so
-  IVSA0070 was not called and no live snapshot was stored. Order, correction,
+  IVSA0070 was not called and no live snapshot was stored. A new fail-closed
+  Landing-first token sentinel on 2026-08-13 reproduced HTTP 500/result `9999`/
+  process `E021` in exactly one request with zero retries; its redacted response,
+  ledger, and checkpoint are retained under
+  `data/landing/diagnostics/kbsec_token_pilot/20260813T122256Z_686cca26e4454e74a501cd9ac0470fdc/`.
+  KB access therefore remains blocked and no IVSA0070 request was attempted. Order, correction,
   cancellation, transfer, and withdrawal APIs are out of scope.
 - Toss market investor and Korean Treasury history use cursor pagination with
   source rate-limit headers, landing-first capture, atomic Parquet merge, and
