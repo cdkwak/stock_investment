@@ -38,7 +38,11 @@ a verified promotion after interruption. Do not run apply concurrently with an
 equity input writer. The single-writer lock and compare-and-swap checks cover
 the existing output and state. A `VERIFIED` transaction is finalized only after
 the promoted output manifest and state hashes match the marker; otherwise all
-backups remain for inspection.
+backups remain for inspection. Backup retirement is journaled before each
+deletion, so recovery can resume after either the output backup or state backup
+has already been removed. Before fresh-run access, resolved paths for both
+inputs, output, state, marker, lock, stage, and backups must remain beneath the
+resolved project root; junction or symlink escapes fail closed.
 
 The retained price and canonical-universe roots must first complete their
 contract-schema migrations. Do not run the real dry-run or apply during the

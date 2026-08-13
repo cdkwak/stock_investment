@@ -40,7 +40,8 @@ MARKER_PATH = Path("data/state/.kr_market_breadth_daily.rebuild.transaction.json
 LOCK_PATH = Path("data/state/.kr_market_breadth_daily.rebuild.lock")
 _PHASES = {
     "PREPARED", "ROOT_BACKED_UP", "ROOT_PROMOTED", "STATE_BACKED_UP",
-    "STATE_PROMOTED", "VERIFIED",
+    "STATE_PROMOTED", "VERIFIED", "OUTPUT_BACKUP_RETIRING",
+    "STATE_BACKUP_RETIRING", "CLEANUP_PENDING",
 }
 
 
@@ -322,6 +323,13 @@ def _require_path_under_project(path: Path, project_root: Path) -> None:
         raise MarketBreadthRebuildError("rebuild transaction path escapes project root")
 
 
+def _validate_fixed_paths(project_root: Path) -> None:
+    for relative in (
+        PRICE_ROOT, UNIVERSE_ROOT, OUTPUT_ROOT, STATE_PATH, MARKER_PATH, LOCK_PATH,
+    ):
+        _require_path_under_project(project_root / relative, project_root)
+
+
 def _orphans(project_root: Path) -> set[Path]:
     data = project_root / "data"
     result = set(data.glob(f".{DATASET}.rebuild.stage.*"))
@@ -410,27 +418,58 @@ def _recover(project_root: Path) -> str:
     state_exists = state.is_file()
     state_backup_exists = state_backup.is_file()
 
-    if phase == "VERIFIED":
+    cleanup_phases = {
+        "VERIFIED", "OUTPUT_BACKUP_RETIRING", "STATE_BACKUP_RETIRING",
+        "CLEANUP_PENDING",
+    }
+    if phase in cleanup_phases:
         if (
             not root_exists
             or not state_exists
-            or not backup_exists
-            or not stage_exists
-            or state_backup_exists != bool(payload["state_existed"])
         ):
             raise MarketBreadthRebuildError("verified transaction artifacts are incomplete")
         if _manifest_digest(_manifest(project_root, root)) != payload["expected_output_manifest_sha256"]:
             raise MarketBreadthRebuildError("verified output digest differs; backups retained")
         if _file_digest(state) != payload["expected_state_sha256"]:
             raise MarketBreadthRebuildError("verified state digest differs; backups retained")
-        if _manifest_digest(_manifest(project_root, backup, logical_root=OUTPUT_ROOT)) != payload[
-            "original_output_manifest_sha256"
-        ]:
-            raise MarketBreadthRebuildError("verified output backup digest differs")
-        if state_backup_exists and _file_digest(state_backup) != payload["original_state_sha256"]:
-            raise MarketBreadthRebuildError("verified state backup digest differs")
-        shutil.rmtree(backup)
-        state_backup.unlink(missing_ok=True)
+        if phase == "VERIFIED":
+            if (
+                not backup_exists
+                or not stage_exists
+                or state_backup_exists != bool(payload["state_existed"])
+            ):
+                raise MarketBreadthRebuildError("verified transaction artifacts are incomplete")
+            if _manifest_digest(_manifest(project_root, backup, logical_root=OUTPUT_ROOT)) != payload[
+                "original_output_manifest_sha256"
+            ]:
+                raise MarketBreadthRebuildError("verified output backup digest differs")
+            if state_backup_exists and _file_digest(state_backup) != payload["original_state_sha256"]:
+                raise MarketBreadthRebuildError("verified state backup digest differs")
+            payload["phase"] = "OUTPUT_BACKUP_RETIRING"
+            _write_atomic(marker, payload)
+            phase = "OUTPUT_BACKUP_RETIRING"
+        if phase == "OUTPUT_BACKUP_RETIRING":
+            if backup.exists():
+                if _manifest_digest(
+                    _manifest(project_root, backup, logical_root=OUTPUT_ROOT)
+                ) != payload["original_output_manifest_sha256"]:
+                    raise MarketBreadthRebuildError("retiring output backup digest differs")
+                shutil.rmtree(backup)
+            payload["phase"] = "STATE_BACKUP_RETIRING"
+            _write_atomic(marker, payload)
+            phase = "STATE_BACKUP_RETIRING"
+        if phase == "STATE_BACKUP_RETIRING":
+            if backup.exists():
+                raise MarketBreadthRebuildError("output backup retirement is incomplete")
+            if state_backup.exists():
+                if _file_digest(state_backup) != payload["original_state_sha256"]:
+                    raise MarketBreadthRebuildError("retiring state backup digest differs")
+                state_backup.unlink()
+            payload["phase"] = "CLEANUP_PENDING"
+            _write_atomic(marker, payload)
+            phase = "CLEANUP_PENDING"
+        if backup.exists() or state_backup.exists():
+            raise MarketBreadthRebuildError("backup retirement is incomplete")
         shutil.rmtree(stage, ignore_errors=True)
         marker.unlink()
         return "FINALIZED"
@@ -467,7 +506,11 @@ def _recover(project_root: Path) -> str:
 
 
 def _rebuild_market_breadth_locked(
-    *, project_root: Path, mode: str, confirmation: str | None = None
+    *,
+    project_root: Path,
+    mode: str,
+    transaction_id: str,
+    confirmation: str | None = None,
 ) -> dict[str, object]:
     if mode not in {"dry-run", "apply"}:
         raise MarketBreadthRebuildError(f"unsupported mode: {mode}")
@@ -479,7 +522,6 @@ def _rebuild_market_breadth_locked(
     original_output_digest = _manifest_digest(original_output_manifest)
     state_path = project_root / STATE_PATH
     original_state_digest = _file_digest(state_path)
-    transaction_id = uuid4().hex
     stage = project_root / "data" / f".{DATASET}.rebuild.stage.{transaction_id}"
     stage_root = stage / DATASET
     try:
@@ -584,7 +626,15 @@ def rebuild_market_breadth(
     *, project_root: Path, mode: str, confirmation: str | None = None
 ) -> dict[str, object]:
     project_root = project_root.resolve()
+    _validate_fixed_paths(project_root)
+    transaction_id = uuid4().hex
+    stage, backup, state_backup = _transaction_paths(project_root, transaction_id)
+    for path in (stage, stage / DATASET, backup, state_backup):
+        _require_path_under_project(path, project_root)
     with _single_writer_lock(project_root):
         return _rebuild_market_breadth_locked(
-            project_root=project_root, mode=mode, confirmation=confirmation
+            project_root=project_root,
+            mode=mode,
+            transaction_id=transaction_id,
+            confirmation=confirmation,
         )

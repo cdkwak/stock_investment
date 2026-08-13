@@ -82,6 +82,32 @@ def _fixtures(
     return output
 
 
+def _verified_transaction(root: Path, txid: str = "d" * 32):
+    output = root / "data/derived/kr_market_breadth_daily/market=KOSPI/year=2026/data.parquet"
+    state = root / "data/state/kr_market_breadth_daily_rebuild.json"
+    stage, backup, state_backup = breadth_rebuild._transaction_paths(root, txid)
+    stage.mkdir()
+    import shutil
+    output_root = output.parent.parent.parent
+    shutil.copytree(output_root, backup)
+    state_backup.write_bytes(state.read_bytes())
+    output_manifest = breadth_rebuild._manifest(root, output_root)
+    payload = {
+        "version": 1, "dataset": DATASET, "transaction_id": txid,
+        "phase": "VERIFIED", "state_existed": True,
+        "stage_relative": stage.relative_to(root).as_posix(),
+        "backup_relative": backup.relative_to(root).as_posix(),
+        "state_backup_relative": state_backup.relative_to(root).as_posix(),
+        "original_output_manifest_sha256": breadth_rebuild._manifest_digest(output_manifest),
+        "original_state_sha256": breadth_rebuild._file_digest(state_backup),
+        "expected_output_manifest_sha256": breadth_rebuild._manifest_digest(output_manifest),
+        "expected_state_sha256": breadth_rebuild._file_digest(state),
+    }
+    marker = root / breadth_rebuild.MARKER_PATH
+    marker.write_text(json.dumps(payload), encoding="utf-8")
+    return output_root, state, stage, backup, state_backup, marker, payload
+
+
 def test_dry_run_preserves_existing_values_and_records_retained_lineage(tmp_path: Path) -> None:
     output = _fixtures(tmp_path)
     original = output.read_bytes()
@@ -371,33 +397,96 @@ def test_verified_corruption_retains_backups(tmp_path: Path) -> None:
 
 
 def test_valid_verified_recovery_checks_hashes_then_retires_backups(tmp_path: Path) -> None:
-    output = _fixtures(tmp_path, existing_state=True)
-    state = tmp_path / "data/state/kr_market_breadth_daily_rebuild.json"
-    txid = "d" * 32
-    stage, backup, state_backup = breadth_rebuild._transaction_paths(tmp_path, txid)
-    stage.mkdir()
-    import shutil
-    root = output.parent.parent.parent
-    shutil.copytree(root, backup)
-    state_backup.write_bytes(state.read_bytes())
-    output_manifest = breadth_rebuild._manifest(tmp_path, root)
-    payload = {
-        "version": 1, "dataset": DATASET, "transaction_id": txid,
-        "phase": "VERIFIED", "state_existed": True,
-        "stage_relative": stage.relative_to(tmp_path).as_posix(),
-        "backup_relative": backup.relative_to(tmp_path).as_posix(),
-        "state_backup_relative": state_backup.relative_to(tmp_path).as_posix(),
-        "original_output_manifest_sha256": breadth_rebuild._manifest_digest(output_manifest),
-        "original_state_sha256": breadth_rebuild._file_digest(state_backup),
-        "expected_output_manifest_sha256": breadth_rebuild._manifest_digest(output_manifest),
-        "expected_state_sha256": breadth_rebuild._file_digest(state),
-    }
-    marker = tmp_path / breadth_rebuild.MARKER_PATH
-    marker.write_text(json.dumps(payload), encoding="utf-8")
+    _fixtures(tmp_path, existing_state=True)
+    root, state, stage, backup, state_backup, marker, _ = _verified_transaction(tmp_path)
     assert breadth_rebuild._recover(tmp_path) == "FINALIZED"
     assert root.is_dir() and state.is_file()
     assert not backup.exists() and not state_backup.exists() and not stage.exists()
     assert not marker.exists()
+
+
+@pytest.mark.parametrize(
+    ("failed_phase", "deleted_path"),
+    [
+        ("STATE_BACKUP_RETIRING", "output_backup"),
+        ("CLEANUP_PENDING", "state_backup"),
+    ],
+)
+def test_verified_cleanup_resumes_after_each_backup_deletion(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failed_phase: str,
+    deleted_path: str,
+) -> None:
+    _fixtures(tmp_path, existing_state=True)
+    root, state, stage, backup, state_backup, marker, _ = _verified_transaction(tmp_path)
+    original_write = breadth_rebuild._write_atomic
+
+    def crash_before_next_journal(path: Path, value: object):
+        if isinstance(value, dict) and value.get("phase") == failed_phase:
+            raise OSError(f"crash after {deleted_path} deletion")
+        return original_write(path, value)
+
+    monkeypatch.setattr(breadth_rebuild, "_write_atomic", crash_before_next_journal)
+    with pytest.raises(OSError, match="crash after"):
+        breadth_rebuild._recover(tmp_path)
+    if deleted_path == "output_backup":
+        assert not backup.exists() and state_backup.exists()
+        assert json.loads(marker.read_text(encoding="utf-8"))["phase"] == "OUTPUT_BACKUP_RETIRING"
+    else:
+        assert not backup.exists() and not state_backup.exists()
+        assert json.loads(marker.read_text(encoding="utf-8"))["phase"] == "STATE_BACKUP_RETIRING"
+    monkeypatch.setattr(breadth_rebuild, "_write_atomic", original_write)
+    assert breadth_rebuild._recover(tmp_path) == "FINALIZED"
+    assert root.exists() and state.exists()
+    assert not stage.exists() and not marker.exists()
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        breadth_rebuild.PRICE_ROOT,
+        breadth_rebuild.UNIVERSE_ROOT,
+        breadth_rebuild.OUTPUT_ROOT,
+        breadth_rebuild.STATE_PATH,
+        breadth_rebuild.MARKER_PATH,
+        breadth_rebuild.LOCK_PATH,
+    ],
+)
+def test_fresh_run_rejects_resolved_fixed_path_escape_before_lock_or_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relative: Path
+) -> None:
+    _fixtures(tmp_path)
+    target = tmp_path / relative
+    original_resolve = Path.resolve
+
+    def escaped(path: Path, *args, **kwargs):
+        if path == target:
+            return Path("C:/outside") / relative.name
+        return original_resolve(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", escaped)
+    with pytest.raises(MarketBreadthRebuildError, match="escapes project root"):
+        rebuild_market_breadth(project_root=tmp_path, mode="dry-run")
+    assert not (tmp_path / breadth_rebuild.LOCK_PATH).exists()
+
+
+def test_fresh_run_rejects_resolved_transaction_path_escape(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _fixtures(tmp_path)
+    original_resolve = Path.resolve
+
+    def escaped(path: Path, *args, **kwargs):
+        if path.name.startswith(f".{DATASET}.rebuild.stage."):
+            return Path("C:/outside") / path.name
+        return original_resolve(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", escaped)
+    with pytest.raises(MarketBreadthRebuildError, match="escapes project root"):
+        rebuild_market_breadth(project_root=tmp_path, mode="dry-run")
+    assert not (tmp_path / breadth_rebuild.LOCK_PATH).exists()
+    assert not list((tmp_path / "data").glob(f".{DATASET}.rebuild.stage.*"))
 
 
 @pytest.mark.parametrize("corruption", ["json", "phase", "digest", "extra_key"])
