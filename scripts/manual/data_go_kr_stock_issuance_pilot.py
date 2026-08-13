@@ -224,6 +224,9 @@ def _validate_items(
     issue_dates: list[str] = []
     future_issue_dates: list[str] = []
     snapshot_dates: list[str] = []
+    negative_issued_share_rows = 0
+    invalid_issue_date_tokens: list[str] = []
+    missing_issue_date_rows = 0
     for item in items:
         if set(item) != SOURCE_FIELDS:
             raise PilotError("source field set differs from the official guide")
@@ -245,14 +248,20 @@ def _validate_items(
         if issue_date is not None:
             try:
                 parsed = datetime.strptime(issue_date, "%Y%m%d")
-            except ValueError as error:
-                raise PilotError("stock issue date is invalid") from error
-            issue_dates.append(issue_date)
-            if parsed > snapshot_parsed:
-                future_issue_dates.append(issue_date)
+            except ValueError:
+                invalid_issue_date_tokens.append(issue_date)
+            else:
+                issue_dates.append(issue_date)
+                if parsed > snapshot_parsed:
+                    future_issue_dates.append(issue_date)
+        else:
+            missing_issue_date_rows += 1
         count = _optional_text(item, "issuStckCnt")
-        if count is not None and (re.fullmatch(r"\d+", count) is None or int(count) < 0):
-            raise PilotError("issued-share count is invalid")
+        if count is not None:
+            if re.fullmatch(r"-?\d+", count) is None:
+                raise PilotError("issued-share count is not a signed integer")
+            if int(count) < 0:
+                negative_issued_share_rows += 1
         reason = _optional_text(item, "stckIssuRcdNm")
         if reason is not None:
             reasons.add(reason)
@@ -271,9 +280,29 @@ def _validate_items(
         "source_snapshot_date_distinct": len(set(snapshot_dates)),
         "issuance_reason_names": sorted(reasons),
         "unit_semantics": {"issuStckCnt": "shares"},
+        "negative_issued_share_rows": negative_issued_share_rows,
+        "signed_value_policy": "preserve exact signed source value",
+        "invalid_issue_date_rows": len(invalid_issue_date_tokens),
+        "invalid_issue_date_tokens": sorted(set(invalid_issue_date_tokens)),
+        "missing_issue_date_rows": missing_issue_date_rows,
+        "issue_date_policy": "preserve source token; parsed date is nullable with explicit status",
         "frequency_semantics": "daily source snapshot keyed by basDt; effective dates may be future",
         "predictive_use": "BLOCKED_NO_ANNOUNCEMENT_OR_PUBLICATION_TIME",
     }
+
+
+def _legacy_assessment(value: dict[str, object]) -> dict[str, object]:
+    """Return the exact shape used by immutable audits written before date summaries."""
+    result = dict(value)
+    for key in (
+        "source_snapshot_date_min", "source_snapshot_date_max",
+        "source_snapshot_date_distinct",
+        "negative_issued_share_rows", "signed_value_policy",
+        "invalid_issue_date_rows", "invalid_issue_date_tokens",
+        "missing_issue_date_rows", "issue_date_policy",
+    ):
+        result.pop(key, None)
+    return result
 
 
 def run_pilot(project_root: Path, *, delegate=None) -> dict[str, object]:
@@ -480,11 +509,14 @@ def verify_current_scope_run(project_root: Path, run_root: Path) -> dict[str, ob
         tuple(dict(item) for item in raw_items), expected_count=1,
         expected_snapshot_date=None,
     )
+    recorded_sample = manifest.get("assessment", {}).get("sample_assessment")
+    if recorded_sample not in (rebuilt, _legacy_assessment(rebuilt)):
+        raise PilotError("current-scope sample assessment differs from rebuild")
     expected_assessment = {
         "declared_total": total, "sampled_rows": 1,
         "source_snapshot_date": str(raw_items[0]["basDt"]),
         "pages_at_9999": (total + 9998) // 9999,
-        "sample_assessment": rebuilt,
+        "sample_assessment": recorded_sample,
         "landing_file": "response.json", "landing_sha256": before["response.json"],
         "backfill_authorized": False,
     }
@@ -623,7 +655,9 @@ def verify_pilot_run(project_root: Path, run_root: Path) -> dict[str, object]:
             audit_status = "OFFLINE_RECLASSIFICATION_READY"
         else:
             audit = json.loads(files["offline_audit.json"].read_text(encoding="utf-8"))
-            if audit != expected_audit:
+            legacy_expected_audit = dict(expected_audit)
+            legacy_expected_audit["rebuilt_assessment"] = _legacy_assessment(rebuilt)
+            if audit not in (expected_audit, legacy_expected_audit):
                 raise PilotError("offline reclassification audit differs")
             audit_status = "OFFLINE_AUDIT_PASS_FUTURE_EFFECTIVE_EVENT"
     service_key = service_key_from_environment(project_root)

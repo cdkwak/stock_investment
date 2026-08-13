@@ -83,7 +83,7 @@ def test_passes_one_call_and_retains_exact_evidence(tmp_path, monkeypatch):
     assert verify_pilot_run(root, run)["status"] == "OFFLINE_AUDIT_PASS"
 
 
-@pytest.mark.parametrize("mutation", ["missing", "extra", "wrong_date", "negative_count"])
+@pytest.mark.parametrize("mutation", ["missing", "extra", "wrong_date", "nonnumeric_count"])
 def test_schema_or_domain_anomaly_stops_after_landing(tmp_path, monkeypatch, mutation):
     root = project(tmp_path, monkeypatch)
     rows = [item(1), item(2)]
@@ -94,7 +94,7 @@ def test_schema_or_domain_anomaly_stops_after_landing(tmp_path, monkeypatch, mut
     elif mutation == "wrong_date":
         rows[0]["basDt"] = "20231225"
     else:
-        rows[0]["issuStckCnt"] = "-1"
+        rows[0]["issuStckCnt"] = "not-a-number"
     result = run_pilot(root, delegate=Backend(Response(payload(rows))))
     assert result["status"] == "PILOT_STOPPED"
     run = Path(result["run_root"])
@@ -151,6 +151,27 @@ def test_future_effective_event_is_preserved(tmp_path, monkeypatch):
     assert result["status"] == "PILOT_PASSED_KNOWN_POSITIVE_SCHEMA"
     manifest = json.loads((Path(result["run_root"]) / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["assessment"]["future_effective_rows"] == 1
+
+
+def test_negative_issued_share_value_is_preserved(tmp_path, monkeypatch):
+    root = project(tmp_path, monkeypatch)
+    rows = [item(1), item(2)]
+    rows[0]["issuStckCnt"] = "-1000"
+    result = run_pilot(root, delegate=Backend(Response(payload(rows))))
+    manifest = json.loads((Path(result["run_root"]) / "manifest.json").read_text(encoding="utf-8"))
+    assert result["status"] == "PILOT_PASSED_KNOWN_POSITIVE_SCHEMA"
+    assert manifest["assessment"]["negative_issued_share_rows"] == 1
+
+
+def test_invalid_issue_date_token_is_preserved_as_source_semantics(tmp_path, monkeypatch):
+    root = project(tmp_path, monkeypatch)
+    rows = [item(1), item(2)]
+    rows[0]["stckIssuDt"] = "00000101"
+    result = run_pilot(root, delegate=Backend(Response(payload(rows))))
+    manifest = json.loads((Path(result["run_root"]) / "manifest.json").read_text(encoding="utf-8"))
+    assert result["status"] == "PILOT_PASSED_KNOWN_POSITIVE_SCHEMA"
+    assert manifest["assessment"]["invalid_issue_date_rows"] == 1
+    assert manifest["assessment"]["invalid_issue_date_tokens"] == ["00000101"]
 
 
 def test_stopped_run_gets_append_only_offline_reclassification(tmp_path, monkeypatch):

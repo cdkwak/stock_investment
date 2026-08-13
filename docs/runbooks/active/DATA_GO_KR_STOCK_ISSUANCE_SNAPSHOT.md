@@ -15,7 +15,10 @@ This bounded collector is frozen to the independently audited current-scope evid
 The registered source-observation contract uses `(capture_id, source_item_ordinal)` and
 keeps snapshot date, capture time, page/body hashes, source record hash, event-effective
 date, reason, and share count. Historical publication timing is unknown; predictive use
-is blocked.
+is blocked. `issuStckCnt` is a signed source value: page 1 contains negative values,
+which are retained exactly and counted in the audit rather than coerced or discarded.
+Likewise, source issue-date placeholders such as `00000101` and `19999999` are
+preserved in a source-token column; the parsed date stays null with an explicit status.
 
 Print and independently verify the frozen plan digest before execution:
 
