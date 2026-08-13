@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import time
 from typing import Callable, Mapping
 from uuid import uuid4
@@ -179,6 +180,7 @@ def collect_landing_serial(
     minimum_interval_seconds: float = 5.0,
     sleep_fn: Callable[[float], None] = time.sleep,
     monotonic_fn: Callable[[], float] = time.monotonic,
+    permission_evidence_sha256: str | None = None,
 ) -> dict[str, object]:
     """Execute an injected authenticated transport serially with retry zero.
 
@@ -186,6 +188,12 @@ def collect_landing_serial(
     parameter codes. The reviewed transport adapter must map RequestSpec to KRX.
     Every response is Landing-preserved before classification.
     """
+    if not permission_evidence_sha256 or not re.fullmatch(
+        r"[0-9a-f]{64}", permission_evidence_sha256
+    ):
+        raise KrxInvestorCollectionStopped(
+            "explicit KRX automated-collection permission evidence digest required"
+        )
     if not plan:
         raise ValueError("empty plan")
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -199,8 +207,15 @@ def collect_landing_serial(
         if checkpoint.get("plan_sha256") != plan_hash:
             raise KrxInvestorCollectionStopped("resume plan differs")
     else:
-        checkpoint = {"plan_sha256": plan_hash, "status": "CREATED", "completed": {}}
+        checkpoint = {
+            "plan_sha256": plan_hash,
+            "permission_evidence_sha256": permission_evidence_sha256,
+            "status": "CREATED",
+            "completed": {},
+        }
         _atomic_json(checkpoint_path, checkpoint)
+    if checkpoint.get("permission_evidence_sha256") != permission_evidence_sha256:
+        raise KrxInvestorCollectionStopped("permission evidence differs on resume")
     completed = checkpoint.get("completed")
     if not isinstance(completed, dict):
         raise KrxInvestorCollectionStopped("invalid checkpoint")

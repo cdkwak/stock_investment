@@ -1,4 +1,4 @@
-# KRX derivatives investor collection
+# KRX derivatives investor collection (deferred)
 
 Applies only to `kr_kospi200_futures_investor_trading_daily` and
 `kr_kospi200_options_investor_trading_daily` from authenticated free KRX Basic
@@ -6,6 +6,9 @@ Statistics screen `[15007]`.
 
 ## Gates
 
+- **Do not run:** KRX terms Article 10(2) and Article 12(2) leave automated
+  collection/copying unauthorized. Resume only with retained explicit KRX permission
+  evidence; record its SHA-256 digest in the checkpoint.
 - Do not request dates before 1999-04-26 or synthesize the earlier target gap.
 - Confirm that internal automated retention is permitted before a live pilot.
 - Freeze the inspected request parameter mapping and response fields in retained
@@ -31,8 +34,10 @@ ALL-session/ALL-right extraction and must be reviewed before production.
 
 1. Generate `bounded_pilot_plan(product)`: exactly one 1999-04-26..1999-05-02
    request, ALL session, ALL/NA right, sell volume.
-2. Inject the separately reviewed authenticated transport into
-   `collect_landing_serial`; never put credentials or cookies in request specs.
+2. Only after explicit permission, inject the separately reviewed authenticated
+   transport into `collect_landing_serial` and supply the retained permission
+   evidence SHA-256. Without it the function fails before creating artifacts or
+   calling transport. Never put credentials or cookies in request specs.
 3. The response bytes are atomically retained before validation. The append-only
    request ledger records scope, retry 0, status, hash, classification, and row count.
 4. The checkpoint is updated after each verified response. Resume skips only

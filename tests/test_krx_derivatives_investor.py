@@ -17,6 +17,9 @@ from stock_data.pipelines.krx_derivatives_investor import (
 from stock_data.validation.krx_derivatives_investor import validate_derivatives_investor
 
 
+PERMISSION_DIGEST = "a" * 64
+
+
 def test_planner_preserves_scope_and_never_exceeds_two_years() -> None:
     chunks = coverage_chunks(date(2009, 12, 31))
     assert len(chunks) == 6
@@ -44,12 +47,14 @@ def test_serial_collection_lands_ledgers_and_resumes(tmp_path: Path) -> None:
     result = collect_landing_serial(
         plan, run_dir=tmp_path, request_fn=request,
         minimum_interval_seconds=0, sleep_fn=lambda _: None,
+        permission_evidence_sha256=PERMISSION_DIGEST,
     )
     assert result["completed_requests"] == 1
     assert len(calls) == 1
     collect_landing_serial(
         plan, run_dir=tmp_path, request_fn=request,
         minimum_interval_seconds=0, sleep_fn=lambda _: None,
+        permission_evidence_sha256=PERMISSION_DIGEST,
     )
     assert len(calls) == 1
     records = [
@@ -71,10 +76,28 @@ def test_restriction_stops_retry_zero_after_landing(tmp_path: Path) -> None:
         collect_landing_serial(
             bounded_pilot_plan("KOSPI200_OPTIONS"), run_dir=tmp_path,
             request_fn=request, minimum_interval_seconds=0,
+            permission_evidence_sha256=PERMISSION_DIGEST,
         )
     assert calls == 1
     assert json.loads((tmp_path / "checkpoint.json").read_text())["status"] == "STOPPED"
     assert len(list(tmp_path.glob("response_*.json"))) == 1
+
+
+def test_permission_gate_fails_before_transport_or_artifact(tmp_path: Path) -> None:
+    calls = 0
+
+    def request(_):
+        nonlocal calls
+        calls += 1
+        raise AssertionError("must not reach transport")
+
+    with pytest.raises(KrxInvestorCollectionStopped, match="permission evidence"):
+        collect_landing_serial(
+            bounded_pilot_plan("KOSPI200_FUTURES"), run_dir=tmp_path,
+            request_fn=request, minimum_interval_seconds=0,
+        )
+    assert calls == 0
+    assert not list(tmp_path.iterdir())
 
 
 def test_contract_validator_preserves_source_taxonomy_and_units() -> None:
