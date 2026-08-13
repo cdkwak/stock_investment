@@ -1,11 +1,37 @@
 # KRX derivatives investor-statistics audit
 
-Status: **FREE_OFFICIAL_SOURCE_CONFIRMED / P1_TARGET / NO_BULK_COLLECTION**
+Status: **PARTIAL_MANUAL_SOURCE_RETAINED / TARGETS_NOT_BUILT**
 
-On 2026-08-14 KST, the authenticated free KRX Data Marketplace Basic Statistics
+## Manual file integration, 2026-08-14
+
+The user supplied 28 official KRX CSV downloads in `docs/krx_data`. They were
+processed offline with zero KRX requests and copied byte-for-byte into the immutable
+manual Landing snapshot whose inventory SHA-256 is
+`53812ba1b32ea4185b33bb1083651319ac5dabe188b4362b15f2bbefd2ca2687`.
+The manifest SHA-256 is
+`d0105f3f5933e7e5eba07bba4f440a55988e2024d29fb8ad8dc387473af42cde`;
+the independent audit is `2f5f2b726d4fa38e74030f3b8b519570f08a65c157c5027c82b91198249b49ac`.
+
+All files are nonempty CP949 CSVs with the exact header `일자, 기관 합계,
+기타법인, 개인, 외국인 합계, 전체`. They contain 6,753 physical rows and 6,734
+unique dates from 1999-04-26 through 2026-08-13. Nineteen file-boundary dates overlap
+with byte-equivalent logical values; there are no conflicts or duplicate file hashes.
+The series misses zero retained canonical Korean trading dates through 2026-08-12
+and adds the source date 2026-08-13. Category residuals after exact overlap removal
+are -1 on 967 dates, zero on 4,459, and +1 on 1,308; source values are not corrected.
+
+This is one futures net-buy series only. The CSV bytes do not identify whether the
+measure is volume or trading value, its unit, or its session. They contain no sell,
+buy, option, CALL/PUT, REGULAR/NIGHT, or detailed institutional-category series.
+Therefore neither strict v1 target contract can be populated honestly, no Parquet
+or empty options artifact was written, and no inferred values were introduced.
+The originals remain in the manual inbox until the missing exports and their exact
+download settings are supplied and the complete target artifacts pass validation.
+
+Earlier on 2026-08-14 KST, the authenticated free KRX Data Marketplace Basic Statistics
 screen `[15007] 투자자별 거래실적` was queried manually with bounded dates. No
-CSV/Excel file was downloaded and no collector, Landing artifact, or dataset was
-created.
+CSV/Excel file was downloaded during that bounded discovery. The later user-provided
+manual downloads are the separate retained evidence described above.
 
 ## Coverage finding
 

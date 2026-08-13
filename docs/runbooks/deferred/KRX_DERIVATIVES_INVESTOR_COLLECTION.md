@@ -17,6 +17,17 @@ Statistics screen `[15007]`.
 - Stop immediately on HTTP 403/429, HTML/restriction bytes, authentication anomaly,
   non-JSON, or schema change.
 
+## Current manual-source state
+
+The 2026-08-14 manual inbox was retained under the content-addressed manual Landing
+root and audited without network access. Its 28 files cover one futures net series
+only. Measure, unit, and session are not encoded in the CSVs, and options/sell/buy/
+the other measure are absent. Do not normalize these files into the strict targets,
+fill absent measures with nulls, or infer units from value magnitude. A future manual
+bundle must include an explicit settings manifest for each file and all requested
+product/right/session/measure/side combinations. The automated path below remains
+separately permission-gated.
+
 ## Scope and cost
 
 The normalized grain is date × product × option-right × session × exact source

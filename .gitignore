@@ -9,6 +9,8 @@ __pycache__/
 .venv/
 .env
 data/
+# User-managed manual source inbox; verified copies live under immutable Landing.
+docs/krx_data/
 *.egg-info/
 build/
 dist/
