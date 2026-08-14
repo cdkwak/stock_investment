@@ -4,7 +4,7 @@
 
 | Field | Current value |
 |---|---|
-| Last updated | 2026-08-14 KST |
+| Last updated | 2026-08-15 KST |
 | Rev1 commit | `00298a7` (`Preserve stock issuance source semantics`); issuance artifact publication followed from the retained run |
 | Coordination commit | `ada48c1` (`Stabilize project control and repository context`) |
 | Data phase | Core collection substantially complete; maintenance, bounded refreshes, provenance, and high-value gap filling |
@@ -36,6 +36,11 @@ complete, with zero additional network calls during adoption and rebuilding.
 - Stock-issuance source history is complete as a non-predictive source-observation
   artifact: 152,676 rows with signed counts and invalid/out-of-range date tokens
   preserved explicitly. Canonical economic-event identity remains a separate gap.
+- LS OpenAPI t8428 and t1633 bounded follow-ups are complete without Normalized
+  writes or schedules. t8428 pagination is exact through five 500-row pages to
+  2016-06-13 but its source floor remains unproven; t1633 returned both KOSPI and
+  KOSDAQ program rows on every probe through 2021-01-04, while monetary and
+  quantity multipliers remain cross-source inferred rather than officially stated.
 - No further high-value collection is immediately runnable without new source evidence,
   provider authorization, publication lag, or a separately reviewed bounded scope.
   Data remains in maintenance/gap-filling mode; Backtest is the primary phase.
@@ -70,6 +75,8 @@ complete, with zero additional network calls during adoption and rebuilding.
 | Short-selling Balance | Normalized | Retained source maximum | 2016-06-30..2026-08-07; 6,035,958 rows | DATA_COMPLETE | SOURCE_MAX_COMPLETE | PREDICTIVE_USE_BLOCKED | Preserve source values; availability semantics remain limiting |
 | Short-selling Investor | Normalized | 2008-present | No accepted artifact; production range returned 1/501 dates | STOPPED | TARGET_GAP | NOT_READY | Access recovered on one sentinel, but range semantics remain incomplete; no backfill |
 | Market liquidity / credit balance | Normalized | Official source history-present | 2021-10-26..2026-08-05 / 2021-11-09..2026-08-05 | DATA_COMPLETE | SOURCE_MAX_COMPLETE | USABLE_WITH_LIMITS | Add safe incremental refresh semantics before another run |
+| LS surrounding funds t8428 candidate | Landing diagnostic | Official reachable history | Five pages: 2,500 physical / 2,496 unique dates, 2016-06-13..2026-08-12; continuation remains open | PILOT_COMPLETE | TARGET_GAP | NOT_READY | Reach the source floor in one separately bounded pilot, then define a provider-calendar source-observation contract |
+| LS market program trading t1633 candidate | Landing diagnostic | Official reachable history | KOSPI/KOSDAQ amount rows positive on all probes 2021-01-04..2026-08-13; 2026-08-14 amount and quantity semantics sampled | PILOT_COMPLETE | TARGET_GAP | NOT_READY | Confirm amount/quantity multipliers and historical floor before contract or collection promotion |
 | Stock lending detail / market / participant | Normalized | Official source history-present | 2021-04-01..2026-08-10; 3,236,815 / 1,254 / 11,472 rows | DATA_COMPLETE | SOURCE_MAX_COMPLETE | USABLE_WITH_LIMITS | Maintenance only; execution-call total remains unreconstructable |
 | Dividend source observations | Normalized | Versioned source snapshots | 71,652 rows at `basDt=2026-08-08`; 2026-08-13 was valid-empty | ARTIFACT_COMPLETE | TARGET_GAP | PREDICTIVE_USE_BLOCKED | Wait for a genuinely new non-empty snapshot |
 | Rights source observations | Normalized | Historical corporate-action observations | 13 rows for one 2019-12-31 issuer snapshot pair | PARTIAL | TARGET_GAP | PREDICTIVE_USE_BLOCKED | Resolve canonical event identity, economic terms, and broader history |
@@ -135,6 +142,7 @@ roll, back adjustment, or continuous-contract accounting.
 | Corporate actions / adjusted returns | Canonical revision/event identity and PIT timing remain incomplete | Reconcile filing versions and cross-source events before defining adjustment factors | [OpenDART known-positive audit](../data/audits/OPENDART_FREE_ISSUE_KNOWN_POSITIVE_AUDIT.md), dividend snapshot, partial Rights, and issuance observations |
 | Short-selling Investor | Access is restored for one scope, but historical range behavior remains unresolved | Do not backfill or synthesize missing dates; require official source evidence or a new reviewed semantic design | H1-H3 collapse, H4 boundary shape, parity HTTP 403, then post-cooldown HTTP 200 boundary shape |
 | BOK/FRED/Toss rates | Historical knowledge/revision availability is incomplete | Establish availability/vintage policy before predictive use | Valid artifacts and bounded retained source observations |
+| LS t8428 / t1633 promotion | t8428 cursor mechanics work but source floor is not reached; t1633 units and exact floor are not official-confirmed | One bounded floor pilot for t8428; unit/floor evidence and Dataset Contract review for t1633. No Normalized write or schedule before then | [LS source inventory](../providers/LS_OPENAPI_SOURCE_INVENTORY.md) and immutable diagnostic Landing |
 | Yahoo/FRED legacy provenance | Historical raw responses were not retained | Accept permanent limit; enforce capture on all future refreshes | Immutable local-artifact audits plus new refresh ledgers |
 | OpenDART | One combined paid/free success row confirms that operation's schema and economic terms, but original/corrected receipts differ | Define revision lineage and date-filter behavior before any canonical event or broad backfill | [Known-positive audit](../data/audits/OPENDART_FREE_ISSUE_KNOWN_POSITIVE_AUDIT.md) |
 | KB daily snapshots | The Rev1 sentinel diverged from the known-successful official request envelope; its in-memory 24-hour token was not cached and is no longer recoverable from the completed process | Use only the corrected nested token path for the next once-daily run; do not issue a token merely for diagnosis | Successful reference status at 2026-08-13 18:12 KST plus retained E021 flat-envelope evidence |

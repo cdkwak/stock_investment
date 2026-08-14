@@ -1,6 +1,7 @@
 # LS OpenAPI Source Inventory
 
-Status: `BOUNDED_AUDIT_COMPLETE / NO_NORMALIZED_WRITES`  
+Status: `T8428_T1633_FOLLOWUP_COMPLETE / NO_NORMALIZED_WRITES / NO_SCHEDULE`
+
 As of: 2026-08-15 KST
 
 This is the source-selection record for official LS OpenAPI data beyond the
@@ -33,6 +34,71 @@ or order API. Current project state remains in
   current instrument universes, PIT membership, and undocumented units remain
   explicit gates below.
 
+## t8428 and t1633 promotion follow-up
+
+The bounded follow-up run
+`data/landing/diagnostics/ls_t8428_t1633_followup/20260814T180318Z_89b4b2fc50cf4a18adb3ca03f3b48813`
+used OAuth once and made exactly 17 serial business calls with retry 0: five
+t8428 pages and twelve t1633 single-date scopes. All were HTTP 200 / source
+success; Raw, provenance, ledger, checkpoint, plan and secret scan reconcile.
+Raw size was 757,040 bytes and no Normalized or schedule write occurred.
+
+### t8428 pagination and semantics
+
+- Official continuation requires both the response header continuation signal/key
+  and the body cursor: next request `key_date` is the previous
+  `t8428OutBlock.date`; subsequent request headers use `tr_cont=Y` and the returned
+  `tr_cont_key`. All five pages had a one-character header key and `tr_cont=Y`.
+- Page ranges were 2024-07-19..2026-08-12, 2022-07-08..2024-07-19,
+  2020-07-02..2022-07-08, 2018-06-26..2020-07-02, and
+  2016-06-13..2018-06-26. Each page had 500 unique, strictly descending dates.
+- Adjacent pages repeat their cursor date. There were 2,500 physical rows,
+  2,496 unique dates, four identical boundary overlaps and zero conflicting
+  overlaps. Deduplication is safe only after equality validation.
+- Against the retained KOSPI trading-date set for the observed interval, t8428
+  omitted 2022-12-28 and 2024-08-29 and included 2018-12-31, 2019-12-31 and
+  2021-12-31. It is a provider business-statistics calendar, not an equity
+  trading-calendar series; no missing date may be synthesized.
+- The official request calls `fdate/tdate` an output period, but both an exact
+  2000-01-04 request and the bounded broad request began at the latest available
+  observation. Actual traversal is controlled by `cnt` plus continuation cursor.
+  The exact-date response therefore did not test the year 2000 at all.
+- The fifth page still advertised continuation. Earliest observed is 2016-06-13;
+  a rough density estimate is about 14 total 500-row pages to reach 2000, but the
+  source floor is unproven. Conservative verdict: `PAGINATION_UNRESOLVED`
+  (mechanics verified, earliest reachable date not yet reached), not
+  `FULL_BACKFILL`.
+- Official field identities and units are fixed: `custmoney` customer deposits,
+  `yecha` deposit change, `outmoney` receivables, `trjango` credit balance and
+  `futymoney` futures deposits, all KRW 100 million; turnover is percent. Fund
+  balance fields are also KRW 100 million.
+- On common source date 2026-08-12, LS values equal the KB IVSA0070 values times
+  10 within 4..8 KRW 100 million rounding units for all five compared fields.
+  KB captured that row on 2026-08-14; LS still reported 2026-08-12 as latest in
+  the 2026-08-15 KST pilot. This confirms the same lagged source family and a
+  coarser KB display scale; LS is the preferable historical source.
+
+### t1633 program semantics and history
+
+- Official input `gubun1=0` means amount and `gubun1=1` quantity. The response
+  labels are total, arbitrage and non-arbitrage buy/sell/net (`tot*`, `cha*`,
+  `bcha*`). The suffix mapping is explicitly: `1=buy`, `2=sell`, `3=net`.
+- Both KOSPI and KOSDAQ returned exact rows for 2026-08-13, 2026-07-31,
+  2026-01-02, 2025-01-02 and 2021-01-04. The prior 2000-01-04 probe remains
+  source-success valid-empty. Earliest positive evidence is therefore 2021-01-04;
+  the floor lies somewhere earlier and is not yet established.
+- Quantity and amount buy-sell-net identities reconcile exactly or within one
+  source unit. Arbitrage plus non-arbitrage net likewise differs from total by at
+  most one, consistent with provider rounding; raw values must never be rewritten.
+- For 2026-08-14 KOSPI amount, LS arbitrage net was -113,526 while buy minus sell
+  and KB `mprft_nt_b` were -113,525; LS non-arbitrage net and KB `nmp_nt_b` both
+  equal 160,437. This independently binds the category mapping and rounding.
+- The official t1633 definition names amount/quantity but omits multipliers. The
+  KB match supports KRW million for amount; the magnitude supports thousand
+  shares for quantity, but neither is promoted to an official confirmed unit.
+  Verdict: fields confirmed, `UNIT_INFERRED_CROSS_SOURCE`; no Normalized contract
+  or operational schedule yet.
+
 ## REST inventory
 
 `Observed earliest` means the earliest row in this bounded pilot, not source
@@ -42,10 +108,10 @@ inception. “Not observed” means no live call was justified.
 |---|---|---|---|---|---|---|
 | Program t1631 | `/stock/program`; market and same-day/period selectors | total, arbitrage, non-arbitrage sell/buy/net quantity and amount | Date-capable; not observed | Official labels exist; numeric unit not stated in the inspected catalogue | Overlaps KRX program backlog; one call per query | `CROSS_CHECK_ONLY` pending unit/history pilot |
 | Program t1632 | same endpoint; market/intraday selectors | time-series program totals | Intraday/current; not observed | Session/finalization not retained | No accepted project dataset | `HIGH_VALUE_DAILY_SOURCE` candidate |
-| Program t1633 | same endpoint; KOSPI/KOSDAQ, amount/quantity, value/cumulative, daily/weekly/monthly, `fdate/tdate`, continuation date | date/index; total, arbitrage and non-arbitrage sell/buy/net; volume | 2026-08-14 KOSPI and KOSDAQ: 1 row each. Exact 2000-01-04: valid empty. Earliest observed 2026-08-14; continuation advertised | Program categories verified; monetary/quantity multiplier not yet verified | Potentially replaces KRX program gap. Backfill cost unknown until boundary and page size are measured | `SEMANTICS_UNRESOLVED`, high-priority follow-up |
+| Program t1633 | same endpoint; KOSPI/KOSDAQ, amount/quantity, value/cumulative, daily/weekly/monthly, `fdate/tdate`, continuation date | date/index; total, arbitrage and non-arbitrage buy/sell/net; volume | Both markets positive on all five probes through 2021-01-04; 2000-01-04 valid empty | Field mapping confirmed; amount/quantity units remain cross-source inferred, not officially stated | Potentially replaces KRX program gap; exact floor and pagination cost remain unverified | `HIGH_VALUE_BACKFILL_SOURCE` candidate, promotion gated on unit/floor contract |
 | Program t1636 / t1637 | same endpoint; current stock list / per-stock history | per-stock program flow | Per-symbol; historical mode exists | Current-universe fan-out creates survivorship risk | Inferior to a market-wide official source | `NOT_USEFUL` for broad backtest history |
 | Program t1640 / t1662 | same endpoint; mini summary / intraday chart | current or intraday program aggregates | Snapshot/intraday only | Finalization unresolved | Useful only for live validation | `CROSS_CHECK_ONLY` |
-| Surrounding funds t8428 | `/stock/investinfo`; `fdate/tdate`, series selector, market, count and `key_date` continuation | date/index/turnover; customer deposits, change, receivables, credit balance, futures deposits, stock/mixed/bond/MMF funds | 500 rows 2024-07-19..2026-08-12, continuation `Y`. A nominal 2000-01-04 request returned the latest 10 rows, proving the date fields do not directly bound delivery in that form. Earliest observed 2024-07-19 | Official units: monetary balance/change fields are KRW 100 million; turnover is percent | Complements lagged KB liquidity snapshot. About 14 pages for 2000-present if continuation remains 500 rows | `HIGH_VALUE_BACKFILL_SOURCE` after continuation/boundary pilot |
+| Surrounding funds t8428 | `/stock/investinfo`; `fdate/tdate`, series selector, market, count and `key_date` continuation | date/index/turnover; customer deposits, change, receivables, credit balance, futures deposits, stock/mixed/bond/MMF funds | Five verified 500-row pages reach 2016-06-13; four identical cursor overlaps; continuation remains `Y` | Official monetary units are KRW 100 million; turnover percent. Calendar differs slightly from equity sessions | Complements lagged KB liquidity snapshot. About 14 pages estimated for 2000-present, floor unproven | `PAGINATION_UNRESOLVED`; strong backfill candidate after one floor-reaching pilot |
 | Investor t1601 / t1615 | `/stock/investor`; market/product selector, no as-of date | current individual/foreign/institution and detailed institution flow | Current snapshot only | Quantity/amount choice varies by TR; finalization unresolved | Project already has superior official/Toss market history | `DUPLICATE_OF_BETTER_SOURCE` |
 | Investor t1602 / t1603 / t1621 | same endpoint; time/count/current-prior-day selectors | intraday investor flow | Recent/intraday only | Session and provisional/final semantics unresolved | Possible live cross-check only | `CROSS_CHECK_ONLY` |
 | Investor t1617 / t1664 | same endpoint; market/product, time/daily and count/continuation | KOSPI/KOSDAQ and futures/call/put/mini investor/program/basis fields | Count-based recent history; no explicit historical date range in inspected schema | Product coverage is broad but date/session semantics need a pilot | Duplicates completed equity investor history and t8462 derivatives flow | `CROSS_CHECK_ONLY` |
@@ -64,6 +130,35 @@ inception. “Not observed” means no live call was justified.
 | Fundamentals t3320 | `/stock/investinfo`; symbol | company/fiscal-period metadata; PER, EPS, PBR, ROA, ROE, EBITDA, EV/EBITDA, SPS, CPS, BPS, dividend/current market cap fields | Samsung returned one current snapshot referencing fiscal periods 2025-12 and 2026-03; no as-of input | Current/provider financial summary | Useful descriptive snapshot only; not PIT-safe for backtests | `SNAPSHOT_ONLY` |
 | Financial ranking t3341 | same endpoint; current ranking filters | valuation/financial ranking fields | No historical as-of input | Current ranking | Would cause look-ahead if treated as historical fundamentals | `SNAPSHOT_ONLY` |
 
+## ETF daily schema and call-cost design
+
+No ETF call was added in this follow-up and no collector was scheduled.
+
+- **Universe/master:** t1901 and t1904 are code-keyed and do not return an ETF
+  universe. A survivorship-safe daily universe must come from the existing KRX
+  full-market/date source; the current LS symbol set must not be used to recreate
+  history.
+- **Summary snapshot candidate:** capture partition, `captured_at`, requested ETF
+  code, source/PDF date, price/OHLC/volume/value, NAV and NAV change, tracking
+  error, disparity, foreign holding/exhaustion and reference-index/futures fields
+  from t1901. Grain would be capture × ETF code.
+- **AUM/constituent candidate:** t1904 header preserves PDF application date,
+  NAV, net asset total (`etftotcap`, KRW 100 million), constituent count, CU
+  shares, cash, manager and valuation totals. Component rows preserve source
+  ordinal/code, quantity or cash amount, valuation, market capitalization,
+  weight and `profitdate`. Grain would be capture × ETF code × source component
+  ordinal; no component identity inference is allowed.
+- **Cost:** t1901 plus t1904 requires two calls per ETF. At the official 1
+  request/second limit, a retained universe near 1,160 ETFs implies about 2,320
+  calls and at least 39 minutes per daily full-market snapshot, before validation.
+  That is inferior to the current KRX full-market route. LS adoption should be
+  limited to a small benchmark set for daily cross-checks unless a bulk official
+  endpoint is documented.
+
+t3320 and t3341 remain explicitly `SNAPSHOT_ONLY`. They are excluded from every
+backtest historical-fundamental candidate list because neither accepts an as-of
+date and both can introduce look-ahead bias.
+
 ## Realtime schema inventory
 
 No WebSocket was opened. The current official catalogue exposed `BMT`
@@ -79,12 +174,13 @@ OpenAPI definition.
 
 1. **t8428 surrounding funds** — highest incremental value. It can replace the
    lagged KB liquidity slice with official daily balances and has explicit
-   documented KRW 100 million units. Next step is a two-page continuation pilot
-   to bind `key_date`, page overlap, true earliest coverage, and call count.
+   documented KRW 100 million units. Pagination is now verified through five
+   pages; the remaining gate is one separately bounded floor-reaching pilot and
+   a calendar-aware source-observation contract.
 2. **t1633 market program trading** — directly addresses a documented gap with
-   KOSPI/KOSDAQ and arbitrage/non-arbitrage splits. Next step is a bounded
-   boundary/unit pilot; the 2000 date was valid empty and does not prove source
-   exhaustion.
+   KOSPI/KOSDAQ and arbitrage/non-arbitrage splits. History is positive through
+   2021 and the KB category cross-check passes; exact unit multipliers and source
+   floor remain contract gates.
 3. **t1904 + t1901 ETF daily snapshot** — strong forward PIT value for AUM,
    constituents, weights, NAV and disparity. Keep t1903 only as a per-symbol
    cross-check because it cannot provide survivorship-safe historical membership.
