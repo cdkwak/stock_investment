@@ -28,6 +28,7 @@ Official metadata:
 | Futures/options prices | None | None | Not applicable | `UNAVAILABLE` |
 | Derivatives investor flow | None | None | Not applicable | `UNAVAILABLE` |
 | Valuation/fundamentals | None | None | Not applicable | `UNAVAILABLE` |
+| Historical equity universe | `listStocks` (`GET /api/v1/stocks/all`) | No as-of date or range. This is one current, unpaginated market snapshot; `status=DELISTED` is accepted, but rows contain only symbol, name, security type, common-share flag, and ISIN | Useful future discovery evidence, but it supplies neither listing/delisting dates nor a claim of complete historical membership. The related detail call exposes current `listDate`/`delistDate`, not point-in-time vintages | `SNAPSHOT_ONLY_NOT_PIT_UNIVERSE` |
 | Market program trading | `getStockProgramTrades` | True `until` cursor, maximum 100 rows, but only per symbol | Retained delisted-symbol sentinel `003410` returned HTTP 404 `stock-not-found` | `NOT_SURVIVORSHIP_SAFE` |
 | Foreign ownership | `getStockInvestorTrading.foreignerHolding` | True `until` cursor, but only per symbol | No historical market/universe endpoint; the stock endpoint uses the same current-symbol resolver boundary already demonstrated by the other stock-trend operations | `SURVIVORSHIP_BLOCKED` |
 | Stock investor flow | `getStockInvestorTrading` | True `until` cursor, but only per symbol | Same boundary; registered foreigner flow is KRX+NXT and is not a replacement for market-level KRX derivatives statistics | `SURVIVORSHIP_BLOCKED` |
@@ -55,6 +56,21 @@ Official metadata:
   2019-01-02..2026-08-10, six instruments, 60 market calls, Landing capture,
   checkpoint, and Normalized output.
 - The four blocked per-symbol contracts have no Normalized artifact, as required.
+
+An exhaustive schema-level review found 33 paths in canonical OpenAPI `1.2.14`.
+Outside account/order history, the complete set of backward navigation modes is:
+
+- `before`: per-symbol stock candles and KOSPI/KOSDAQ/government-bond candles;
+- `until`: the five per-symbol stock-trend operations and KOSPI/KOSDAQ market
+  investor trading;
+- point lookup: exchange rate `dateTime` and KR/US market-calendar `date`;
+- lookback window without an as-of parameter: rankings (`1d` through `1y`), which
+  only returns a current top-100 result and is not a historical universe.
+
+The generated official Markdown reference and overview contain the same operation
+set as the canonical JSON. No extra documented route or pagination mode was found.
+Legacy `Stock Investment` contains no Toss client, endpoint metadata, or retained
+Toss behavior to import; this audit did not modify or depend on legacy runtime code.
 
 ## Request-volume consequence
 
@@ -86,6 +102,9 @@ not be substituted for `source_date` or for a field-specific availability rule.
 
 Keep the existing market investor and Treasury artifacts unchanged. Do not start
 per-symbol Toss backfills, do not synthesize market aggregates from current
-survivors, and do not use the ranking endpoint as a historical universe. Revisit
-only if Toss publishes a historical market-level endpoint or demonstrates access
-to delisted symbols with an authoritative point-in-time universe contract.
+survivors, and do not use the ranking endpoint or `stocks/all` snapshot as a
+historical universe. `status=DELISTED` materially improves forward discovery, but
+does not cure the retained `stock-not-found` history failure or prove complete PIT
+membership. Revisit only if Toss publishes a historical market-level endpoint or
+demonstrates access to delisted histories with an authoritative point-in-time
+universe contract.
