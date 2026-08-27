@@ -10,8 +10,10 @@ import requests
 
 TOKEN_PATH = "/oauth2/token"
 MARKET_SUMMARY_PATH = "/api/v1/ivsa0070"
+ACCOUNT_SNAPSHOT_PATH = "/api/v1/ssqm2952"
 HEADER_KEYS = frozenset({"ipAddr", "macAddr"})
 TOKEN_BODY_KEYS = frozenset({"grantType", "appKey", "appSecret"})
+ACCOUNT_SNAPSHOT_BODY = {"excg_mktpr_ccd": "A"}
 
 
 class KBSecError(RuntimeError): pass
@@ -69,12 +71,25 @@ class KBSecClient:
         self.app_secret = app_secret or os.getenv("KBSEC_APP_SECRET", "")
         missing = [n for n, v in (("KBSEC_BASE_URL", self.base_url), ("KBSEC_APP_KEY", self.app_key), ("KBSEC_APP_SECRET", self.app_secret)) if not v]
         if missing: raise KBSecConfigurationError("missing environment variables: " + ", ".join(missing))
-        self.session = session or requests.Session(); self.clock = clock
+        if session is None:
+            self.session = requests.Session()
+            # Exact broker authority must not inherit proxy/netrc credentials
+            # or other ambient Requests environment configuration.
+            self.session.trust_env = False
+        else:
+            self.session = session
+        self.clock = clock
         self._token = None; self._expires_at = 0.0
 
     def _send_json(self, path, *, headers=None, payload):
         try:
-            response = self.session.post(self.base_url + path, headers=headers, json=payload, timeout=(3.05, 10.0))
+            response = self.session.post(
+                self.base_url + path,
+                headers=headers,
+                json=payload,
+                timeout=(3.05, 10.0),
+                allow_redirects=False,
+            )
         except requests.RequestException:
             raise KBSecHTTPError("KB API request failed") from None
         if not 200 <= response.status_code < 300:
@@ -180,4 +195,39 @@ class KBSecClient:
         return KBSecResponse(
             result_code, process_code, dict(payload["dataBody"]), payload, http_status,
             result_message=result_message, process_message=process_message,
+        )
+
+    def account_snapshot(self):
+        """Fetch the authorized read-only SSQM2952 account snapshot."""
+        payload, http_status = self._post(
+            ACCOUNT_SNAPSHOT_PATH,
+            headers={
+                "Authorization": f"Bearer {self.access_token()}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+            body=ACCOUNT_SNAPSHOT_BODY,
+        )
+        header = payload["dataHeader"]
+        result_code = self._safe(header.get("resultCode")) or ""
+        process_code = self._safe(header.get("processCode")) or ""
+        result_message = self._safe(header.get("resultMessage"))
+        process_message = self._safe(header.get("processMessage"))
+        if result_code != "200" or process_code != "0011":
+            raise KBSecBusinessError(
+                "KB account snapshot rejected",
+                http_status=http_status,
+                result_code=result_code,
+                result_message=result_message,
+                process_code=process_code,
+                process_message=process_message,
+            )
+        return KBSecResponse(
+            result_code,
+            process_code,
+            dict(payload["dataBody"]),
+            payload,
+            http_status,
+            result_message=result_message,
+            process_message=process_message,
         )

@@ -21,6 +21,11 @@ from stock_data.providers.tossinvest.historical import (
     normalize_short_selling,
     normalize_treasury_yield,
 )
+from stock_data.providers.tossinvest.account import (
+    attach_buying_power,
+    normalize_buying_power_payload,
+    normalize_holdings_payload,
+)
 
 __all__ = [
     "DEFAULT_BASE_URL",
@@ -36,7 +41,10 @@ __all__ = [
     "TossInvestResponseError",
     "TossInvestTimeoutError",
     "TossInvestTokenMetadata",
+    "attach_buying_power",
+    "normalize_buying_power_payload",
     "normalize_credit_trading",
+    "normalize_holdings_payload",
     "normalize_market_investor",
     "normalize_program_trading",
     "normalize_securities_lending",

@@ -10,6 +10,7 @@ import tempfile
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import pandas as pd
 import requests
 
 from stock_data.pipelines.kbsec_snapshot import store_kb_market_summary_response
@@ -220,10 +221,23 @@ def _collect_daily_snapshot(
     )
     post_close_validation_allowed = (
         not confirm_one_off_auth_validation
-        and state.get("daily_snapshot_status") == "DATE_SEMANTICS_REVIEW_REQUIRED"
-        and same_date
+        # POST_CLOSE_COMPARISON_READY is the durable state written after a
+        # prior landing-only comparison.  It has the same publication gate as
+        # DATE_SEMANTICS_REVIEW_REQUIRED: schedule only a raw, slice-by-slice
+        # comparison and never normalize it.
+        and state.get("daily_snapshot_status") in {
+            "DATE_SEMANTICS_REVIEW_REQUIRED",
+            "POST_CLOSE_COMPARISON_READY",
+        }
         and not any(item.get("run_kind") == "SCHEDULED_POST_CLOSE_DATE_VALIDATION" for item in same_date)
-        and all(item.get("status") in {"TOKEN_FAILED_RETIRED_PATH", "COMPLETE"} for item in same_date)
+        # A post-close comparison may be the first attempt on its capture date;
+        # its baseline is the retained corrected-auth Landing run, not an
+        # invented same-date pre-open call.  If there is a same-date entry, it
+        # must be only one of the two explicitly supersedable legacy states.
+        and (
+            not same_date
+            or all(item.get("status") in {"TOKEN_FAILED_RETIRED_PATH", "COMPLETE"} for item in same_date)
+        )
     )
     if same_date and not (one_off_allowed or post_close_validation_allowed):
         return {"status": "NOT_EXECUTED_ALREADY_ATTEMPTED_TODAY", "network_calls": 0}
@@ -279,6 +293,11 @@ def _collect_daily_snapshot(
             status = "COMPLETE"
     except KBSecError as error:
         error_type = type(error).__name__; status = "TOKEN_FAILED" if len(session.calls) == 1 else "MARKET_FAILED"
+    except Exception as error:
+        # The Landing/ledger checkpoint is already durable.  Treat any local
+        # processing failure as a terminal same-date attempt so a process crash
+        # cannot reopen the provider-call budget.
+        error_type = type(error).__name__; status = "LOCAL_PROCESSING_FAILED"
     finally:
         ledger = []
         for sequence, call in enumerate(session.calls, 1):
@@ -369,3 +388,115 @@ def _compare_slice_date_evidence(preopen: dict[str, Any], postclose: dict[str, A
         "classifications_are_candidates_pending_offline_review": True,
         "slices": result,
     }
+
+
+def recover_retained_post_close_comparison(
+    project_root: Path,
+    *,
+    run_id: str,
+    baseline_run_id: str,
+) -> dict[str, Any]:
+    """Produce a hash-gated comparison solely from retained Landing payloads."""
+    root = project_root.resolve()
+    landing_root = root / "data/landing/kbsec/daily_snapshot"
+    run_dir = (landing_root / run_id).resolve()
+    baseline_dir = (landing_root / baseline_run_id).resolve()
+    if run_dir.parent != landing_root.resolve() or baseline_dir.parent != landing_root.resolve():
+        raise ValueError("KB retained recovery run is outside the exact Landing root")
+    checkpoint_path = run_dir / "checkpoint.json"
+    ledger_path = run_dir / "call_ledger.jsonl"
+    provenance_path = run_dir / "provenance.json"
+    raw_path = run_dir / "market_response.body"
+    post_path = run_dir / "market_response.json"
+    baseline_path = baseline_dir / "market_response.json"
+    required = (checkpoint_path, ledger_path, provenance_path, raw_path, post_path, baseline_path)
+    if not all(path.is_file() for path in required):
+        raise RuntimeError("required retained KB Landing evidence is missing")
+    checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+    ledger = [json.loads(line) for line in ledger_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    raw_sha = _sha(raw_path.read_bytes())
+    if (
+        checkpoint.get("run_id") != run_id
+        or checkpoint.get("status") != "RAW_VALIDATED"
+        or checkpoint.get("request_count") != 2
+        or checkpoint.get("retry_count") != 0
+        or provenance.get("run_id") != run_id
+        or provenance.get("raw_response_sha256") != raw_sha
+        or len(ledger) != 2
+        or ledger[0].get("operation") != "oauth2/token"
+        or ledger[1].get("operation") != "api/v1/ivsa0070"
+        or ledger[0].get("retry_count") != 0
+        or ledger[1].get("retry_count") != 0
+        or ledger[1].get("raw_response_sha256") != raw_sha
+    ):
+        raise RuntimeError("retained KB Landing hash gate failed")
+    post = json.loads(post_path.read_text(encoding="utf-8"))
+    baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+    if not isinstance(post.get("dataBody"), dict) or not isinstance(baseline.get("dataBody"), dict):
+        raise RuntimeError("retained KB response payload lacks a dataBody mapping")
+    comparison = _compare_slice_date_evidence(baseline["dataBody"], post["dataBody"])
+    hashes = {
+        "checkpoint_sha256": _sha(checkpoint_path.read_bytes()),
+        "call_ledger_sha256": _sha(ledger_path.read_bytes()),
+        "business_body_sha256": raw_sha,
+        "baseline_payload_sha256": _sha(baseline_path.read_bytes()),
+        "post_payload_sha256": _sha(post_path.read_bytes()),
+    }
+    recovery = {
+        "schema": RUN_SCHEMA + ".retained_recovery", "version": 1,
+        "status": "RETAINED_LANDING_COMPARISON_RECOVERED_API0",
+        "run_id": run_id, "baseline_run_id": baseline_run_id,
+        "external_api_calls": 0, "retry_count": 0,
+        "hashes": hashes,
+        "comparison_path": "slice_date_comparison.json",
+        "publication_status": "PUBLICATION_BLOCKED",
+    }
+    recovery_path = run_dir / "retained_recovery_checkpoint.json"
+    if recovery_path.exists():
+        existing = json.loads(recovery_path.read_text(encoding="utf-8"))
+        if existing != recovery:
+            raise RuntimeError("retained KB recovery checkpoint differs; fail closed")
+        return {**existing, "status": "RETAINED_LANDING_COMPARISON_ALREADY_RECOVERED_API0"}
+    _atomic_json(run_dir / "slice_date_comparison.json", comparison)
+    _atomic_json(recovery_path, recovery)
+    return recovery
+
+
+def write_ur177_normalized_quarantine(project_root: Path, *, source_run_id: str) -> dict[str, Any]:
+    """Record, but never move or alter, the exact UR-177 partial-write paths."""
+    root = project_root.resolve()
+    normalized_root = (root / "data/normalized").resolve()
+    relative_paths = (
+        "kb_market_breadth_snapshot/capture_date=2026-08-17/data.parquet",
+        "kb_market_breadth_snapshot/capture_date=2026-08-18/data.parquet",
+        "kb_market_breadth_snapshot/capture_date=2026-08-21/data.parquet",
+    )
+    records = []
+    for relative in relative_paths:
+        path = (normalized_root / relative).resolve()
+        if normalized_root not in path.parents or not path.is_file():
+            raise RuntimeError("UR-177 quarantine path is missing or unsafe")
+        records.append({
+            "path": path.relative_to(root).as_posix(),
+            "post_sha256": _sha(path.read_bytes()),
+            "bytes": path.stat().st_size,
+            "row_count": int(len(pd.read_parquet(path))),
+            "prohibition": "DO_NOT_USE_OR_PROMOTE",
+        })
+    manifest = {
+        "schema": RUN_SCHEMA + ".partial_normalized_quarantine", "version": 1,
+        "status": "PARTIAL_NORMALIZED_QUARANTINED_IN_PLACE",
+        "source_run_id": source_run_id, "external_api_calls": 0,
+        "records": records,
+        "prohibition": "DO_NOT_USE_OR_PROMOTE",
+        "action": "NON_DESTRUCTIVE_RECORD_ONLY",
+    }
+    path = root / "data/state/audits/kbsec_daily_snapshot/ur177_partial_normalized_quarantine.json"
+    if path.exists():
+        existing = json.loads(path.read_text(encoding="utf-8"))
+        if existing != manifest:
+            raise RuntimeError("UR-177 quarantine manifest differs; fail closed")
+        return {**existing, "status": "PARTIAL_NORMALIZED_ALREADY_QUARANTINED_IN_PLACE"}
+    _atomic_json(path, manifest)
+    return manifest

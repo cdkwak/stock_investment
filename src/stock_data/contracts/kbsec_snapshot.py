@@ -1,23 +1,17 @@
 from stock_data.contracts.base import ColumnContract, DatasetContract
+from stock_data.contracts.current_snapshot import CURRENT_SNAPSHOT_METADATA
 
 
-COMMON = (
-    ColumnContract("snapshot_date", "date32", False),
-    ColumnContract("market_date", "date32", False),
-    ColumnContract("collected_at", "timestamp[us, UTC]", False),
-    ColumnContract("source", "string", False),
-    ColumnContract("source_operation", "string", False),
-    ColumnContract("is_provisional", "bool", False),
-)
+COMMON = CURRENT_SNAPSHOT_METADATA
 
 
-def _dataset(name, description, key, columns):
+def _dataset(name, description, key, columns, *, version=2):
     return DatasetContract(
-        name=name, version=1, status="active", description=description,
+        name=name, version=version, status="active", description=description,
         source="kb_securities_open_api", layer="normalized", storage_format="parquet",
         frequency="intraday_snapshot", timezone="Asia/Seoul",
         primary_key=("collected_at", *key), sort_key=("collected_at", *key),
-        partition_by=("snapshot_date",), columns=COMMON + tuple(columns),
+        partition_by=("capture_date",), columns=COMMON + tuple(columns),
     )
 
 
@@ -29,10 +23,11 @@ KB_MARKET_BREADTH_SNAPSHOT = _dataset("kb_market_breadth_snapshot", "Provisional
 KB_PROGRAM_TRADING_SNAPSHOT = _dataset("kb_program_trading_snapshot", "Provisional KB program trading summary.", (), (
     ColumnContract("arbitrage_net_buy", "int64", True), ColumnContract("non_arbitrage_net_buy", "int64", True),
 ))
-KB_INVESTOR_FLOW_SNAPSHOT = _dataset("kb_investor_flow_snapshot", "Provisional KB investor net-purchase flow by class, including KOSPI/KOSDAQ, futures, CALL/PUT, STAR futures and stock futures source fields.", ("investor_code",), (
+KB_INVESTOR_FLOW_SNAPSHOT = _dataset("kb_investor_flow_snapshot", "Provisional KB investor net-purchase flow by class. IVSA0070 does not provide usable KOSPI200 futures, CALL/PUT, or STAR-futures flow values; raw zeros are retained only in Landing and normalized as null. Stock-futures values remain independent.", ("investor_code",), (
     ColumnContract("investor_code", "string", False), ColumnContract("investor_name", "string", False),
     *(ColumnContract(name, "int64", True) for name in ("kospi_net_buy", "kosdaq_net_buy", "futures_net_buy", "call_option_net_buy", "put_option_net_buy", "star_futures_net_buy", "stock_futures_net_buy")),
-))
+    ColumnContract("derivatives_flow_status", "string", False),
+), version=3)
 KB_MARKET_LIQUIDITY_SNAPSHOT = _dataset("kb_market_liquidity_snapshot", "Provisional KB market liquidity balances.", (), tuple(
     ColumnContract(name, "float64", True) for name in ("customer_deposit", "customer_deposit_change", "receivables", "receivables_change", "credit_balance", "credit_balance_change", "futures_deposit", "futures_deposit_change")
 ))

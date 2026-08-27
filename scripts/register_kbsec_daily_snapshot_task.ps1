@@ -8,7 +8,7 @@ param(
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $pythonPath = Join-Path $projectRoot ".venv\Scripts\python.exe"
-$runnerPath = Join-Path $PSScriptRoot "manual\collect_kbsec_daily_snapshot.py"
+$runnerPath = Join-Path $PSScriptRoot "manual\collect\collect_kbsec_daily_snapshot.py"
 $taskName = "StockInvestmentRev1-KBSecDailySnapshot"
 
 if ($Action -eq "Remove") {
@@ -31,7 +31,7 @@ if (-not (Test-Path -LiteralPath $runnerPath -PathType Leaf)) {
 
 $scheduledAction = New-ScheduledTaskAction `
     -Execute $pythonPath `
-    -Argument ('"{0}" --project-root "{1}" --confirm-live-daily' -f $runnerPath, $projectRoot) `
+    -Argument ('"{0}" --project-root "{1}"' -f $runnerPath, $projectRoot) `
     -WorkingDirectory $projectRoot
 $scheduledTrigger = New-ScheduledTaskTrigger `
     -Weekly `
@@ -47,8 +47,14 @@ Register-ScheduledTask `
     -Action $scheduledAction `
     -Trigger $scheduledTrigger `
     -Settings $scheduledSettings `
-    -Description "One Landing-first read-only KB IVSA0070 snapshot near 17:00 KST." `
+    -Description "Disabled KB IVSA0070 preflight definition; live execution requires a new reviewed incident-recovery authorization." `
     -Force | Out-Null
 
-Write-Output "installed=$taskName"
+# The retained 2026-08-21 partial-write incident keeps this definition
+# non-runnable.  Its action intentionally omits --confirm-live-daily, so even
+# an explicit manual invocation remains provider-free until a later reviewed
+# registration change establishes the missing rollback authority.
+Disable-ScheduledTask -TaskName $taskName | Out-Null
+
+Write-Output "installed_disabled=$taskName"
 Write-Output "time=$Time"

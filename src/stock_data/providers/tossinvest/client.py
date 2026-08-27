@@ -30,6 +30,7 @@ MARKET_INDICATOR_SYMBOL_PATTERN = (
     r"(?:KOSPI|KOSDAQ|KR_BOND_(?:2Y|3Y|5Y|10Y|20Y|30Y))"
 )
 READ_ONLY_MARKET_PATHS = (
+    re.compile(r"^/api/v1/prices$"),
     re.compile(r"^/api/v1/market-indicators/prices$"),
     re.compile(
         rf"^/api/v1/market-indicators/{MARKET_INDICATOR_SYMBOL_PATTERN}/candles$"
@@ -159,6 +160,7 @@ class TossInvestClient:
         self._token_metadata: TossInvestTokenMetadata | None = None
         self._token_request_count = 0
         self._market_request_count = 0
+        self._account_request_count = 0
 
     @classmethod
     def from_environment(
@@ -195,6 +197,10 @@ class TossInvestClient:
     def market_request_count(self) -> int:
         return self._market_request_count
 
+    @property
+    def account_request_count(self) -> int:
+        return self._account_request_count
+
     def access_token(self) -> str:
         now = float(self._clock())
         if (
@@ -230,6 +236,7 @@ class TossInvestClient:
                 headers=headers,
                 params=dict(params or {}),
                 timeout=self._timeout,
+                allow_redirects=False,
             )
         except requests.Timeout:
             raise TossInvestTimeoutError("Toss market request timed out") from None
@@ -263,6 +270,139 @@ class TossInvestClient:
             payload=payload,
             rate_limit=details.rate_limit
             or TossInvestRateLimit(group=rate_limit_group),
+            request_id=details.request_id,
+        )
+
+    def brokerage_account_seq(self) -> int:
+        """Return the sole brokerage account selector without exposing its number.
+
+        The selector is intentionally returned only to memory.  Callers must not
+        persist or log it.  Multiple brokerage accounts require an explicit
+        runtime selector rather than an arbitrary choice.
+        """
+        response = self._get_account_data(
+            "/api/v1/accounts", rate_limit_group="ACCOUNT"
+        )
+        rows = response.payload.get("result")
+        if not isinstance(rows, list):
+            raise TossInvestResponseError("Toss accounts result must be an array")
+        selectors: list[int] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                raise TossInvestResponseError("Toss account entry must be an object")
+            if not {"accountNo", "accountSeq", "accountType"}.issubset(row):
+                raise TossInvestResponseError("Toss account entry is incomplete")
+            if not isinstance(row["accountNo"], str) or not row["accountNo"]:
+                raise TossInvestResponseError("Toss account number is invalid")
+            account_type = row["accountType"]
+            selector = row["accountSeq"]
+            if account_type == "BROKERAGE":
+                if isinstance(selector, bool) or not isinstance(selector, int) or selector <= 0:
+                    raise TossInvestResponseError("Toss account selector is invalid")
+                selectors.append(selector)
+        if len(selectors) != 1:
+            raise TossInvestResponseError(
+                "Toss brokerage account selection is not unambiguous"
+            )
+        return selectors[0]
+
+    def get_holdings(self, *, account_seq: int) -> TossInvestAPIResponse:
+        """Fetch the official read-only holdings view without retry."""
+        if isinstance(account_seq, bool) or not isinstance(account_seq, int) or account_seq <= 0:
+            raise TossInvestConfigurationError("invalid Toss account selector")
+        return self._get_account_data(
+            "/api/v1/holdings",
+            rate_limit_group="ASSET",
+            account_seq=account_seq,
+        )
+
+    def get_buying_power(
+        self, *, account_seq: int, currency: str,
+    ) -> TossInvestAPIResponse:
+        """Fetch official cash-only buying power for one exact currency."""
+        if isinstance(account_seq, bool) or not isinstance(account_seq, int) or account_seq <= 0:
+            raise TossInvestConfigurationError("invalid Toss account selector")
+        if currency not in {"KRW", "USD"}:
+            raise TossInvestConfigurationError("unsupported Toss buying-power currency")
+        return self._get_account_data(
+            "/api/v1/buying-power",
+            rate_limit_group="ORDER_INFO",
+            account_seq=account_seq,
+            params={"currency": currency},
+        )
+
+    def _get_account_data(
+        self,
+        path: str,
+        *,
+        rate_limit_group: str,
+        account_seq: int | None = None,
+        params: Mapping[str, str] | None = None,
+    ) -> TossInvestAPIResponse:
+        allowed = {
+            "/api/v1/accounts": ("ACCOUNT", False),
+            "/api/v1/holdings": ("ASSET", True),
+            "/api/v1/buying-power": ("ORDER_INFO", True),
+        }
+        expected = allowed.get(path)
+        if expected != (rate_limit_group, account_seq is not None):
+            raise TossInvestConfigurationError(
+                "unsupported Toss read-only account endpoint"
+            )
+        if path == "/api/v1/buying-power":
+            if params is None or set(params) != {"currency"} or params["currency"] not in {"KRW", "USD"}:
+                raise TossInvestConfigurationError("invalid Toss buying-power request")
+        elif params is not None:
+            raise TossInvestConfigurationError("unexpected Toss account query parameters")
+        headers = {**self.authorization_headers(), "Accept": "application/json"}
+        if account_seq is not None:
+            headers["X-Tossinvest-Account"] = str(account_seq)
+        self._account_request_count += 1
+        try:
+            response = self._session.get(
+                f"{self.base_url}{path}", headers=headers, params=params,
+                timeout=self._timeout,
+            )
+        except requests.Timeout:
+            raise TossInvestTimeoutError("Toss account request timed out") from None
+        except requests.RequestException:
+            raise TossInvestHTTPError("Toss account request failed") from None
+
+        details, payload = self._response_diagnostics(
+            response, rate_limit_group=rate_limit_group
+        )
+        # Account error bodies may contain private provider context.  Preserve
+        # only non-sensitive status/code/rate-limit diagnostics.
+        details = TossInvestHTTPDiagnostics(
+            http_status=details.http_status,
+            content_type=details.content_type,
+            response_is_json=details.response_is_json,
+            error_code=details.error_code,
+            request_id=details.request_id,
+            rate_limit=details.rate_limit,
+        )
+        status_code = int(response.status_code)
+        if status_code == 429:
+            raise TossInvestRateLimitError(
+                "Toss account rate limit exceeded", details=details
+            )
+        if status_code in {401, 403}:
+            raise TossInvestAuthenticationError(
+                f"Toss account authentication failed (HTTP {status_code})",
+                details=details,
+            )
+        if not 200 <= status_code < 300:
+            raise TossInvestHTTPError(
+                f"Toss account request failed (HTTP {status_code})", details=details
+            )
+        if not details.response_is_json or not isinstance(payload, dict):
+            raise TossInvestResponseError(
+                "Toss account response is not a JSON object", details=details
+            )
+        return TossInvestAPIResponse(
+            http_status=status_code,
+            payload=payload,
+            rate_limit=details.rate_limit or TossInvestRateLimit(group=rate_limit_group),
             request_id=details.request_id,
         )
 
@@ -353,6 +493,8 @@ class TossInvestClient:
 
     @staticmethod
     def _market_rate_limit_group(path: str) -> str:
+        if path == "/api/v1/prices":
+            return "STOCK_PRICE"
         if path.endswith("/candles"):
             return "MARKET_INDICATOR_CHART"
         if path.startswith("/api/v1/market-indicators/"):

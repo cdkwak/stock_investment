@@ -32,10 +32,14 @@ def _date(raw):
 
 def normalize_market_summary(response: KBSecResponse, *, collected_at: datetime) -> dict[str, pd.DataFrame]:
     if collected_at.tzinfo is None: raise ValueError("collected_at must be timezone-aware")
-    b = response.data_body; market_date = _date(b.get("inq_dy_tm"))
-    common = {"snapshot_date": collected_at.astimezone(ZoneInfo("Asia/Seoul")).date().isoformat(), "market_date": market_date,
-              "collected_at": collected_at.isoformat(), "source": "kb_securities_open_api",
-              "source_operation": OPERATION, "is_provisional": True}
+    b = response.data_body; reference_date = _date(b.get("inq_dy_tm"))
+    common = {
+        "capture_date": collected_at.astimezone(ZoneInfo("Asia/Seoul")).date().isoformat(),
+        "collected_at": collected_at.isoformat(), "provider": "KB_SECURITIES",
+        "source_operation": OPERATION, "market_date": None,
+        "reference_date": reference_date, "is_provisional": True,
+        "availability_status": "DATE_UNRESOLVED", "value_status": "SOURCE_VALUE",
+    }
     required = ("kspi_up_is_c", "kspi_unchng_is_c", "kspi_dwn_is_c", "ksdq_up_is_c", "ksdq_unchng_is_c", "ksdq_dwn_is_c")
     missing = [x for x in required if x not in b]
     if missing: raise KBSecResponseError("missing IVSA0070 fields: " + ", ".join(missing))
@@ -47,11 +51,32 @@ def normalize_market_summary(response: KBSecResponse, *, collected_at: datetime)
             "declining": number(b[prefix + "_dwn_is_c"]), "lower_limit": number(b.get(prefix + "_llmt_is_c"))})
     program = [{**common, "arbitrage_net_buy": number(b.get("mprft_nt_b")), "non_arbitrage_net_buy": number(b.get("nmp_nt_b"))}]
     investor = []
+    derivative_mapping = (
+        ("futures_net_buy", "fts_nt_b"),
+        ("call_option_net_buy", "call_opt_nt_b"),
+        ("put_option_net_buy", "put_opt_nt_b"),
+        ("star_futures_net_buy", "star_fts_nt_b"),
+    )
     for row in _rows(b, "out5"):
         code = str(row.get("invstr_cd", "")).strip()
         if not code: continue
-        investor.append({**common, "investor_code": code, "investor_name": str(row.get("invstr_clsf_nm", "")).strip(),
-            **{name: number(row.get(field)) for name, field in (("kospi_net_buy","kspi_nt_b"),("kosdaq_net_buy","ksdq_nt_b"),("futures_net_buy","fts_nt_b"),("call_option_net_buy","call_opt_nt_b"),("put_option_net_buy","put_opt_nt_b"),("star_futures_net_buy","star_fts_nt_b"),("stock_futures_net_buy","stk_fts_nt_b"))}})
+        derivative_values = {name: number(row.get(field)) for name, field in derivative_mapping}
+        zero_unresolved = any(value == 0 for value in derivative_values.values())
+        if zero_unresolved:
+            derivative_values = {
+                name: None if value == 0 else value for name, value in derivative_values.items()
+            }
+        investor.append({
+            **common,
+            "investor_code": code,
+            "investor_name": str(row.get("invstr_clsf_nm", "")).strip(),
+            "kospi_net_buy": number(row.get("kspi_nt_b")),
+            "kosdaq_net_buy": number(row.get("ksdq_nt_b")),
+            **derivative_values,
+            "stock_futures_net_buy": number(row.get("stk_fts_nt_b")),
+            "derivatives_flow_status": "UNAVAILABLE_FROM_IVSA0070" if zero_unresolved else "SOURCE_VALUE",
+            "value_status": "PARTIAL_UNAVAILABLE" if zero_unresolved else "SOURCE_VALUE",
+        })
     liquidity = [{**common, **{name: number(b.get(field)) for name, field in (("customer_deposit","cs_dpst_5"),("customer_deposit_change","cs_dpst_cmpr_amt_5"),("receivables","rcvamt_5"),("receivables_change","rcvamt_cmpr_amt_5"),("credit_balance","crdt_blnc_5"),("credit_balance_change","crdt_blnc_cmpr_amt_5"),("futures_deposit","fts_tfnd_5"),("futures_deposit_change","fts_tfnd_cmpr_amt_5"))}}]
     derivatives = [_quote(common, r, "instrument", (("instrument_code","is_cd"),("instrument_name","is_nm"),("current_price","now_prc_p2"),("change_direction_code","bdy_cmpr_ccd"),("change","bdy_cmpr_p2"),("change_pct","up_dwn_r_p2"),("volume","vlm"),("open_interest","nstmt_agr_q"))) for r in _rows(b,"out3") if str(r.get("is_cd","")).strip()]
     domestic = [_quote(common, r, "index", (("index_code","indx_id"),("index_name","indx_nm"),("current_index","now_indx_p2"),("change_direction_code","bdy_cmpr_ccd"),("change","bdy_cmpr_p2"),("change_pct","up_dwn_r_p2"),("volume","vlm"),("trading_value","dl_tw_amt"))) for r in _rows(b,"out2") if str(r.get("indx_id","")).strip()]
