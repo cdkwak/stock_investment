@@ -169,11 +169,11 @@ def test_production_policy_escalates_only_repeated_health_failures_for_managed_d
     ))[0]
     unmanaged = aggregate_events((), (
         health_event(
-            "manual-first", "bok_ecos_kr_treasury_yield_source_observation",
+            "manual-first", "kr_credit_benchmark_yield_daily",
             "2026-08-26T13:21:00Z",
         ),
         health_event(
-            "manual-second", "bok_ecos_kr_treasury_yield_source_observation",
+            "manual-second", "kr_credit_benchmark_yield_daily",
             "2026-08-26T13:22:00Z",
         ),
     ))[0]

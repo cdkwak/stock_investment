@@ -1,0 +1,104 @@
+{
+  "policies": [
+    {
+      "all_of": [
+        {
+          "kind": "occurrence_count",
+          "operator": "gte",
+          "value": 2
+        }
+      ],
+      "cooldown_seconds": 86400,
+      "discovery_rate": {
+        "max_count": 1,
+        "window_seconds": 86400
+      },
+      "discovery_template": {
+        "impact": "The scheduled Korean market refresh may remain incomplete",
+        "priority_hint": "P1",
+        "reproduce": "Inspect sanitized scheduler occurrence evidence",
+        "suspected_scope": "src/stock_data/orchestration",
+        "symptom": "The same scheduled Korean market occurrence failed repeatedly",
+        "title": "Repeated Korean market 09:10 scheduler failure"
+      },
+      "effective_from": "2026-08-26T04:18:18Z",
+      "effective_until": null,
+      "enabled": true,
+      "fingerprint": null,
+      "minimum_severity": "ERROR",
+      "policy_id": "KR_MARKET_0910_REPEATED_FAILURE",
+      "queue_fingerprint": "issue-state:{fingerprint}",
+      "revision": 1,
+      "stable_code": "SCHEDULER_OCCURRENCE_FAILURE",
+      "target_id": "kr_market_daily:0910",
+      "target_kind": "SCHEDULER_LANE"
+    },
+    {
+      "all_of": [
+        {
+          "kind": "occurrence_count",
+          "operator": "gte",
+          "value": 2
+        }
+      ],
+      "cooldown_seconds": 86400,
+      "discovery_rate": {
+        "max_count": 1,
+        "window_seconds": 86400
+      },
+      "discovery_template": {
+        "impact": "An automated dataset may remain behind its verified provider target",
+        "priority_hint": "P1",
+        "reproduce": "Inspect sanitized Health V2 evidence",
+        "suspected_scope": "src/stock_data/orchestration",
+        "symptom": "The same managed dataset remained stale across repeated Health projections",
+        "title": "Repeated managed dataset stale state"
+      },
+      "effective_from": "2026-08-26T13:20:00Z",
+      "effective_until": null,
+      "enabled": true,
+      "fingerprint": null,
+      "minimum_severity": "ERROR",
+      "policy_id": "MANAGED_DATASET_REPEATED_STALE",
+      "queue_fingerprint": "issue-state:{fingerprint}",
+      "revision": 2,
+      "stable_code": "HEALTH_STALE",
+      "target_id": "group=automation-enabled-datasets",
+      "target_kind": "DATASET"
+    },
+    {
+      "all_of": [
+        {
+          "kind": "occurrence_count",
+          "operator": "gte",
+          "value": 2
+        }
+      ],
+      "cooldown_seconds": 86400,
+      "discovery_rate": {
+        "max_count": 1,
+        "window_seconds": 86400
+      },
+      "discovery_template": {
+        "impact": "An automated dataset may lack a trustworthy current freshness decision",
+        "priority_hint": "P1",
+        "reproduce": "Inspect sanitized Health V2 evidence",
+        "suspected_scope": "src/stock_data/orchestration",
+        "symptom": "The same managed dataset remained unknown across repeated Health projections",
+        "title": "Repeated managed dataset unknown state"
+      },
+      "effective_from": "2026-08-26T13:20:00Z",
+      "effective_until": null,
+      "enabled": true,
+      "fingerprint": null,
+      "minimum_severity": "WARNING",
+      "policy_id": "MANAGED_DATASET_REPEATED_UNKNOWN",
+      "queue_fingerprint": "issue-state:{fingerprint}",
+      "revision": 2,
+      "stable_code": "HEALTH_UNKNOWN",
+      "target_id": "group=automation-enabled-datasets",
+      "target_kind": "DATASET"
+    }
+  ],
+  "schema": "escalation-policy/v1"
+}

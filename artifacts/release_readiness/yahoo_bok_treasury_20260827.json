@@ -1,0 +1,141 @@
+{
+  "checks": [
+    {
+      "category": "release",
+      "check_id": "DATA_ROOT_READABILITY",
+      "status": "PASS",
+      "summary": "required_roots=5 readable"
+    },
+    {
+      "category": "release",
+      "check_id": "SCHEMA_VERSION_READABILITY",
+      "status": "PASS",
+      "summary": "health_schema=2 retained_rows=80"
+    },
+    {
+      "category": "backtest",
+      "check_id": "BACKTEST_GUI_BUNDLE",
+      "status": "PASS",
+      "summary": "service_ready=True exact_files=1 exact_bytes=12187 stable=True"
+    },
+    {
+      "category": "retained_data",
+      "check_id": "TYPED_HEALTH",
+      "status": "DEGRADED",
+      "summary": "rows=80 current=8 expected_lag=23 stale=8 unknown=14 blocked=8 managed=30 managed_acceptable=30 managed_invalid=0"
+    },
+    {
+      "category": "operations",
+      "check_id": "HEALTH_RECEIPT_RECONCILIATION",
+      "status": "PASS",
+      "summary": "rows=80 managed=30 managed_invalid=0 governing_receipts=6 chronology=consistent"
+    },
+    {
+      "category": "release",
+      "check_id": "FRESHNESS_SUPPRESSION",
+      "status": "PASS",
+      "summary": "stale_or_unknown_numeric_leaks=0"
+    },
+    {
+      "category": "release",
+      "check_id": "LOCAL_CACHE_AND_CHART",
+      "status": "PASS",
+      "summary": "deterministic_repeat=True chart_rows=120"
+    },
+    {
+      "category": "operations",
+      "check_id": "SCHEDULER_READ_ONLY_STATUS",
+      "status": "PASS",
+      "summary": "expected=10 missing=0 disabled=0 nonzero=0 definition_mismatch=0 namespace_visible=True namespace_probe=VISIBLE_OR_UNPROBED"
+    },
+    {
+      "category": "operations",
+      "check_id": "SCHEDULER_RESULT_STATUS",
+      "status": "PASS",
+      "summary": "required=2 missing=0 malformed=0 stale=0 failed=0"
+    },
+    {
+      "category": "operations",
+      "check_id": "DUE_OCCURRENCE_OUTCOMES",
+      "status": "PASS",
+      "summary": "due_task_groups=8 complete=8 failed=0"
+    },
+    {
+      "category": "release",
+      "check_id": "ISOLATED_UPDATE_PRESERVATION",
+      "status": "PASS",
+      "summary": "synthetic user files preserved in isolated staging; production untouched"
+    },
+    {
+      "category": "gui",
+      "check_id": "NATIVE_GUI_1600X900",
+      "status": "PASS",
+      "summary": "pages=10 page_contract=True failed=0 clipped=0 card_overlaps=0 font_glyphs=True worker_contract=True worker_quiescence=QUIESCENT market_chart_state=RENDERED market_chart_contract=True health_rows=80 health_managed=30 health_acceptable=30 health_elapsed_ms=9380 health_bound_ms=30000 health_contract=True user_data_isolation=FULLY_ISOLATED isolation_contract=True screen_baseline_supported=True workers_closed=True account=AVAILABLE net_worth=INTENTIONAL_EMPTY_OR_UNAVAILABLE"
+    },
+    {
+      "category": "safety",
+      "check_id": "USER_DATA_BYTE_IDENTITY",
+      "status": "PASS",
+      "summary": "exact_user_files=6 exact_user_bytes=13080 protected_files=95090 protected_bytes=19993033964 exact_user_unchanged=True protected_unchanged=True attribution=UNCHANGED"
+    }
+  ],
+  "code_identity": {
+    "file_count": 320,
+    "sha256": "a8ebf39a68a722cc3508278bfc72200dad45fe9a93bf734b9ffd8b8acc0d96ae",
+    "total_bytes": 4535188
+  },
+  "data_identity": {
+    "backtest_gui_bundle": {
+      "file_count": 1,
+      "sha256": "22e1ba566b24454fbec4b4b169602d17e36eb3a839b7ec2b2617c9350eb1be4f",
+      "total_bytes": 12187
+    },
+    "chart_sha256": "575de8baa0e8fa009284a802e129c5caed672a463241b87dcc7e5b19c2c42c3b",
+    "exact_user_data_after": {
+      "file_count": 6,
+      "sha256": "88b91f323fd8ea5e2324b62a618bc71d7e48ea25cb7d8c12041fd2cd565f1b4d",
+      "total_bytes": 13080
+    },
+    "exact_user_data_before": {
+      "file_count": 6,
+      "sha256": "88b91f323fd8ea5e2324b62a618bc71d7e48ea25cb7d8c12041fd2cd565f1b4d",
+      "total_bytes": 13080
+    },
+    "protected_after": {
+      "file_count": 95090,
+      "sha256": "ae8330b0049760a02e54819b0ea4ed157f397794b38e65b6838cb6cad8325d27",
+      "total_bytes": 19993033964
+    },
+    "protected_before": {
+      "file_count": 95090,
+      "sha256": "ae8330b0049760a02e54819b0ea4ed157f397794b38e65b6838cb6cad8325d27",
+      "total_bytes": 19993033964
+    },
+    "retained_inputs": {
+      "file_count": 111,
+      "sha256": "91461673d24a39c02a21f96f67188ead7b7ef13877688c75b56c44cf322a7678",
+      "total_bytes": 19221516
+    },
+    "snapshot_sha256": "e180856caedcd38b93d99ee0dd25805a8d57455d91744efb8c1d225eb8167aa9"
+  },
+  "data_mutations": 0,
+  "degraded_conditions": [
+    "TYPED_HEALTH"
+  ],
+  "expected_conditions": [
+    "managed_current=8",
+    "managed_expected_provider_lag=22",
+    "approved_deferred_or_blocked=8",
+    "outside_managed_stale_or_unknown=22"
+  ],
+  "external_calls": 0,
+  "gui_user_data_isolation": "FULLY_ISOLATED",
+  "mode": "OFFLINE_READ_ONLY_PROVIDER_SAFE",
+  "observed_at_kst": "2026-08-27T01:15:47+09:00",
+  "release_blockers": [],
+  "scheduler_mutations": 0,
+  "schema_version": 1,
+  "sensitive_values_in_report": false,
+  "status": "DEGRADED",
+  "user_data_change_attribution": "UNCHANGED"
+}

@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "timestamp_format": "RFC3339",
+  "observed_at_kst": "2026-08-27T02:49:15.7744789+09:00",
+  "status": "BASELINE_CAPTURED",
+  "preflight_diagnostics": {
+    "toss_oauth": {
+      "observed_at_utc": "2026-08-26T17:52:40.3446090Z",
+      "status": "PASS",
+      "token_calls": 1,
+      "account_calls": 0,
+      "token_or_identifier_persisted": false
+    }
+  },
+  "tasks": [
+    {"task":"STOCK_DATA_FRED_DAILY","state":"Ready","last_run_kst":"2026-08-26T06:00:01+09:00","next_run_kst":"2026-08-27T06:00:00+09:00","last_result":0},
+    {"task":"STOCK_DATA_GLOBAL_ETF_SOXX_DAILY","state":"Ready","last_run_kst":"2026-08-26T06:10:01+09:00","next_run_kst":"2026-08-27T06:10:00+09:00","last_result":0},
+    {"task":"STOCK_DATA_GLOBAL_INDEX_DAILY","state":"Ready","last_run_kst":"2026-08-26T06:20:01+09:00","next_run_kst":"2026-08-27T06:20:00+09:00","last_result":0},
+    {"task":"STOCK_DATA_DAILY_HEALTH","state":"Ready","last_run_kst":"2026-08-27T01:13:41+09:00","next_run_kst":"2026-08-27T06:30:00+09:00","last_result":0},
+    {"task":"STOCK_PROJECT_ISSUE_STATE_SYNC","state":"Ready","last_run_kst":null,"next_run_kst":"2026-08-27T06:45:00+09:00","last_result":267011},
+    {"task":"STOCK_DATA_TOSS_ACCOUNT_DAILY","state":"Ready","last_run_kst":null,"next_run_kst":"2026-08-27T07:00:00+09:00","last_result":267011},
+    {"task":"STOCK_DATA_TOSS_DOMESTIC_30M","state":"Ready","last_run_kst":"2026-08-26T15:30:00+09:00","next_run_kst":"2026-08-27T09:00:00+09:00","last_result":0},
+    {"task":"STOCK_DATA_KR_MARKET_DAILY_0910","state":"Ready","last_run_kst":"2026-08-26T09:10:00+09:00","next_run_kst":"2026-08-27T09:10:00+09:00","last_result":0}
+  ],
+  "receipts": [
+    {"path":"artifacts/scheduler_logs/STOCK_DATA_FRED_DAILY_last.json","mtime_utc":"2026-08-26T15:55:55.5882743Z","sha256":"ed9c03fa25b82fd3a31c8e18277b713411f1fb8c7773aa4797260d18f79411cd","status":"NOOP","target_session":"2026-08-25"},
+    {"path":"artifacts/scheduler_logs/STOCK_DATA_GLOBAL_ETF_DAILY_last.json","mtime_utc":"2026-08-25T21:10:18.6011937Z","sha256":"0f9d877cbe6987c991e86608a620379dab5fbd68bb1e8c08a0f0ccab5167035e","status":"PASS","target_session":"2026-08-25"},
+    {"path":"artifacts/scheduler_logs/STOCK_DATA_GLOBAL_INDEX_DAILY_last.json","mtime_utc":"2026-08-25T21:20:31.7052334Z","sha256":"956c7df893fff4d026a486c572b6ea687a3670fb1e12ecad3684453b17ad0b12","status":"PASS","target_session":"2026-08-25"},
+    {"path":"artifacts/scheduler_logs/STOCK_DATA_DAILY_HEALTH_last.json","mtime_utc":"2026-08-26T16:14:08.2195596Z","sha256":"464278a69726dd20b2d7041d206e0ebc02cba14150628d97d7714a0f77134b74","status":"SUCCESS"},
+    {"path":"artifacts/issue_state/v1/issues.json","mtime_utc":"2026-08-26T13:37:17.4923206Z","sha256":"6e3a5dc887c3b3477baf4b03ab27a69b7444747128703e0bf3f41ea2c7a79321"},
+    {"path":"artifacts/scheduler_logs/STOCK_DATA_TOSS_ACCOUNT_DAILY_last.json","mtime_utc":"2026-08-26T09:06:18.7607602Z","sha256":"36ffacc6f4f94a5e1662f2ee300e6bd1e84222066dc6beb73f4cac89acb43e6e","status":"TERMINAL_FAILURE","scheduled_for_kst":"2026-08-26T07:00:00+09:00"},
+    {"path":"data/state/provider_scheduler/toss_domestic_ur246_last.json","mtime_utc":"2026-08-26T06:30:04.6383703Z","sha256":"cc7cc35bcbb4b0bf9d404c5e6b959fb43b9c81ed988fc47449697762f5781639","terminal_status":"TERMINAL_SUCCESS","scheduled_for_kst":"2026-08-26T15:30:00+09:00"},
+    {"path":"artifacts/scheduler_logs/STOCK_DATA_KR_MARKET_DAILY_last.json","mtime_utc":"2026-08-26T11:31:07.1539837Z","sha256":"20e1872a279bdb6f400a381468e32a6fda85222210f1c03e3237e579984d8180","status":"PASS","scheduled_for_kst":"2026-08-26T20:30:00+09:00"},
+    {"path":"artifacts/daily_health/universe_data_v2_20260819.json","mtime_utc":"2026-08-26T16:14:08.2165598Z","sha256":"be17a80bd3d7bddaed01c5361fbc2baad1fab6931dc8742cbf0ee41629145c67","dataset_count":80,"automation_enabled_count":30,"managed_current":8,"managed_expected_lag":22,"managed_runtime_validated":30,"managed_runtime_failed":0}
+  ],
+  "acceptance": {
+    "task_last_run_must_advance_to_2026_08_27": true,
+    "task_last_result_success_code": 0,
+    "receipt_must_be_newer_than_baseline": true,
+    "prior_valid_data_must_survive_failure": true,
+    "managed_health_must_remain_30_of_30_acceptable": true
+  }
+}

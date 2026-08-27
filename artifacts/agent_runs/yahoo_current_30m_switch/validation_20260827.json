@@ -1,0 +1,215 @@
+{
+  "backtest_writes": 0,
+  "generated_at_utc": "2026-08-26T17:00:38.651602Z",
+  "history_writes": 0,
+  "protected_roots_after": {
+    "backtest_artifacts": "b5eecd961527ee31e57203a85537f6b61d63ce41f61e440701fcdc0a87d34f9f",
+    "historical_global_market_60m": "8af1d328d75e91cf5fff2deab39607be475491d16c45e89a2721eb14bb9a701e",
+    "published": "08d91e3d1a1056adda4db6f6b13d178980216fcc1537495c6ee585ad08d8abbe",
+    "retained_market_15m": "e9186319a49a3523a6c84fef7ebc97802b8ffb8808f5a34781d9d69b288b2eb5"
+  },
+  "protected_roots_before": {
+    "backtest_artifacts": "b5eecd961527ee31e57203a85537f6b61d63ce41f61e440701fcdc0a87d34f9f",
+    "historical_global_market_60m": "8af1d328d75e91cf5fff2deab39607be475491d16c45e89a2721eb14bb9a701e",
+    "published": "08d91e3d1a1056adda4db6f6b13d178980216fcc1537495c6ee585ad08d8abbe",
+    "retained_market_15m": "e9186319a49a3523a6c84fef7ebc97802b8ffb8808f5a34781d9d69b288b2eb5"
+  },
+  "protected_roots_unchanged": true,
+  "public_api_calls": 4,
+  "request_interval": "30m",
+  "results": [
+    {
+      "aligned_grid_row_count": 162,
+      "checks": {
+        "completed_grid_alignment": true,
+        "http_and_payload": true,
+        "identity": true,
+        "latest_completed_ohlc": true,
+        "retained_15m_close_relationship": true,
+        "scheduler_boundary_selection": true,
+        "unit_and_quote_index_semantics": true
+      },
+      "identity_checks": {
+        "data_granularity": true,
+        "exchange": true,
+        "full_exchange": true,
+        "instrument_type": true,
+        "symbol": true,
+        "timezone": true
+      },
+      "landing_call_root": "data/landing/yahoo_market_30m_validation/20260827/yahoo/chart_30m_validation/20260826T170037.954427Z_65f2d2c0f9734f40aa5f9e2d1971b7b7",
+      "landing_sha256": "494bd34568abf5351043931612cfa6103cc28d68824d603e07d83a7b4a661796",
+      "latest_retained_15m_comparison": {
+        "absolute_difference": 0.0,
+        "bar_end_utc": "2026-08-21T20:00:00Z",
+        "direct_30m_close": 15.170000076293945,
+        "equal_within_1e_9": true,
+        "retained_15m_close": 15.170000076293945
+      },
+      "latest_selected_bar": {
+        "bar_end_utc": "2026-08-26T16:30:00Z",
+        "bar_start_utc": "2026-08-26T16:00:00Z",
+        "close": 15.619999885559082,
+        "high": 15.640000343322754,
+        "low": 15.529999732971191,
+        "open": 15.550000190734863
+      },
+      "metadata": {
+        "dataGranularity": "30m",
+        "exchangeName": "CXI",
+        "exchangeTimezoneName": "America/Chicago",
+        "fullExchangeName": "Cboe Indices",
+        "instrumentType": "INDEX",
+        "symbol": "^VIX",
+        "timezone": "CDT"
+      },
+      "off_grid_quote_row_count": 1,
+      "passed": true,
+      "retained_15m_overlap_count": 39,
+      "retrieved_at_utc": "2026-08-26T17:00:37.434005Z",
+      "row_count": 163,
+      "scheduler_boundary_utc": "2026-08-26T16:32:00Z",
+      "semantic_classification": "YAHOO_CBOE_VOLATILITY_QUOTE_INDEX",
+      "symbol": "^VIX",
+      "unit": "index points"
+    },
+    {
+      "aligned_grid_row_count": 0,
+      "checks": {
+        "completed_grid_alignment": false,
+        "http_and_payload": true,
+        "identity": true,
+        "latest_completed_ohlc": false,
+        "retained_15m_close_relationship": false,
+        "scheduler_boundary_selection": false,
+        "unit_and_quote_index_semantics": true
+      },
+      "identity_checks": {
+        "data_granularity": true,
+        "exchange": true,
+        "full_exchange": true,
+        "instrument_type": true,
+        "symbol": true,
+        "timezone": true
+      },
+      "landing_call_root": "data/landing/yahoo_market_30m_validation/20260827/yahoo/chart_30m_validation/20260826T170038.099520Z_c11a0249750343348783910bd5a529d9",
+      "landing_sha256": "533cc7b33e527cc37ee9b6228b0b3c6d001ce144a8c7073689ba52a0e4c80060",
+      "latest_retained_15m_comparison": null,
+      "latest_selected_bar": null,
+      "metadata": {
+        "dataGranularity": "30m",
+        "exchangeName": "CGI",
+        "exchangeTimezoneName": "America/Chicago",
+        "fullExchangeName": "Cboe Indices",
+        "instrumentType": "INDEX",
+        "symbol": "^FVX",
+        "timezone": "CDT"
+      },
+      "off_grid_quote_row_count": 85,
+      "passed": false,
+      "retained_15m_overlap_count": 0,
+      "retrieved_at_utc": "2026-08-26T17:00:37.982499Z",
+      "row_count": 85,
+      "scheduler_boundary_utc": "2026-08-26T16:32:00Z",
+      "semantic_classification": "YAHOO_INDICATIVE_QUOTE_INDEX_NOT_OFFICIAL_TREASURY_YIELD",
+      "symbol": "^FVX",
+      "unit": "provider native quote index points"
+    },
+    {
+      "aligned_grid_row_count": 0,
+      "checks": {
+        "completed_grid_alignment": false,
+        "http_and_payload": true,
+        "identity": true,
+        "latest_completed_ohlc": false,
+        "retained_15m_close_relationship": false,
+        "scheduler_boundary_selection": false,
+        "unit_and_quote_index_semantics": true
+      },
+      "identity_checks": {
+        "data_granularity": true,
+        "exchange": true,
+        "full_exchange": true,
+        "instrument_type": true,
+        "symbol": true,
+        "timezone": true
+      },
+      "landing_call_root": "data/landing/yahoo_market_30m_validation/20260827/yahoo/chart_30m_validation/20260826T170038.242623Z_949b95a279b440d38712d2bb0183ad23",
+      "landing_sha256": "396e673bb4de38c180e10bdc9e78fcfbc1fda2ea1201b67e6995957bd7f6430a",
+      "latest_retained_15m_comparison": null,
+      "latest_selected_bar": null,
+      "metadata": {
+        "dataGranularity": "30m",
+        "exchangeName": "CGI",
+        "exchangeTimezoneName": "America/Chicago",
+        "fullExchangeName": "Cboe Indices",
+        "instrumentType": "INDEX",
+        "symbol": "^TNX",
+        "timezone": "CDT"
+      },
+      "off_grid_quote_row_count": 85,
+      "passed": false,
+      "retained_15m_overlap_count": 0,
+      "retrieved_at_utc": "2026-08-26T17:00:38.125655Z",
+      "row_count": 85,
+      "scheduler_boundary_utc": "2026-08-26T16:32:00Z",
+      "semantic_classification": "YAHOO_INDICATIVE_QUOTE_INDEX_NOT_OFFICIAL_TREASURY_YIELD",
+      "symbol": "^TNX",
+      "unit": "provider native quote index points"
+    },
+    {
+      "aligned_grid_row_count": 0,
+      "checks": {
+        "completed_grid_alignment": false,
+        "http_and_payload": true,
+        "identity": true,
+        "latest_completed_ohlc": false,
+        "retained_15m_close_relationship": false,
+        "scheduler_boundary_selection": false,
+        "unit_and_quote_index_semantics": true
+      },
+      "identity_checks": {
+        "data_granularity": true,
+        "exchange": true,
+        "full_exchange": true,
+        "instrument_type": true,
+        "symbol": true,
+        "timezone": true
+      },
+      "landing_call_root": "data/landing/yahoo_market_30m_validation/20260827/yahoo/chart_30m_validation/20260826T170038.384811Z_56ec01fa3c6744a0afc4956517501507",
+      "landing_sha256": "0ed7abe15d5a7c2ff53689192a360feb0da13af4f3e3ad9e2261e627f9495d81",
+      "latest_retained_15m_comparison": null,
+      "latest_selected_bar": null,
+      "metadata": {
+        "dataGranularity": "30m",
+        "exchangeName": "CGI",
+        "exchangeTimezoneName": "America/Chicago",
+        "fullExchangeName": "Cboe Indices",
+        "instrumentType": "INDEX",
+        "symbol": "^TYX",
+        "timezone": "CDT"
+      },
+      "off_grid_quote_row_count": 85,
+      "passed": false,
+      "retained_15m_overlap_count": 0,
+      "retrieved_at_utc": "2026-08-26T17:00:38.264756Z",
+      "row_count": 85,
+      "scheduler_boundary_utc": "2026-08-26T16:32:00Z",
+      "semantic_classification": "YAHOO_INDICATIVE_QUOTE_INDEX_NOT_OFFICIAL_TREASURY_YIELD",
+      "symbol": "^TYX",
+      "unit": "provider native quote index points"
+    }
+  ],
+  "retained_15m_status": "STATIC_COMPLETE / NO_REFRESH",
+  "retained_15m_writes": 0,
+  "retry_count": 0,
+  "schema": "yahoo-current-30m-switch-validation.v1",
+  "symbols": [
+    "^VIX",
+    "^FVX",
+    "^TNX",
+    "^TYX"
+  ],
+  "timestamp_format": "RFC3339_UTC_Z",
+  "verdict": "PARTIAL_KEEP_NATIVE_15M"
+}

@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "timestamp_format": "RFC3339_UTC_Z",
+  "observed_at_utc": "2026-08-26T18:40:44.5287012Z",
+  "scope": "SCHEDULER_ALIGNMENT",
+  "status": "PARTIAL_PENDING_MORNING_NATURAL_RUNS",
+  "changes": {
+    "kr_market_daily_lane_contract_version_before": 2,
+    "kr_market_daily_lane_contract_version_after": 4,
+    "kospi200_breadth_placement": [
+      "20:30",
+      "AFTER_CANONICAL_EQUITY_DAILY"
+    ],
+    "kr_equity_fundamental_observation_0910": true,
+    "new_windows_task_definitions": 0,
+    "issue_state_definition_repaired": true,
+    "issue_state_definition_sha256_before": "8d4a2f12bfdc0a979c1839e729fd80b92f78973325eb7de511ab70dc67826f2b",
+    "issue_state_definition_sha256_after": "fa575bbf7662095156fdb3b6d574b53b005bd79252f8dd1f024c49d29f7c2901"
+  },
+  "coverage": {
+    "automation_enabled_dataset_count": 31,
+    "automation_enabled_scheduler_lane_count": 13,
+    "unrouted_automation_enabled_lanes": [],
+    "release_readiness_data_definition_count": 12,
+    "definition_missing": 0,
+    "definition_disabled": 0,
+    "definition_nonzero_failure": 0,
+    "definition_mismatch": 0,
+    "scheduler_result_required": 2,
+    "scheduler_result_failed": 0,
+    "due_task_groups": 9,
+    "due_task_groups_failed": 1
+  },
+  "issue_state_semantics_after": {
+    "state": "Ready",
+    "next_occurrence_kst": "2026-08-27T06:45:00+09:00",
+    "start_when_available": false,
+    "disallow_start_if_on_batteries": false,
+    "stop_if_going_on_batteries": false,
+    "wake_to_run": true,
+    "multiple_instances": "IgnoreNew",
+    "execution_time_limit": "PT5M"
+  },
+  "validation": {
+    "earlier_combined_pytest_passed": 266,
+    "current_yahoo_release_pytest_passed": 151,
+    "current_release_readiness_pytest_passed": 133,
+    "current_scheduler_universe_pytest_passed": 206,
+    "current_fallback_pytest_passed": 47,
+    "current_fallback_pytest_skipped": 1,
+    "current_consolidated_pytest_passed": 253,
+    "current_provider_scheduler_cli_pytest_passed": 53,
+    "issue_state_pytest_passed": 88,
+    "kr_market_registration_dry_run": "PASS",
+    "scheduler_definition_check": "PASS_LIVE_YAHOO_RESULT_RECOVERED",
+    "scheduler_result_check": "PASS",
+    "due_occurrence_check": "FAIL_8_OF_9_COMPLETE_TOSS_PENDING",
+    "full_release_smoke": "FAIL_EXPECTED_TOSS_NATURAL_OCCURRENCE_PENDING",
+    "full_release_smoke_observed_at_kst": "2026-08-27T03:38:36+09:00",
+    "release_blockers": [
+      "DUE_OCCURRENCE_OUTCOMES"
+    ],
+    "natural_yahoo_0302_api_calls": 17,
+    "natural_yahoo_0302_failed_routes": [
+      "SP500_CURRENT_60M"
+    ],
+    "natural_yahoo_0332_api_calls": 17,
+    "natural_yahoo_0332_accepted_routes": 17,
+    "natural_yahoo_0332_failed_routes": 0,
+    "natural_yahoo_0332_history_writes": 0,
+    "health_dataset_count": 80,
+    "health_automation_enabled_count": 31,
+    "health_managed_acceptable_count": 31,
+    "health_receipt_reconciliation": "PASS",
+    "agent_initiated_external_calls": 0,
+    "agent_initiated_canonical_history_writes": 0,
+    "broker_mutations": 0
+  },
+  "fallback_coverage": {
+    "active_exact_routes": [
+      "fred_vix_daily:VIXCLS"
+    ],
+    "implemented_tested_not_scheduled": [
+      "KR_EQUITY_REGULAR_CLOSE:XKRX:000660",
+      "KR_EQUITY_REGULAR_CLOSE:XKRX:005930"
+    ],
+    "all_other_routes": "NO_AUTOMATIC_FALLBACK_WITHOUT_EQUIVALENCE_GATE"
+  },
+  "file_sha256": {
+    "scripts/maintenance/run_provider_scheduler.py": "605f18432474690dcafe279197808b002adb522dcfd2fabc726adb2483c2661f",
+    "src/stock_data/orchestration/release_readiness.py": "cd9361a3b83494d3ea3a21f0bce6b223becd36bb1aa56823dcc4bd11cbf081d8",
+    "src/stock_data/orchestration/yahoo_market_current.py": "fece143c825bdf1ae4f8c995e8d67b4f3f41a0c2d2153cb91c1176a2acfa62bd",
+    "src/stock_data/orchestration/dataset_universe.py": "249832ee03ba09cc8cba2d6a1bd639c608c862dffa74c6d64c3901fcff059cfc",
+    "tests/unit/orchestration/test_provider_scheduler_cli.py": "831322e3f313267d71de02a6a87ca319b7df66247c062b609f5c41128236e1a9",
+    "tests/unit/orchestration/test_release_readiness.py": "4cd323d799abf1305e45c76277b5116abd4f568af5474c4235cecd6f573ffd32",
+    "tests/unit/orchestration/test_yahoo_market_current.py": "9cc866a225b194fc98402a8fc774f8b14af356aa17d59b3ce426e1ab2073847e",
+    "tests/unit/orchestration/test_daily_operations.py": "aaefbccd21322c5017b4d38425abb63d1059d8723ea6093c0606426e500d5d28",
+    "tests/unit/gui/test_gui_health.py": "c71563b4cbef5f1e1690a2128ec8e821f6bb5a896164b5eea34aeb77d26e02b2"
+  },
+  "pending_natural_occurrences_kst": [
+    "2026-08-27T06:00:00+09:00",
+    "2026-08-27T06:10:00+09:00",
+    "2026-08-27T06:20:00+09:00",
+    "2026-08-27T06:30:00+09:00",
+    "2026-08-27T06:45:00+09:00",
+    "2026-08-27T07:00:00+09:00",
+    "2026-08-27T09:00:00+09:00",
+    "2026-08-27T09:10:00+09:00",
+    "2026-08-27T20:30:00+09:00"
+  ]
+}

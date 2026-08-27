@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "observed_at_utc": "2026-08-18T20:18:00Z",
+  "scope": "bounded Round 2 provider audit; no mixed-provider promotion",
+  "contract": "market_price_60m_observation v1",
+  "providers": {
+    "yahoo": {
+      "status": "LATEST_SESSION_VALIDATED_ONLY",
+      "request_interval": "60m",
+      "observed_data_granularity": "1h",
+      "timezone_policy": "provider UTC timestamps with explicit regular-session windows",
+      "adjustment_policy": "PROVIDER_UNADJUSTED_INTRADAY",
+      "pagination": "single bounded chart request observed; production pagination not validated",
+      "lookback": "approximately one year returned, but strict completeness validation failed",
+      "landing_root": "data/landing/market_60m_provider_audit/round2_20260819",
+      "latest_session_samples": {
+        "005930": {"date": "2026-08-18", "bars": 7, "first_utc": "00:00", "last_utc": "06:30", "volume": 20102625},
+        "000660": {"date": "2026-08-18", "bars": 7, "first_utc": "00:00", "last_utc": "06:30", "volume": 4364307},
+        "NVDA": {"date": "2026-08-18", "bars": 7, "first_utc": "13:30", "last_utc": "20:00", "volume": 77229818},
+        "QQQ": {"date": "2026-08-18", "bars": 7, "first_utc": "13:30", "last_utc": "20:00", "volume": 43585789},
+        "SOXX": {"date": "2026-08-18", "bars": 7, "first_utc": "13:30", "last_utc": "20:00", "volume": 8517769}
+      },
+      "one_year_probe": {
+        "symbol": "NVDA",
+        "returned_rows": 1782,
+        "coverage_start": "2025-08-13",
+        "coverage_end": "2026-08-18",
+        "result": "REJECTED",
+        "reason": "11 returned bars had null OHLCV, including early-close and ordinary-session timestamps; complete-day fallback is unavailable"
+      },
+      "production_role": "NONE"
+    },
+    "kbsec": {
+      "status": "VALIDATION_CANDIDATE",
+      "evidence": "reviewed repository API catalog/sample fields do not establish a native 60-minute historical contract",
+      "production_role": "NONE"
+    },
+    "tossinvest": {
+      "status": "BLOCKED_NO_REVIEWED_NATIVE_60M_CONTRACT",
+      "production_role": "NONE"
+    },
+    "ls_openapi": {
+      "status": "BLOCKED_NO_REVIEWED_60M_ENDPOINT",
+      "production_role": "NONE"
+    }
+  },
+  "backfill": {
+    "requested_symbols": 20,
+    "promoted_symbols": 0,
+    "status": "BLOCKED",
+    "reason": "No provider passed both one-year completeness and validated whole-day fallback gates"
+  },
+  "scheduler": {
+    "installed": false,
+    "reason": "No production PRIMARY plus validated fallback pair exists"
+  }
+}

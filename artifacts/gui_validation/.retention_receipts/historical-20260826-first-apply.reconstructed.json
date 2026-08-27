@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "receipt_kind": "HISTORICAL_RECONSTRUCTION_NOT_ORIGINAL_RECEIPT",
+  "source_task_id": "RQ-20260826T145850-38F9",
+  "operation_date_kst": "2026-08-26",
+  "status": "APPLIED_RECONSTRUCTED",
+  "before": {
+    "files": 40,
+    "bytes": 4432782
+  },
+  "after": {
+    "files": 25,
+    "bytes": 2625253
+  },
+  "deleted": {
+    "files": 15,
+    "bytes": 1807529,
+    "entries": [
+      {"path": "ur101_workspace_detached_large_20260820.png", "size_bytes": 31760},
+      {"path": "ur101_workspace_maximized_20260820.png", "size_bytes": 50080},
+      {"path": "ur101_workspace_1600x900_20260820.png", "size_bytes": 42947},
+      {"path": "ur100_lower_unit_owner_native_1600x900_20260820.png", "size_bytes": 55708},
+      {"path": "ur099_dashboard_indicator_panel_native_maximized_20260820.png", "size_bytes": 198917},
+      {"path": "ur099_dashboard_indicator_panel_native_1600x900_20260820.png", "size_bytes": 172349},
+      {"path": "ur099_indicator_panel_native_maximized_20260820.png", "size_bytes": 172643},
+      {"path": "ur099_indicator_panel_native_1600x900_20260820.png", "size_bytes": 100954},
+      {"path": "ur062_common_base_detached_1200x760_20260820.png", "size_bytes": 68361},
+      {"path": "ur062_common_base_native_1600x900_20260820.png", "size_bytes": 81781},
+      {"path": "ur036_index_kospi_120d_native_restored_1600x900_20260820.png", "size_bytes": 144618},
+      {"path": "ur036_index_kospi_120d_native_maximized_20260820.png", "size_bytes": 243563},
+      {"path": "ur036_index_kospi_120d_native_1600x900_20260820.png", "size_bytes": 144618},
+      {"path": "ur095_index_kospi_native_1600x900_20260820.png", "size_bytes": 148999},
+      {"path": "ur095_dashboard_kospi_native_1600x900_20260820.png", "size_bytes": 150231}
+    ]
+  },
+  "limitations": [
+    "The live manifest was overwritten by a later idempotency apply and dry-run before immutable receipts existed.",
+    "The original transaction id, reviewed plan digest, and per-file SHA-256 values cannot be recovered and are intentionally not guessed.",
+    "Counts, total bytes, paths, and per-file sizes are reconstructed from the verified pre-apply manifest output and post-apply inventory."
+  ]
+}

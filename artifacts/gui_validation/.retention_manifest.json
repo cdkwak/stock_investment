@@ -1,0 +1,269 @@
+{
+  "bytes": {
+    "deleted": 0,
+    "eligible": 0,
+    "inventory": 2625253,
+    "quarantined": 0
+  },
+  "classification": "GENERATED_GUI_VALIDATION_RETENTION_MANIFEST_NOT_STATUS",
+  "counts": {
+    "current_bundle": 1,
+    "current_bundle_only": 1,
+    "deleted": 0,
+    "eligible": 0,
+    "inventory_files": 25,
+    "kept_recent": 20,
+    "malformed_references": 0,
+    "missing_references": 16,
+    "original_path_conflicts": 0,
+    "quarantined": 0,
+    "referenced": 4,
+    "restored": 0
+  },
+  "current_bundle": [
+    {
+      "device": 11261876023449906272,
+      "inode": 12666373952071763,
+      "mtime_ns": 1787677611587001000,
+      "path": "usdkrw_refresh_stall_20260826.json",
+      "sha256": "cfe7e69865dc40134d74b9645ed222a0ea996645c3908d2050f16972523b0cf8",
+      "size_bytes": 26919
+    }
+  ],
+  "deleted": [],
+  "eligible": [],
+  "generated_at_utc": "2026-08-26T12:05:25.123570+00:00",
+  "kept_recent": [
+    {
+      "device": 11261876023449906272,
+      "inode": 18014398509942157,
+      "mtime_ns": 1787358203029889600,
+      "path": "dashboard_top10_fx_session_1600x900_20260822.png",
+      "sha256": "ab81389951952534e9b665f3a2070aabd12d7c94066864fc33960acc7626b091",
+      "size_bytes": 135196
+    },
+    {
+      "device": 11261876023449906272,
+      "inode": 14636698789986257,
+      "mtime_ns": 1787357866922958600,
+      "path": "dashboard_top9_session_sparklines_1600x900_20260822.png",
+      "sha256": "ab81389951952534e9b665f3a2070aabd12d7c94066864fc33960acc7626b091",
+      "size_bytes": 135196
+    },
+    {
+      "device": 11261876023449906272,
+      "inode": 7599824372220271,
+      "mtime_ns": 1787331361081049800,
+      "path": "dashboard_top7_current_1600x900_20260822.png",
+      "sha256": "a5227b36f29eb824e846ea4ba5258f0f7e54a47ab2f78bfb5418dc9a58544a2e",
+      "size_bytes": 15430
+    },
+    {
+      "device": 11261876023449906272,
+      "inode": 14355223812459675,
+      "mtime_ns": 1787325817848230500,
+      "path": "dashboard_market_session_bar_20260822.png",
+      "sha256": "b2d68996d33e72f54b51931b5ef3ea90b8c1605a4cce5c2ac87b2b162bc834a3",
+      "size_bytes": 20037
+    },
+    {
+      "device": 11261876023449906272,
+      "inode": 5629499535649864,
+      "mtime_ns": 1787321172671196500,
+      "path": "ur243_dashboard_nxt_placement_offscreen_1600x900.png",
+      "sha256": "acba44794bc88cb5d1ccf3c378959cf91d0d9d75fed338665dfebacdc7d9e600",
+      "size_bytes": 123896
+    },
+    {
+      "device": 11261876023449906272,
+      "inode": 7318349395913729,
+      "mtime_ns": 1787320505247554300,
+      "path": "ur242_dashboard_nxt_close_offscreen_1600x900.png",
+      "sha256": "a2334d04742e81fb1212af8452f0056f151e5f82b5940fb7406db264ba6e1cae",
+      "size_bytes": 127614
+    },
+    {
+      "device": 11261876023449906272,
+      "inode": 11821949023274557,
+      "mtime_ns": 1787315325467282800,
+      "path": "ur233_dashboard_global60m_offscreen_1600x900.png",
+      "sha256": "a92cd5efce5559e38f9e1040ec88b78d1539190c7cbc0dd25913d338b156df52",
+      "size_bytes": 133107
+    },
+    {
+      "device": 11261876023449906272,
+      "inode": 36591746973778802,
+      "mtime_ns": 1787307006855562300,
+      "path": "ur222_dashboard_soxx_1900_offscreen_1600x900.png",
+      "sha256": "01e3464057e70478b60793c95519c6c6938290d05842becb879688310cf86232",
+      "size_bytes": 126377
+    },
+    {
+      "device": 11261876023449906272,
+      "inode": 3940649675376569,
+      "mtime_ns": 1787300648252243600,
+      "path": "ur192_dashboard_soxx_actual_local_offscreen_1600x900_20260821T172000+0900.png",
+      "sha256": "5d9d54a58616d46043c3a3265db3a73f224171870054d80367d1f67faa32c5e0",
+      "size_bytes": 126513
+    },
+    {
+      "device": 11261876023449906272,
+      "inode": 4222124652087088,
+      "mtime_ns": 1787298446585064800,
+      "path": "ur173_dashboard_final_local_offscreen_1600x900_20260821T164300+0900.png",
+      "sha256": "89711a3632556ac9aa266a4a316aee4ac7f56a70cf227d6ab8c9afeb7d62d409",
+      "size_bytes": 123243
+    },
+    {
+      "device": 11261876023449906272,
+      "inode": 3377699721954882,
+      "mtime_ns": 1787290356775464800,
+      "path": "ur164_dashboard_actual_local_offscreen_1600x900_20260821T143100+0900.png",
+      "sha256": "7c1a5ef58c019f78ca379cd2cfabc890d4c1bdbebf292e248da7a7fbe8e9d373",
+      "size_bytes": 133319
+    },
+    {
+      "device": 11261876023449906272,
+      "inode": 3377699721954815,
+      "mtime_ns": 1787290270871448600,
+      "path": "ur164_dashboard_actual_local_offscreen_1600x900_20260821T142000+0900.png",
+      "sha256": "382a2bd8037f40b3e6f056674b4870828321954245a20828bd9c88b7655f8c30",
+      "size_bytes": 128527
+    },
+    {
+      "device": 11261876023449906272,
+      "inode": 5348024558929434,
+      "mtime_ns": 1787289364261088500,
+      "path": "ur164_dashboard_actual_local_offscreen_1600x900_20260821T140826+0900.png",
+      "sha256": "f5c20c795980c1f77c04d17917cfcad911cd3d4bdc52bfe6de8cc8a552d96e0d",
+      "size_bytes": 132470
+    },
+    {
+      "device": 11261876023449906272,
+      "inode": 19703248369805711,
+      "mtime_ns": 1787274157104375900,
+      "path": "ur120_dashboard_current_observation_native_1600x900_20260821.png",
+      "sha256": "34626bafc7b073718056665cb5e8a7327dfb11451fbf2473f8ab052cccb8035a",
+      "size_bytes": 256880
+    },
+    {
+      "device": 11261876023449906272,
+      "inode": 7881299348214882,
+      "mtime_ns": 1787233032127682200,
+      "path": "ur103_native_detached_20260820.png",
+      "sha256": "3571378a2ae8e4e2bb4ae0a355c4bdcf7801c4df28509bd1db19c4740c2aba92",
+      "size_bytes": 53002
+    },
+    {
+      "device": 11261876023449906272,
+      "inode": 16607023626245162,
+      "mtime_ns": 1787233031647890400,
+      "path": "ur103_native_maximized_20260820.png",
+      "sha256": "9e319729c827bb9943e84f6ed76c79c09c5dd7a4a494e580858ff8c09a403bb8",
+      "size_bytes": 73592
+    },
+    {
+      "device": 11261876023449906272,
+      "inode": 14073748835847637,
+      "mtime_ns": 1787233031181274600,
+      "path": "ur103_native_1600x900_20260820.png",
+      "sha256": "29635f6ad9c09c33b5592166ff342cc71c33386fa2cf8d9b5131fc5b425e2748",
+      "size_bytes": 51468
+    },
+    {
+      "device": 11261876023449906272,
+      "inode": 16888498602890836,
+      "mtime_ns": 1787230369000282000,
+      "path": "ur101_workspace_populated_detached_large_20260820.png",
+      "sha256": "f6cc9dd2b181bacb00435cb6815920280a594dda27b92c410447b11aaa96e197",
+      "size_bytes": 46593
+    },
+    {
+      "device": 11261876023449906272,
+      "inode": 7036874418016307,
+      "mtime_ns": 1787230368820806500,
+      "path": "ur101_workspace_populated_maximized_20260820.png",
+      "sha256": "d11dfd934f8a258fb63fb45ff9e6f3cac241bf7591abb7d998ba1268cd72a844",
+      "size_bytes": 78249
+    },
+    {
+      "device": 11261876023449906272,
+      "inode": 17169973579589204,
+      "mtime_ns": 1787230368680525900,
+      "path": "ur101_workspace_populated_1600x900_20260820.png",
+      "sha256": "7728c321045c22003a462e5f9956193dbbb5342ce5beeca023b2e88db3c2646c",
+      "size_bytes": 63074
+    }
+  ],
+  "malformed_reference_codes": [],
+  "managed_root": "artifacts/gui_validation",
+  "missing_references": [
+    "a-20260825.png",
+    "accepted",
+    "archive-only.png",
+    "keep-20260825.png",
+    "kept.png",
+    "old-20260825.png",
+    "ur040_market_flow_native_1600x900_20260820.png",
+    "ur040_market_flow_native_maximized_20260820.png",
+    "ur043_individual_equity_1600x900.png",
+    "ur043_individual_equity_maximized.png",
+    "ur044_main_index_detached_stock_native_20260820.png",
+    "ur044_main_stock_detached_index_resized_native_20260820.png",
+    "ur089_stock_volume_axis_detached_1600x900_20260820.png",
+    "ur089_volume_axis_1600x900_20260820.png",
+    "ur089_volume_axis_maximized_20260820.png",
+    "승인-20260825.png"
+  ],
+  "original_path_states": [],
+  "plan_digest_sha256": "3aaf919ad09e5cc5424e950ebeacf9fc8934cd2c21872ef6f98de89f182ef118",
+  "policy": {
+    "current_bundle_id": "FILENAME_DATE:20260826",
+    "default_mode": "DRY_RUN",
+    "keep_unreferenced": 20
+  },
+  "quarantined": [],
+  "referenced": [
+    {
+      "device": 11261876023449906272,
+      "inode": 62487444829824390,
+      "mtime_ns": 1787225388407168300,
+      "path": "ur054_us_etf_detached_1200x760_20260820.png",
+      "sha256": "ccc74317de8a0e10e067531ce309557765597c97156485bc9470be20e76f198c",
+      "size_bytes": 56195
+    },
+    {
+      "device": 11261876023449906272,
+      "inode": 20829148276643057,
+      "mtime_ns": 1787225387975125800,
+      "path": "ur054_us_etf_native_1600x900_20260820.png",
+      "sha256": "ac1182f2b131ddadf1b7cfbfb3696a030de084129a70ac73b30d5aacf3e24ce2",
+      "size_bytes": 67510
+    },
+    {
+      "device": 11261876023449906272,
+      "inode": 10133099162073629,
+      "mtime_ns": 1787233918050226700,
+      "path": "ur109_dashboard_indicators_native_1600x900_20260821.png",
+      "sha256": "84f88254a94a06c88413587f834ddedd8bac8ac021a3d9d3c56ec855e07309a1",
+      "size_bytes": 194782
+    },
+    {
+      "device": 11261876023449906272,
+      "inode": 24488322973923019,
+      "mtime_ns": 1787233918675022600,
+      "path": "ur109_dashboard_indicators_native_maximized_20260821.png",
+      "sha256": "a6cabc1be47a322e32502d372cabf3d7f4cf166908c23b4ff0852f7360dfd4a1",
+      "size_bytes": 196064
+    }
+  ],
+  "restored": [],
+  "reviewed_plan_digest_sha256": null,
+  "schema_version": 1,
+  "status": "DRY_RUN",
+  "transaction": {
+    "contract": "PURGE_COMMITTED means original paths were atomically quarantined, validated, and authorized for exact purge; purge may be pending or complete",
+    "id": null,
+    "quarantine_root": null
+  }
+}

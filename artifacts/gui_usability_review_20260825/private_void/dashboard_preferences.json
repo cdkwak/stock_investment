@@ -1,0 +1,100 @@
+{
+  "card_order": [
+    "KOSPI",
+    "KOSDAQ",
+    "NQ_FUTURES",
+    "NASDAQ",
+    "SP500",
+    "SOXX",
+    "GOLD",
+    "WTI",
+    "BITCOIN",
+    "USD_KRW_60M"
+  ],
+  "chart_indicators": {
+    "DASHBOARD": {
+      "adx14_mode": "Off",
+      "atr14_mode": "Off",
+      "bollinger_bands": false,
+      "bollinger_bandwidth_mode": "Off",
+      "disparity60_mode": "Off",
+      "ema20": false,
+      "ma120": false,
+      "ma20": false,
+      "ma5": false,
+      "ma60": true,
+      "obv_mode": "Off",
+      "rsi14_mode": "Off",
+      "volume": true
+    },
+    "EQUITY": {
+      "adx14_mode": "Off",
+      "atr14_mode": "Off",
+      "bollinger_bands": false,
+      "bollinger_bandwidth_mode": "Off",
+      "disparity60_mode": "Off",
+      "ema20": false,
+      "ma120": true,
+      "ma20": true,
+      "ma5": true,
+      "ma60": true,
+      "obv_mode": "Off",
+      "rsi14_mode": "Off",
+      "volume": true
+    },
+    "INDEX": {
+      "adx14_mode": "Off",
+      "atr14_mode": "Off",
+      "bollinger_bands": false,
+      "bollinger_bandwidth_mode": "Off",
+      "disparity60_mode": "Off",
+      "ema20": false,
+      "ma120": true,
+      "ma20": true,
+      "ma5": true,
+      "ma60": true,
+      "obv_mode": "Off",
+      "rsi14_mode": "Off",
+      "volume": true
+    },
+    "US_ETF": {
+      "adx14_mode": "Off",
+      "atr14_mode": "Off",
+      "bollinger_bands": false,
+      "bollinger_bandwidth_mode": "Off",
+      "disparity60_mode": "Off",
+      "ema20": false,
+      "ma120": true,
+      "ma20": true,
+      "ma5": true,
+      "ma60": true,
+      "obv_mode": "Off",
+      "rsi14_mode": "Off",
+      "volume": true
+    }
+  },
+  "default_market_asset": "KOSPI",
+  "default_market_period": "120D",
+  "default_nq_interval": "일봉",
+  "density": "DETAIL",
+  "hidden_cards": [],
+  "hidden_sections": [],
+  "pinned_cards": [],
+  "schema_version": 8,
+  "section_order": [
+    "KOSPI_CHART",
+    "NQ_CHART",
+    "MARKET_TEMPERATURE",
+    "MARKET_FLOW",
+    "FX_RATES",
+    "ACCOUNT_SUMMARY",
+    "DERIVATIVES"
+  ],
+  "window_geometry": {
+    "height": 900,
+    "maximized": false,
+    "width": 1600,
+    "x": 2,
+    "y": 2
+  }
+}
