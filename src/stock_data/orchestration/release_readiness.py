@@ -183,8 +183,7 @@ EXPECTED_GUI_PAGES = (
     "Research Workspace",
     "관심종목",
     "Data Status",
-    "Account",
-    "순자산",
+    "계좌·순자산",
     "Backtest",
 )
 EXPECTED_GUI_WORKERS = (

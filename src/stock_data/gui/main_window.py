@@ -5373,7 +5373,7 @@ class DashboardPreferencesDialog(QtWidgets.QDialog):
 
 
 class DashboardPage(QtWidgets.QScrollArea):
-    COMPACT_MARKET_CARD_HEIGHT = 92
+    COMPACT_MARKET_CARD_HEIGHT = 102
     DETAIL_MARKET_CARD_HEIGHT = 112
     """Visual-acceptance layout; all numeric inputs remain typed and gated."""
 

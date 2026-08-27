@@ -8889,7 +8889,7 @@ def test_dashboard_density_stays_wide_and_compacts_for_scaled_display():
     assert page.oscillator_panel.height() >= 315
     tenth_card = page.market_cards[page._visible_market_card_ids[9]]
     assert page.top_strip.getItemPosition(page.top_strip.indexOf(tenth_card))[:2] == (0, 9)
-    assert page.top_widget.height() == 92
+    assert page.top_widget.height() == page.COMPACT_MARKET_CARD_HEIGHT
     visible_side = [
         widget for widget in (
             page.oscillator_panel, page.rates_panel, page.account_placeholder,
