@@ -305,6 +305,8 @@ def test_protected_data_output_is_refused_before_creation_or_computation(
         Path("src/generated-phase1"),
         Path("artifacts/backtest"),
         Path("artifacts/test_tmp"),
+        Path(".tmp/agents"),
+        Path(".tmp/agents/session-id"),
     ],
 )
 def test_project_local_output_is_confined_below_backtest_artifacts(
@@ -339,6 +341,18 @@ def test_project_local_output_may_use_an_ignored_test_tmp_child(
 
     assert receipt.status == "READY"
     assert _snapshot(output) == dict(_bundle("test-output").bodies)
+
+
+def test_project_local_output_may_use_an_owned_agent_temp_child(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "project"
+    output = project / ".tmp/agents/session-id/phase1-replay"
+
+    receipt = _fake_run(monkeypatch, project, output, _bundle("agent-output"))
+
+    assert receipt.status == "READY"
+    assert _snapshot(output) == dict(_bundle("agent-output").bodies)
 
 
 def test_output_root_cannot_contain_the_project_tree(

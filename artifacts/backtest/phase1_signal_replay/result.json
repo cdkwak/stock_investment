@@ -1,0 +1,389 @@
+{
+  "crisis_replay": [
+    {
+      "adverse_observations": 254,
+      "end": "2003-03-31",
+      "event": "dot_com",
+      "event_precision": 0.33125,
+      "event_recall": 0.6259842519685039,
+      "first_risk_off_date": "2000-01-07",
+      "holdout_observations_excluded": 0,
+      "mean_forward_20d_return": -0.0072059154189910175,
+      "observations": 793,
+      "risk_off_observations": 480,
+      "start": "2000-01-01",
+      "status": "DIAGNOSTIC_ONLY",
+      "worst_forward_20d_drawdown": -0.26603147414623696
+    },
+    {
+      "adverse_observations": 127,
+      "end": "2009-06-30",
+      "event": "global_financial_crisis",
+      "event_precision": 0.2579185520361991,
+      "event_recall": 0.44881889763779526,
+      "first_risk_off_date": "2007-08-10",
+      "holdout_observations_excluded": 0,
+      "mean_forward_20d_return": -0.006477229167674905,
+      "observations": 494,
+      "risk_off_observations": 221,
+      "start": "2007-07-01",
+      "status": "DIAGNOSTIC_ONLY",
+      "worst_forward_20d_drawdown": -0.36416155155516583
+    },
+    {
+      "adverse_observations": 29,
+      "end": "2020-06-30",
+      "event": "covid_2020",
+      "event_precision": 0.26666666666666666,
+      "event_recall": 0.41379310344827586,
+      "first_risk_off_date": "2020-02-24",
+      "holdout_observations_excluded": 0,
+      "mean_forward_20d_return": 0.0026722463984953132,
+      "observations": 123,
+      "risk_off_observations": 45,
+      "start": "2020-01-01",
+      "status": "DIAGNOSTIC_ONLY",
+      "worst_forward_20d_drawdown": -0.3282319231417494
+    },
+    {
+      "end": "2022-12-31",
+      "event": "bear_market_2022",
+      "holdout_observations_excluded": "NOT_INSPECTED",
+      "start": "2022-01-01",
+      "status": "UNTOUCHED_HOLDOUT"
+    },
+    {
+      "end": "2025-04-30",
+      "event": "april_2025",
+      "holdout_observations_excluded": "NOT_INSPECTED",
+      "start": "2025-04-01",
+      "status": "UNTOUCHED_HOLDOUT"
+    },
+    {
+      "end": "2026-08-14",
+      "event": "recent_2026",
+      "holdout_observations_excluded": "NOT_INSPECTED",
+      "start": "2026-01-01",
+      "status": "UNTOUCHED_HOLDOUT"
+    }
+  ],
+  "crisis_replay_development_only": [
+    {
+      "adverse_observations": 254,
+      "end": "2003-03-31",
+      "event": "dot_com",
+      "event_precision": 0.33125,
+      "event_recall": 0.6259842519685039,
+      "first_risk_off_date": "2000-01-07",
+      "holdout_observations_excluded": 0,
+      "mean_forward_20d_return": -0.0072059154189910175,
+      "observations": 793,
+      "risk_off_observations": 480,
+      "start": "2000-01-01",
+      "status": "DIAGNOSTIC_ONLY",
+      "worst_forward_20d_drawdown": -0.26603147414623696
+    },
+    {
+      "adverse_observations": 127,
+      "end": "2009-06-30",
+      "event": "global_financial_crisis",
+      "event_precision": 0.2579185520361991,
+      "event_recall": 0.44881889763779526,
+      "first_risk_off_date": "2007-08-10",
+      "holdout_observations_excluded": 0,
+      "mean_forward_20d_return": -0.006477229167674905,
+      "observations": 494,
+      "risk_off_observations": 221,
+      "start": "2007-07-01",
+      "status": "DIAGNOSTIC_ONLY",
+      "worst_forward_20d_drawdown": -0.36416155155516583
+    },
+    {
+      "adverse_observations": 29,
+      "end": "2020-06-30",
+      "event": "covid_2020",
+      "event_precision": 0.26666666666666666,
+      "event_recall": 0.41379310344827586,
+      "first_risk_off_date": "2020-02-24",
+      "holdout_observations_excluded": 0,
+      "mean_forward_20d_return": 0.0026722463984953132,
+      "observations": 123,
+      "risk_off_observations": 45,
+      "start": "2020-01-01",
+      "status": "DIAGNOSTIC_ONLY",
+      "worst_forward_20d_drawdown": -0.3282319231417494
+    },
+    {
+      "end": "2022-12-31",
+      "event": "bear_market_2022",
+      "holdout_observations_excluded": "NOT_INSPECTED",
+      "start": "2022-01-01",
+      "status": "UNTOUCHED_HOLDOUT"
+    },
+    {
+      "end": "2025-04-30",
+      "event": "april_2025",
+      "holdout_observations_excluded": "NOT_INSPECTED",
+      "start": "2025-04-01",
+      "status": "UNTOUCHED_HOLDOUT"
+    },
+    {
+      "end": "2026-08-14",
+      "event": "recent_2026",
+      "holdout_observations_excluded": "NOT_INSPECTED",
+      "start": "2026-01-01",
+      "status": "UNTOUCHED_HOLDOUT"
+    }
+  ],
+  "development_metrics": {
+    "event_prevalence": 0.10906847624922887,
+    "false_negative": 454,
+    "false_positive": 1374,
+    "false_positive_rate": 0.19027835479850436,
+    "mean_forward_max_drawdown_20d": -0.06427211876376458,
+    "mean_forward_return_20d": 0.007005682799556873,
+    "mean_mae_20d": -0.06427211876376458,
+    "mean_mfe_20d": 0.06600130228329304,
+    "observations": 8105,
+    "pr_auc_average_precision": 0.2580494781244777,
+    "precision": 0.23835920177383593,
+    "recall": 0.48642533936651583,
+    "true_negative": 5847,
+    "true_positive": 430
+  },
+  "experiment_id": "phase1_price_volatility_descriptive_v1",
+  "feature_family_ablation_plan": [
+    {
+      "family": "PRICE",
+      "included_families": [
+        "PRICE"
+      ],
+      "reason": "EVALUATION_ELIGIBLE",
+      "status": "AVAILABLE"
+    },
+    {
+      "family": "VOLATILITY",
+      "included_families": [
+        "PRICE",
+        "VOLATILITY"
+      ],
+      "reason": "EVALUATION_ELIGIBLE",
+      "status": "AVAILABLE"
+    },
+    {
+      "family": "FX",
+      "included_families": [
+        "PRICE",
+        "VOLATILITY"
+      ],
+      "reason": "PIT_OR_INPUT_GATE_OPEN",
+      "status": "BLOCKED"
+    },
+    {
+      "family": "BREADTH",
+      "included_families": [
+        "PRICE",
+        "VOLATILITY"
+      ],
+      "reason": "PIT_OR_INPUT_GATE_OPEN",
+      "status": "BLOCKED"
+    },
+    {
+      "family": "FLOW",
+      "included_families": [
+        "PRICE",
+        "VOLATILITY"
+      ],
+      "reason": "PIT_OR_INPUT_GATE_OPEN",
+      "status": "BLOCKED"
+    },
+    {
+      "family": "DERIVATIVES",
+      "included_families": [
+        "PRICE",
+        "VOLATILITY"
+      ],
+      "reason": "PIT_OR_INPUT_GATE_OPEN",
+      "status": "BLOCKED"
+    }
+  ],
+  "frozen_manifest": {
+    "bytes": 738068,
+    "contract_version": 1,
+    "coverage_end": "2026-08-14",
+    "coverage_start": "1990-01-03",
+    "dataset": "kr_kospi200_index_daily",
+    "decision_rule": "T_CLOSE_OBSERVED_USABLE_FROM_T_PLUS_1_DECISION",
+    "files": 37,
+    "root_manifest_sha256": "a9229374d82aca29bd792230752ff050f266968c496477223400d1c87b2cc713",
+    "rows": 9447
+  },
+  "metrics": {
+    "event_prevalence": 0.10906847624922887,
+    "false_negative": 454,
+    "false_positive": 1374,
+    "false_positive_rate": 0.19027835479850436,
+    "mean_forward_max_drawdown_20d": -0.06427211876376458,
+    "mean_forward_return_20d": 0.007005682799556873,
+    "mean_mae_20d": -0.06427211876376458,
+    "mean_mfe_20d": 0.06600130228329304,
+    "observations": 8105,
+    "pr_auc_average_precision": 0.2580494781244777,
+    "precision": 0.23835920177383593,
+    "recall": 0.48642533936651583,
+    "true_negative": 5847,
+    "true_positive": 430
+  },
+  "metrics_scope": "DEVELOPMENT_ONLY_HOLDOUT_UNTOUCHED",
+  "portfolio_foundation": {
+    "instrument_claim": "NOT_EXECUTABLE_INSTRUMENT",
+    "ledger_artifact": "portfolio_ledger.json",
+    "ledger_artifact_digest": "a9cb2da09a06c2ba80de44986463f1fea97f96466268792f68e76281bd60321b",
+    "metrics": {
+      "annualized_return": 0.032604309281838884,
+      "annualized_volatility": 0.18411112351538605,
+      "average_long_exposure": 0.7789073983341499,
+      "ending_nav": 2.8275819351780314,
+      "initial_nav": 1.0,
+      "intervals": 8164,
+      "max_drawdown": -0.6811058591184012,
+      "observations": 8165,
+      "total_return": 1.8275819351780314,
+      "total_turnover": 368.8151848151848,
+      "trade_count": 369,
+      "transaction_cost_paid": 0.3361982025381793
+    },
+    "status": "DEVELOPMENT_ONLY_CLOSE_PROXY"
+  },
+  "predefined_small_grid": [
+    {
+      "baseline_id": "baseline_v1",
+      "folds": 22,
+      "metrics": {
+        "event_prevalence": 0.10239852398523985,
+        "false_negative": 309,
+        "false_positive": 790,
+        "false_positive_rate": 0.16238437821171633,
+        "mean_forward_max_drawdown_20d": -0.06389267855463768,
+        "mean_forward_return_20d": 0.009178360771186625,
+        "mean_mae_20d": -0.06389267855463768,
+        "mean_mfe_20d": 0.06465639381501025,
+        "observations": 5420,
+        "pr_auc_average_precision": 0.2269056935086643,
+        "precision": 0.23745173745173745,
+        "recall": 0.44324324324324327,
+        "true_negative": 4075,
+        "true_positive": 246
+      },
+      "test_observations": 5420,
+      "thresholds": {
+        "ma_distance_60d": -0.08,
+        "minimum_conditions": 2,
+        "realized_volatility_20d": 0.25,
+        "return_20d": -0.05,
+        "rolling_drawdown_60d": -0.1
+      }
+    },
+    {
+      "baseline_id": "sensitive_v1",
+      "folds": 22,
+      "metrics": {
+        "event_prevalence": 0.10239852398523985,
+        "false_negative": 233,
+        "false_positive": 1182,
+        "false_positive_rate": 0.24295991778006165,
+        "mean_forward_max_drawdown_20d": -0.05686915914462002,
+        "mean_forward_return_20d": 0.011578631636502218,
+        "mean_mae_20d": -0.05686915914462002,
+        "mean_mfe_20d": 0.06110433233797109,
+        "observations": 5420,
+        "pr_auc_average_precision": 0.22030192263335124,
+        "precision": 0.21409574468085107,
+        "recall": 0.5801801801801801,
+        "true_negative": 3683,
+        "true_positive": 322
+      },
+      "test_observations": 5420,
+      "thresholds": {
+        "ma_distance_60d": -0.05,
+        "minimum_conditions": 2,
+        "realized_volatility_20d": 0.2,
+        "return_20d": -0.03,
+        "rolling_drawdown_60d": -0.08
+      }
+    },
+    {
+      "baseline_id": "strict_confirmation_v1",
+      "folds": 22,
+      "metrics": {
+        "event_prevalence": 0.10239852398523985,
+        "false_negative": 409,
+        "false_positive": 482,
+        "false_positive_rate": 0.09907502569373072,
+        "mean_forward_max_drawdown_20d": -0.06250325740032006,
+        "mean_forward_return_20d": 0.019681563408847764,
+        "mean_mae_20d": -0.06250325740032006,
+        "mean_mfe_20d": 0.07462224733037566,
+        "observations": 5420,
+        "pr_auc_average_precision": 0.2269056935086643,
+        "precision": 0.23248407643312102,
+        "recall": 0.26306306306306304,
+        "true_negative": 4383,
+        "true_positive": 146
+      },
+      "test_observations": 5420,
+      "thresholds": {
+        "ma_distance_60d": -0.08,
+        "minimum_conditions": 3,
+        "realized_volatility_20d": 0.25,
+        "return_20d": -0.05,
+        "rolling_drawdown_60d": -0.1
+      }
+    },
+    {
+      "baseline_id": "deep_stress_v1",
+      "folds": 22,
+      "metrics": {
+        "event_prevalence": 0.10239852398523985,
+        "false_negative": 424,
+        "false_positive": 486,
+        "false_positive_rate": 0.0998972250770812,
+        "mean_forward_max_drawdown_20d": -0.06011680589455831,
+        "mean_forward_return_20d": 0.021946192635575346,
+        "mean_mae_20d": -0.06011680589455831,
+        "mean_mfe_20d": 0.07767587647842106,
+        "observations": 5420,
+        "pr_auc_average_precision": 0.22598185548277594,
+        "precision": 0.21231766612641814,
+        "recall": 0.23603603603603604,
+        "true_negative": 4379,
+        "true_positive": 131
+      },
+      "test_observations": 5420,
+      "thresholds": {
+        "ma_distance_60d": -0.12,
+        "minimum_conditions": 2,
+        "realized_volatility_20d": 0.3,
+        "return_20d": -0.08,
+        "rolling_drawdown_60d": -0.15
+      }
+    }
+  ],
+  "status": "DESCRIPTIVE_SIGNAL_REPLAY_NOT_PORTFOLIO_BACKTEST",
+  "thresholds": {
+    "ma_distance_60d": -0.08,
+    "minimum_conditions": 2,
+    "realized_volatility_20d": 0.25,
+    "return_20d": -0.05,
+    "rolling_drawdown_60d": -0.1
+  },
+  "untouched_holdout_policy": {
+    "coverage_end": "2026-08-14",
+    "coverage_start": "1990-01-03",
+    "development_observations": 8225,
+    "holdout_observations": 1222,
+    "holdout_start": "2021-08-17",
+    "policy_id": "UNTOUCHED_FINAL_5_CALENDAR_YEARS",
+    "results_reviewed": false
+  }
+}

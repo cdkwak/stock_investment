@@ -1,0 +1,11 @@
+{
+  "bytes": 738068,
+  "contract_version": 1,
+  "coverage_end": "2026-08-14",
+  "coverage_start": "1990-01-03",
+  "dataset": "kr_kospi200_index_daily",
+  "decision_rule": "T_CLOSE_OBSERVED_USABLE_FROM_T_PLUS_1_DECISION",
+  "files": 37,
+  "root_manifest_sha256": "a9229374d82aca29bd792230752ff050f266968c496477223400d1c87b2cc713",
+  "rows": 9447
+}
