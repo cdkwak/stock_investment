@@ -312,7 +312,10 @@ def test_main_window_worker_is_nonblocking_preserves_accepted_ui_on_tamper_and_c
 
         signals_path.write_bytes(original_signals)
         original_signals = None
-        assert window.close() is True
+        closed_immediately = window.close()
+        if not closed_immediately:
+            assert window._close_pending is True
+        _wait_until(app, lambda: window is not None and not window.isVisible())
         app.processEvents()
         closed = True
         assert window._backtest_thread is None
