@@ -7,12 +7,19 @@ name = "stock-investment-rev1"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
+    "exchange-calendars>=4.13.2,<5",
+    "finance-datareader==0.9.202",
     "numpy>=1.26",
     "pandas>=2.2",
     "pyarrow>=17.0",
     "pykrx==1.2.8",
     "python-dotenv>=1.0",
     "requests>=2.32",
+    "scikit-learn>=1.6,<2",
+    "optuna>=4,<5",
+    "PySide6>=6.8",
+    "pyqtgraph>=0.13.7",
+    "yfinance==1.6.0",
 ]
 
 [project.optional-dependencies]
@@ -25,5 +32,6 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.pytest.ini_options]
+addopts = ["--import-mode=importlib"]
 pythonpath = ["src"]
 testpaths = ["tests"]
