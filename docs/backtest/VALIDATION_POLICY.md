@@ -45,6 +45,21 @@ Required tests:
     recommendation, production model, or live-performance claim. The existing
     sealed holdout remains unopened unless the user explicitly opens it, but no
     separate phase approval is required for development-only work.
+19. every new `backtest-input-readiness/v1` consumer must receive typed
+    `NOT_AVAILABLE` for absent evidence and typed `BLOCKED` for each malformed
+    or unsafe present input; only exact pre/post manifest identity, finality,
+    PIT, feature version, clocks, calendar, split, and sealed holdout may return
+    `READY`;
+20. readiness clock tests must include a retained-calendar weekend or holiday
+    jump and prove `usable_from` is the next retained date at 09:00 Asia/Seoul,
+    never a weekday calculation;
+21. readiness tests must reject every label/outcome namespace, a purge below
+    the 60-session horizon, a non-Boolean false holdout flag, and any holdout
+    date before touching non-date feature values;
+22. readiness replay must produce byte-identical canonical JSON and SHA-256,
+    remain unchanged when valid numeric feature values change, and pass with
+    network socket creation denied. The receipt must contain no feature value,
+    label, prediction, metric, absolute path, wall clock, or holdout outcome.
 
 Historical crisis windows are diagnostic slices only. Their dates or outcomes
 must not choose thresholds, features, purge, embargo, or the final holdout.

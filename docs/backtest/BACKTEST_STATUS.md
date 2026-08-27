@@ -13,6 +13,7 @@ detail do not belong here.
 | Foundation | Accepted deterministic close-proxy five-file generation and typed local GUI consumer |
 | Frozen input | Content-addressed retained artifact, digest `a9229374d82aca29bd792230752ff050f266968c496477223400d1c87b2cc713` |
 | Final holdout | 1,222 observations beginning 2021-08-17; sealed and intentionally uninspected; `results_reviewed=false` |
+| New-consumer readiness | Additive provider-free `backtest-input-readiness/v1` binds exact manifest/readback, retained calendar, clocks, split, PIT/finality, and sealed holdout; accepted replay paths are not retrofitted |
 | Network/Data boundary | Backtest is provider-free and may not collect, refresh, or mutate Data artifacts |
 | Development authority | Offline features, models, fills, costs, portfolio accounting, reporting, and unmistakably local paper simulation may proceed through versioned contracts |
 | Financial boundary | No broker order endpoint, account mutation, live-performance claim, recommendation, or suitability claim |
@@ -32,6 +33,9 @@ detail do not belong here.
   PIT rules. Labels and future outcomes remain isolated from inputs.
 - Replay reads the content-addressed frozen input, not the mutable production
   root, and checks the exact semantic dependency manifest.
+- New versioned consumers have a typed deterministic input-readiness receipt;
+  this is an additive admission boundary and does not claim retroactive
+  enforcement for the accepted Phase-1, indicator, or overnight-ML paths.
 - Development splits preserve a 60-session purge and 5-session embargo for the
   accepted feature slice. The three-axis market-regime engine uses its stricter
   252-session purge and exact forward-outcome clocks.
@@ -97,7 +101,8 @@ inspection.
 ## Exact next actions
 
 1. Preserve the accepted five-file generation, frozen digest, and sealed
-   holdout while extending only new versioned offline boundaries.
+   holdout; require `backtest-input-readiness/v1` before adding a new versioned
+   consumer, without changing accepted replay semantics.
 2. Continue PIT-safe Forward EPS/revision/ROE evidence work through the Data
    research contract. Run the three-axis regime evaluation only after all three
    axes are contract-valid.

@@ -4,6 +4,7 @@ Status: `TYPED_ATOMIC_FIVE_FILE_PUBLICATION_ACCEPTED / BOUNDED_DEVELOPMENT_ML_RU
 
 ```text
 frozen retained Data artifact
+  -> additive backtest-input-readiness/v1 admission for new consumers
   -> market_features (pure deterministic feature frame)
   -> market_backtest labels (outcome-only frame)
   -> purged expanding walk-forward splits
@@ -38,6 +39,23 @@ the `READY` receipt, frozen digest `a9229374...`, 8,165 portfolio curve rows, an
 The simulation decision clock sees a feature row only at `usable_from`. A label
 is visible only after `label_available_at`; evaluation may join it after replay,
 but strategy decisions never receive it. Network access is not an input option.
+
+New versioned consumers call the pure `market_backtest.input_readiness`
+boundary with only a declared v1 input/split identity, matching pre/post frozen
+manifest evidence, the date-only retained calendar, development-only feature
+rows, and `CoverageHoldout`. It returns a typed `READY`, `NOT_AVAILABLE`, or
+`BLOCKED` receipt before consumer computation. It has no provider, Data write,
+artifact write, label/outcome argument, or broker path. Date and sealed-holdout
+checks run before any non-date feature value is read, so a holdout row cannot
+enter consumer evaluation through a malformed value object.
+
+The readiness receipt binds the full declared/pre/post manifest identities,
+retained-calendar digest, feature metadata digest, exact feature schema,
+T+1 clocks, source finality, PIT state, split identity, and sealed holdout. Its
+canonical JSON and SHA-256 are deterministic and exclude feature values,
+labels, predictions, metrics, paths, clocks from the wall time, and holdout
+outcomes. Accepted replay modules and their semantic dependency manifests do
+not include this additive module and remain unchanged.
 
 The close-proxy portfolio starts with normalized cash 1.0 and holds only long
 (1) or cash (0). A signal observed at final close T is usable only at 09:00 KST
