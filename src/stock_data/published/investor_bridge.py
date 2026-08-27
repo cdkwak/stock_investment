@@ -43,17 +43,10 @@ def _write_json_atomic(path: Path, payload: dict) -> None:
     temporary.replace(path)
 
 
-def build_investor_bridge(*, project_root: Path) -> dict:
-    legacy_root = project_root / "data/normalized/kr_market_investor_net_purchase_daily"
-    toss_root = project_root / "data/normalized/kr_market_investor_trading_daily"
-    legacy = read_dataset(legacy_root, KR_MARKET_INVESTOR_NET_PURCHASE_DAILY, validate_legacy_market_investor_net_purchase)
-    toss = read_dataset(
-        toss_root, KR_MARKET_INVESTOR_TRADING_DAILY,
-        lambda frame: validate_toss_historical(frame, KR_MARKET_INVESTOR_TRADING_DAILY),
-    )
-    if len(legacy) != EXPECTED_LEGACY_ROWS or len(toss) != EXPECTED_TOSS_ROWS:
-        raise ValueError("investor bridge source row count changed")
-
+def compose_investor_bridge(legacy: pd.DataFrame, toss: pd.DataFrame) -> pd.DataFrame:
+    """Build the provider-boundary bridge without mutating live storage."""
+    validate_legacy_market_investor_net_purchase(legacy)
+    validate_toss_historical(toss, KR_MARKET_INVESTOR_TRADING_DAILY)
     legacy_bridge = pd.DataFrame({
         "date": legacy["date"], "market": legacy["market"],
         "institution_net_purchase": legacy["institution_net_buy"],
@@ -90,12 +83,15 @@ def build_investor_bridge(*, project_root: Path) -> dict:
     bridge = bridge[list(KR_MARKET_INVESTOR_NET_PURCHASE_BRIDGE_DAILY.column_names)]
     bridge = bridge.sort_values(list(KR_MARKET_INVESTOR_NET_PURCHASE_BRIDGE_DAILY.sort_key), kind="stable").reset_index(drop=True)
     validate_investor_bridge(bridge)
+    return bridge
 
+
+def write_investor_bridge_state(
+    *, project_root: Path, bridge: pd.DataFrame,
+) -> dict:
+    legacy_root = project_root / "data/normalized/kr_market_investor_net_purchase_daily"
+    toss_root = project_root / "data/normalized/kr_market_investor_trading_daily"
     target = project_root / "data/published/kr_market_investor_net_purchase_bridge_daily"
-    write_dataset_atomic(bridge, target, KR_MARKET_INVESTOR_NET_PURCHASE_BRIDGE_DAILY, validate_investor_bridge)
-    restored = read_dataset(target, KR_MARKET_INVESTOR_NET_PURCHASE_BRIDGE_DAILY, validate_investor_bridge)
-    if not restored.equals(bridge):
-        raise ValueError("investor bridge read-back differs")
     payload = {
         "task_id": "D001", "status": "complete", "api_calls": 0,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -112,3 +108,23 @@ def build_investor_bridge(*, project_root: Path) -> dict:
     }
     _write_json_atomic(project_root / "data/state/investor_net_purchase_bridge.json", payload)
     return payload
+
+
+def build_investor_bridge(*, project_root: Path) -> dict:
+    legacy_root = project_root / "data/normalized/kr_market_investor_net_purchase_daily"
+    toss_root = project_root / "data/normalized/kr_market_investor_trading_daily"
+    legacy = read_dataset(legacy_root, KR_MARKET_INVESTOR_NET_PURCHASE_DAILY, validate_legacy_market_investor_net_purchase)
+    toss = read_dataset(
+        toss_root, KR_MARKET_INVESTOR_TRADING_DAILY,
+        lambda frame: validate_toss_historical(frame, KR_MARKET_INVESTOR_TRADING_DAILY),
+    )
+    if len(legacy) != EXPECTED_LEGACY_ROWS or len(toss) < EXPECTED_TOSS_ROWS:
+        raise ValueError("investor bridge source row count regressed")
+    bridge = compose_investor_bridge(legacy, toss)
+
+    target = project_root / "data/published/kr_market_investor_net_purchase_bridge_daily"
+    write_dataset_atomic(bridge, target, KR_MARKET_INVESTOR_NET_PURCHASE_BRIDGE_DAILY, validate_investor_bridge)
+    restored = read_dataset(target, KR_MARKET_INVESTOR_NET_PURCHASE_BRIDGE_DAILY, validate_investor_bridge)
+    if not restored.equals(bridge):
+        raise ValueError("investor bridge read-back differs")
+    return write_investor_bridge_state(project_root=project_root, bridge=bridge)

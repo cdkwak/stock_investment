@@ -340,6 +340,7 @@ def collect_stock_lending_history(
     *, project_root: Path, spec: StockLendingSpec, start_date: str = "20210401",
     end_date: str | None = None, max_calls: int = 1000, page_size: int = 9999,
     min_interval_seconds: float = 0.5, resume: bool = True,
+    max_attempts: int = 2,
     service_key: str | None = None, session=None,
     sleep_fn: Callable[[float], None] = time.sleep,
 ) -> StockLendingBackfillResult:
@@ -348,7 +349,7 @@ def collect_stock_lending_history(
         _validate_date(end_date)
         if end_date <= start_date:
             raise ValueError("end_date must be greater than start_date")
-    if max_calls < 1 or page_size < 1 or page_size > 9999:
+    if max_calls < 1 or page_size < 1 or page_size > 9999 or max_attempts < 1:
         raise ValueError("invalid call or page budget")
     if min_interval_seconds < 0:
         raise ValueError("min_interval_seconds must be nonnegative")
@@ -377,7 +378,7 @@ def collect_stock_lending_history(
         endpoint=spec.endpoint,
         service_key=service_key or service_key_from_environment(project_root),
         session=rate_session,
-        max_attempts=2,
+        max_attempts=max_attempts,
         backoff_seconds=1.0,
         sleep_fn=sleep_fn,
     )

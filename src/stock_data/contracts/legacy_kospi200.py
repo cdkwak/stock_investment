@@ -115,7 +115,8 @@ KRX_LEGACY_KOSPI200_OPTIONS_DAILY = _dataset(
 
 KR_KOSPI200_OPTION_PCR_DAILY = _dataset(
     "kr_kospi200_option_pcr_daily",
-    "Daily KOSPI200 option put/call ratios derived from the legacy-import option rows.",
+    "Daily KOSPI200 option volume and open-interest put/call ratios derived from the "
+    "provider-preserving legacy KRX and modern data.go.kr option bridge.",
     layer="derived",
     primary_key=("date", "scope", "market_scope"),
     sort_key=("date", "scope", "market_scope"),

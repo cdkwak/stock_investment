@@ -47,8 +47,11 @@ MINIMUM_SOURCE_DATES = {
     "balance": date(2016, 6, 30),
     "investor": date(2008, 1, 2),
 }
-DEFAULT_MIN_INTERVAL_SECONDS = 8.0
-DEFAULT_MAX_JITTER_SECONDS = 2.0
+# Default KRX sequential cadence: 4.5 seconds with symmetric ±0.5-second
+# jitter.  Individual BLD operations may be elevated when their retained
+# restriction history warrants it; callers remain single-stream and retry-zero.
+DEFAULT_MIN_INTERVAL_SECONDS = 4.5
+DEFAULT_MAX_JITTER_SECONDS = 0.5
 HTTP_TIMEOUT_SECONDS = 20
 AUTH_PATHS = frozenset(
     {
@@ -263,24 +266,32 @@ class ConservativeThrottle:
         *,
         min_interval_seconds: float = DEFAULT_MIN_INTERVAL_SECONDS,
         max_jitter_seconds: float = DEFAULT_MAX_JITTER_SECONDS,
+        endpoint_policies: Mapping[str, tuple[float, float]] | None = None,
         sleep_fn: Callable[[float], None] = time.sleep,
         monotonic_fn: Callable[[], float] = time.monotonic,
         jitter_fn: Callable[[float, float], float] = random.uniform,
     ) -> None:
-        if min_interval_seconds < 6 or not (0 < max_jitter_seconds <= 2):
-            raise ValueError("production throttle requires >=6 seconds and 0<jitter<=2 seconds")
+        if min_interval_seconds < 4 or not (0 <= max_jitter_seconds <= 2):
+            raise ValueError("production throttle requires base>=4 seconds and 0<=jitter<=2 seconds")
         self.min_interval_seconds = min_interval_seconds
         self.max_jitter_seconds = max_jitter_seconds
+        self.endpoint_policies = dict(endpoint_policies or {})
+        for endpoint, (base, jitter) in self.endpoint_policies.items():
+            if base < 4 or not (0 <= jitter <= 2):
+                raise ValueError(f"invalid endpoint throttle policy: {endpoint}")
         self.sleep_fn = sleep_fn
         self.monotonic_fn = monotonic_fn
         self.jitter_fn = jitter_fn
         self.last_started: float | None = None
 
-    def wait(self) -> float:
+    def wait(self, endpoint: str | None = None) -> float:
         now = self.monotonic_fn()
         slept = 0.0
         if self.last_started is not None:
-            minimum = self.min_interval_seconds + self.jitter_fn(0, self.max_jitter_seconds)
+            base, jitter = self.endpoint_policies.get(
+                endpoint or "", (self.min_interval_seconds, self.max_jitter_seconds)
+            )
+            minimum = base + self.jitter_fn(-jitter, jitter)
             remaining = minimum - (now - self.last_started)
             if remaining > 0:
                 self.sleep_fn(remaining)
@@ -524,21 +535,31 @@ def _source_row_count_for_estimate(body: bytes) -> int:
     return len(rows)
 
 
-def _investor_chunks(trading_dates: tuple[date, ...]) -> list[tuple[date, date]]:
+def _investor_chunks(
+    trading_dates: tuple[date, ...], *, max_trading_dates: int | None = None,
+) -> list[tuple[date, date]]:
+    if max_trading_dates is not None and max_trading_dates < 1:
+        raise ValueError("investor max_trading_dates must be positive")
     chunks = []
     index = 0
     while index < len(trading_dates):
         start = trading_dates[index]
-        limit = start + timedelta(days=730)
-        end_index = index
-        while end_index + 1 < len(trading_dates) and trading_dates[end_index + 1] <= limit:
-            end_index += 1
+        if max_trading_dates is not None:
+            end_index = min(index + max_trading_dates - 1, len(trading_dates) - 1)
+        else:
+            limit = start + timedelta(days=730)
+            end_index = index
+            while end_index + 1 < len(trading_dates) and trading_dates[end_index + 1] <= limit:
+                end_index += 1
         chunks.append((start, trading_dates[end_index]))
         index = end_index + 1
     return chunks
 
 
-def plan_scopes(dataset: str, trading_dates: tuple[date, ...]) -> tuple[RequestScope, ...]:
+def plan_scopes(
+    dataset: str, trading_dates: tuple[date, ...], *,
+    investor_max_trading_dates: int | None = None,
+) -> tuple[RequestScope, ...]:
     if dataset not in SHORT_SELLING_CONTRACTS:
         raise ValueError(f"unsupported short-selling dataset: {dataset}")
     if not trading_dates or tuple(sorted(set(trading_dates))) != trading_dates:
@@ -555,7 +576,9 @@ def plan_scopes(dataset: str, trading_dates: tuple[date, ...]) -> tuple[RequestS
             for market in MARKETS:
                 scopes.append(factory(day.isoformat(), market))
     else:
-        for start, end in _investor_chunks(trading_dates):
+        for start, end in _investor_chunks(
+            trading_dates, max_trading_dates=investor_max_trading_dates,
+        ):
             for market in MARKETS:
                 for metric in METRICS:
                     scopes.append(investor_scope(start.isoformat(), end.isoformat(), market, metric))
@@ -866,10 +889,13 @@ def run_short_selling_batch(
     normalized_root: Path | None = None,
     checkpoint_path: Path | None = None,
     lock_path: Path | None = None,
+    investor_max_trading_dates: int | None = None,
 ) -> BatchResult:
     if max_business_calls < 1:
         raise ValueError("max_business_calls must be positive and explicit")
-    scopes = plan_scopes(dataset, trading_dates)
+    scopes = plan_scopes(
+        dataset, trading_dates, investor_max_trading_dates=investor_max_trading_dates,
+    )
     landing_root = landing_root or project_root / "data/landing/pykrx/short_selling"
     normalized_root = normalized_root or project_root / "data/normalized" / SHORT_SELLING_CONTRACTS[dataset].name
     checkpoint_path = checkpoint_path or project_root / "data/state" / f"{SHORT_SELLING_CONTRACTS[dataset].name}_v2.json"
@@ -926,7 +952,7 @@ def run_short_selling_batch(
                     else:
                         if calls >= max_business_calls:
                             break
-                        slept = throttle.wait()
+                        slept = throttle.wait(scope.params["bld"])
                         ledger.append(
                             "SCOPE_STARTED", dataset=dataset, scope=scope.scope_id,
                             params={key: value for key, value in scope.params.items() if key != "bld"},

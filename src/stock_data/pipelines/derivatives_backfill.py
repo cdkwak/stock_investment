@@ -357,8 +357,14 @@ def collect_derivative_ranges(
 def local_equity_trading_dates(
     project_root: Path, *, start: str, end: str | None = None
 ) -> tuple[str, ...]:
-    root = project_root / "data/normalized/kr_equity_price_daily"
-    paths = sorted(root.rglob("data.parquet"))
+    # The KOSPI index calendar is the smallest authoritative XKRX session
+    # calendar retained by the project.  Avoid scanning every equity market
+    # partition (which is slower and can be ACL-restricted on shared hosts).
+    index_root = project_root / "data/normalized/kr_index_daily/market=KOSPI"
+    equity_root = project_root / "data/normalized/kr_equity_price_daily"
+    paths = sorted(index_root.rglob("data.parquet"))
+    if not paths:
+        paths = sorted(equity_root.rglob("data.parquet"))
     if not paths:
         raise FileNotFoundError("local equity trading calendar is unavailable")
     dates = pd.concat([pd.read_parquet(path, columns=["date"]) for path in paths], ignore_index=True)

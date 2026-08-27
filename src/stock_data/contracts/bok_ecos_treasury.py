@@ -3,6 +3,9 @@
 from stock_data.contracts.base import ColumnContract, DatasetContract
 
 
+BOK_ECOS_TREASURY_TENORS = ("2Y", "3Y", "5Y", "10Y", "20Y", "30Y")
+
+
 BOK_ECOS_KR_TREASURY_YIELD_SOURCE_OBSERVATION = DatasetContract(
     name="bok_ecos_kr_treasury_yield_source_observation",
     version=1,
@@ -10,7 +13,9 @@ BOK_ECOS_KR_TREASURY_YIELD_SOURCE_OBSERVATION = DatasetContract(
     description=(
         "Immutable observations distributed by BOK ECOS for KOFIA final-quotation "
         "Korean government-bond yields. Separate from Toss OHLC candles; historical "
-        "publication and revision timing remain unknown."
+        "publication and revision timing remain unknown because the official "
+        "StatisticSearch response contract exposes neither publication timestamps "
+        "nor preliminary/revision state."
     ),
     source="bok_ecos:StatisticSearch:817Y002",
     layer="normalized",

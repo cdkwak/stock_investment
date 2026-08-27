@@ -52,7 +52,7 @@ def _parse_csv(body: bytes) -> tuple[list[str], list[list[str]]]:
 
 def build_inventory(project_root: Path) -> dict[str, object]:
     project_root = project_root.resolve()
-    inbox = project_root / "docs" / "krx_data"
+    inbox = project_root / "docs" / "data" / "sources" / "krx" / "manual_inbox"
     _assert_plain_existing_components(inbox)
     if not inbox.is_dir() or inbox.is_symlink():
         raise ValueError("manual KRX inbox is missing or redirected")
@@ -158,7 +158,7 @@ def retain_inventory(project_root: Path) -> dict[str, object]:
     project_root = project_root.resolve()
     report = build_inventory(project_root)
     digest = str(report["inventory_sha256"])
-    inbox = project_root / "docs" / "krx_data"
+    inbox = project_root / "docs" / "data" / "sources" / "krx" / "manual_inbox"
     target = project_root / "data" / "landing" / "manual" / "krx_basic_statistics" / "derivatives_investor" / digest
     _assert_plain_existing_components(target.parent)
     originals = target / "originals"
