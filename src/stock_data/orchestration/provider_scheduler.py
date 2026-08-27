@@ -1,0 +1,970 @@
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+from datetime import date, datetime, timezone
+import importlib.util
+import json
+from pathlib import Path
+from types import MappingProxyType
+from typing import Callable
+from uuid import uuid4
+from zoneinfo import ZoneInfo
+
+import pandas as pd
+
+from stock_data.orchestration.daily_operations import (
+    DAILY_LANE_READINESS, DATASET_OPERATIONS, DATASET_UNIVERSE, DailyRunLock,
+)
+from stock_data.orchestration.exchange_calendar import ExchangeMarket, ExchangeTradingCalendar
+from stock_data.orchestration.expected_latest import resolve_expected_latest
+from stock_data.orchestration.canonical_equity_daily import run_canonical_equity_catchup
+from stock_data.orchestration.kospi200_constituent_breadth import (
+    latest_accepted_canonical_target,
+    run_kospi200_constituent_breadth_daily,
+)
+from stock_data.orchestration.market_daily_incremental import (
+    execute_data_go_kr_daily, execute_short_selling_daily,
+    plan_data_go_kr_daily, plan_short_selling_daily,
+    short_selling_raw_call_budget,
+)
+from stock_data.pipelines.short_selling_backfill import (
+    AppendOnlyRedactedLedger, AuthenticatedPykrxRawClient, ConservativeThrottle,
+)
+from stock_data.orchestration.kr_index_daily_incremental import run_atomic_lane_append
+from stock_data.orchestration.kr_index_daily_live import capture_one_finalized_date
+from stock_data.orchestration.kr_index_fundamental_daily import (
+    run_index_fundamental_daily,
+)
+from stock_data.orchestration.toss_market_investor_daily import (
+    is_toss_market_investor_date_complete, refresh_toss_market_investor_daily,
+)
+from stock_data.orchestration.toss_kr_treasury_daily import (
+    refresh_toss_kr_treasury_daily,
+)
+from stock_data.providers.tossinvest import TossInvestClient
+from stock_data.storage.atomic_parquet import read_kr_index_daily
+from stock_data.storage.contract_parquet import read_dataset
+from stock_data.contracts.kospi200_index_daily import KR_KOSPI200_INDEX_DAILY
+from stock_data.contracts.global_etf import GLOBAL_ETF_PRICE_DAILY
+from stock_data.contracts.data_v1 import (
+    KR_STOCK_LENDING_DAILY,
+    KR_STOCK_LENDING_MARKET_DAILY,
+    KR_STOCK_LENDING_PARTICIPANT_DAILY,
+)
+from stock_data.contracts.kr_short_selling import (
+    KR_SHORT_SELLING_BALANCE_DAILY,
+    KR_SHORT_SELLING_INVESTOR_DAILY,
+)
+from stock_data.contracts.global_market import (
+    GLOBAL_COMMODITY_FUTURES_DAILY, GLOBAL_INDEX_PRICE_DAILY,
+)
+from stock_data.validation.kospi200_index_daily import validate_kospi200_index_daily
+from stock_data.validation.global_market import (
+    validate_global_commodity_futures, validate_global_etf, validate_global_index,
+)
+from stock_data.validation.data_v1 import validate_data_v1
+
+
+class ProviderSchedulerError(RuntimeError):
+    pass
+
+
+@dataclass(frozen=True)
+class LaneSchedule:
+    lane: str
+    cadence_group: str
+    market: ExchangeMarket
+    phases: tuple[str, ...]
+    dataset_ids: tuple[str, ...]
+    accepted_source: str
+
+
+LANE_SCHEDULES = MappingProxyType({
+    "CANONICAL_EQUITY_DAILY": LaneSchedule(
+        lane="CANONICAL_EQUITY_DAILY",
+        cadence_group="KR_D_PLUS_1_1300",
+        market=ExchangeMarket.KR,
+        phases=("canonical_equity",),
+        dataset_ids=(
+            "kr_equity_canonical_universe_daily", "kr_equity_price_daily",
+            "kr_equity_market_cap_daily", "kr_equity_universe_daily",
+            "kr_market_breadth_daily",
+        ),
+        accepted_source="data.go.kr exact-date price/cap and provider-universe streams",
+    ),
+    "KOSPI200_BREADTH_DAILY": LaneSchedule(
+        lane="KOSPI200_BREADTH_DAILY",
+        cadence_group="KR_D_PLUS_1_1300",
+        market=ExchangeMarket.KR,
+        phases=("kospi200_breadth",),
+        dataset_ids=(
+            "kr_index_constituent_daily",
+            "kr_kospi200_constituent_price_daily",
+            "kr_kospi200_breadth_daily",
+        ),
+        accepted_source=(
+            "KRX MDCSTAT00601 exact-date membership plus accepted canonical equity prices"
+        ),
+    ),
+    "FRED_DAILY": LaneSchedule(
+        lane="FRED_DAILY",
+        cadence_group="GLOBAL_DAILY_FINAL",
+        market=ExchangeMarket.US,
+        phases=("fred_yields", "fred_fx", "fred_vix"),
+        dataset_ids=(
+            "fred_treasury_yield_daily", "fred_usd_fx_daily", "fred_vix_daily",
+            "us_treasury_spread_daily",
+        ),
+        accepted_source="FRED fredgraph CSV",
+    ),
+    "LENDING_DAILY": LaneSchedule(
+        lane="LENDING_DAILY",
+        cadence_group="KR_D_PLUS_1_1300",
+        market=ExchangeMarket.KR,
+        phases=("detail", "market", "participant"),
+        dataset_ids=(
+            "kr_stock_lending_daily", "kr_stock_lending_market_daily",
+            "kr_stock_lending_participant_daily",
+        ),
+        accepted_source="data.go.kr GetStocLendBorrInfoService_V2",
+    ),
+    "SHORT_SELLING_DAILY": LaneSchedule(
+        lane="SHORT_SELLING_DAILY",
+        cadence_group="KR_NEXT_XKRX_SESSION",
+        market=ExchangeMarket.KR,
+        phases=("short_trading",),
+        dataset_ids=("kr_short_selling_trading_daily",),
+        accepted_source="authenticated KRX/pykrx MDCSTAT30101",
+    ),
+    "SHORT_SELLING_BALANCE_DAILY": LaneSchedule(
+        lane="SHORT_SELLING_BALANCE_DAILY",
+        cadence_group="KR_T_PLUS_2_POST_CLOSE_1810",
+        market=ExchangeMarket.KR,
+        phases=("short_balance",),
+        dataset_ids=("kr_short_selling_balance_daily",),
+        accepted_source="authenticated KRX/pykrx MDCSTAT30501 as retrieved; revisions possible",
+    ),
+    "SHORT_SELLING_INVESTOR_DAILY": LaneSchedule(
+        lane="SHORT_SELLING_INVESTOR_DAILY",
+        cadence_group="KR_SAME_DAY_POST_CLOSE_1810",
+        market=ExchangeMarket.KR,
+        phases=("short_investor",),
+        dataset_ids=("kr_short_selling_investor_daily",),
+        accepted_source="authenticated KRX/pykrx MDCSTAT30301 as retrieved",
+    ),
+    "VKOSPI_DAILY": LaneSchedule(
+        lane="VKOSPI_DAILY",
+        cadence_group="KR_POST_CLOSE_1830",
+        market=ExchangeMarket.KR,
+        phases=("vkospi",),
+        dataset_ids=("kr_vkospi_daily",),
+        accepted_source="KRX MDCSTAT01201:1300",
+    ),
+    "KR_INDEX_DAILY": LaneSchedule(
+        lane="KR_INDEX_DAILY", cadence_group="KR_POST_CLOSE_1830",
+        market=ExchangeMarket.KR, phases=("indices",),
+        dataset_ids=("kr_index_daily", "kr_kospi200_index_daily"),
+        accepted_source="KRX/pykrx exact-date index OHLCV",
+    ),
+    "KR_INDEX_FUNDAMENTAL_DAILY": LaneSchedule(
+        lane="KR_INDEX_FUNDAMENTAL_DAILY", cadence_group="KR_PRIOR_COMPLETED_SESSION",
+        market=ExchangeMarket.KR, phases=("index_fundamentals",),
+        dataset_ids=("kr_index_fundamental_daily",),
+        accepted_source="KRX MDCSTAT00702 exact 1001/2001 range responses",
+    ),
+    "MARKET_INVESTOR_DAILY": LaneSchedule(
+        lane="MARKET_INVESTOR_DAILY", cadence_group="KR_POST_CLOSE_1830",
+        market=ExchangeMarket.KR, phases=("market_investor",),
+        dataset_ids=(
+            "kr_market_investor_trading_daily",
+            "kr_market_investor_net_purchase_bridge_daily",
+        ),
+        accepted_source="Toss Invest KOSPI/KOSDAQ market investor-trading daily aggregates",
+    ),
+    "TOSS_KR_TREASURY_DAILY": LaneSchedule(
+        lane="TOSS_KR_TREASURY_DAILY",
+        cadence_group="KR_T_PLUS_1_AS_RETRIEVED",
+        market=ExchangeMarket.KR,
+        phases=("toss_kr_treasury",),
+        dataset_ids=("kr_treasury_yield_daily",),
+        accepted_source="Toss Invest six Korean government-bond daily OHLC series",
+    ),
+    "GLOBAL_INDEX_DAILY": LaneSchedule(
+        lane="GLOBAL_INDEX_DAILY", cadence_group="GLOBAL_DAILY_FINAL",
+        market=ExchangeMarket.US, phases=("global_indices",),
+        dataset_ids=("global_index_price_daily",),
+        accepted_source=(
+            "Yahoo chart API: registered SP500, NASDAQ_COMPOSITE, and NASDAQ100 only"
+        ),
+    ),
+    "GLOBAL_ETF_DAILY": LaneSchedule(
+        lane="GLOBAL_ETF_DAILY", cadence_group="GLOBAL_DAILY_FINAL",
+        market=ExchangeMarket.US, phases=("soxx",),
+        dataset_ids=("global_etf_price_daily",),
+        accepted_source="Yahoo chart API: registered SOXX only",
+    ),
+    "GLOBAL_COMMODITY_DAILY": LaneSchedule(
+        lane="GLOBAL_COMMODITY_DAILY", cadence_group="GLOBAL_DAILY_FINAL",
+        market=ExchangeMarket.US, phases=("dashboard_futures",),
+        dataset_ids=("global_commodity_futures_daily",),
+        accepted_source="Yahoo chart API: NQ=F, GC=F, and CL=F completed daily bars",
+    ),
+})
+
+
+PhaseRunner = Callable[[Path, str, object], dict[str, object]]
+
+
+def _run_canonical_equity_phase(
+    project_root: Path, phase: str, target: object,
+) -> dict[str, object]:
+    if phase != "canonical_equity" or not isinstance(target, date):
+        raise ProviderSchedulerError("invalid canonical-equity scheduler phase")
+    result = run_canonical_equity_catchup(
+        project_root,
+        available_through=target,
+        max_sessions=3,
+        max_api_calls=6,
+        max_elapsed_seconds=600.0,
+    )
+    status = result.status
+    if status == "NOOP_IDEMPOTENT":
+        phase_status = "NOOP_IDEMPOTENT"
+    elif status.startswith(("DEGRADED_", "FAILED_")):
+        phase_status = status
+    else:
+        phase_status = "COMPLETE"
+    return {
+        "status": phase_status,
+        "http_calls": result.api_calls,
+        "run_id": result.run_id,
+        "latest_before": result.latest_before.isoformat(),
+        "latest_after": result.latest_after.isoformat(),
+        "reason": result.reason,
+        "selected_dates": [item.isoformat() for item in result.selected_dates],
+        "attempted_dates": [item.isoformat() for item in result.attempted_dates],
+        "accepted_dates": [item.isoformat() for item in result.accepted_dates],
+        "run_ids": list(result.run_ids),
+    }
+
+
+def _run_kospi200_breadth_phase(
+    project_root: Path, phase: str, target: object,
+) -> dict[str, object]:
+    if phase != "kospi200_breadth" or not isinstance(target, date):
+        raise ProviderSchedulerError("invalid KOSPI200 breadth scheduler phase")
+    result = run_kospi200_constituent_breadth_daily(
+        project_root, market_date=target,
+    )
+    return {
+        "status": (
+            "NOOP_IDEMPOTENT"
+            if result.status == "NOOP_ALREADY_SUCCEEDED"
+            else "COMPLETE"
+        ),
+        "http_calls": result.api_calls,
+        "run_id": None,
+        "latest_after": result.market_date,
+        "reason": "COMPLETE_EXACT_DATE_KOSPI200_SCOPE",
+    }
+
+
+def _load_refresh_module(project_root: Path):
+    path = project_root / "scripts/manual/collect/refresh_global_current.py"
+    spec = importlib.util.spec_from_file_location("stock_data_global_current_refresh", path)
+    if spec is None or spec.loader is None:
+        raise ProviderSchedulerError(f"cannot load accepted operation: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_vkospi_module(project_root: Path):
+    path = project_root / "scripts/manual/collect/collect_krx_vkospi_daily.py"
+    spec = importlib.util.spec_from_file_location("stock_data_vkospi_daily", path)
+    if spec is None or spec.loader is None:
+        raise ProviderSchedulerError(f"cannot load accepted operation: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _run_accepted_phase(project_root: Path, phase: str, target: object) -> dict[str, object]:
+    if phase not in {"fred_yields", "fred_fx", "fred_vix"}:
+        raise ProviderSchedulerError("scheduler may only execute explicitly accepted FRED phases")
+    module = _load_refresh_module(project_root)
+    checkpoint = module.prepare_phase(project_root, phase, end=target)
+    if checkpoint.get("status") == "NOOP_IDEMPOTENT":
+        return checkpoint
+    if checkpoint.get("status") != "CANDIDATE_REVIEW_REQUIRED":
+        raise ProviderSchedulerError(f"unexpected phase status: {checkpoint.get('status')}")
+    allowed_calls = {1, 3} if phase == "fred_vix" else {int(checkpoint.get("max_http_calls", -1))}
+    if (
+        checkpoint.get("phase") != phase
+        or checkpoint.get("retry_count") != 0
+        or checkpoint.get("http_calls") not in allowed_calls
+        or checkpoint.get("http_statuses") != [200] * int(checkpoint["http_calls"])
+    ):
+        raise ProviderSchedulerError("accepted-source checkpoint validation failed")
+    digest = checkpoint.get("approval_digest")
+    run_id = checkpoint.get("run_id")
+    if not isinstance(digest, str) or not isinstance(run_id, str):
+        raise ProviderSchedulerError("accepted-source checkpoint identity is incomplete")
+    checkpoint_path = (
+        project_root / "data/state/global_current_refresh" / run_id / "checkpoint.json"
+    )
+    promoted = module.promote_phase(project_root, checkpoint_path, approval_digest=digest)
+    if promoted.get("status") != "PROMOTED":
+        raise ProviderSchedulerError(f"promotion did not commit: {promoted.get('status')}")
+    return promoted
+
+
+def _run_lending_phase(project_root: Path, phase: str, target: object) -> dict[str, object]:
+    if phase not in {"detail", "market", "participant"} or not isinstance(target, date):
+        raise ProviderSchedulerError("invalid lending scheduler phase")
+    plan = plan_data_go_kr_daily(
+        project_root=project_root, dataset=phase, market_date=target,
+        latest_finalized_market_date=target, accepted_market_dates=(target,),
+        operation_reviewed=True, max_api_calls=1,
+    )
+    result = execute_data_go_kr_daily(plan, project_root=project_root)
+    contracts = {
+        "detail": KR_STOCK_LENDING_DAILY,
+        "market": KR_STOCK_LENDING_MARKET_DAILY,
+        "participant": KR_STOCK_LENDING_PARTICIPANT_DAILY,
+    }
+    contract = contracts[phase]
+    frame = read_dataset(
+        project_root / "data/normalized" / contract.name / f"year={target.year}",
+        contract,
+        lambda candidate: validate_data_v1(candidate, contract, allow_empty=False),
+    )
+    latest_after = pd.to_datetime(frame["date"], errors="raise").max().date()
+    if latest_after < target:
+        raise ProviderSchedulerError("lending promotion did not reach the expected date")
+    return {
+        "status": "NOOP_IDEMPOTENT" if plan.action == "NOOP_IDEMPOTENT" else result.status,
+        "http_calls": result.api_calls,
+        "run_id": None,
+        "latest_after": latest_after.isoformat(),
+    }
+
+
+def _run_short_selling_phase(
+    project_root: Path, phase: str, target: object,
+) -> dict[str, object]:
+    datasets = {
+        "short_trading": "trading",
+        "short_balance": "balance",
+        "short_investor": "investor",
+    }
+    if phase not in datasets or not isinstance(target, date):
+        raise ProviderSchedulerError("invalid short-selling scheduler phase")
+    dataset = datasets[phase]
+    targets = [target]
+    if dataset in {"balance", "investor"}:
+        contract = (
+            KR_SHORT_SELLING_BALANCE_DAILY
+            if dataset == "balance"
+            else KR_SHORT_SELLING_INVESTOR_DAILY
+        )
+        root = project_root / "data/normalized" / contract.name
+        if root.exists():
+            retained = read_dataset(
+                root,
+                contract,
+                lambda frame: validate_data_v1(frame, contract, allow_empty=False),
+            )
+            retained_latest = pd.to_datetime(retained["date"], errors="raise").max().date()
+            if dataset == "balance":
+                checkpoint_path = (
+                    project_root / "data/state/kr_short_selling_balance_daily_v2.json"
+                )
+                if checkpoint_path.exists():
+                    checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+                    reason = str(checkpoint.get("stop_reason", ""))
+                    prefix = "ANOMALOUS_VALID_EMPTY:"
+                    if reason.startswith(prefix):
+                        token = reason.removeprefix(prefix).split("_", 1)[0]
+                        valid_empty_date = datetime.strptime(token, "%Y%m%d").date()
+                        retained_latest = max(retained_latest, valid_empty_date)
+            calendar = ExchangeTradingCalendar(ExchangeMarket.KR)
+            if retained_latest < target:
+                start = calendar.next_trading_day(retained_latest)
+                targets = list(calendar.sessions_in_range(start, target))
+            else:
+                targets = [target]
+    attempted: list[str] = []
+    total_raw_calls = 0
+    latest_after: date | None = None
+    for run_target in targets[:3]:
+        plan = plan_short_selling_daily(
+            project_root=project_root,
+            dataset=dataset,
+            market_date=run_target,
+            latest_finalized_market_date=run_target,
+            accepted_market_dates=(run_target,),
+            operation_reviewed=True,
+            valid_empty_successor_reviewed=dataset == "balance",
+        )
+        expected_business_calls = {"trading": 2, "balance": 2, "investor": 4}[dataset]
+        if plan.estimated_api_calls not in {0, expected_business_calls}:
+            raise ProviderSchedulerError("short-selling plan has an unexpected exact-date scope count")
+
+        def client_factory(ledger: AppendOnlyRedactedLedger):
+            return AuthenticatedPykrxRawClient(
+                project_root=project_root,
+                ledger=ledger,
+                max_raw_calls=short_selling_raw_call_budget(
+                    dataset, plan.estimated_api_calls
+                ),
+            )
+
+        result = execute_short_selling_daily(
+            plan,
+            project_root=project_root,
+            client_factory=client_factory,
+            throttle=ConservativeThrottle(
+                min_interval_seconds=8.0, max_jitter_seconds=2.0
+            ),
+        )
+        attempted.append(run_target.isoformat())
+        total_raw_calls += result.raw_http_requests
+        latest_after = run_target
+    partial = len(targets) > 3
+    return {
+        "status": (
+            "PARTIAL_LIMIT_REACHED"
+            if partial
+            else "NOOP_IDEMPOTENT"
+            if all(value == target and plan.action == "NOOP_IDEMPOTENT" for value in targets)
+            else "COMPLETE"
+        ),
+        "http_calls": total_raw_calls,
+        "run_id": None,
+        "latest_after": (latest_after or target).isoformat(),
+        "attempted_dates": attempted,
+        "reason": (
+            "TWO_MARKET_ATOMIC"
+            if dataset == "trading" and plan.action != "NOOP_IDEMPOTENT"
+            else "BOUNDED_CONSECUTIVE_CATCH_UP"
+            if partial
+            else "EXACT_DATE_AS_RETRIEVED"
+            if plan.action != "NOOP_IDEMPOTENT"
+            else plan.reason
+        ),
+    }
+
+
+def _run_vkospi_phase(project_root: Path, phase: str, target: object) -> dict[str, object]:
+    if phase != "vkospi" or not isinstance(target, date):
+        raise ProviderSchedulerError("invalid VKOSPI scheduler phase")
+    result = _load_vkospi_module(project_root).collect_one_finalized_date(
+        project_root, market_date=target, finality_confirmed=True,
+    )
+    return {
+        "status": result["status"],
+        "http_calls": int(result.get("business_calls", 0) or 0),
+        "run_id": result.get("run_id"),
+    }
+
+
+def _run_index_phase(project_root: Path, phase: str, target: object) -> dict[str, object]:
+    if phase != "indices" or not isinstance(target, date):
+        raise ProviderSchedulerError("invalid KR index scheduler phase")
+    normalized = project_root / "data/normalized"
+    kr_root = normalized / "kr_index_daily"
+    k200_root = normalized / "kr_kospi200_index_daily"
+    kr = read_kr_index_daily(kr_root)
+    k200 = read_dataset(k200_root, KR_KOSPI200_INDEX_DAILY, validate_kospi200_index_daily)
+    latest = {
+        "kr_index_daily": date.fromisoformat(str(kr["date"].astype(str).max())),
+        "kr_kospi200_index_daily": date.fromisoformat(str(k200["date"].astype(str).max())),
+    }
+    if set(latest.values()) != {next(iter(latest.values()))}:
+        raise ProviderSchedulerError(f"KR index split retained latest: {latest}")
+    retained = next(iter(latest.values()))
+    if retained >= target:
+        return {"status": "NOOP_IDEMPOTENT", "http_calls": 0, "run_id": None,
+                "latest_before": {key: value.isoformat() for key, value in latest.items()},
+                "latest_after": {key: value.isoformat() for key, value in latest.items()},
+                "reason": "BOTH_INDEX_DATASETS_CURRENT"}
+    calendar = ExchangeTradingCalendar(ExchangeMarket.KR)
+    if calendar.next_trading_day(retained) != target:
+        raise ProviderSchedulerError(
+            f"KR index catch-up is not a one-session append: {retained} -> {target}"
+        )
+    run_id = f"kr-index-{target:%Y%m%d}-{uuid4().hex}"
+    kst = ZoneInfo("Asia/Seoul")
+    capture = capture_one_finalized_date(
+        target, finalized_at=datetime.combine(target, datetime.min.time(), kst).replace(
+            hour=18, minute=30
+        ), finality_confirmed=True, run_id=run_id,
+        landing_root=project_root / "data/landing/kr_index_daily_live",
+        state_root=project_root / "data/state",
+    )
+    result = run_atomic_lane_append(
+        kr_index_landing=capture.kr_index_landing,
+        kospi200_landing=capture.kospi200_landing,
+        finalized_market_date=target, normalized_root=normalized,
+        state_root=project_root / "data/state", run_id=run_id,
+        finality_confirmed=True,
+    )
+    after = {item.dataset: item.retained_latest for item in result.datasets}
+    return {"status": result.status, "http_calls": capture.business_calls,
+            "run_id": run_id,
+            "latest_before": {key: value.isoformat() for key, value in latest.items()},
+            "latest_after": after, "reason": "ATOMIC_TWO_DATASET_PROMOTION"}
+
+
+def _run_index_fundamental_phase(
+    project_root: Path, phase: str, target: object,
+) -> dict[str, object]:
+    if phase != "index_fundamentals" or not isinstance(target, date):
+        raise ProviderSchedulerError("invalid KR index fundamental scheduler phase")
+    result = run_index_fundamental_daily(project_root, target_date=target)
+    return {
+        "status": result.status,
+        "http_calls": result.api_calls,
+        "run_id": result.run_id,
+        "latest_before": result.latest_before,
+        "latest_after": result.latest_after,
+        "reason": result.reason,
+    }
+
+
+def _run_market_investor_phase(
+    project_root: Path, phase: str, target: object,
+) -> dict[str, object]:
+    if phase != "market_investor" or not isinstance(target, date):
+        raise ProviderSchedulerError("invalid market investor scheduler phase")
+    if is_toss_market_investor_date_complete(project_root, target):
+        return {
+            "status": "NOOP_IDEMPOTENT", "http_calls": 0, "run_id": None,
+            "latest_before": target.isoformat(), "latest_after": target.isoformat(),
+            "reason": "JOINT_SOURCE_AND_BRIDGE_DATE_ALREADY_COMPLETE",
+        }
+    client = TossInvestClient.from_environment(project_root=project_root)
+    result = refresh_toss_market_investor_daily(
+        project_root, intended_date=target, client=client,
+    )
+    if (
+        result.get("status") != "complete"
+        or result.get("market_calls") != 2
+        or result.get("token_calls") not in {0, 1}
+        or result.get("promoted_rows") != 2
+    ):
+        raise ProviderSchedulerError("market investor joint promotion validation failed")
+    return {
+        "status": "PROMOTED",
+        "http_calls": int(result["token_calls"]) + int(result["market_calls"]),
+        "run_id": None, "latest_before": None, "latest_after": target.isoformat(),
+        "reason": "VALIDATED_TWO_MARKET_JOINT_PROMOTION",
+    }
+
+
+def _run_toss_kr_treasury_phase(
+    project_root: Path, phase: str, target: object,
+) -> dict[str, object]:
+    if phase != "toss_kr_treasury" or not isinstance(target, date):
+        raise ProviderSchedulerError("invalid Toss Korean treasury scheduler phase")
+    result = refresh_toss_kr_treasury_daily(
+        project_root,
+        intended_date=target,
+        client=TossInvestClient.from_environment(project_root=project_root),
+    )
+    return {
+        "status": (
+            "NOOP_IDEMPOTENT"
+            if result["status"] == "already_complete"
+            else "COMPLETE"
+        ),
+        "http_calls": int(result.get("market_calls", 0) or 0),
+        "run_id": None,
+        "latest_after": target.isoformat(),
+        "reason": "SIX_TENOR_ATOMIC_AS_RETRIEVED",
+    }
+
+
+def _run_etf_phase(project_root: Path, phase: str, target: object) -> dict[str, object]:
+    if phase != "soxx" or not isinstance(target, date):
+        raise ProviderSchedulerError("invalid global ETF scheduler phase")
+    production = project_root / "data/normalized/global_etf_price_daily"
+    existing = read_dataset(production, GLOBAL_ETF_PRICE_DAILY, validate_global_etf)
+    selected = existing.loc[existing["symbol"].eq("SOXX"), "date"]
+    if selected.empty:
+        raise ProviderSchedulerError("SOXX retained baseline is absent")
+    retained = date.fromisoformat(str(selected.astype(str).max()))
+    if retained >= target:
+        return {"status": "NOOP_IDEMPOTENT", "http_calls": 0, "run_id": None,
+                "symbol": "SOXX", "latest_before": retained.isoformat(),
+                "latest_after": retained.isoformat(),
+                "reason": "EXPECTED_SESSION_ALREADY_RETAINED"}
+    calendar = ExchangeTradingCalendar(ExchangeMarket.US)
+    if calendar.next_trading_day(retained) != target:
+        raise ProviderSchedulerError(
+            f"SOXX catch-up is not a one-session append: {retained} -> {target}"
+        )
+    module = _load_refresh_module(project_root)
+    checkpoint = module.prepare_phase(
+        project_root, "yahoo_etf", start=retained, end=target,
+    )
+    if checkpoint.get("status") == "NOOP_IDEMPOTENT":
+        return {"status": "NOOP_IDEMPOTENT", "http_calls": 0, "run_id": None,
+                "symbol": "SOXX", "latest_before": retained.isoformat(),
+                "latest_after": retained.isoformat(),
+                "reason": "EXPECTED_SESSION_ALREADY_RETAINED"}
+    if checkpoint.get("status") != "CANDIDATE_REVIEW_REQUIRED":
+        raise ProviderSchedulerError(f"unexpected ETF phase status: {checkpoint.get('status')}")
+    if checkpoint.get("http_calls") != 1 or checkpoint.get("http_statuses") != [200]:
+        raise ProviderSchedulerError("SOXX accepted-source checkpoint validation failed")
+    checkpoint_path = (
+        project_root / "data/state/global_current_refresh" /
+        str(checkpoint["run_id"]) / "checkpoint.json"
+    )
+    promoted = module.promote_phase(
+        project_root, checkpoint_path, approval_digest=str(checkpoint["approval_digest"]),
+    )
+    if promoted.get("status") != "PROMOTED":
+        raise ProviderSchedulerError(f"SOXX promotion did not commit: {promoted.get('status')}")
+    return {"status": "PROMOTED", "http_calls": 1,
+            "run_id": checkpoint.get("run_id"), "symbol": "SOXX",
+            "latest_before": retained.isoformat(), "latest_after": target.isoformat(),
+            "reason": "VALIDATED_SYMBOL_BOUND_PROMOTION"}
+
+
+def _run_global_index_phase(
+    project_root: Path, phase: str, target: object,
+) -> dict[str, object]:
+    if phase != "global_indices" or not isinstance(target, date):
+        raise ProviderSchedulerError("invalid global index scheduler phase")
+    production = project_root / "data/normalized/global_index_price_daily"
+    existing = read_dataset(production, GLOBAL_INDEX_PRICE_DAILY, validate_global_index)
+    symbols = ("SP500", "NASDAQ_COMPOSITE", "NASDAQ100")
+    present = set(existing["symbol"].astype(str))
+    if present != set(symbols):
+        raise ProviderSchedulerError(
+            f"global index retained symbol set differs: {sorted(present)}"
+        )
+    latest = {
+        symbol: date.fromisoformat(str(
+            existing.loc[existing["symbol"].eq(symbol), "date"].astype(str).max()
+        ))
+        for symbol in symbols
+    }
+    if len(set(latest.values())) != 1:
+        raise ProviderSchedulerError(f"global index split retained latest: {latest}")
+    retained = next(iter(latest.values()))
+    latest_text = {key: value.isoformat() for key, value in latest.items()}
+    if retained >= target:
+        return {
+            "status": "NOOP_IDEMPOTENT", "http_calls": 0, "run_id": None,
+            "latest_before": latest_text, "latest_after": latest_text,
+            "reason": "ALL_REGISTERED_INDICES_CURRENT",
+        }
+    calendar = ExchangeTradingCalendar(ExchangeMarket.US)
+    if calendar.next_trading_day(retained) != target:
+        raise ProviderSchedulerError(
+            f"global index catch-up is not a one-session append: {retained} -> {target}"
+        )
+    module = _load_refresh_module(project_root)
+    checkpoint = module.prepare_phase(project_root, "yahoo", end=target)
+    if checkpoint.get("status") == "NOOP_IDEMPOTENT":
+        return {
+            "status": "NOOP_IDEMPOTENT", "http_calls": 0, "run_id": None,
+            "latest_before": latest_text, "latest_after": latest_text,
+            "reason": "ALL_REGISTERED_INDICES_CURRENT",
+        }
+    revisions = checkpoint.get("revision_report")
+    if (
+        checkpoint.get("status") != "CANDIDATE_REVIEW_REQUIRED"
+        or checkpoint.get("phase") != "yahoo"
+        or checkpoint.get("max_http_calls") != 3
+        or checkpoint.get("http_calls") != 3
+        or checkpoint.get("retry_count") != 0
+        or checkpoint.get("http_statuses") != [200, 200, 200]
+        or not isinstance(revisions, dict)
+        or set(revisions) != set(symbols)
+        or any(
+            report.get("source_omitted_existing_dates") != 0
+            or report.get("finite_to_null_cells") != 0
+            or report.get("inserted_rows") != 1
+            for report in revisions.values()
+        )
+    ):
+        raise ProviderSchedulerError("global index checkpoint validation failed")
+    run_id = checkpoint.get("run_id")
+    digest = checkpoint.get("approval_digest")
+    if not isinstance(run_id, str) or not isinstance(digest, str):
+        raise ProviderSchedulerError("global index checkpoint identity is incomplete")
+    checkpoint_path = (
+        project_root / "data/state/global_current_refresh" / run_id / "checkpoint.json"
+    )
+    promoted = module.promote_phase(
+        project_root, checkpoint_path, approval_digest=digest,
+    )
+    if promoted.get("status") != "PROMOTED":
+        raise ProviderSchedulerError(
+            f"global index promotion did not commit: {promoted.get('status')}"
+        )
+    after = {symbol: target.isoformat() for symbol in symbols}
+    return {
+        "status": "PROMOTED", "http_calls": 3, "run_id": run_id,
+        "latest_before": latest_text, "latest_after": after,
+        "reason": "VALIDATED_THREE_INDEX_ATOMIC_PROMOTION",
+    }
+
+
+def _run_futures_phase(project_root: Path, phase: str, target: object) -> dict[str, object]:
+    if phase != "dashboard_futures" or not isinstance(target, date):
+        raise ProviderSchedulerError("invalid global futures scheduler phase")
+    production = project_root / "data/normalized/global_commodity_futures_daily"
+    existing = read_dataset(
+        production, GLOBAL_COMMODITY_FUTURES_DAILY,
+        validate_global_commodity_futures,
+    )
+    symbols = ("NASDAQ100_FUTURES", "GOLD", "WTI_CRUDE_OIL")
+    present = set(existing["symbol"].astype(str))
+    if present != set(symbols):
+        raise ProviderSchedulerError(
+            f"global futures retained symbol set differs: {sorted(present)}"
+        )
+    latest = {
+        symbol: date.fromisoformat(str(
+            existing.loc[existing["symbol"].eq(symbol), "date"].astype(str).max()
+        ))
+        for symbol in symbols
+    }
+    if len(set(latest.values())) != 1:
+        raise ProviderSchedulerError(f"global futures split retained latest: {latest}")
+    retained = next(iter(latest.values()))
+    latest_text = {key: value.isoformat() for key, value in latest.items()}
+    if retained >= target:
+        return {
+            "status": "NOOP_IDEMPOTENT", "http_calls": 0, "run_id": None,
+            "latest_before": latest_text, "latest_after": latest_text,
+            "reason": "ALL_DASHBOARD_FUTURES_CURRENT",
+        }
+    calendar = ExchangeTradingCalendar(ExchangeMarket.US)
+    if calendar.next_trading_day(retained) != target:
+        raise ProviderSchedulerError(
+            f"global futures catch-up is not a one-session append: {retained} -> {target}"
+        )
+    module = _load_refresh_module(project_root)
+    checkpoint = module.prepare_phase(
+        project_root, "yahoo_dashboard_futures", end=target,
+    )
+    if checkpoint.get("status") == "NOOP_IDEMPOTENT":
+        return {
+            "status": "NOOP_IDEMPOTENT", "http_calls": 0, "run_id": None,
+            "latest_before": latest_text, "latest_after": latest_text,
+            "reason": "ALL_DASHBOARD_FUTURES_CURRENT",
+        }
+    if checkpoint.get("status") != "CANDIDATE_REVIEW_REQUIRED":
+        raise ProviderSchedulerError(
+            f"unexpected futures phase status: {checkpoint.get('status')}"
+        )
+    revisions = checkpoint.get("revision_report")
+    if (
+        checkpoint.get("phase") != "yahoo_dashboard_futures"
+        or checkpoint.get("max_http_calls") != 3
+        or checkpoint.get("http_calls") != 3
+        or checkpoint.get("retry_count") != 0
+        or checkpoint.get("http_statuses") != [200, 200, 200]
+        or not isinstance(revisions, dict)
+        or set(revisions) != set(symbols)
+        or any(
+            report.get("source_omitted_existing_dates") != 0
+            or report.get("finite_to_null_cells") != 0
+            or report.get("inserted_rows") != 1
+            for report in revisions.values()
+        )
+    ):
+        raise ProviderSchedulerError("global futures checkpoint validation failed")
+    run_id = checkpoint.get("run_id")
+    digest = checkpoint.get("approval_digest")
+    if not isinstance(run_id, str) or not isinstance(digest, str):
+        raise ProviderSchedulerError("global futures checkpoint identity is incomplete")
+    checkpoint_path = (
+        project_root / "data/state/global_current_refresh" / run_id / "checkpoint.json"
+    )
+    promoted = module.promote_phase(
+        project_root, checkpoint_path, approval_digest=digest,
+    )
+    if promoted.get("status") != "PROMOTED":
+        raise ProviderSchedulerError(
+            f"global futures promotion did not commit: {promoted.get('status')}"
+        )
+    after = {symbol: target.isoformat() for symbol in symbols}
+    return {
+        "status": "PROMOTED", "http_calls": 3, "run_id": run_id,
+        "latest_before": latest_text, "latest_after": after,
+        "reason": "VALIDATED_THREE_SYMBOL_ATOMIC_PROMOTION",
+    }
+
+
+def run_lane(
+    project_root: Path, lane: str, *, as_of: datetime | None = None,
+    scheduled_for: datetime | None = None, dry_run: bool = False,
+    phase_runner: PhaseRunner | None = None,
+) -> dict[str, object]:
+    root = project_root.resolve()
+    if lane not in LANE_SCHEDULES:
+        raise ProviderSchedulerError(f"lane is not registered for unattended execution: {lane}")
+    config = LANE_SCHEDULES[lane]
+    readiness = next((item for item in DAILY_LANE_READINESS if item.lane == lane), None)
+    if readiness is None or not readiness.scheduler_eligible:
+        raise ProviderSchedulerError(f"lane is not scheduler eligible: {lane}")
+    core_enabled = {
+        spec.dataset_id for spec in DATASET_OPERATIONS.select(executable_only=True)
+    }
+    universe_enabled = {
+        spec.dataset_id for spec in DATASET_UNIVERSE.values()
+        if spec.automation_enabled
+    }
+    enabled = core_enabled | universe_enabled
+    direct = set(config.dataset_ids) - {"us_treasury_spread_daily"}
+    if not direct <= enabled:
+        raise ProviderSchedulerError(f"lane has disabled direct datasets: {sorted(direct-enabled)}")
+    started_at = as_of or datetime.now(timezone.utc)
+    if started_at.tzinfo is None or started_at.utcoffset() is None:
+        raise ValueError("as_of must be timezone-aware")
+    if scheduled_for is not None and (
+        scheduled_for.tzinfo is None or scheduled_for.utcoffset() is None
+    ):
+        raise ValueError("scheduled_for must be timezone-aware")
+    if scheduled_for is not None and scheduled_for > started_at:
+        raise ValueError("scheduled_for cannot be after the actual start time")
+    clock = scheduled_for or started_at
+    calendar = ExchangeTradingCalendar(config.market)
+    market_target = calendar.latest_completed_session(clock)
+    phase_dataset = {
+        "fred_yields": "fred_treasury_yield_daily",
+        "fred_fx": "fred_usd_fx_daily",
+        "fred_vix": "fred_vix_daily",
+        "canonical_equity": "kr_equity_canonical_universe_daily",
+        "kospi200_breadth": "kr_kospi200_breadth_daily",
+        "detail": "kr_stock_lending_daily",
+        "market": "kr_stock_lending_market_daily",
+        "participant": "kr_stock_lending_participant_daily",
+        "short_trading": "kr_short_selling_trading_daily",
+        "short_balance": "kr_short_selling_balance_daily",
+        "short_investor": "kr_short_selling_investor_daily",
+        "vkospi": "kr_vkospi_daily",
+        "indices": "kr_index_daily",
+        "index_fundamentals": "kr_index_fundamental_daily",
+        "market_investor": "kr_market_investor_net_purchase_bridge_daily",
+        "toss_kr_treasury": "kr_treasury_yield_daily",
+        "global_indices": "global_index_price_daily",
+        "soxx": "global_etf_price_daily",
+        "dashboard_futures": "global_commodity_futures_daily",
+    }
+    phase_targets = {}
+    availability_policies = {}
+    for phase in config.phases:
+        if phase == "kospi200_breadth":
+            phase_targets[phase] = latest_accepted_canonical_target(root)
+            availability_policies[phase] = "CANONICAL_ACCEPTED_DATE_ONLY"
+            continue
+        resolved = resolve_expected_latest(
+            dataset=phase_dataset[phase], lane=lane, retained_latest=None, as_of=clock,
+        )
+        if resolved is None:
+            raise ProviderSchedulerError(f"expected-latest policy is absent: {phase}")
+        phase_targets[phase] = resolved.expected_available_observation
+        availability_policies[phase] = resolved.provider_availability_policy.value
+    run_id = f"{lane.lower()}-{clock.astimezone(timezone.utc):%Y%m%dT%H%M%SZ}-{uuid4().hex}"
+    base = {
+        "schema_version": 1,
+        "run_id": run_id,
+        "lane": lane,
+        "cadence_group": config.cadence_group,
+        "target_session": market_target.isoformat(),
+        "phase_targets": {key: value.isoformat() for key, value in phase_targets.items()},
+        "provider_availability_policies": availability_policies,
+        "calendar": asdict(calendar.provenance),
+        "accepted_source": config.accepted_source,
+        "automation_dataset_ids": sorted(direct),
+        "dependency_refresh_ids": ["us_treasury_spread_daily"] if lane == "FRED_DAILY" else [],
+        "retry_count": 0,
+        "dry_run": dry_run,
+    }
+    if scheduled_for is not None:
+        base.update({
+            "scheduled_for": scheduled_for.isoformat(),
+            "started_at_utc": started_at.astimezone(timezone.utc).isoformat(),
+        })
+    if dry_run:
+        return {**base, "status": "DRY_RUN_PASS", "api_calls": 0, "phases": []}
+    lock_path = root / "data/state/provider_scheduler" / f"{lane.lower()}.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock = DailyRunLock(lock_path, run_id=run_id, acquired_at=started_at).acquire()
+    outcomes: list[dict[str, object]] = []
+    try:
+        execute = phase_runner or {
+            "FRED_DAILY": _run_accepted_phase,
+            "CANONICAL_EQUITY_DAILY": _run_canonical_equity_phase,
+            "KOSPI200_BREADTH_DAILY": _run_kospi200_breadth_phase,
+            "LENDING_DAILY": _run_lending_phase,
+            "SHORT_SELLING_DAILY": _run_short_selling_phase,
+            "SHORT_SELLING_BALANCE_DAILY": _run_short_selling_phase,
+            "SHORT_SELLING_INVESTOR_DAILY": _run_short_selling_phase,
+            "VKOSPI_DAILY": _run_vkospi_phase,
+            "KR_INDEX_DAILY": _run_index_phase,
+            "KR_INDEX_FUNDAMENTAL_DAILY": _run_index_fundamental_phase,
+            "MARKET_INVESTOR_DAILY": _run_market_investor_phase,
+            "TOSS_KR_TREASURY_DAILY": _run_toss_kr_treasury_phase,
+            "GLOBAL_INDEX_DAILY": _run_global_index_phase,
+            "GLOBAL_ETF_DAILY": _run_etf_phase,
+            "GLOBAL_COMMODITY_DAILY": _run_futures_phase,
+        }[lane]
+        for phase in config.phases:
+            result = execute(root, phase, phase_targets[phase])
+            outcome = {
+                "phase": phase,
+                "status": result.get("status"),
+                "http_calls": int(result.get("http_calls", 0) or 0),
+                "run_id": result.get("run_id"),
+                "dataset_id": phase_dataset[phase],
+                "symbol": result.get("symbol"),
+                "expected_latest": phase_targets[phase].isoformat(),
+                "latest_before": result.get("latest_before"),
+                "latest_after": result.get("latest_after"),
+                "reason": result.get("reason"),
+                "attempted_dates": result.get("attempted_dates"),
+                "accepted_dates": result.get("accepted_dates"),
+            }
+            outcomes.append(outcome)
+    finally:
+        lock.release()
+    statuses = {str(item["status"]) for item in outcomes}
+    status = (
+        "DEGRADED"
+        if any(value.startswith(("DEGRADED", "FAILED")) for value in statuses)
+        else "NOOP" if statuses == {"NOOP_IDEMPOTENT"}
+        else "PASS"
+    )
+    report = {
+        **base,
+        "status": status,
+        "api_calls": sum(int(item["http_calls"]) for item in outcomes),
+        "phases": outcomes,
+        "finished_at_utc": datetime.now(timezone.utc).isoformat(),
+    }
+    log_name = (
+        "KR_INDEX_FUNDAMENTAL_DAILY_last.json"
+        if lane == "KR_INDEX_FUNDAMENTAL_DAILY"
+        else f"STOCK_DATA_{lane}_last.json"
+    )
+    log_path = root / "artifacts/scheduler_logs" / log_name
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = log_path.with_suffix(log_path.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(log_path)
+    return report
+
+
+__all__ = ["LANE_SCHEDULES", "LaneSchedule", "ProviderSchedulerError", "run_lane"]

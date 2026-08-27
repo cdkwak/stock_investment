@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 from typing import Callable
 
@@ -27,13 +28,23 @@ class CollectionResult:
 def collect_date(
     *, project_root: Path, endpoint: str, contract, normalizer: Callable,
     base_date: str, max_calls: int, resume: bool = True,
+    state_path: Path | None = None, normalized_root: Path | None = None,
+    landing_path: Path | None = None,
 ) -> CollectionResult:
     if len(base_date) != 8 or not base_date.isdigit() or max_calls < 1:
         raise ValueError("base_date must be YYYYMMDD and max_calls must be positive")
-    state = BackfillState.load(project_root / "data/state" / f"{contract.name}.json", contract.name)
+    state_path = state_path or project_root / "data/state" / f"{contract.name}.json"
+    normalized_root = normalized_root or project_root / "data/normalized" / contract.name
+    landing_path = landing_path or (
+        project_root / "data/landing/data_go_kr" / contract.name / f"{base_date}.json"
+    )
+    state = BackfillState.load(state_path, contract.name)
     if resume and base_date not in state.pending([base_date]):
-        root = project_root / "data/normalized" / contract.name
-        existing = read_dataset(root, contract, _validator(contract))
+        if base_date in state.valid_empty_partitions:
+            return CollectionResult(contract.name, 0, 0, "VALID_EMPTY", None, None)
+        if not normalized_root.exists():
+            raise FileNotFoundError(normalized_root)
+        existing = read_dataset(normalized_root, contract, _validator(contract))
         selected = existing[existing["date"] == pd.to_datetime(base_date).strftime("%Y-%m-%d")]
         return CollectionResult(contract.name, len(selected), 0, "COMPLETE", selected.date.min(), selected.date.max())
     try:
@@ -41,23 +52,23 @@ def collect_date(
                                 max_attempts=1).fetch_all(
             filters={"basDt": base_date}, num_of_rows=9999, max_pages=max_calls,
         )
+        _write_immutable_date_landing(result.pages, landing_path)
         if result.total_count == 0:
             state.mark_valid_empty(base_date)
             return CollectionResult(contract.name, 0, len(result.pages), "VALID_EMPTY", None, None)
         frame = normalizer(result.items)
         validate_data_v1(frame, contract, allow_empty=False)
-        write_landing_pages_atomic(
-            result.pages, project_root / "data/landing/data_go_kr" / contract.name / f"{base_date}.json",
-        )
-        root = project_root / "data/normalized" / contract.name
-        if root.exists():
-            existing = read_dataset(root, contract, _validator(contract))
+        expected_date = pd.to_datetime(base_date).strftime("%Y-%m-%d")
+        if set(frame["date"].astype(str)) != {expected_date}:
+            raise ValueError("exact-date response contains another source date")
+        if normalized_root.exists():
+            existing = read_dataset(normalized_root, contract, _validator(contract))
             frame = pd.concat([existing, frame], ignore_index=True).drop_duplicates(
                 list(contract.primary_key), keep="last"
             ).sort_values(list(contract.sort_key), kind="stable").reset_index(drop=True)
         validate_data_v1(frame, contract)
-        write_dataset_atomic(frame, root, contract, _validator(contract))
-        restored = read_dataset(root, contract, _validator(contract))
+        write_dataset_atomic(frame, normalized_root, contract, _validator(contract))
+        restored = read_dataset(normalized_root, contract, _validator(contract))
         state.mark_completed(base_date)
         selected = restored[restored["date"] == pd.to_datetime(base_date).strftime("%Y-%m-%d")]
         return CollectionResult(contract.name, len(selected), len(result.pages), "COMPLETE",
@@ -65,6 +76,20 @@ def collect_date(
     except Exception as error:
         state.mark_failed(base_date, type(error).__name__)
         raise
+
+
+def _write_immutable_date_landing(pages, path: Path) -> None:
+    """Retain the first exact-date response, including a valid empty response."""
+    expected = list(pages)
+    if path.exists():
+        try:
+            retained = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise RuntimeError("existing exact-date Landing is unreadable") from error
+        if retained != expected:
+            raise RuntimeError("existing exact-date Landing differs from provider response")
+        return
+    write_landing_pages_atomic(tuple(pages), path)
 
 
 def _validator(contract):
