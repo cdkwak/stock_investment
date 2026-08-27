@@ -1,0 +1,30 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/scripts/maintenance/telegram_agent_bridge.py\" hook",
+            "commandWindows": "powershell.exe -NoProfile -Command \"$r = git -c safe.directory='*' rev-parse --show-toplevel; & (Join-Path $r '.venv\\Scripts\\python.exe') (Join-Path $r 'scripts\\maintenance\\telegram_agent_bridge.py') hook\"",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/scripts/maintenance/telegram_agent_bridge.py\" hook",
+            "commandWindows": "powershell.exe -NoProfile -Command \"$r = git -c safe.directory='*' rev-parse --show-toplevel; & (Join-Path $r '.venv\\Scripts\\python.exe') (Join-Path $r 'scripts\\maintenance\\telegram_agent_bridge.py') hook\"",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}

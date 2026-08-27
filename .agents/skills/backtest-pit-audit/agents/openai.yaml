@@ -1,0 +1,4 @@
+interface:
+  display_name: "Backtest PIT Audit"
+  short_description: "Audit backtests for PIT leakage and sealed holdouts."
+  default_prompt: "Audit this backtest or feature change for availability clocks, leakage, label isolation, purging, embargo, determinism, and holdout sealing."

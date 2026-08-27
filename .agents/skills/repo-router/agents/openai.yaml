@@ -1,0 +1,4 @@
+interface:
+  display_name: "Repository Router"
+  short_description: "Route repository work through current authority."
+  default_prompt: "Route this repository task through AGENTS, project status, one domain status, and only the bounded evidence needed."

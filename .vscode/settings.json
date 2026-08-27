@@ -1,0 +1,32 @@
+{
+  "python.analysis.exclude": [
+    "**/data/landing/**",
+    "**/data/normalized/**",
+    "**/data/raw/**",
+    "**/.venv/**",
+    "**/.git/**",
+    "**/__pycache__/**",
+    "**/.pytest_cache/**",
+    "**/node_modules/**",
+    "**/.*"
+  ],
+
+  "files.watcherExclude": {
+    "**/data/landing/**": true,
+    "**/data/normalized/**": true,
+    "**/data/raw/**": true,
+    "**/data/state/**": true,
+    "**/.venv/**": true,
+    "**/.git/**": true,
+    "**/__pycache__/**": true,
+    "**/node_modules/**": true
+  },
+
+  "search.exclude": {
+    "**/data/landing/**": true,
+    "**/data/normalized/**": true,
+    "**/data/raw/**": true,
+    "**/.venv/**": true,
+    "**/node_modules/**": true
+  }
+}

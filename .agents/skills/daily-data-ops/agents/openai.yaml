@@ -1,0 +1,4 @@
+interface:
+  display_name: "Daily Data Operations"
+  short_description: "Audit and run bounded daily data operations safely."
+  default_prompt: "Evaluate or execute an authorized exact-date daily data operation with Landing-first, atomic, checkpointed, idempotent safeguards."
