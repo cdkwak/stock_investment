@@ -1,0 +1,4 @@
+result: UR246 pointer documentation now matches lock-before-read implementation and permanent Windows crash/non-rewind process regressions pass.
+changed: Updated only the UR246 recurring runbook and owning CLI test module; no production implementation change.
+verified: Windows owning suite 31 passed, including separate-process post-unlock non-rewind and os._exit crash-release-to-next-process; py_compile and Doctor passed; provider/API/production-data mutations zero.; independent review by goal_inbox_review: Independent review_e084 exact-generation PASS: exact two-file scope; runbook matches lock-before-validation/read and post-unlock contender re-read; Windows spawned newer-then-older byte-preserving non-rewind and os._exit crash-release-to-newer receipt executed; owning 31 passed; py_compile passed; Doctor OK; provider/API/production-data mutation zero.
+completed_at: 2026-08-26T20:19:56+09:00

@@ -1,0 +1,50 @@
+{
+  "assigned_agent": "root",
+  "assigned_role": "worker",
+  "branch": null,
+  "completed_at": "2026-08-26T16:06:16+09:00",
+  "created_at": "2026-08-25T01:29:39+09:00",
+  "created_by": "codex_root_account_planning",
+  "depends_on": [
+    "RQ-20260825T043916-5CBF",
+    "RQ-20260825T012923-BFC5"
+  ],
+  "fingerprint": "kbsec-ssqm2952-readonly-account-runtime-same-account-page-v1",
+  "heartbeat": null,
+  "id": "RQ-20260825T012939-F2B9",
+  "kind": "bug",
+  "lease_until": null,
+  "legacy_id": null,
+  "owner": null,
+  "parallelizable": false,
+  "parent_task": "USER-REQUEST-20260825-TOSS-KB-SAME-ACCOUNT-PAGE",
+  "priority": "P1",
+  "priority_hint": "P1",
+  "resource_locks": [
+    "account-snapshot-status",
+    "kb-account-live-route",
+    "qt-process"
+  ],
+  "review_required": true,
+  "reviewer": "goal-inbox-review",
+  "risk": "high",
+  "schema_version": 1,
+  "slug": "add-authorized-read-only-kb-account-refresh-beside-toss",
+  "state": "done",
+  "title": "Add authorized read-only KB account refresh beside Toss",
+  "updated_at": "2026-08-26T16:06:16+09:00",
+  "worktree": null,
+  "write_scope": [
+    "app.py",
+    "docs/data/DATA_STATUS.md",
+    "docs/data/operations/KBSEC_ACCOUNT_SNAPSHOT_READONLY.md",
+    "docs/gui/GUI_STATUS.md",
+    "src/stock_data/gui/main_window.py",
+    "src/stock_data/orchestration/kbsec_account_runtime.py",
+    "src/stock_data/providers/kbsec/client.py",
+    "tests/unit/gui/test_gui_backtest.py",
+    "tests/unit/orchestration/test_kbsec_account_runtime.py",
+    "tests/unit/providers/test_kbsec_client.py"
+  ],
+  "writer_lane": "shared"
+}

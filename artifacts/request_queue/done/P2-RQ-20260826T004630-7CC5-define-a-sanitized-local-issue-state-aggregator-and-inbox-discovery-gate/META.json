@@ -1,0 +1,37 @@
+{
+  "assigned_agent": "codex_root",
+  "assigned_role": "lead",
+  "branch": null,
+  "completed_at": "2026-08-26T10:12:31+09:00",
+  "created_at": "2026-08-26T00:46:30+09:00",
+  "created_by": "goal_inbox_review",
+  "depends_on": [],
+  "fingerprint": "goal-local-issue-state-aggregation-inbox-discovery-contract-v1",
+  "heartbeat": null,
+  "id": "RQ-20260826T004630-7CC5",
+  "kind": "bug",
+  "lease_until": null,
+  "legacy_id": null,
+  "owner": null,
+  "parallelizable": true,
+  "parent_task": "PROJECT_GOAL",
+  "priority": "P2",
+  "priority_hint": "P2",
+  "resource_locks": [
+    "shared-issue-state-contract"
+  ],
+  "review_required": true,
+  "reviewer": "lead",
+  "risk": "high",
+  "schema_version": 1,
+  "slug": "define-a-sanitized-local-issue-state-aggregator-and-inbox-discovery-gate",
+  "state": "done",
+  "title": "Define a sanitized local issue-state aggregator and Inbox discovery gate",
+  "updated_at": "2026-08-26T10:12:31+09:00",
+  "worktree": null,
+  "write_scope": [
+    "docs/project/ISSUE_STATE_CONTRACT.md",
+    "docs/project/PROJECT_STATUS.md"
+  ],
+  "writer_lane": "shared"
+}

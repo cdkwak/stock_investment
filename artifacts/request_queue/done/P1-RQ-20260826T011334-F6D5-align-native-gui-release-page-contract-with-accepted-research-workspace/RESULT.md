@@ -1,0 +1,4 @@
+result: Native GUI release assessment now accepts the exact ten-page topology including Research Workspace without weakening visibility, clipping, worker, or isolation gates.
+changed: src/stock_data/orchestration/release_readiness.py; tests/unit/orchestration/test_release_readiness.py
+verified: 41 focused tests passed; actual offscreen retained-data smoke returned ten pages, page_contract true, zero active threads, all workers closed, no clipping, and DEGRADED only because the virtual screen is below the 1600x900 baseline.; independent review by lead: Independent review by review_gui_prereqs: MainWindow final order matches all ten exact pages; 41 focused tests pass; offline smoke reports pages=10 page_contract=True clipped=0 worker_contract=True QUIESCENT workers_closed=True external_calls=0 data_mutations=0. Overall BACKTEST_GUI_BUNDLE failure is unrelated to this scoped page-contract generation.
+completed_at: 2026-08-26T02:22:11+09:00

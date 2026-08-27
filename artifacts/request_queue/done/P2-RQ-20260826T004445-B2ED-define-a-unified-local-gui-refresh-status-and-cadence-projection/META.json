@@ -1,0 +1,37 @@
+{
+  "assigned_agent": "codex_root_b2ed_rework2",
+  "assigned_role": "gui",
+  "branch": null,
+  "completed_at": "2026-08-26T03:17:45+09:00",
+  "created_at": "2026-08-26T00:44:45+09:00",
+  "created_by": "goal_inbox_review",
+  "depends_on": [],
+  "fingerprint": "goal-gui-refresh-status-cadence-next-refresh-contract-v1",
+  "heartbeat": null,
+  "id": "RQ-20260826T004445-B2ED",
+  "kind": "bug",
+  "lease_until": null,
+  "legacy_id": null,
+  "owner": null,
+  "parallelizable": true,
+  "parent_task": "PROJECT_GOAL",
+  "priority": "P2",
+  "priority_hint": "P2",
+  "resource_locks": [
+    "gui-refresh-status-contract"
+  ],
+  "review_required": true,
+  "reviewer": "lead",
+  "risk": "medium",
+  "schema_version": 1,
+  "slug": "define-a-unified-local-gui-refresh-status-and-cadence-projection",
+  "state": "done",
+  "title": "Define a unified local GUI refresh-status and cadence projection",
+  "updated_at": "2026-08-26T03:17:45+09:00",
+  "worktree": null,
+  "write_scope": [
+    "docs/gui/GUI_REFRESH_STATUS_CONTRACT.md",
+    "docs/gui/GUI_STATUS.md"
+  ],
+  "writer_lane": "gui"
+}

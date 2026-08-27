@@ -1,0 +1,4 @@
+result: UR246 pointer publication is process-serialized, strictly monotonic, and bound to the exact immutable terminal receipt; invalid/equal-conflicting updates preserve prior bytes.
+changed: scripts/manual/collect/collect_toss_domestic_ur246.py;tests/unit/orchestration/test_collect_toss_domestic_ur246_cli.py;docs/data/operations/TOSS_DOMESTIC_UR246_RECURRING_30M.md;docs/data/DATA_STATUS.md
+verified: 29 focused tests and 121 UR246/release tests passed; independent counterexample review passed; no provider call or production state mutation.; independent review by goal_inbox_review: 29/29 focused PASS; actual Windows subprocess serialization PASS; equal/path/content conflicts plus timeout/atomic failure preserve the prior valid pointer; Data Status and runbook match implementation.
+completed_at: 2026-08-26T19:51:35+09:00

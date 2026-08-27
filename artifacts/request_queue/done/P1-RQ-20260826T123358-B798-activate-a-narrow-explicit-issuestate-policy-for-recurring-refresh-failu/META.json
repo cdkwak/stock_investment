@@ -1,0 +1,46 @@
+{
+  "assigned_agent": "root",
+  "assigned_role": "lead",
+  "branch": null,
+  "completed_at": "2026-08-26T13:29:57+09:00",
+  "created_at": "2026-08-26T12:33:58+09:00",
+  "created_by": "goal_inbox_review",
+  "depends_on": [
+    "RQ-20260826T025105-F640"
+  ],
+  "fingerprint": "issue-state-explicit-recurring-refresh-policy-activation-v1",
+  "heartbeat": null,
+  "id": "RQ-20260826T123358-B798",
+  "kind": "bug",
+  "lease_until": null,
+  "legacy_id": null,
+  "owner": null,
+  "parallelizable": true,
+  "parent_task": "PROJECT_GOAL",
+  "priority": "P1",
+  "priority_hint": "P1",
+  "resource_locks": [
+    "issue-state-policy",
+    "windows-task-scheduler"
+  ],
+  "review_required": true,
+  "reviewer": "goal_inbox_review",
+  "risk": "high",
+  "schema_version": 1,
+  "slug": "activate-a-narrow-explicit-issuestate-policy-for-recurring-refresh-failu",
+  "state": "done",
+  "title": "Activate a narrow explicit IssueState policy for recurring refresh failures",
+  "updated_at": "2026-08-26T13:29:57+09:00",
+  "worktree": null,
+  "write_scope": [
+    "artifacts/issue_state/escalation_policy.json",
+    "artifacts/issue_state/v1/issues.json",
+    "docs/project/ISSUE_STATE_CONTRACT.md",
+    "docs/project/PROJECT_OPERATIONS_MAP.md",
+    "docs/project/PROJECT_STATUS.md",
+    "scripts/register_data_operations_tasks.ps1",
+    "tests/integration/daily_operations/test_issue_state_sync.py",
+    "tests/unit/orchestration/test_daily_operations.py"
+  ],
+  "writer_lane": "shared"
+}

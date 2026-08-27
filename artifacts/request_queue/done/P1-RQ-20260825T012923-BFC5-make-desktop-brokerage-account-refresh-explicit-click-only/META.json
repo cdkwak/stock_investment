@@ -1,0 +1,43 @@
+{
+  "assigned_agent": "codex_root_bfc5",
+  "assigned_role": "worker",
+  "branch": null,
+  "completed_at": "2026-08-25T06:44:43+09:00",
+  "created_at": "2026-08-25T01:29:23+09:00",
+  "created_by": "codex_root_account_planning",
+  "depends_on": [],
+  "fingerprint": "desktop-brokerage-account-refresh-manual-click-only-v1",
+  "heartbeat": null,
+  "id": "RQ-20260825T012923-BFC5",
+  "kind": "bug",
+  "lease_until": null,
+  "legacy_id": null,
+  "owner": null,
+  "parallelizable": false,
+  "parent_task": "USER-REQUEST-20260825-ACCOUNT-MANUAL-REFRESH",
+  "priority": "P1",
+  "priority_hint": "P1",
+  "resource_locks": [
+    "account-explicit-click-only-runtime"
+  ],
+  "review_required": true,
+  "reviewer": "recheck_repo",
+  "risk": "high",
+  "schema_version": 1,
+  "slug": "make-desktop-brokerage-account-refresh-explicit-click-only",
+  "state": "done",
+  "title": "Make desktop brokerage account refresh explicit-click only",
+  "updated_at": "2026-08-25T06:44:43+09:00",
+  "worktree": null,
+  "write_scope": [
+    "app.py",
+    "docs/data/DATA_STATUS.md",
+    "docs/data/operations/TOSS_ACCOUNT_SNAPSHOT_READONLY.md",
+    "docs/gui/GUI_STATUS.md",
+    "src/stock_data/gui/main_window.py",
+    "src/stock_data/orchestration/toss_account_runtime.py",
+    "tests/unit/gui/test_gui_backtest.py",
+    "tests/unit/orchestration/test_toss_account_runtime.py"
+  ],
+  "writer_lane": "shared"
+}

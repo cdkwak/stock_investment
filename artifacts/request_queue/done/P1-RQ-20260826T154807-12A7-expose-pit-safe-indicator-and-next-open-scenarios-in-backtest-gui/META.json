@@ -1,0 +1,45 @@
+{
+  "assigned_agent": "review_2eaa_backtest_gui_writer",
+  "assigned_role": "writer",
+  "branch": null,
+  "completed_at": "2026-08-26T19:49:17+09:00",
+  "created_at": "2026-08-26T15:48:07+09:00",
+  "created_by": "root",
+  "depends_on": [
+    "RQ-20260826T004445-B2ED",
+    "RQ-20260825T090328-9DB8",
+    "RQ-20260826T155132-DF53"
+  ],
+  "fingerprint": "backtest-gui-pit-safe-indicator-next-open-scenarios-v1",
+  "heartbeat": null,
+  "id": "RQ-20260826T154807-12A7",
+  "kind": "bug",
+  "lease_until": null,
+  "legacy_id": null,
+  "owner": null,
+  "parallelizable": false,
+  "parent_task": "PROJECT-GOAL",
+  "priority": "P1",
+  "priority_hint": "P1",
+  "resource_locks": [
+    "qt-process"
+  ],
+  "review_required": true,
+  "reviewer": "recheck_repo",
+  "risk": "high",
+  "schema_version": 1,
+  "slug": "expose-pit-safe-indicator-and-next-open-scenarios-in-backtest-gui",
+  "state": "done",
+  "title": "Expose PIT-safe indicator and next-open scenarios in Backtest GUI",
+  "updated_at": "2026-08-26T19:49:17+09:00",
+  "worktree": null,
+  "write_scope": [
+    "docs/backtest/BACKTEST_STATUS.md",
+    "docs/gui/GUI_STATUS.md",
+    "src/stock_data/gui/backtest_scenario_service.py",
+    "src/stock_data/gui/main_window.py",
+    "tests/unit/gui/test_backtest_scenario_service.py",
+    "tests/unit/gui/test_gui_backtest.py"
+  ],
+  "writer_lane": "shared"
+}

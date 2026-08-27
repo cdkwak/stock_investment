@@ -1,0 +1,4 @@
+result: Implemented strict provider-labelled current-price/cache boundary and derived account metrics over accepted manual holdings, with unavailable-state and prior-cache preservation.
+changed: Added versioned cache contract, Yahoo observation normalization, injected refresh orchestration, source-neutral GUI cache join, optional account view labels/metrics, API-zero CLI, active documentation, and focused tests.
+verified: 280 owning tests passed; py_compile and CLI help passed; queue doctor OK; provider/network calls zero and production cache writes zero.; independent review by recheck_repo: PASS: exact HANDOFF-bound scope reviewed; 280 tests, arithmetic/provider/chronology probes, cross-section ticker sharing, API0, basis immutability, prior-byte preservation, compile/help/Doctor pass.
+completed_at: 2026-08-26T14:38:46+09:00

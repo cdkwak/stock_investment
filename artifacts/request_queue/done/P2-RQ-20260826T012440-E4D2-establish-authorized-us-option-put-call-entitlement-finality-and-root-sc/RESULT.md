@@ -1,0 +1,4 @@
+result: Established an exact primary-source decision: U.S. option volume and OI put/call remain independently unsupported and numeric-free until scope, finality, schema, entitlement, retention, and display rights close.
+changed: Created the Data-owned Cboe/OCC/ORATS/licensed-product comparison and bounded Landing-first reopen gate; added authoritative Data Status routing.
+verified: Fresh independent review PASS after correcting four counterexamples; required semantic/rights/finality/pilot fields and primary official URLs verified; no provider call, subscription, retained value, data, GUI, or predictive action.; independent review by lead: Fresh independent read-only PASS after counterexample fixes: exact scope remains fail-closed, ORATS endpoint fields are correctly bounded, future DataShop behavior is not treated current, Cboe One unit ambiguity is explicit, and all rights/finality/zero/pilot gates remain numeric-free.
+completed_at: 2026-08-26T19:20:44+09:00

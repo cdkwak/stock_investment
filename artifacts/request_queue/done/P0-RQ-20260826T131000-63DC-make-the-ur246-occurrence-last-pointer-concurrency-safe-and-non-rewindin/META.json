@@ -1,0 +1,39 @@
+{
+  "assigned_agent": "codex_data_root_63dc",
+  "assigned_role": "project_owner",
+  "branch": null,
+  "completed_at": "2026-08-26T19:51:35+09:00",
+  "created_at": "2026-08-26T13:10:00+09:00",
+  "created_by": "codex_root",
+  "depends_on": [],
+  "fingerprint": "toss-domestic-ur246:last-pointer:concurrent-nonrewind-v1",
+  "heartbeat": null,
+  "id": "RQ-20260826T131000-63DC",
+  "kind": "bug",
+  "lease_until": null,
+  "legacy_id": null,
+  "owner": null,
+  "parallelizable": true,
+  "parent_task": "RQ-20260826T054904-4631",
+  "priority": "P0",
+  "priority_hint": "P0",
+  "resource_locks": [
+    "toss-ur246-last-pointer"
+  ],
+  "review_required": true,
+  "reviewer": "goal_inbox_review",
+  "risk": "high",
+  "schema_version": 1,
+  "slug": "make-the-ur246-occurrence-last-pointer-concurrency-safe-and-non-rewindin",
+  "state": "done",
+  "title": "Make the UR246 occurrence last pointer concurrency-safe and non-rewinding",
+  "updated_at": "2026-08-26T19:51:35+09:00",
+  "worktree": null,
+  "write_scope": [
+    "docs/data/DATA_STATUS.md",
+    "docs/data/operations/TOSS_DOMESTIC_UR246_RECURRING_30M.md",
+    "scripts/manual/collect/collect_toss_domestic_ur246.py",
+    "tests/unit/orchestration/test_collect_toss_domestic_ur246_cli.py"
+  ],
+  "writer_lane": "data"
+}

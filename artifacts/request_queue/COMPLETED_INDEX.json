@@ -1,0 +1,1401 @@
+{
+  "entries": [
+    {
+      "completed_at": "2026-08-24T00:22:35+09:00",
+      "directory": "P0-RQ-20260824T002235-DBC1-ignore-transient-test-artifacts",
+      "fingerprint": "repo:pytest:transient-artifacts-ignore",
+      "id": "RQ-20260824T002235-DBC1",
+      "legacy_id": "P0-001",
+      "receipt_sha256": "10cad1b8e66cb882eb22480dbb2c9831062af6824a52126552378128d7543140",
+      "result_summary": "Added a root-scoped ignore rule without deleting artifacts."
+    },
+    {
+      "completed_at": "2026-08-24T00:29:09+09:00",
+      "directory": "P1-RQ-20260824T002909-D4AC-yahoo-closed-session-lookback",
+      "fingerprint": "yahoo:kr-index:last-completed-session",
+      "id": "RQ-20260824T002909-D4AC",
+      "legacy_id": "P1-001",
+      "receipt_sha256": "e1c8a804ed64bbf0953c1652f6b8066f6d365b9ab63dbc06b2984ef53ea6e89a",
+      "result_summary": "Cash routes use exchange-session bounds; unchanged completed bars preserve prior projections and pass, while regressions remain failures."
+    },
+    {
+      "completed_at": "2026-08-24T00:30:46+09:00",
+      "directory": "P1-RQ-20260824T003046-47F8-yahoo-partial-failure-exit-code",
+      "fingerprint": "scheduler:yahoo:false-green-exit",
+      "id": "RQ-20260824T003046-47F8",
+      "legacy_id": "P1-002",
+      "receipt_sha256": "de67f13572971bc869fb4b77fcb96300a16e786f8a30714be8d017df829d4d57",
+      "result_summary": "Runner now returns 0 only for `PASS` with zero failures and fails closed otherwise."
+    },
+    {
+      "completed_at": "2026-08-24T00:33:37+09:00",
+      "directory": "P1-RQ-20260824T003337-631A-release-readiness-scheduler-result",
+      "fingerprint": "release-readiness:scheduler:latest-result-envelope",
+      "id": "RQ-20260824T003337-631A",
+      "legacy_id": "P1-003",
+      "receipt_sha256": "b099202d0486eaf6a8d812f723278d8bbc06021a5d1705885fe4c57d4adb53f0",
+      "result_summary": "Readiness now validates fresh unified Yahoo and KR result envelopes and fails closed on missing, malformed, stale, or failed results."
+    },
+    {
+      "completed_at": "2026-08-24T00:39:56+09:00",
+      "directory": "P1-RQ-20260824T003956-5978-repair-six-drifted-tests",
+      "fingerprint": "tests:gui-orchestration:canonical-drift-six",
+      "id": "RQ-20260824T003956-5978",
+      "legacy_id": "P1-004",
+      "receipt_sha256": "9b8ec3e51472b88904870622c01209579e8fccc8339412d01a4fd7be81984771",
+      "result_summary": "Canonical fixture, clock, fallback-order, and closed-session expectations restored."
+    },
+    {
+      "completed_at": "2026-08-24T01:20:21+09:00",
+      "directory": "P2-RQ-20260824T004000-5B5D-separate-health-automation-semantics",
+      "fingerprint": "health:dataset-universe:historical-vs-display-automation",
+      "id": "RQ-20260824T004000-5B5D",
+      "legacy_id": "P2-001",
+      "receipt_sha256": "3c3e40ad08b57bd4483875704b1d7cb88e5ae7474257456f0cf688a75f89ca4b",
+      "result_summary": "Separated retained historical 60m semantics from current display automation"
+    },
+    {
+      "completed_at": "2026-08-24T01:30:19+09:00",
+      "directory": "P2-RQ-20260824T004100-0A75-strengthen-scheduler-registration-readback",
+      "fingerprint": "scheduler:registration:action-trigger-settings-readback",
+      "id": "RQ-20260824T004100-0A75",
+      "legacy_id": "P2-002",
+      "receipt_sha256": "781f1c77a8f9eae399797806f2a8ec823bd9ac2a2f33891bed24f5d93714f932",
+      "result_summary": "Hardened KR unified task semantic readback"
+    },
+    {
+      "completed_at": "2026-08-24T01:40:20+09:00",
+      "directory": "P2-RQ-20260824T004200-D020-preserve-kr-bundle-slot-identity",
+      "fingerprint": "scheduler:kr-bundle:durable-slot-identity",
+      "id": "RQ-20260824T004200-D020",
+      "legacy_id": "P2-003",
+      "receipt_sha256": "b417fcb6131a662abe2b7aaa77a1ee2f0984f502fd779b4b83aa78e432bbbabf",
+      "result_summary": "Preserved explicit KR bundle scheduled-slot identity"
+    },
+    {
+      "completed_at": "2026-08-24T01:46:48+09:00",
+      "directory": "P1-RQ-20260824T013511-97B3-pass-explicit-kr-slot-identity-from-task-scheduler",
+      "fingerprint": "scheduler:kr-bundle:trigger-specific-slot-argument",
+      "id": "RQ-20260824T013511-97B3",
+      "legacy_id": null,
+      "receipt_sha256": "bf8a417b006063420801b3a77524f872e3d710a8e7eb39f05b34f627062f1678",
+      "result_summary": "Defined slot-specific KR scheduled task topology"
+    },
+    {
+      "completed_at": "2026-08-24T01:51:23+09:00",
+      "directory": "P1-RQ-20260824T014416-0C3C-serialize-slot-specific-kr-bundle-invocations",
+      "fingerprint": "scheduler:kr-bundle:cross-task-overlap-lock",
+      "id": "RQ-20260824T014416-0C3C",
+      "legacy_id": null,
+      "receipt_sha256": "1e34a7390e502f87f327a971b9e272ac39f6efe5d3ba59b28368b81b1d5667d4",
+      "result_summary": "Serialized all slot-specific KR bundle invocations"
+    },
+    {
+      "completed_at": "2026-08-24T02:10:29+09:00",
+      "directory": "P0-RQ-20260824T020421-289B-enforce-and-repair-exact-queue-write-scopes",
+      "fingerprint": "request-queue:write-scope:exact-path-validation-and-repair",
+      "id": "RQ-20260824T020421-289B",
+      "legacy_id": null,
+      "receipt_sha256": "db55ac72da7f0372c0152efdb2653ac1a07c458ac1793a8770a567848c424e9f",
+      "result_summary": "Queue write scopes are exact, detectable, and manager-repairable."
+    },
+    {
+      "completed_at": "2026-08-24T02:10:44+09:00",
+      "directory": "P1-RQ-20260824T015012-4D6C-seal-development-labels-from-holdout-prices",
+      "fingerprint": "backtest:holdout:forward-label-cross-boundary-60d",
+      "id": "RQ-20260824T015012-4D6C",
+      "legacy_id": null,
+      "receipt_sha256": "34e5b9386cae0bfab00dc1a15bb5f97d9a33574ffe2e97f85a79cba003b85015",
+      "result_summary": "Development labels are sealed from holdout prices by availability time."
+    },
+    {
+      "completed_at": "2026-08-24T02:26:50+09:00",
+      "directory": "P1-RQ-20260824T015010-B4D9-isolate-windows-powershell-module-resolution-during-acl-snapshots",
+      "fingerprint": "derivatives:acl:powershell-module-path-inheritance",
+      "id": "RQ-20260824T015010-B4D9",
+      "legacy_id": null,
+      "receipt_sha256": "6a2f74f98ac197bfdef75faf7af9c92c8054e2ee782ee3750bd6e42a6be77e90",
+      "result_summary": "Windows ACL snapshot subprocesses no longer inherit incompatible PowerShell module paths."
+    },
+    {
+      "completed_at": "2026-08-24T02:36:57+09:00",
+      "directory": "P1-RQ-20260824T015014-33EE-make-crisis-replay-holdout-enforcement-fail-closed",
+      "fingerprint": "backtest:crisis:optional-holdout-fail-open",
+      "id": "RQ-20260824T015014-33EE",
+      "legacy_id": null,
+      "receipt_sha256": "dd7cb0974394c242d9815b08f33eaaf3e00836bb7297100a1e4c6dd5bc73c56e",
+      "result_summary": "Crisis replay now fails closed on a required canonical holdout boundary and never merges sealed rows."
+    },
+    {
+      "completed_at": "2026-08-24T02:41:46+09:00",
+      "directory": "P2-RQ-20260824T015018-693B-remove-stale-hard-coded-research-and-static-health-count",
+      "fingerprint": "gui:health-filter:research-static-count-drift",
+      "id": "RQ-20260824T015018-693B",
+      "legacy_id": null,
+      "receipt_sha256": "995be2025ecd0a2c302d924e5edba01c9bb81495ffb9fe0e4777f9bfbe4379d6",
+      "result_summary": "GUI health filters are verified against exact typed-universe identities instead of stale counts."
+    },
+    {
+      "completed_at": "2026-08-24T02:49:19+09:00",
+      "directory": "P1-RQ-20260824T015105-3D32-preserve-every-prior-account-target-during-partial-backup-recovery",
+      "fingerprint": "account:toss-recovery:prepared-partial-backup-deletes-valid-state",
+      "id": "RQ-20260824T015105-3D32",
+      "legacy_id": null,
+      "receipt_sha256": "42931966d288ae01c49985544aa502c692eef5b21d38486e35c10c8861b8c246",
+      "result_summary": "Phase-aware account snapshot rollback preserves every prior target across partial backup and promotion failure cuts."
+    },
+    {
+      "completed_at": "2026-08-24T02:53:59+09:00",
+      "directory": "P0-RQ-20260824T022239-9DE3-reject-stale-review-pass-after-a-rework-checkpoint",
+      "fingerprint": "request-queue:review:stale-pass-after-rework",
+      "id": "RQ-20260824T022239-9DE3",
+      "legacy_id": null,
+      "receipt_sha256": "593e9bc5ccd884575c9a3370ba88dc49a2a362f6cd076abc8531b7c8808b58bb",
+      "result_summary": "Review decisions are bound to one immutable submission generation."
+    },
+    {
+      "completed_at": "2026-08-24T03:05:05+09:00",
+      "directory": "P1-RQ-20260824T015015-03A3-reject-unsorted-signal-evaluation-and-stabilize-tied-ap-scores",
+      "fingerprint": "backtest:signals:unsorted-tie-average-precision",
+      "id": "RQ-20260824T015015-03A3",
+      "legacy_id": null,
+      "receipt_sha256": "f27775ccc7edf59978bbcde7cc7d9188534c39b26beb336f3999baac230b7a15",
+      "result_summary": "Signal replay now rejects noncanonical, duplicate, reversed, missing, or empty observation keys before evaluation and produces deterministic tied-score AP."
+    },
+    {
+      "completed_at": "2026-08-24T03:09:02+09:00",
+      "directory": "P0-RQ-20260824T025429-C270-reopen-invalid-done-receipts-through-the-queue-manager",
+      "fingerprint": "request-queue:done:validated-reopen-and-review-cli-docs",
+      "id": "RQ-20260824T025429-C270",
+      "legacy_id": null,
+      "receipt_sha256": "9e98fc99867a62c09e2fe0c9459d3fdac5d81878912f48e206b3d6fee1228084",
+      "result_summary": "Invalid Done receipts can be safely reopened without manual queue edits."
+    },
+    {
+      "completed_at": "2026-08-24T03:16:11+09:00",
+      "directory": "P1-RQ-20260824T015009-82E7-reconstruct-the-intended-kr-bundle-occurrence-date-safely",
+      "fingerprint": "scheduler:kr-bundle:scheduled-occurrence-date-reconstruction",
+      "id": "RQ-20260824T015009-82E7",
+      "legacy_id": null,
+      "receipt_sha256": "9cdd5eb6fd1fd11a1481ebe4ad2119cb77872581e56a4c4d1d004d8afd3b320f",
+      "result_summary": "Fail-closed occurrence provenance implemented; explicit weekend-delayed occurrences preserved."
+    },
+    {
+      "completed_at": "2026-08-24T03:21:47+09:00",
+      "directory": "P1-RQ-20260824T015017-AB5D-bind-backtest-labels-and-signals-to-the-same-source-identity",
+      "fingerprint": "backtest:labels:source-identity-unbound",
+      "id": "RQ-20260824T015017-AB5D",
+      "legacy_id": null,
+      "receipt_sha256": "8cddf34b11d5461496d0a0c73a663be2d3cafe2f897a053acddbf0060033e5e4",
+      "result_summary": "Backtest labels and signals are now bound to the same exact raw ticker/date semantics before evaluation."
+    },
+    {
+      "completed_at": "2026-08-24T03:30:17+09:00",
+      "directory": "P1-RQ-20260824T015107-8EB2-propagate-failed-account-refresh-state-instead-of-replaying-prior-as-cur",
+      "fingerprint": "account:toss-refresh:failure-replays-prior-as-local-validated",
+      "id": "RQ-20260824T015107-8EB2",
+      "legacy_id": null,
+      "receipt_sha256": "4df188dcf369fb2e53ddff0dd6e029f246887a88b549b09b64e2ed341fe19bb5",
+      "result_summary": "FAILED_PRESERVED_PRIOR now produces numeric-free NOT_AVAILABLE READ_FAILURE views for the primary and toss_self entries, excludes stale Toss values from portfolio totals, and retains unrelated account entries."
+    },
+    {
+      "completed_at": "2026-08-24T03:34:15+09:00",
+      "directory": "P1-RQ-20260824T015108-7EEA-retain-usd-buying-power-when-there-are-no-usd-holdings",
+      "fingerprint": "account:toss-v2:usd-buying-power-dropped-without-us-holdings-summary",
+      "id": "RQ-20260824T015108-7EEA",
+      "legacy_id": null,
+      "receipt_sha256": "38bac6aa051acfe44449f98c8483bf400dd7cf8a7f2d28e54caacb7fe1979cdc",
+      "result_summary": "USD buying power remains visible without USD holdings while valuation stays missing."
+    },
+    {
+      "completed_at": "2026-08-24T03:42:31+09:00",
+      "directory": "P1-RQ-20260824T021223-8E48-rollback-every-promoted-target-when-acl-restoration-fails",
+      "fingerprint": "derivatives:atomic-promotion:acl-restore-failure-strands-backup",
+      "id": "RQ-20260824T021223-8E48",
+      "legacy_id": null,
+      "receipt_sha256": "e6521a8e31741e2cdea68a50f89d69074880d7e28554799ecda64dc049f55c58",
+      "result_summary": "ACL and other promotion failures now either fully roll back or retain a durable blocked recovery state."
+    },
+    {
+      "completed_at": "2026-08-24T03:45:13+09:00",
+      "directory": "P1-RQ-20260824T015110-781F-expose-source-and-currency-buying-power-in-the-default-account-compositi",
+      "fingerprint": "account:gui:buying-power-no-visible-path-default-three-source",
+      "id": "RQ-20260824T015110-781F",
+      "legacy_id": null,
+      "receipt_sha256": "0f161429cb87ed502cd5c914e98c48eeea8f79ec1e12a86ffbbf5557766d2768",
+      "result_summary": "Provider cards expose exact per-currency buying power without weakening aggregate cash gating."
+    },
+    {
+      "completed_at": "2026-08-24T03:49:45+09:00",
+      "directory": "P1-RQ-20260824T022052-DD8E-drop-replay-of-missed-kr-bundle-occurrences",
+      "fingerprint": "scheduler:kr-bundle:missed-occurrence-provenance",
+      "id": "RQ-20260824T022052-DD8E",
+      "legacy_id": null,
+      "receipt_sha256": "9d8eb4a28686a8d350424ad918ab86df9ad125eb88cbb203453231764ddbc1fc",
+      "result_summary": "KR scheduled definitions no longer replay missed triggers and retain bounded occurrence resolution for normal launches."
+    },
+    {
+      "completed_at": "2026-08-24T04:00:40+09:00",
+      "directory": "P1-RQ-20260824T031455-0D90-reject-source-identity-mismatch-in-crisis-replay",
+      "fingerprint": "backtest:crisis:source-identity-unbound",
+      "id": "RQ-20260824T031455-0D90",
+      "legacy_id": null,
+      "receipt_sha256": "71af46e0726321c42f66acb748a298c75711f32a290323e0a5011e12378de7dc",
+      "result_summary": "Crisis replay enforces explicit matching identity only on development rows and never inspects holdout-only identity poison."
+    },
+    {
+      "completed_at": "2026-08-24T04:06:34+09:00",
+      "directory": "P2-RQ-20260824T004300-D873-sync-current-status-documents",
+      "fingerprint": "docs:status-map:current-runtime-facts",
+      "id": "RQ-20260824T004300-D873",
+      "legacy_id": "P2-004",
+      "receipt_sha256": "57984923432985bbeb87131fcd61e9a81357db84e6de0065c8612e25b8d6850b",
+      "result_summary": "Current status documents match retained scheduler/Health evidence and current registry definitions without claiming unperformed deployment."
+    },
+    {
+      "completed_at": "2026-08-24T04:26:39+09:00",
+      "directory": "P1-RQ-20260824T033417-0831-reject-non-finite-label-outcomes-at-the-signal-evaluation-boundary",
+      "fingerprint": "backtest:signals:nonfinite-labels-counted-as-outcomes",
+      "id": "RQ-20260824T033417-0831",
+      "legacy_id": null,
+      "receipt_sha256": "4ade1e7c89d79a20c29e2771962f0cb20b8ca3b00541946779cfcea2338d3de5",
+      "result_summary": "Development evaluation rejects noncanonical aware-clock separators, supplied signal outcome namespaces, and optional outcome collisions before merge/alignment/splits."
+    },
+    {
+      "completed_at": "2026-08-24T04:31:33+09:00",
+      "directory": "P2-RQ-20260824T015112-74BA-clear-privacy-placeholder-span-when-account-amounts-are-unmasked",
+      "fingerprint": "account:privacy:unmask-retains-eight-column-table-span",
+      "id": "RQ-20260824T015112-74BA",
+      "legacy_id": null,
+      "receipt_sha256": "ee1da6ded4669a4557d639d5a4e087ad7e2c17b99cc00af53cd20490997cb7aa",
+      "result_summary": "Account privacy unmask clears the eight-column placeholder span and restores all holdings cells."
+    },
+    {
+      "completed_at": "2026-08-24T04:34:09+09:00",
+      "directory": "P1-RQ-20260824T033449-32EA-require-exact-boolean-signal-decisions-before-backtest-metrics",
+      "fingerprint": "backtest:signals:string-false-coerced-to-true",
+      "id": "RQ-20260824T033449-32EA",
+      "legacy_id": null,
+      "receipt_sha256": "128335c51327527b1647a4ec71a878717dc267acaf3e6ad1fc3cf3a8c311d6e3",
+      "result_summary": "Signal decision artifacts require exactly one non-null boolean decision column and one non-null integer 0..4 score column before metrics or merge."
+    },
+    {
+      "completed_at": "2026-08-24T04:40:34+09:00",
+      "directory": "P1-RQ-20260824T033809-3507-redact-buying-power-values-from-account-diagnostic-text",
+      "fingerprint": "account-privacy:buying-power-keys-unredacted",
+      "id": "RQ-20260824T033809-3507",
+      "legacy_id": null,
+      "receipt_sha256": "c69b96b76a990e7c1e676b2609d1b93dac896672d6be2f5b4ed76968fd76a9da",
+      "result_summary": "Account diagnostic redaction handles exact buying-power keys, currencies, quotes, := and JSON delimiters without partial numeric suffix leaks or broad prose scrubbing."
+    },
+    {
+      "completed_at": "2026-08-24T04:43:27+09:00",
+      "directory": "P1-RQ-20260824T034918-A19D-exclude-labels-unavailable-before-holdout-from-crisis-diagnostics",
+      "fingerprint": "backtest:crisis:post-holdout-label-availability-leak",
+      "id": "RQ-20260824T034918-A19D",
+      "legacy_id": null,
+      "receipt_sha256": "3c824fa0f0dee60cf333ef05cc5f2e4114b283fcb8cbe43d7a49122e7176d864",
+      "result_summary": "Crisis diagnostics exclude every label unavailable by the KST holdout boundary before reading outcomes, while validating only eligible decisions/outcomes and preserving untouched observation-date holdout rows."
+    },
+    {
+      "completed_at": "2026-08-24T04:44:58+09:00",
+      "directory": "P2-RQ-20260824T021302-94DC-align-the-data-status-research-and-static-summary-with-its-filter",
+      "fingerprint": "gui:data-status:research-static-summary-mismatch",
+      "id": "RQ-20260824T021302-94DC",
+      "legacy_id": null,
+      "receipt_sha256": "4e0ac21ce7c8cbb9aab599bb5963636a3a529e9f0ca3085493d79aeea92e9ef1",
+      "result_summary": "Research/Static summary and filter derive membership from the same RESEARCH_ONLY-or-NO_REFRESH predicate."
+    },
+    {
+      "completed_at": "2026-08-24T04:50:35+09:00",
+      "directory": "P2-RQ-20260824T021304-7464-correct-the-market-60-minute-current-only-boundary-in-dataset_index",
+      "fingerprint": "docs:dataset-index:market60-current-only-boundary",
+      "id": "RQ-20260824T021304-7464",
+      "legacy_id": null,
+      "receipt_sha256": "7964295598136160c4f6ef1d7fe739b9c55c9ab98e3a3f790237d21a5a8042d9",
+      "result_summary": "Corrected Dataset Index automation count and separated retained 60m history from the display-only current operation."
+    },
+    {
+      "completed_at": "2026-08-24T05:02:20+09:00",
+      "directory": "P2-RQ-20260824T023636-0976-make-the-backtest-holdout-gui-test-independent-of-prior-qapplication-sta",
+      "fingerprint": "gui-test:backtest-holdout-page:qapplication-order-dependency",
+      "id": "RQ-20260824T023636-0976",
+      "legacy_id": null,
+      "receipt_sha256": "a216dcf53d7aa679c49c0b4751be90a0dfa2c757c1a7b5749fd08d2b94dc523e",
+      "result_summary": "Backtest holdout GUI test is independent of prior QApplication state."
+    },
+    {
+      "completed_at": "2026-08-24T05:11:44+09:00",
+      "directory": "P0-RQ-20260824T045012-43AF-make-multi-value-queue-metadata-fail-closed-and-repairable",
+      "fingerprint": "queue:metadata:joined-multivalue-repair",
+      "id": "RQ-20260824T045012-43AF",
+      "legacy_id": null,
+      "receipt_sha256": "b1440b7e302c1bada6056a77df0b626d8cfa0e0343707364edb7cf0ad5bec9c5",
+      "result_summary": "Queue metadata now rejects joined pseudo-values and permits semantics-preserving comma repair only for New, Ready, and Done tasks; receipt-bearing Review and Blocked plus Active are immutable."
+    },
+    {
+      "completed_at": "2026-08-24T05:21:46+09:00",
+      "directory": "P0-RQ-20260824T045741-D4FC-reject-account-snapshot-removal-roots-that-escape-through-junctions",
+      "fingerprint": "account-privacy:removal-root-symlink-escape",
+      "id": "RQ-20260824T045741-D4FC",
+      "legacy_id": null,
+      "receipt_sha256": "9c055a66656937d71695ce64a3497a634cba461ce7ebccdeb6875d2cd04eb78f",
+      "result_summary": "Account snapshot cleanup rejects escaped boundaries, malformed node types, and per-candidate late scope changes before deletion."
+    },
+    {
+      "completed_at": "2026-08-24T05:26:39+09:00",
+      "directory": "P1-RQ-20260824T045736-78E0-clear-data-status-source-decisions-after-dashboard-snapshot-failure",
+      "fingerprint": "gui:dashboard:data-status-stale-after-snapshot-failure",
+      "id": "RQ-20260824T045736-78E0",
+      "legacy_id": null,
+      "receipt_sha256": "6563ccf5ec41d9123fb2ae72029e42bd4aabb9aa65cd5c3bc8f3a70bcb78037f",
+      "result_summary": "Dashboard snapshot failures now clear stale Data Status source and decision rows to a numeric-free state while retaining the health report refresh."
+    },
+    {
+      "completed_at": "2026-08-24T05:39:58+09:00",
+      "directory": "P1-RQ-20260824T045743-94D9-scrub-private-widget-state-when-account-and-net-worth-views-become-unava",
+      "fingerprint": "gui:privacy:hidden-widgets-retain-values-after-unavailable",
+      "id": "RQ-20260824T045743-94D9",
+      "legacy_id": null,
+      "receipt_sha256": "bbd1a3e72dd9574d7f408eb38115d9eba69721c24ceb765f67e7c978b730ee72",
+      "result_summary": "Unavailable transitions now synchronously scrub account overview, account detail, and net-worth private labels, metadata, tables, dynamic widgets, chart values, and retained page state before showing safe copy."
+    },
+    {
+      "completed_at": "2026-08-24T05:42:08+09:00",
+      "directory": "P1-RQ-20260824T045801-2BBD-reject-noncanonical-source-dates-across-backtest-domain-boundaries",
+      "fingerprint": "backtest:source-date:noncanonical-normalized",
+      "id": "RQ-20260824T045801-2BBD",
+      "legacy_id": null,
+      "receipt_sha256": "d1ec4be7b2b143a7dede80202ab0d3efbcf7f1142c9ae6adf30e05df8505a80a",
+      "result_summary": "All raw Backtest date boundaries now reject nonliteral, noncanonical, invalid, and pandas-out-of-bounds dates with stable value-free errors; development filtering uses parsed chronology rather than caller categorical ordering."
+    },
+    {
+      "completed_at": "2026-08-24T05:51:52+09:00",
+      "directory": "P1-RQ-20260824T045734-07ED-disclose-provider-refresh-behind-the-account-reload-action",
+      "fingerprint": "gui:account:local-reload-label-can-trigger-provider",
+      "id": "RQ-20260824T045734-07ED",
+      "legacy_id": null,
+      "receipt_sha256": "c3ed232f19486451272aa9b1fb9e6db1a7f63190b98f21bb9ea8e96d2013e288",
+      "result_summary": "Account refresh copy now discloses an injected external provider refresh before the retained-local reread while provider-disabled Account and Net Worth remain local-only."
+    },
+    {
+      "completed_at": "2026-08-24T06:03:32+09:00",
+      "directory": "P1-RQ-20260824T045804-B2A5-bind-release-readiness-to-the-exact-backtest-bundle-read-by-the-gui",
+      "fingerprint": "release-readiness:backtest-artifact-not-bound",
+      "id": "RQ-20260824T045804-B2A5",
+      "legacy_id": null,
+      "receipt_sha256": "dda49f3c1b6b32afd2358bd368c070e357b67464812caf63ece21e1bdba7d67b",
+      "result_summary": "Exact GUI Backtest bundle readiness binding revalidated on current stable scoped bytes."
+    },
+    {
+      "completed_at": "2026-08-24T06:07:09+09:00",
+      "directory": "P1-RQ-20260824T045745-5545-reject-sensitive-identifiers-embedded-in-account-position-display-text",
+      "fingerprint": "account:projection:free-text-sensitive-identifier-bypass",
+      "id": "RQ-20260824T045745-5545",
+      "legacy_id": null,
+      "receipt_sha256": "da95fb9fbe84dfc2b182332a8f044f1912dc143a14bf5769bc540a0bc1e80784",
+      "result_summary": "Sensitive account-like values embedded in position symbol/name text now fail closed at provider and every local snapshot validation boundary with value-free diagnostics."
+    },
+    {
+      "completed_at": "2026-08-24T06:14:35+09:00",
+      "directory": "P1-RQ-20260824T033935-C4F2-add-a-deterministic-portfolio-simulation-foundation-for-honest-backtest-",
+      "fingerprint": "backtest:portfolio:no-position-cost-equity-engine",
+      "id": "RQ-20260824T033935-C4F2",
+      "legacy_id": null,
+      "receipt_sha256": "b5b299072265ce45ad649c367ed08578bfaf4913fe7b54d9a47fab9a9a386498",
+      "result_summary": "Portfolio foundation repaired and independently validated against all review counterexamples."
+    },
+    {
+      "completed_at": "2026-08-24T07:41:58+09:00",
+      "directory": "P1-RQ-20260824T035048-BE5D-extract-an-atomic-typed-phase-1-replay-runner-before-gui-execution",
+      "fingerprint": "backtest:phase1-runner:script-only-nonatomic-output-bundle",
+      "id": "RQ-20260824T035048-BE5D",
+      "legacy_id": null,
+      "receipt_sha256": "2a74724e4422d11224338167514cad829146b2341e8442f31bc74bc1cce5fab6",
+      "result_summary": "Atomic typed Phase-1 replay runner completed and verified for deterministic local replay and recoverable publication."
+    },
+    {
+      "completed_at": "2026-08-24T09:24:17+09:00",
+      "directory": "P1-RQ-20260824T025158-D026-add-an-offline-runnable-backtest-workflow-to-the-backtest-gui",
+      "fingerprint": "gui-backtest:artifact-viewer-has-no-runnable-workflow",
+      "id": "RQ-20260824T025158-D026",
+      "legacy_id": null,
+      "receipt_sha256": "69a94359872b95e27d9afdbcc4a23edbb5e05d63a32f02d5b43018b7bfc51f95",
+      "result_summary": "Implemented offline Phase1 replay RUN/RELOAD/EXPORT workflow with source-bound strict five-file validation, atomic GUI rendering, exact-byte export, truthful legacy fallback, and nonblocking safe cleanup for all managed workers."
+    },
+    {
+      "completed_at": "2026-08-24T22:24:42+09:00",
+      "directory": "P2-RQ-20260824T033917-58AE-expose-validated-local-net-worth-snapshot-creation-in-the-gui",
+      "fingerprint": "gui:net-worth:save-store-not-wired",
+      "id": "RQ-20260824T033917-58AE",
+      "legacy_id": null,
+      "receipt_sha256": "d99ecf26cb0695c10cff685720d3674df5136a8a9f3e4b9088c5f95422fbd467",
+      "result_summary": "Local Net Worth snapshots can be created and revised through structured GUI controls with fail-closed validation."
+    },
+    {
+      "completed_at": "2026-08-24T23:01:03+09:00",
+      "directory": "P2-RQ-20260824T045739-07BE-make-net-worth-unavailable-rendering-idempotent-under-privacy-toggles",
+      "fingerprint": "gui:net-worth:unavailable-detail-duplicates-on-privacy-toggle",
+      "id": "RQ-20260824T045739-07BE",
+      "legacy_id": null,
+      "receipt_sha256": "051b69008c1dc4673b36217ab9cd4f861ac3d2f6d0a8699094b9de15e967ccb3",
+      "result_summary": "Net Worth now stores a separate allowlisted raw unavailable reason and reuses it on privacy rerenders, so visible unavailable copy is byte-stable and the warning suffix appears exactly once."
+    },
+    {
+      "completed_at": "2026-08-24T23:06:02+09:00",
+      "directory": "P1-RQ-20260824T085656-3699-redact-generic-account-fields-inside-quoted-json-diagnostics",
+      "fingerprint": "quoted-json-account-values-bypass-redaction",
+      "id": "RQ-20260824T085656-3699",
+      "legacy_id": null,
+      "receipt_sha256": "e4526a01c4b1ee45271ba910fb68bb628e6e6c7c362e2c3f6be41f0b93a79a68",
+      "result_summary": "Quoted JSON account diagnostic leak fixed."
+    },
+    {
+      "completed_at": "2026-08-24T23:18:45+09:00",
+      "directory": "P1-RQ-20260824T231635-E484-derive-prior-global-60m-trace-fixture-market-date-in-its-declared-timezo",
+      "fingerprint": "global-60m-trace-fixture-utc-market-date",
+      "id": "RQ-20260824T231635-E484",
+      "legacy_id": null,
+      "receipt_sha256": "845e46411e6ea751271a6e2f7882dd60326c261139b30ff4870c2adef40f73b3",
+      "result_summary": "Global 60m trace fixture now uses declared-zone market dates and the test clock as retrieval time."
+    },
+    {
+      "completed_at": "2026-08-24T23:21:31+09:00",
+      "directory": "P2-RQ-20260824T085711-1CF6-fail-closed-when-the-dashboard-preferences-directory-cannot-be-created",
+      "fingerprint": "dashboard-preferences-parent-mkdir-escapes-domain-error",
+      "id": "RQ-20260824T085711-1CF6",
+      "legacy_id": null,
+      "receipt_sha256": "0f04587567385fbe06e1a90cf97dae3a9ad1fed21451211ffed39ca7efd72fdd",
+      "result_summary": "Dashboard preference directory creation now fails closed."
+    },
+    {
+      "completed_at": "2026-08-24T23:22:56+09:00",
+      "directory": "P1-RQ-20260824T085645-FDF2-serialize-toss-account-snapshot-transactions-and-recover-only-abandoned-",
+      "fingerprint": "concurrent-account-recovery-deletes-successful-snapshot",
+      "id": "RQ-20260824T085645-FDF2",
+      "legacy_id": null,
+      "receipt_sha256": "ce244951e2f7ee79d9cd935611e16bdde0e9fa48859e1021688a034e8621eb5e",
+      "result_summary": "Concurrent refresh recovery can no longer roll back a live account snapshot transaction."
+    },
+    {
+      "completed_at": "2026-08-24T23:24:53+09:00",
+      "directory": "P1-RQ-20260824T085652-48D0-enforce-timezone-market-date-and-retrieval-finality-in-60m-validation",
+      "fingerprint": "market-60m-temporal-finality-not-validated",
+      "id": "RQ-20260824T085652-48D0",
+      "legacy_id": null,
+      "receipt_sha256": "fe94adeefa6c24080485d1de1b4faa956ec25185c094ba7942af25a03b71924a",
+      "result_summary": "60m temporal and retrieval finality validation enforced."
+    },
+    {
+      "completed_at": "2026-08-24T23:56:07+09:00",
+      "directory": "P2-RQ-20260824T033919-1501-cover-every-registered-gui-page-and-worker-in-release-readiness-smoke",
+      "fingerprint": "release-readiness:gui-smoke:partial-page-worker-coverage",
+      "id": "RQ-20260824T033919-1501",
+      "legacy_id": null,
+      "receipt_sha256": "386fbae1f353f711f7e52244447f9905347bf94a70c8db3eb8de5f8403f000ad",
+      "result_summary": "Release GUI smoke now enforces the exact nine-page topology, visits every page including runnable Backtest, detects QWidget/QScrollArea overflow, and verifies all six worker groups close."
+    },
+    {
+      "completed_at": "2026-08-25T00:57:09+09:00",
+      "directory": "P0-RQ-20260824T015124-7F84-deploy-slot-specific-kr-scheduled-tasks",
+      "fingerprint": "scheduler:kr-bundle:deploy-slot-specific-tasks",
+      "id": "RQ-20260824T015124-7F84",
+      "legacy_id": null,
+      "receipt_sha256": "1b9a87356b0ecf2aacdadf5b9408287699ca5ac4859b4c5af1a238cf45fbf0ef",
+      "result_summary": "Installed and semantically read back the three slot-specific KR Windows scheduled tasks without launching providers. Each is Ready with one exact daily trigger, matching --scheduled-slot, StartWhenAvailable=false, IgnoreNew, PT30M, and rev1 paths. All three remain never-run. Confirmed the old combined task and five legacy KR daily tasks are absent. Updated current Project/Data status."
+    },
+    {
+      "completed_at": "2026-08-25T00:57:12+09:00",
+      "directory": "P1-RQ-20260824T085704-80B4-preserve-accepted-equity-and-us-etf-charts-during-reload",
+      "fingerprint": "equity-reload-clears-accepted-chart-before-result",
+      "id": "RQ-20260824T085704-80B4",
+      "legacy_id": null,
+      "receipt_sha256": "6b492e31c7e3accf5e5250fb14eaab2b099944d84f2460f0ebe0ad5225094bfc",
+      "result_summary": "Successful same-identity reload now recomputes retained measurement points against the newly rendered KR equity/US ETF frame. If any saved index no longer exists, measurement state is cleared instead of showing stale values. Pending/failure preservation, zoom, summary, and comparison behavior remain unchanged; different identity still clears."
+    },
+    {
+      "completed_at": "2026-08-25T00:57:13+09:00",
+      "directory": "P1-RQ-20260824T085707-D088-make-detached-chart-shutdown-nonblocking-and-retry-safe",
+      "fingerprint": "detached-chart-close-blocks-and-disarms-main-timers",
+      "id": "RQ-20260824T085707-D088",
+      "legacy_id": null,
+      "receipt_sha256": "8cdc059115b1547ca9a53a565a2106b5d3b7e97a32844396b7bd477fb4a39b06",
+      "result_summary": "Implemented nonblocking retry-safe detached chart shutdown and MainWindow timer-safe deferred close."
+    },
+    {
+      "completed_at": "2026-08-25T00:57:15+09:00",
+      "directory": "P1-RQ-20260824T222243-19EF-fail-the-toss-domestic-scheduled-task-when-a-claimed-window-has-terminal",
+      "fingerprint": "toss-domestic-cli-zero-exit-masks-terminal-failures",
+      "id": "RQ-20260824T222243-19EF",
+      "legacy_id": null,
+      "receipt_sha256": "9f47e88337fc33772406c9862291574ed9f2bd7b008db93ca1bf65af02f7a402",
+      "result_summary": "Revalidated existing fail-closed Toss scheduler exit semantics and replaced stale handoff evidence; no production/test content change in rework."
+    },
+    {
+      "completed_at": "2026-08-25T00:57:16+09:00",
+      "directory": "P1-RQ-20260824T222248-A11D-route-timestamp-less-toss-domestic-indices-as-explicit-retrieval-time-di",
+      "fingerprint": "toss-index-null-timestamp-dropped-from-gui-current",
+      "id": "RQ-20260824T222248-A11D",
+      "legacy_id": null,
+      "receipt_sha256": "5b1513da1f4ec878216a6f56f40a54629d3010e62b356b3d54cc46862dbc17b0",
+      "result_summary": "Revalidated timestamp-null Toss indices as retrieval-time display-only/PIT-blocked evidence and refreshed exact-generation handoff; no content changes in rework."
+    },
+    {
+      "completed_at": "2026-08-25T00:57:18+09:00",
+      "directory": "P1-RQ-20260824T232924-A258-eliminate-order-dependent-qt-heap-corruption-during-current-observation-",
+      "fingerprint": "qt-current-observation-close-order-heap-corruption",
+      "id": "RQ-20260824T232924-A258",
+      "legacy_id": null,
+      "receipt_sha256": "ad27da2f42ab1255c098112b2d2c1ec7f49273bcb7186c45d96b10a073b2be69",
+      "result_summary": "Rework is resolved on the latest tree by the generalized managed-QThread lifecycle fix from RQ-20260824T233743-4EF7. Current-observation ownership remains through QObject.destroyed, acquisition stays blocked in the finished-before-destroyed gap, and pending close retry occurs after destruction. No additional code change was needed."
+    },
+    {
+      "completed_at": "2026-08-25T00:57:20+09:00",
+      "directory": "P1-RQ-20260824T233743-4EF7-keep-every-managed-qt-worker-owned-until-qobject-destruction-before-retr",
+      "fingerprint": "qt-managed-worker-finished-before-destroyed-close-race",
+      "id": "RQ-20260824T233743-4EF7",
+      "legacy_id": null,
+      "receipt_sha256": "d4446d88ef9260d1ae395e0473110d1c02e3461d0e89e47c7f31c317b29c26c0",
+      "result_summary": "Deferred managed-thread retirement one GUI turn, preserving finished observers while retaining destroyed-gated ownership and retries."
+    },
+    {
+      "completed_at": "2026-08-25T00:57:21+09:00",
+      "directory": "P2-RQ-20260824T033915-781C-add-a-reload-path-for-the-current-index-graph-selection",
+      "fingerprint": "gui:index:current-selection-cannot-reload",
+      "id": "RQ-20260824T033915-781C",
+      "legacy_id": null,
+      "receipt_sha256": "a605f94d75632b7e5bd5f8f4d2eb06b20d63ea01b447a4ed5cde663ee0d101bc",
+      "result_summary": "Added local-only reload for the unchanged Index Graph selection with accepted-chart preservation and detached-window consistency."
+    },
+    {
+      "completed_at": "2026-08-25T00:57:22+09:00",
+      "directory": "P2-RQ-20260824T034123-DDA1-add-currency-safe-portfolio-allocation-and-asset-history-charts-to-accou",
+      "fingerprint": "gui:account:validated-allocation-history-have-no-overview-charts",
+      "id": "RQ-20260824T034123-DDA1",
+      "legacy_id": null,
+      "receipt_sha256": "3a207ed114950a9a6b85ec333c1ed241efaa12b385a6afc366b08e22a637cedc",
+      "result_summary": "Currency-safe Account allocation/history chart overview implemented and ready for independent review."
+    },
+    {
+      "completed_at": "2026-08-25T00:58:32+09:00",
+      "directory": "P1-RQ-20260824T235104-33A4-import-the-user-authorized-google-sheet-아빠-tab-as-a-dated-manual-account",
+      "fingerprint": "account-google-sheet-appa-tab-manual-snapshot",
+      "id": "RQ-20260824T235104-33A4",
+      "legacy_id": null,
+      "receipt_sha256": "77257c688457aff198fc613d21c970d8082f4c98228dd3d855101cf9ff0981ee",
+      "result_summary": "Added a strict synthetic-only dated manual holdings-basis parser fixed to source_sheet=아빠, snapshot_date=2026-02-03, KRW, and explicit ISA/종합 rows. It preserves valid zero/null cost fields, validates but never rewrites purchase totals, rejects other tabs/dates/currencies/sections/extras/private-shaped keys, and maps sections into source-neutral Account entries with no current prices, market values, PnL, totals, ownership claim, connector, or runtime network dependency."
+    },
+    {
+      "completed_at": "2026-08-25T01:21:02+09:00",
+      "directory": "P1-RQ-20260824T234126-0843-show-retained-kospi-history-on-dashboard-when-only-the-current-claim-is-",
+      "fingerprint": "gui-dashboard-kospi-stale-gate-drops-retained-history",
+      "id": "RQ-20260824T234126-0843",
+      "legacy_id": null,
+      "receipt_sha256": "1be2082879ecfb65d0ac251d5c9dc2b022daa8d486a7e6cf91af98733310bac5",
+      "result_summary": "Unchanged stale-retained KOSPI history behavior reverified and HANDOFF corrected with exact evidence."
+    },
+    {
+      "completed_at": "2026-08-25T01:21:03+09:00",
+      "directory": "P1-RQ-20260825T004834-1141-make-empty-chart-screens-action-first-with-a-guided-default-start",
+      "fingerprint": "gui-chart-empty-state-action-first-guided-start-v1",
+      "id": "RQ-20260825T004834-1141",
+      "legacy_id": null,
+      "receipt_sha256": "b61ff29c70b42c79da548021224780d0ebd1462b409661d4ef8c37a3dfb6637f",
+      "result_summary": "Action-first empty chart start cards implemented for KR Equity and US ETF."
+    },
+    {
+      "completed_at": "2026-08-25T01:32:05+09:00",
+      "directory": "P1-RQ-20260824T085649-E6F9-make-partitioned-parquet-replacement-crash-recoverable-as-one-generation",
+      "fingerprint": "partitioned-storage-interrupt-mixes-generations",
+      "id": "RQ-20260824T085649-E6F9",
+      "legacy_id": null,
+      "receipt_sha256": "a5395bba8e85e097821c665c7f890a79dfea37d7026e78e0da54d7a550201834",
+      "result_summary": "Partitioned generations now serialize clean and absent-root reads with writers without mutating immutable dataset roots, while retaining full crash rollback."
+    },
+    {
+      "completed_at": "2026-08-25T01:44:53+09:00",
+      "directory": "P1-RQ-20260825T010403-30E9-bind-review-generation-to-the-reviewed-handoff-snapshot",
+      "fingerprint": "request-queue-review-generation-does-not-bind-handoff-snapshot",
+      "id": "RQ-20260825T010403-30E9",
+      "legacy_id": null,
+      "receipt_sha256": "b19fc0c3d2c7a8229cee7b99179a91d2b9bc27bb71f7abedb6a0308d9ab2ccff",
+      "result_summary": "Review verdicts are now cryptographically bound to the exact submitted HANDOFF snapshot."
+    },
+    {
+      "completed_at": "2026-08-25T02:06:11+09:00",
+      "directory": "P1-RQ-20260825T010107-1BF6-keep-frozen-backtest-generations-immutable-during-read-only-loads",
+      "fingerprint": "backtest-frozen-read-creates-partition-generation-lock-v1",
+      "id": "RQ-20260825T010107-1BF6",
+      "legacy_id": null,
+      "receipt_sha256": "2ca0bf62bf5c3ede74d49ca885dfaaec7841a72c3cff4ecdba77f8861b0dadfa",
+      "result_summary": "Immutable read verification now detects content, inventory, mtime, and ctime mutations."
+    },
+    {
+      "completed_at": "2026-08-25T02:06:51+09:00",
+      "directory": "P1-RQ-20260824T233836-F609-diagnose-and-recover-the-yahoo-30m-vix-terminal-valueerror",
+      "fingerprint": "yahoo-30m-vix-current-terminal-valueerror",
+      "id": "RQ-20260824T233836-F609",
+      "legacy_id": null,
+      "receipt_sha256": "ec87217c8a0aae80ccc234a9df8d865363cb4d2b65faf73c01252c226a81905f",
+      "result_summary": "Recovered Yahoo 30m scheduler from the VIX terminal ValueError without weakening market-data validation."
+    },
+    {
+      "completed_at": "2026-08-25T02:07:33+09:00",
+      "directory": "P1-RQ-20260825T010853-E459-update-release-readiness-for-slot-specific-kr-scheduled-tasks",
+      "fingerprint": "release-readiness-stale-unified-kr-scheduler-v1",
+      "id": "RQ-20260825T010853-E459",
+      "legacy_id": null,
+      "receipt_sha256": "abae6a0b2d8b434b5e2478ae53ef04a984c20391539891747e39390125fe0782",
+      "result_summary": "Release readiness now reports the installed slot-specific KR scheduler topology and exact Windows task results."
+    },
+    {
+      "completed_at": "2026-08-25T02:09:06+09:00",
+      "directory": "P1-RQ-20260825T010208-3CBA-fail-closed-when-mapping-manually-constructed-account-snapshots",
+      "fingerprint": "manual-account-dataclass-construction-bypasses-parser-v1",
+      "id": "RQ-20260825T010208-3CBA",
+      "legacy_id": null,
+      "receipt_sha256": "76759f3054706f66be4e29095c6f9436cea473bb543e09b479f414732f6a6ea3",
+      "result_summary": "Manual-account validation bypass remains fixed and is resubmitted with bound evidence."
+    },
+    {
+      "completed_at": "2026-08-25T02:11:54+09:00",
+      "directory": "P1-RQ-20260825T011300-CE26-keep-equity-search-failures-separate-from-selected-chart-status",
+      "fingerprint": "equity-search-failure-clobbers-selected-chart-status-v1",
+      "id": "RQ-20260825T011300-CE26",
+      "legacy_id": null,
+      "receipt_sha256": "bc83871b0de29cb744f4aebf6283f2e56898daba2c2069088be83dffe830950e",
+      "result_summary": "Equity search/chart state separation and retained-failure detach preservation resubmitted with bound evidence."
+    },
+    {
+      "completed_at": "2026-08-25T02:12:31+09:00",
+      "directory": "P2-RQ-20260825T011451-9F55-refresh-the-roadmap-current-phase-snapshot-after-backtest-selection",
+      "fingerprint": "project-roadmap-current-phase-stale-after-backtest-selection-v1",
+      "id": "RQ-20260825T011451-9F55",
+      "legacy_id": null,
+      "receipt_sha256": "2bd7f3be5092e85a3d6b3df3eb1c6cb32c26bee2712b0b2af3cabef30b25f0f6",
+      "result_summary": "Roadmap routing reconciliation resubmitted with bound evidence."
+    },
+    {
+      "completed_at": "2026-08-25T03:06:51+09:00",
+      "directory": "P1-RQ-20260825T011719-7AD1-prevent-partition-generation-locking-from-changing-dataset-topology",
+      "fingerprint": "partition-generation-lock-breaks-strict-dataset-topology-v1",
+      "id": "RQ-20260825T011719-7AD1",
+      "legacy_id": null,
+      "receipt_sha256": "b2ace32b72ed734566e79c5eb8df67f81304df140fd53674f77db662b1009061",
+      "result_summary": "Verified the intervening external-lock fix; historical topology regression no longer reproduces."
+    },
+    {
+      "completed_at": "2026-08-25T03:08:03+09:00",
+      "directory": "P0-RQ-20260825T024922-EED8-route-fresh-unified-yahoo-30m-treasury-futures-into-dashboard",
+      "fingerprint": "dashboard-omits-fresh-unified-yahoo-30m-ust-futures-overlay",
+      "id": "RQ-20260825T024922-EED8",
+      "legacy_id": null,
+      "receipt_sha256": "b3a60fbb7b0181137baa9717e5acfc39c2af03377caf29c98072631716a410b9",
+      "result_summary": "Dashboard no longer falsely requests refresh for accepted current Treasury-futures observations."
+    },
+    {
+      "completed_at": "2026-08-25T03:11:32+09:00",
+      "directory": "P1-RQ-20260825T020014-B799-audit-off-grid-trailing-timestamps-in-yahoo-native-15m-current-responses",
+      "fingerprint": "yahoo-native15m-off-grid-trailing-provider-row-v1",
+      "id": "RQ-20260825T020014-B799",
+      "legacy_id": null,
+      "receipt_sha256": "39ea7cb0ec0a1056bb971968592bbe5eaa2346b34ebacbb042bcbfa0ed01fc74",
+      "result_summary": "Yahoo native 15m parsing now preserves each series' observed whole-minute phase, rejects mixed/sub-minute grids, and omits only a trailing snapshot-like phase mismatch without rounding or fabricating a bar."
+    },
+    {
+      "completed_at": "2026-08-25T03:13:02+09:00",
+      "directory": "P1-RQ-20260825T001624-9648-publish-and-accept-the-typed-atomic-five-file-close-proxy-backtest-bundl",
+      "fingerprint": "backtest-authority-says-next-runner-while-live-artifact-remains-legacy-three-file",
+      "id": "RQ-20260825T001624-9648",
+      "legacy_id": null,
+      "receipt_sha256": "7300f37b53abbf845a154cc168009ace3c8f033d187934e50a52b8b667ebb75f",
+      "result_summary": "Published and revalidated the deterministic typed atomic five-file close-proxy Backtest bundle at the accepted default path."
+    },
+    {
+      "completed_at": "2026-08-25T03:18:36+09:00",
+      "directory": "P1-RQ-20260825T004835-C641-make-backtest-results-summary-first-and-collapse-technical-evidence",
+      "fingerprint": "gui-backtest-summary-first-collapsible-evidence-v1",
+      "id": "RQ-20260825T004835-C641",
+      "legacy_id": null,
+      "receipt_sha256": "0411ddf52f107e1d34a07eced2bc68c8d24941cd5a70fd1444e316f21aea58f7",
+      "result_summary": "Backtest outcomes are visible first while all technical evidence remains accessible in a collapsed panel."
+    },
+    {
+      "completed_at": "2026-08-25T03:29:27+09:00",
+      "directory": "P1-RQ-20260825T025514-8B7D-remove-three-verified-legacy-in-root-partition-generation-locks-from-liv",
+      "fingerprint": "three-live-normalized-roots-retain-pre-external-lock-nul-files-v1",
+      "id": "RQ-20260825T025514-8B7D",
+      "legacy_id": null,
+      "receipt_sha256": "9ab775b9e290a9d2d09411aea043590658b318f3850618e9cccb8337a0df1900",
+      "result_summary": "Removed exactly three verified obsolete in-root partition-generation lock files without changing live dataset content or metadata."
+    },
+    {
+      "completed_at": "2026-08-25T03:31:22+09:00",
+      "directory": "P0-RQ-20260825T023552-F7BE-recover-missed-2026-08-24-kr-daily-refresh-and-repair-scheduler-recurren",
+      "fingerprint": "p0-kr-market-daily-missed-20260824-2030-occurrence",
+      "id": "RQ-20260825T023552-F7BE",
+      "legacy_id": null,
+      "receipt_sha256": "127465f67f1ef9ace5c884cf329bb6636377cb1b1c92821c0495b5154892464f",
+      "result_summary": "Recovered scheduler recurrence while correcting repeated-occurrence contamination with durable pre-lane idempotency and fail-closed finality."
+    },
+    {
+      "completed_at": "2026-08-25T03:34:40+09:00",
+      "directory": "P0-RQ-20260825T030413-6503-preserve-identity-specific-15m-phase-for-yahoo-treasury-quote-indices",
+      "fingerprint": "yahoo-treasury-native15m-phase-five-rejected-by-quarter-hour-validator",
+      "id": "RQ-20260825T030413-6503",
+      "legacy_id": null,
+      "receipt_sha256": "f34550f603434387fc3e07470caa0f5153bfea02aa5885bb50280430c2e71595",
+      "result_summary": "Preserved exact identity-specific Yahoo native15m grids and passed the scheduled 17/17 live acceptance gate."
+    },
+    {
+      "completed_at": "2026-08-25T03:44:14+09:00",
+      "directory": "P0-RQ-20260825T025632-564D-reconcile-fresh-yahoo-vix-current-observation-with-dashboard-completed-s",
+      "fingerprint": "dashboard-vix-fresh-native15m-current-observation-not-consumed",
+      "id": "RQ-20260825T025632-564D",
+      "legacy_id": null,
+      "receipt_sha256": "f8d9c724e69ef452bf5d49ebc310d7ba7196cc6945439b44a14289418592a904",
+      "result_summary": "Dashboard shows fresh VIX current points in-session, hides them after the 60-minute stale boundary, and retains the independently verified prior completed-session sparkline."
+    },
+    {
+      "completed_at": "2026-08-25T03:45:55+09:00",
+      "directory": "P1-RQ-20260825T010851-B326-reconcile-cross-domain-status-documents-with-current-backtest-and-schedu",
+      "fingerprint": "status-authority-cross-domain-stale-current-truth-v1",
+      "id": "RQ-20260825T010851-B326",
+      "legacy_id": null,
+      "receipt_sha256": "940eb9663c80294000be9a8db26110e289d97300810f736a8b0cd76e4655103e",
+      "result_summary": "Current Status authorities consistently route Backtest and accurately disclose current scheduler, occurrence-idempotency, finality and Yahoo live validation facts."
+    },
+    {
+      "completed_at": "2026-08-25T03:50:47+09:00",
+      "directory": "P0-RQ-20260825T031413-0CFC-align-treasury-native15m-orchestration-fixture-with-accepted-five-minute",
+      "fingerprint": "global-market-15m-treasury-fixture-uses-vix-zero-minute-phase",
+      "id": "RQ-20260825T031413-0CFC",
+      "legacy_id": null,
+      "receipt_sha256": "22199c4f1ffbe34c80f4b428d60f93aa20ace513e6c1364868ff7690eeae8a31",
+      "result_summary": "Accepted parent 6503 already contains the exact Treasury minute35 fixture correction; no additional code change is needed."
+    },
+    {
+      "completed_at": "2026-08-25T04:04:14+09:00",
+      "directory": "P1-RQ-20260825T033734-5B88-do-not-label-manual-only-option-wall-gates-as-an-authorized-refresh-acti",
+      "fingerprint": "dashboard-manual-option-wall-refresh-required-action-mismatch",
+      "id": "RQ-20260825T033734-5B88",
+      "legacy_id": null,
+      "receipt_sha256": "0c50dfc7de92f4bec91127a874c8ae59a9cc9b9414058abf2371fc0ecd658d62",
+      "result_summary": "Missing and stale manual-only Wall observations are numeric-free and route to manual verification while automated stale metrics remain actionable."
+    },
+    {
+      "completed_at": "2026-08-25T04:04:54+09:00",
+      "directory": "P0-RQ-20260825T035858-3593-treat-pre-09-10-t-1-short-selling-publication-wait-as-expected-lag",
+      "fingerprint": "dashboard-short-selling-prepublication-refresh-warning",
+      "id": "RQ-20260825T035858-3593",
+      "legacy_id": null,
+      "receipt_sha256": "223754ede9dfec61dbba3a3b2e5e8cf1dd76f2cc4adf91235d6bbbb354e6c758",
+      "result_summary": "Pre-09:10 KST retained short-selling data is now typed EXPECTED_LAG instead of a false actionable stale incident."
+    },
+    {
+      "completed_at": "2026-08-25T04:05:46+09:00",
+      "directory": "P1-RQ-20260825T000251-726A-preserve-finished-observers-before-managed-qthread-destruction",
+      "fingerprint": "managed-qthread-finished-observers-dropped-before-destruction",
+      "id": "RQ-20260825T000251-726A",
+      "legacy_id": null,
+      "receipt_sha256": "83b217c02bc39309593fe2c0e839bb08ea936818a04141eba6b63a15d468da1d",
+      "result_summary": "Current canonical managed-thread retirement already preserves finished observers; the old failure is non-reproducible."
+    },
+    {
+      "completed_at": "2026-08-25T04:08:00+09:00",
+      "directory": "P2-RQ-20260825T010854-EE5D-repair-broken-evidence-links-in-current-status-authorities",
+      "fingerprint": "status-authority-broken-local-evidence-links-v1",
+      "id": "RQ-20260825T010854-EE5D",
+      "legacy_id": null,
+      "receipt_sha256": "2e3c89ee1d10d50a173592a57486611b2dfaf6f58e4f2cab80591c0e0c83f485",
+      "result_summary": "All local links in the four current Status authorities resolve; missing historical evidence is explicitly disclosed."
+    },
+    {
+      "completed_at": "2026-08-25T04:10:50+09:00",
+      "directory": "P1-RQ-20260825T003257-604D-add-supported-done-compaction-with-durable-tombstones-before-deleting-co",
+      "fingerprint": "request-queue-done-compaction-preserve-id-fingerprint-dependencies",
+      "id": "RQ-20260825T003257-604D",
+      "legacy_id": null,
+      "receipt_sha256": "8de0f0be1e43ea9e5ed563f2f3ee062c2a5b3a1de365ad474ffb772ab71af1a2",
+      "result_summary": "Done compaction guarantees are verified on the current claim-token generation; production Done remains unchanged and fail-closed."
+    },
+    {
+      "completed_at": "2026-08-25T04:13:32+09:00",
+      "directory": "P2-RQ-20260825T003552-FD0D-audit-and-eliminate-repeated-pandas-numpy-timedelta-deprecation-warnings",
+      "fingerprint": "pandas-numpy-generic-timedelta-deprecation-market-session",
+      "id": "RQ-20260825T003552-FD0D",
+      "legacy_id": null,
+      "receipt_sha256": "a839232a5bad80388f2e56b30c80e47d09664c6fdd2700b5cae221c5b19384b6",
+      "result_summary": "complete"
+    },
+    {
+      "completed_at": "2026-08-25T04:27:52+09:00",
+      "directory": "P1-RQ-20260825T042126-B13C-promote-verified-kb-ssqm2952-evidence-into-a-fail-closed-active-account-",
+      "fingerprint": "kb-ssqm2952-active-runbook-before-runtime-implementation",
+      "id": "RQ-20260825T042126-B13C",
+      "legacy_id": null,
+      "receipt_sha256": "bd52fefc570716d661b6f13051ad6a42e213a89adb4b03148281cbf2725027b7",
+      "result_summary": "KB SSQM2952 now has a current, auditable read-only contract authority while live execution remains fail-closed."
+    },
+    {
+      "completed_at": "2026-08-25T04:33:00+09:00",
+      "directory": "P0-RQ-20260825T041906-A0D3-restore-desktop-read-access-to-exact-immutable-a922-backtest-root",
+      "fingerprint": "backtest-a922-desktop-read-traverse-acl-exact-additive-v1",
+      "id": "RQ-20260825T041906-A0D3",
+      "legacy_id": null,
+      "receipt_sha256": "6ee7c78bc4a4182b2e3c823d453f4d7fe6d0dc4cb7afd342239e69cc7d3840cf",
+      "result_summary": "Exact immutable a922 root is readable by the desktop user through one additive inheritable read/traverse ACE while content, file timestamps, owner, existing ACEs, and protection remain preserved."
+    },
+    {
+      "completed_at": "2026-08-25T04:37:28+09:00",
+      "directory": "P1-RQ-20260825T041330-39C3-reconcile-backtest-status-after-accepted-five-file-independent-review",
+      "fingerprint": "backtest-status-still-says-independent-review-pending-after-done-receipt",
+      "id": "RQ-20260825T041330-39C3",
+      "legacy_id": null,
+      "receipt_sha256": "064947be9ade979e4724a85774d1b684c7eb3bd26320b4ab2850904b99fb592b",
+      "result_summary": "Backtest status authorities now truthfully record the accepted five-file independent review and untouched holdout semantics."
+    },
+    {
+      "completed_at": "2026-08-25T04:44:30+09:00",
+      "directory": "P0-RQ-20260825T041644-21EC-restore-additive-current-user-read-access-to-immutable-a922-backtest-inp",
+      "fingerprint": "frozen-a922-current-desktop-read-acl-denied",
+      "id": "RQ-20260825T041644-21EC",
+      "legacy_id": null,
+      "receipt_sha256": "e96055b2ee11b687da1c20b8aa7e1c581d41db49d4e8be698ab13741f1e61d4d",
+      "result_summary": "SUPERSEDED_NOOP: accepted A0D3 already satisfies the exact ACL recovery boundary."
+    },
+    {
+      "completed_at": "2026-08-25T05:12:25+09:00",
+      "directory": "P2-RQ-20260824T233837-024E-treat-a-freshness-suppressed-market-chart-as-an-intentional-rendered-sta",
+      "fingerprint": "release-readiness-market-chart-intentional-empty-false-fail",
+      "id": "RQ-20260824T233837-024E",
+      "legacy_id": null,
+      "receipt_sha256": "b81f9b7c57e85f1a276993784ee9f1003f02ad0298c3996b77d47cde4cb590a4",
+      "result_summary": "Closed both fail-open gaps in intentional-unavailable market-chart readiness: only explicit displays_value=False qualifies, and typed chart state must be accepted and consistent with the compatibility boolean."
+    },
+    {
+      "completed_at": "2026-08-25T05:14:29+09:00",
+      "directory": "P1-RQ-20260825T004837-74F3-turn-data-status-summary-cards-into-issue-first-drill-down-controls",
+      "fingerprint": "gui-data-status-clickable-summary-search-action-flow-v1",
+      "id": "RQ-20260825T004837-74F3",
+      "legacy_id": null,
+      "receipt_sha256": "4f40dec0b46c78e47aae086ad74dbec3f235deac971ff7ed9ff3fb804aaad97c",
+      "result_summary": "Made Data Status issue-first: summary cards are keyboard/mouse filter controls, Health rows have combined local text search/reset, and current-source/dashboard-decision matrices are collapsed by default behind accessible toggles."
+    },
+    {
+      "completed_at": "2026-08-25T05:18:34+09:00",
+      "directory": "P1-RQ-20260825T004227-261F-add-a-compact-source-safe-instrument-facts-header-to-korean-equity-and-u",
+      "fingerprint": "gui-instrument-facts-header-toss-kb-benchmark",
+      "id": "RQ-20260825T004227-261F",
+      "legacy_id": null,
+      "receipt_sha256": "4db64e58224e0bbd6cd546cf65afd802f04ef7fd217f8e1d164c4ff6a677f50b",
+      "result_summary": "Made the instrument facts projection genuinely source-safe: missing Korean currency is shown as unretained, required identity/source fields are validated, and spoofed U.S.-ETF catalog identities are rejected before rendering."
+    },
+    {
+      "completed_at": "2026-08-25T05:22:57+09:00",
+      "directory": "P1-RQ-20260824T233837-0887-attach-the-gui-health-watcher-when-its-directory-appears-after-startup",
+      "fingerprint": "gui-health-watcher-missing-directory-never-attached",
+      "id": "RQ-20260824T233837-0887",
+      "legacy_id": null,
+      "receipt_sha256": "b217466b11343e71f0f486a14665b6b3f0216ec3f10abd65a267bc2b4411b12c",
+      "result_summary": "Rebased the accepted late-created Health-directory watcher onto the current post-74F3/261F GUI generation without behavior changes; exact target promotion, single debounce and clean shutdown remain intact."
+    },
+    {
+      "completed_at": "2026-08-25T05:27:35+09:00",
+      "directory": "P1-RQ-20260825T022437-FD4C-keep-release-readiness-smoke-byte-preserving-for-exact-user-data",
+      "fingerprint": "release-readiness-smoke-mutates-exact-user-data-v1",
+      "id": "RQ-20260825T022437-FD4C",
+      "legacy_id": null,
+      "receipt_sha256": "94eb8adb304ce085f0e34de26d9d079296e97fff468abb5bc59244c427f8d6ff",
+      "result_summary": "Exact-user safety remains fail-closed and now distinguishes unchanged, concurrent external drift under proven native isolation, and in-process mutation not excluded; native Qt objects are explicitly drained and locally created QApplication instances quit."
+    },
+    {
+      "completed_at": "2026-08-25T05:31:18+09:00",
+      "directory": "P1-RQ-20260825T011449-626E-wire-existing-typed-runtime-events-into-current-scheduled-data-entrypoin",
+      "fingerprint": "typed-runtime-event-log-unwired-current-scheduled-entrypoints-v1",
+      "id": "RQ-20260825T011449-626E",
+      "legacy_id": null,
+      "receipt_sha256": "b8f734cb40abd19ebba479dcec59ed3b96ed6f3eae968f06e89a2d8af7a63b02",
+      "result_summary": "Every bound provider scheduler run now attempts exactly one terminal event even when compatibility last-result persistence raises; original exception/exit semantics and safe event-log isolation are preserved."
+    },
+    {
+      "completed_at": "2026-08-25T05:36:11+09:00",
+      "directory": "P0-RQ-20260825T053047-E60E-independently-accept-canonical-equity-scheduler-offline-generation",
+      "fingerprint": "canonical-equity-scheduler-offline-independent-acceptance-v1",
+      "id": "RQ-20260825T053047-E60E",
+      "legacy_id": null,
+      "receipt_sha256": "7dd079c8dff83ce8c41dc3bfc0f904a3cf26c29af564af91d436d1782df839f6",
+      "result_summary": "REJECTED the exact 716F offline generation: code/tests and API-zero dry-run pass, but current canonical/state/breadth files remain unreadable under protected ACLs, so oldest-missing selection and production pre/post identity cannot be independently verified or executed."
+    },
+    {
+      "completed_at": "2026-08-25T05:43:01+09:00",
+      "directory": "P1-RQ-20260824T233837-CEEA-remove-1600x900-horizontal-overflow-from-four-primary-gui-pages",
+      "fingerprint": "gui-1600x900-four-page-horizontal-overflow",
+      "id": "RQ-20260824T233837-CEEA",
+      "legacy_id": null,
+      "receipt_sha256": "94cc7e8f2f1e76096d78a6a1c1829d3a610a60a5ba50322f43d88fb7e03b970d",
+      "result_summary": "Removed the real post-load 5px Dashboard overflow by making the six visible derivative cards responsive inside the tab viewport; all nine native pages now fit at 1600x900."
+    },
+    {
+      "completed_at": "2026-08-25T05:47:30+09:00",
+      "directory": "P1-RQ-20260825T021646-D90F-prevent-shared-owner-writers-from-mutating-one-active-task-concurrently",
+      "fingerprint": "active-owner-identity-does-not-exclude-concurrent-shared-writers-v1",
+      "id": "RQ-20260825T021646-D90F",
+      "legacy_id": null,
+      "receipt_sha256": "63358b1861fb23d7db9266535495b292b2e1933456e8f74f664ccf22106c3685",
+      "result_summary": "Removed caller-selected claim capability input. Every claim now unconditionally creates a 256-bit token through secrets.token_hex(32), retains only its digest, and requires the returned raw token for every Active mutation. Updated protocol and thread-safe tests without weakening concurrency coverage."
+    },
+    {
+      "completed_at": "2026-08-25T05:47:40+09:00",
+      "directory": "P1-RQ-20260825T043916-5CBF-implement-offline-crash-safe-sanitized-kb-account-snapshot-coordinator",
+      "fingerprint": "kb-account-offline-sanitized-coordinator-v1",
+      "id": "RQ-20260825T043916-5CBF",
+      "legacy_id": null,
+      "receipt_sha256": "8b2fe63e8e745af7c498336456c1b3b2a18aef4a0d570b8aa52d296d25fc515a",
+      "result_summary": "Fixed fail-open recovery ordering: a validated unfinished PREPARED/PROMOTING journal whose rollback cannot complete now blocks refresh before supplier invocation. Added deterministic regression proving supplier_calls=0 and preventing an older journal from reverting a newer generation; documented fail-closed barrier. Provider calls 0."
+    },
+    {
+      "completed_at": "2026-08-25T06:12:30+09:00",
+      "directory": "P1-RQ-20260825T012954-EF2E-collapse-sensitive-dashboard-financial-summaries-until-explicit-reveal",
+      "fingerprint": "dashboard-sensitive-account-net-worth-explicit-reveal-v1",
+      "id": "RQ-20260825T012954-EF2E",
+      "legacy_id": null,
+      "receipt_sha256": "ab8ac780a95cd16b0a873742697d7e2f000fd206b5597e15c9d3bbdc8c569bc9",
+      "result_summary": "Rebased and revalidated Dashboard account explicit-reveal privacy behavior on the accepted no-clipping and runtime-diagnostics GUI generation; no new production edit was required."
+    },
+    {
+      "completed_at": "2026-08-25T06:27:18+09:00",
+      "directory": "P1-RQ-20260825T015029-C39C-detect-scoped-file-drift-while-a-task-awaits-review",
+      "fingerprint": "review-generation-scoped-files-not-immutable-v1",
+      "id": "RQ-20260825T015029-C39C",
+      "legacy_id": null,
+      "receipt_sha256": "331f0a92491812b70c6a1b372fbb13cff64e93d1742d94ad3e61ca6dac1f41c9",
+      "result_summary": "Review tasks reserve exact normalized write_scope; overlapping claim fails before mutation, disjoint claims remain eligible, pass/fail releases reservation, and Doctor detects legacy active/review overlap."
+    },
+    {
+      "completed_at": "2026-08-25T06:27:18+09:00",
+      "directory": "P1-RQ-20260825T055453-5F6C-stop-labelling-every-provider-scheduler-dry-run-as-already-current",
+      "fingerprint": "provider-scheduler-dry-run-false-already-current-event-v1",
+      "id": "RQ-20260825T055453-5F6C",
+      "legacy_id": null,
+      "receipt_sha256": "5bbfa9f0ed879b2cbba01bcb7d6b81eb91502fc3fd8717828b2094f13f3479a0",
+      "result_summary": "Dry-run plan validation now emits SUCCEEDED/COMPLETED with promotion/checkpoint NOT_RUN and cannot claim production currency; true NOOP_CURRENT alone remains API_ZERO_NOOP/ALREADY_CURRENT_API_ZERO."
+    },
+    {
+      "completed_at": "2026-08-25T06:27:32+09:00",
+      "directory": "P0-RQ-20260825T055843-5C22-repair-broken-kb-daily-snapshot-scheduled-task-runner-path",
+      "fingerprint": "kbsec-daily-task-nonexistent-runner-path-v1",
+      "id": "RQ-20260825T055843-5C22",
+      "legacy_id": null,
+      "receipt_sha256": "37e0082a3d4ff01f5646ab532d8cfcd5fa71f1ac8704690702c0da8fa467b039",
+      "result_summary": "KB daily snapshot task repaired and made fail-closed: exact runner path installed, definition disabled, and action cannot cross live confirmation gate."
+    },
+    {
+      "completed_at": "2026-08-25T06:28:28+09:00",
+      "directory": "P1-RQ-20260825T011831-BB29-add-agent-readable-runtime-diagnostics-for-gui-and-backtest-failures",
+      "fingerprint": "gui-backtest-runtime-diagnostic-log-agent-readable-v1",
+      "id": "RQ-20260825T011831-BB29",
+      "legacy_id": null,
+      "receipt_sha256": "6d9a253f0a1a3beeb76120196c05d0e0f62fcce9c461cd3edb8cc9f7e0643c03",
+      "result_summary": "One app session and one per-operation run identity now correlate lifecycle, GUI worker and Backtest service evidence; RUN failures emit exactly one sanitized event without changing outcomes."
+    },
+    {
+      "completed_at": "2026-08-25T06:34:40+09:00",
+      "directory": "P1-RQ-20260825T060522-E88D-restore-strict-backtest-bundle-validity-after-runtime-diagnostics-code-d",
+      "fingerprint": "backtest-strict-bundle-experiment-digest-drift-after-bb29-v1",
+      "id": "RQ-20260825T060522-E88D",
+      "legacy_id": null,
+      "receipt_sha256": "96f5e39dc2ff0299590c860508cc53b78ee4eac8adbc127215a767ca01377019",
+      "result_summary": "Restored the strict default Backtest five-file generation for the accepted BB29 code identity via supported deterministic offline replay."
+    },
+    {
+      "completed_at": "2026-08-25T06:38:04+09:00",
+      "directory": "P1-RQ-20260825T055033-C0CA-make-dashboard-overall-health-summary-use-the-full-retained-80-dataset-a",
+      "fingerprint": "dashboard-health-summary-fallback-only-market-cards-v1",
+      "id": "RQ-20260825T055033-C0CA",
+      "legacy_id": null,
+      "receipt_sha256": "e391b7b3a930bf66abbc75acdc022b5c8b59cdf584473692c0699364c79aa4ab",
+      "result_summary": "Dashboard data_health now deterministically summarizes the same validated retained 80-row HealthArtifactView as health_rows; stale/unknown/block rows prevent false CURRENT and missing/invalid artifacts fail UNKNOWN, while per-card freshness is unchanged."
+    },
+    {
+      "completed_at": "2026-08-25T06:38:17+09:00",
+      "directory": "P1-RQ-20260825T013650-DE1B-authorize-restoration-of-the-frozen-a922-generation-without-the-legacy-i",
+      "fingerprint": "frozen-a922-retains-legacy-in-root-partition-lock-after-external-lock-fix",
+      "id": "RQ-20260825T013650-DE1B",
+      "legacy_id": null,
+      "receipt_sha256": "10fb411a64b8e680a2835dccff1b3804a3d87442189ddaa5426a01b78ad6ac44",
+      "result_summary": "Accepted the user-authorized pre-deletion evidence limitation and verified the frozen a922 generation is currently clean, exact, deterministic, and unchanged."
+    },
+    {
+      "completed_at": "2026-08-25T07:11:39+09:00",
+      "directory": "P2-RQ-20260825T004231-7D4F-add-global-symbol-search-shortcut-and-a-collapsible-contextual-watchlist",
+      "fingerprint": "gui-global-symbol-search-context-watchlist-rail",
+      "id": "RQ-20260825T004231-7D4F",
+      "legacy_id": null,
+      "receipt_sha256": "5b821af173dc9c0454db261adc4ea04564eec355868043b149418e538ce190df",
+      "result_summary": "Fixed mixed-market contextual rail routing: any exact KR or U.S. identity now switches to the correct chart page through MainWindow."
+    },
+    {
+      "completed_at": "2026-08-25T07:38:30+09:00",
+      "directory": "P2-RQ-20260825T004229-7C1A-add-saved-non-trading-research-workspace-panel-presets-inspired-by-toss-",
+      "fingerprint": "gui-readonly-modular-research-workspace-presets",
+      "id": "RQ-20260825T004229-7C1A",
+      "legacy_id": null,
+      "receipt_sha256": "dff8d08486214ee057b4c24d5f459ddad734b378f289cf08c38564b62afee074",
+      "result_summary": "Implemented strict saved read-only Research Workspace with exact local KR/US projections and safe presentation-only presets; fixed overlap destination and full-identity fail-closed issues found by independent pre-review."
+    },
+    {
+      "completed_at": "2026-08-25T23:23:57+09:00",
+      "directory": "P1-RQ-20260824T085700-54DC-move-dashboard-and-index-local-reads-off-the-gui-thread",
+      "fingerprint": "gui-local-reads-block-event-loop",
+      "id": "RQ-20260824T085700-54DC",
+      "legacy_id": null,
+      "receipt_sha256": "0b698222e26e2f42746f8d7c95752350e104c62635baffd436c1f96d1abe2dbf",
+      "result_summary": "One bounded coalescing worker lane removes Dashboard, Index, and Dashboard chart retained-local reads from the GUI thread while enforcing latest-generation-only rendering and deterministic close/error behavior."
+    },
+    {
+      "completed_at": "2026-08-25T23:37:42+09:00",
+      "directory": "P0-RQ-20260825T093322-7BDB-use-response-time-clock-for-ur246-per-route-validation",
+      "fingerprint": "ur246-run-start-provider-timestamp-race-v1",
+      "id": "RQ-20260825T093322-7BDB",
+      "legacy_id": null,
+      "receipt_sha256": "228f5210a8aeec94280f773853d6e9bb148a36bfa60e74fca801474a14b131b0",
+      "result_summary": "Response-time validation race fixed and actual scheduled routes recovered."
+    },
+    {
+      "completed_at": "2026-08-25T23:54:47+09:00",
+      "directory": "P0-RQ-20260825T233219-50EB-restore-dashboard-top-card-labels-sparklines-and-compact-single-row",
+      "fingerprint": "dashboard-top-card-label-sparkline-single-row-regression-v1",
+      "id": "RQ-20260825T233219-50EB",
+      "legacy_id": null,
+      "receipt_sha256": "607eca72308a5a3df0e48346b09d4c828a95d634c5ae29f7b4fc2b9aa7aab2b6",
+      "result_summary": "Dashboard top-card readability, compact one-row layout, and mini graphs restored."
+    },
+    {
+      "completed_at": "2026-08-25T23:57:44+09:00",
+      "directory": "P1-RQ-20260825T090242-FA1C-gate-toss-30-minute-collection-before-transport-outside-eligible-session",
+      "fingerprint": "toss-30m-preopen-semantic-failure-api-gate-v1",
+      "id": "RQ-20260825T090242-FA1C",
+      "legacy_id": null,
+      "receipt_sha256": "85210f06107518e1609ee95604c533aa275844515fe7434b824ce6ac0a632f16",
+      "result_summary": "Toss scheduled wakes outside verified KRX collection time now return truthful API-zero before runner, credentials, or transport; eligible windows retain independent fail-closed behavior."
+    },
+    {
+      "completed_at": "2026-08-25T23:58:52+09:00",
+      "directory": "P1-RQ-20260825T083713-A52C-prune-local-parquet-partitions-before-recursive-gui-enumeration",
+      "fingerprint": "gui-local-parquet-query-partition-first-enumeration-v1",
+      "id": "RQ-20260825T083713-A52C",
+      "legacy_id": null,
+      "receipt_sha256": "c40c79caba7a8f9f3237e9098a45dbab9624cef91f4992f5e2417d622d169062",
+      "result_summary": "LocalParquetQuery uses direct Hive partition and bounded recent-year discovery while preserving safe fallback and returned semantics; retained-data MainWindow now reaches full Health with no workers by 10 seconds."
+    },
+    {
+      "completed_at": "2026-08-26T00:18:55+09:00",
+      "directory": "P0-RQ-20260825T234038-AC69-preserve-exact-independent-read-acl-across-canonical-atomic-replacement",
+      "fingerprint": "canonical-atomic-replace-drops-independent-read-acl-v1",
+      "id": "RQ-20260825T234038-AC69",
+      "legacy_id": null,
+      "receipt_sha256": "ddcf9ede5b8c9d68bd382745e882916940205036da62cc2870e0e20d5bfdb275",
+      "result_summary": "Preserved exact existing owner and protected DACL across canonical atomic commit and rollback, including interrupted recovery."
+    },
+    {
+      "completed_at": "2026-08-26T00:18:55+09:00",
+      "directory": "P0-RQ-20260825T234717-EED7-contract-and-promote-retained-krx-kospi-kosdaq-index-valuation-history",
+      "fingerprint": "krx-index-fundamental-normalized-kospi-kosdaq-history-v1",
+      "id": "RQ-20260825T234717-EED7",
+      "legacy_id": null,
+      "receipt_sha256": "a7bb0438becd3e5fb87be51639fdd96a4269abe6b86b26253b72bf3c3c3a0f14",
+      "result_summary": "Created a strict hash-bound KOSPI/KOSDAQ index valuation contract and deterministic API-zero staging boundary, now fail-closed for every non-finite provider number."
+    },
+    {
+      "completed_at": "2026-08-26T00:25:24+09:00",
+      "directory": "P1-RQ-20260825T090141-391A-separate-managed-automation-health-from-raw-current-dataset-count",
+      "fingerprint": "gui-health-managed-slo-vs-raw-current-count-v1",
+      "id": "RQ-20260825T090141-391A",
+      "legacy_id": null,
+      "receipt_sha256": "bca3fb388a5d7a5fee9806cdc372ed6a2709e5ed641971035e133b7abaa7c9e4",
+      "result_summary": "Managed automation health is now prominent as 14/19 acceptable on the retained artifact, while all 80 inventory rows and five actionable managed stale rows remain visible."
+    },
+    {
+      "completed_at": "2026-08-26T00:25:59+09:00",
+      "directory": "P0-RQ-20260825T053753-6D1B-grant-exact-read-and-seed-canonical-breadth-recovery-state",
+      "fingerprint": "canonical-equity-exact-read-and-breadth-state-v1",
+      "id": "RQ-20260825T053753-6D1B",
+      "legacy_id": null,
+      "receipt_sha256": "a327b08201306a266957078ddc498ee9b21c839b6fccca4cb5beb124e8c78b46",
+      "result_summary": "Restored and verified exact independent Read access plus a COMPLETE canonical breadth checkpoint aligned with accepted canonical dates through 2026-08-18."
+    },
+    {
+      "completed_at": "2026-08-26T01:13:23+09:00",
+      "directory": "P1-RQ-20260825T233359-0290-make-native-release-smoke-wait-for-managed-gui-quiescence-without-qt-pro",
+      "fingerprint": "release-native-smoke-fixed-deadline-closes-active-qthread-v1",
+      "id": "RQ-20260825T233359-0290",
+      "legacy_id": null,
+      "receipt_sha256": "2927407c7bc90c2e54dc04bf045d7ff6a2627d4f37bd8328c9898e0123efbe7f",
+      "result_summary": "Native release smoke now returns a typed quiescence report and closes cleanly: startup provider-free work is not duplicated, the bounded event drain yields the GIL between Qt drains, exact TIMEOUT remains explicit, and successful close leaves every managed worker released."
+    },
+    {
+      "completed_at": "2026-08-26T01:14:02+09:00",
+      "directory": "P0-RQ-20260826T000139-B1EB-advance-krx-kospi-kosdaq-valuation-history-through-2026-08-25-and-automa",
+      "fingerprint": "krx-index-fundamental-through-20260825-daily-automation-v1",
+      "id": "RQ-20260826T000139-B1EB",
+      "legacy_id": null,
+      "receipt_sha256": "668904e2e0f8e02573150233ef5fcecd239454ca3d15dd928588afe3f732787f",
+      "result_summary": "Advanced KRX KOSPI/KOSDAQ weighted valuation history through 2026-08-25 and activated bounded daily refresh; corrected the review-found pytest collection collision."
+    },
+    {
+      "completed_at": "2026-08-26T01:57:03+09:00",
+      "directory": "P1-RQ-20260826T014011-91BA-investigate-intermittent-usd-krw-card-refresh-stalls",
+      "fingerprint": "gui:usdkrw-card-intermittent-refresh-stall",
+      "id": "RQ-20260826T014011-91BA",
+      "legacy_id": null,
+      "receipt_sha256": "ba3e65e0dab85f498cb8d1fd5fa7f0b9ffb814fa25d6e5537bea800be0aa8ca3",
+      "result_summary": "Diagnosis confirmed a dual GUI refresh stall rather than a bad USD/KRW value: projection changes lack a direct reload trigger, and cold full-snapshot reads can starve card publication beyond 55 seconds."
+    },
+    {
+      "completed_at": "2026-08-26T02:14:50+09:00",
+      "directory": "P0-RQ-20260825T044838-716F-restore-scheduled-canonical-korean-equity-daily-advancement",
+      "fingerprint": "canonical-kr-equity-stale-manual-disabled",
+      "id": "RQ-20260825T044838-716F",
+      "legacy_id": null,
+      "receipt_sha256": "9afff5be57bad91ec6b5359f8f9473433314e6f9a9730d3b5affd2204f06019a",
+      "result_summary": "Activated bounded canonical-equity catch-up and completed the required first reviewed live advancement: accepted latest 2026-08-18 -> 2026-08-19, two provider calls, retry zero, four canonical outputs plus breadth atomically complete, accepted-date API-zero replay. Fixed Health runtime coverage so Dashboard reads actual 2026-08-19 rather than stale retained metadata 2026-08-13."
+    },
+    {
+      "completed_at": "2026-08-26T02:21:58+09:00",
+      "directory": "P1-RQ-20260826T004520-6D4B-rebase-managed-automation-health-regression-after-krx-valuation-lane-act",
+      "fingerprint": "gui-managed-health-dynamic-registry-count-after-b1eb-v1",
+      "id": "RQ-20260826T004520-6D4B",
+      "legacy_id": null,
+      "receipt_sha256": "7846073949162b326e73d71817efb6a825d1ded1925cd4c91f1ece31b9bfc811",
+      "result_summary": "Retained Health now deterministically exposes the truthful 20-row managed boundary while preserving the 80-row inventory."
+    },
+    {
+      "completed_at": "2026-08-26T02:23:02+09:00",
+      "directory": "P2-RQ-20260826T021755-BEA4-텔레그램-시장-브리핑-문체를-존댓말로-통일",
+      "fingerprint": "telegram-market-brief-honorific-tone",
+      "id": "RQ-20260826T021755-BEA4",
+      "legacy_id": null,
+      "receipt_sha256": "0996f90eb098b55a6dd825e6aa53d6a620ff716396b95d8e4cd9e899cb469ede",
+      "result_summary": "Telegram morning and close market briefs now explicitly require consistent formal Korean honorific prose."
+    },
+    {
+      "completed_at": "2026-08-26T02:36:49+09:00",
+      "directory": "P0-RQ-20260825T090214-E9C6-align-installed-kr-daily-task-occurrence-policy-and-prove-first-executio",
+      "fingerprint": "kr-daily-installed-task-occurrence-policy-never-run-v1",
+      "id": "RQ-20260825T090214-E9C6",
+      "legacy_id": null,
+      "receipt_sha256": "1ee26c5505fe45d4c4ce5c5410e3bd189cd69ca121f2f6416157a69dddacb509",
+      "result_summary": "Installed KR daily tasks now enforce exact-slot occurrence selection at 09:10/14:10 and bounded latest-occurrence catch-up only at 20:30."
+    },
+    {
+      "completed_at": "2026-08-26T02:38:25+09:00",
+      "directory": "P2-RQ-20260826T003442-1C1B-define-the-user-investment-objective-horizon-and-risk-policy-contract",
+      "fingerprint": "goal-investment-policy-horizon-risk-benchmark-contract-v1",
+      "id": "RQ-20260826T003442-1C1B",
+      "legacy_id": null,
+      "receipt_sha256": "c0c4cd1b1dd29e7f551a2a015fe0b483d0e43d21916458e1caf8d2501f3288a6",
+      "result_summary": "A versioned documentation-only investment policy contract now defines the user-owned choices required before future strategy ranking or optimization."
+    },
+    {
+      "completed_at": "2026-08-26T02:47:54+09:00",
+      "directory": "P1-RQ-20260826T015615-149E-reload-dashboard-when-accepted-current-observation-projections-change",
+      "fingerprint": "gui-current-projection-watcher-debounced-local-reread-v1",
+      "id": "RQ-20260826T015615-149E",
+      "legacy_id": null,
+      "receipt_sha256": "0242932d159454cf9a9c5f40b0ac5f62fcec7987d21ba838414a36df082898b5",
+      "result_summary": "Accepted current-observation atomic replacements now trigger one debounced provider-free Dashboard local reread while malformed input stays numeric-free."
+    },
+    {
+      "completed_at": "2026-08-26T03:09:54+09:00",
+      "directory": "P1-RQ-20260826T020745-D52A-refresh-dashboard-after-atomic-current-projection-changes",
+      "fingerprint": "gui-current-projection-watcher-phase-race-v1",
+      "id": "RQ-20260826T020745-D52A",
+      "legacy_id": null,
+      "receipt_sha256": "886cb181123ff50fb2cc656d30185d14a6252c2c889cb1be34c885a3c795251b",
+      "result_summary": "Verified accepted 149E fully implements D52A's exact current-projection watcher phase-race scope. Removed the remaining wall-clock dependency from its focused acceptance test by injecting an explicit freshness evaluation instant matching the fixed projection timestamps; no duplicate watcher or runtime behavior was added."
+    },
+    {
+      "completed_at": "2026-08-26T03:23:09+09:00",
+      "directory": "P2-RQ-20260826T030155-D6F5-keep-b2ed-gui-status-documentation-only-instead-of-authorizing-runtime-w",
+      "fingerprint": "gui-refresh-status-contract-runtime-authorization-contradiction-v1",
+      "id": "RQ-20260826T030155-D6F5",
+      "legacy_id": null,
+      "receipt_sha256": "c62944636f63a2eb504a46e4aad65f51d2965548c63b99f6ed66a31099849fb2",
+      "result_summary": "No-op completion: accepted B2ED rework already removed the exact GUI Status runtime-authorization contradiction. The contract remains documentation-only, grants zero runtime actions, and routes queue-backed implementation only through separately claimed 936A after B2ED and 9DB8 while preserving general direct-user Project Status authority."
+    },
+    {
+      "completed_at": "2026-08-26T03:33:16+09:00",
+      "directory": "P2-RQ-20260826T003457-3CBE-define-an-explainable-action-state-and-portfolio-adjustment-output-contr",
+      "fingerprint": "goal-explainable-action-and-rebalance-contract-v1",
+      "id": "RQ-20260826T003457-3CBE",
+      "legacy_id": null,
+      "receipt_sha256": "7ea706998093e8d603553ee1aab2f5972939114c5e05fcadfdc16f61e35a7058",
+      "result_summary": "Corrected the stale queue handoff receipt for the already completed documentation-only action-state/v1 contract and status link."
+    },
+    {
+      "completed_at": "2026-08-26T04:29:02+09:00",
+      "directory": "P1-RQ-20260826T014825-2D6C-extend-dashboard-charts-beyond-the-one-year-range",
+      "fingerprint": "dashboard-chart-multi-year-range-local-history-v1",
+      "id": "RQ-20260826T014825-2D6C",
+      "legacy_id": null,
+      "receipt_sha256": "3b707a98279830282928cb5f5b0130f8d5549049476a60cc508c59f15319fd7e",
+      "result_summary": "Corrected Dashboard multi-year implementation applies exact symbol filters before all finite/MAX local row budgets and retains bounded faithful rendering."
+    },
+    {
+      "completed_at": "2026-08-26T04:46:26+09:00",
+      "directory": "P1-RQ-20260826T015615-E694-bound-cold-dashboard-snapshot-latency-and-publish-current-cards-independ",
+      "fingerprint": "gui-cold-dashboard-serial-snapshot-current-card-starvation-v1",
+      "id": "RQ-20260826T015615-E694",
+      "legacy_id": null,
+      "receipt_sha256": "7ccb8cc80d606b9d4a51138299ee03f2df4bab52fbf3a6c6e22fc874e8173256",
+      "result_summary": "E694 current-stage close and source-time ordering rework validated without forced termination."
+    },
+    {
+      "completed_at": "2026-08-26T05:03:19+09:00",
+      "directory": "P2-RQ-20260826T035407-CB43-close-action-state-evidence-role-and-unavailable-reason-vocabularies",
+      "fingerprint": "action-state-contract-open-evidence-role-uncertainty-reason-vocab-v1",
+      "id": "RQ-20260826T035407-CB43",
+      "legacy_id": null,
+      "receipt_sha256": "8994c827013c74649e760ef29a39bce1e6b81ca688d8fcf8f26303ec55361eb2",
+      "result_summary": "Reworked action-state vocabulary applies EvidenceUseRole exactly to both EvidenceRef and MarketBinding."
+    },
+    {
+      "completed_at": "2026-08-26T05:06:45+09:00",
+      "directory": "P2-RQ-20260826T012155-136A-define-a-versioned-indicator-semantic-catalog-and-contextual-explanation",
+      "fingerprint": "goal-indicator-semantic-catalog-contextual-explanation-contract-v1",
+      "id": "RQ-20260826T012155-136A",
+      "legacy_id": null,
+      "receipt_sha256": "2499cfa3961846ae8e586935fa81da6be456de070a0ba1538ca8dee246897d15",
+      "result_summary": "Reworked catalog separates immutable comparator semantics from runtime coverage and preserves unresolved KRX finality."
+    },
+    {
+      "completed_at": "2026-08-26T05:18:40+09:00",
+      "directory": "P1-RQ-20260826T041842-F58C-preserve-newer-full-current-metric-when-an-older-rejected-dashboard-stag",
+      "fingerprint": "gui-current-stage-rejected-older-than-full-valid",
+      "id": "RQ-20260826T041842-F58C",
+      "legacy_id": null,
+      "receipt_sha256": "a169139861904fa95c4a7d63ba958b12e161402f5cd72abe2480b59986103677",
+      "result_summary": "Equal and unprovable timestamp orders now have explicit fail-closed GUI regressions; strictly older/newer behavior remains covered."
+    },
+    {
+      "completed_at": "2026-08-26T05:20:30+09:00",
+      "directory": "P2-RQ-20260826T003621-566A-define-a-leverage-evaluation-and-safety-contract-against-an-unlevered-ba",
+      "fingerprint": "goal-leverage-after-cost-stress-safety-contract-v1",
+      "id": "RQ-20260826T003621-566A",
+      "legacy_id": null,
+      "receipt_sha256": "2ed82019ab3c74781ebf067db924edebee2abd7c58db7588191e981b65b6d0a2",
+      "result_summary": "Reworked leverage-evaluation/v1 now has reachable rules, deterministic state precedence, and exact policy/scenario/case ownership."
+    },
+    {
+      "completed_at": "2026-08-26T09:30:26+09:00",
+      "directory": "P0-RQ-20260825T090304-0CDC-make-scheduler-success-receipts-prove-real-lane-outcomes",
+      "fingerprint": "scheduler-success-empty-outcomes-receipt-truth-v1",
+      "id": "RQ-20260825T090304-0CDC",
+      "legacy_id": null,
+      "receipt_sha256": "c75a76273971540323d01927e5c497c993a749c0cccbc82eed13254119672300",
+      "result_summary": "Implemented outcome-complete scheduler receipt/pointer semantics and fail-closed readiness validation; natural 09:10 KR occurrence proved all due lanes, API/readback, and Health reconciliation."
+    },
+    {
+      "completed_at": "2026-08-26T09:53:11+09:00",
+      "directory": "P0-RQ-20260826T025726-5467-keep-the-accepted-phase-1-gui-bundle-valid-when-unrelated-backtest-modul",
+      "fingerprint": "phase1-bundle-code-identity-exact-dependency-manifest-v1",
+      "id": "RQ-20260826T025726-5467",
+      "legacy_id": null,
+      "receipt_sha256": "e342eba5eef7fc66a2db4ed14c32126aff0661bb135fd4450cc12059aa3ffa17",
+      "result_summary": "Replaced broad Phase-1 package identity with one explicit 12-file semantic manifest shared by replay and GUI validation; restored the immutable accepted bundle to READY without inspecting the sealed holdout."
+    },
+    {
+      "completed_at": "2026-08-26T10:13:56+09:00",
+      "directory": "P1-RQ-20260826T092638-E498-add-screen-reader-summaries-for-backtest-nav-and-drawdown-charts",
+      "fingerprint": "gui-backtest-chart-screenreader-summary-v1",
+      "id": "RQ-20260826T092638-E498",
+      "legacy_id": null,
+      "receipt_sha256": "f4e0f139aadd04a100e7a9ae95e736c3fb2f6d42218f521b465d3370e543b682",
+      "result_summary": "Added equivalent screen-reader summaries for accepted Backtest NAV and drawdown charts with fail-closed clearing and atomic rollback."
+    },
+    {
+      "completed_at": "2026-08-26T11:33:12+09:00",
+      "directory": "P0-RQ-20260826T102710-E084-expose-the-collected-toss-005930-active-session-projection-in-gui-curren",
+      "fingerprint": "gui-current-coverage-omits-toss-005930-active-session-projection",
+      "id": "RQ-20260826T102710-E084",
+      "legacy_id": null,
+      "receipt_sha256": "ee66599350bad5bacb937c40233f9af9bd7836f64748bd4c771f3e0166f9b8d3",
+      "result_summary": "Exact Toss UR246 005930 active-session coverage remains locally displayable under strict contract gates, while stale/malformed/wrong-route/NXT-only/LS-only inputs remain numeric-free and independent; the fresh handoff now accurately binds the implementation and current verification."
+    },
+    {
+      "completed_at": "2026-08-26T11:41:39+09:00",
+      "directory": "P1-RQ-20260826T054734-D1AD-bound-the-toss-domestic-scheduler-execution-limit-and-reconcile-its-acti",
+      "fingerprint": "toss-domestic-ur246:scheduler-definition:bounded-limit-window-sync",
+      "id": "RQ-20260826T054734-D1AD",
+      "legacy_id": null,
+      "receipt_sha256": "942dfc5e06b97762bbe9f8506c23296dfe62c7bb6bfa73ca3248d84c08ce3f43",
+      "result_summary": "Toss domestic scheduler definition and documentation are aligned to one bounded 09:00..15:30 half-open active window, PT25M execution limit, IgnoreNew, and exact semantic readback; the fresh handoff now binds all implementation and verification evidence requested by independent review."
+    },
+    {
+      "completed_at": "2026-08-26T11:52:01+09:00",
+      "directory": "P0-RQ-20260826T111756-8990-restore-kospi-and-kosdaq-completed-daily-mini-graphs-under-fresh-toss-he",
+      "fingerprint": "dashboard-kospi-kosdaq-sparklines-empty-when-toss-current-as-of-includes-kst-clock",
+      "id": "RQ-20260826T111756-8990",
+      "legacy_id": null,
+      "receipt_sha256": "081710dd8860230fff3ebc9986c1d56dd8282b4e1eb9f078835545c3244305d8",
+      "result_summary": "Fresh exact Toss KOSPI/KOSDAQ headlines retain their typed numbers while separate verified completed-daily mini graphs render through the KST source date; malformed or missing history remains graph-only numeric-free and no current point is synthesized."
+    },
+    {
+      "completed_at": "2026-08-26T12:00:37+09:00",
+      "directory": "P1-RQ-20260826T050718-2EAA-treat-a-regressed-yahoo-native-15m-response-as-typed-prior-value-preserv",
+      "fingerprint": "yahoo-market-current:native15m-regressed-window:safe-preservation",
+      "id": "RQ-20260826T050718-2EAA",
+      "legacy_id": null,
+      "receipt_sha256": "67c4b3debed0c30b6306e1184474e9d9cf912fa6959cecb330f5e765996538ce",
+      "result_summary": "Implemented deterministic typed prior-value preservation for truly older Yahoo 30m/native15m candidates without claiming a natural older occurrence."
+    },
+    {
+      "completed_at": "2026-08-26T12:06:03+09:00",
+      "directory": "P1-RQ-20260826T094237-B400-restore-1600px-fit-after-individualequitypage-minimum-width-regression",
+      "fingerprint": "gui-1600x900-individual-equity-minimum-width-regression-v2",
+      "id": "RQ-20260826T094237-B400",
+      "legacy_id": null,
+      "receipt_sha256": "401fe1f99e09d0bc766bd4fc508ae5e3437d9a37fabc4967661a89dabfb1a3c9",
+      "result_summary": "Restored 1600px fit for Index, Korean-equity, and US-ETF primary chart pages without hiding required controls."
+    },
+    {
+      "completed_at": "2026-08-26T12:16:12+09:00",
+      "directory": "P0-RQ-20260826T093519-39E1-classify-repeated-yahoo-same-timestamp-value-revisions-without-losing-pr",
+      "fingerprint": "yahoo-native-same-timestamp-revision-preservation-v1",
+      "id": "RQ-20260826T093519-39E1",
+      "legacy_id": null,
+      "receipt_sha256": "df04bc195d9560fd12b50d8d9480629eea819a937b9336523a74f6616b0c4f33",
+      "result_summary": "Implemented exact Yahoo revision-prior preservation with candidate validation that cannot convert invalid values or incomplete timestamps into false success."
+    },
+    {
+      "completed_at": "2026-08-26T12:20:49+09:00",
+      "directory": "P1-RQ-20260826T115333-0E68-stop-daily-average-comparison-from-parsing-clock-bearing-toss-display-la",
+      "fingerprint": "GUI_DAILY_AVERAGE_TOSS_KST_DISPLAY_TIMESTAMP_PARSE_WARNING",
+      "id": "RQ-20260826T115333-0E68",
+      "legacy_id": null,
+      "receipt_sha256": "81cb5e1d0ba38d6fa9a5e8414f1cab4b65ec1145f5c1e0e927959a5ec1aba5c8",
+      "result_summary": "Toss KOSPI/KOSDAQ current headlines retain numbers while graph and daily-average consumers accept only an exact retrieval-time typed cutoff; wrong/missing basis and malformed/older boundaries remain graph/comparison-only numeric-free without parsing display labels."
+    },
+    {
+      "completed_at": "2026-08-26T12:31:37+09:00",
+      "directory": "P1-RQ-20260826T025105-F640-implement-sanitized-issue-aggregation-and-automatic-thresholded-inbox-di",
+      "fingerprint": "issue-state-v1-runtime-aggregation-thresholded-inbox-implementation",
+      "id": "RQ-20260826T025105-F640",
+      "legacy_id": null,
+      "receipt_sha256": "5ef0a10bce4222ba7dd66cc485512fbccad1277f86668d5869e3aa69ecf16ddd",
+      "result_summary": "Completed sanitized local issue aggregation and thresholded Inbox discovery gates including unbounded-length URI-scheme privacy rejection."
+    },
+    {
+      "completed_at": "2026-08-26T13:21:24+09:00",
+      "directory": "P1-RQ-20260826T054904-4631-persist-outcome-complete-toss-domestic-scheduler-occurrence-receipts",
+      "fingerprint": "toss-domestic-ur246:scheduler-occurrence:terminal-receipt-v1",
+      "id": "RQ-20260826T054904-4631",
+      "legacy_id": null,
+      "receipt_sha256": "500533bd1ec5ad8f56ffb8f6df47b0c91359df12c217288d1136bea5a1206417",
+      "result_summary": "Outcome-complete Toss domestic scheduled-occurrence receipts implemented and naturally validated"
+    }
+  ],
+  "entries_sha256": "5593b6d80ce6c627e279aaf1bf5ff3f189054e093effc06beb7423075e869fc1",
+  "schema_version": 1
+}

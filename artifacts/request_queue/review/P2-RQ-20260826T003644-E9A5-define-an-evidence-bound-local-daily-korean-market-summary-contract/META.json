@@ -1,0 +1,42 @@
+{
+  "assigned_agent": "codex_docfix_0827d",
+  "assigned_role": "worker",
+  "branch": null,
+  "completed_at": null,
+  "created_at": "2026-08-26T00:36:44+09:00",
+  "created_by": "goal_inbox_review",
+  "depends_on": [
+    "RQ-20260826T003517-1114",
+    "RQ-20260826T004445-B2ED"
+  ],
+  "fingerprint": "goal-local-daily-korean-market-summary-contract-v1",
+  "heartbeat": null,
+  "id": "RQ-20260826T003644-E9A5",
+  "kind": "bug",
+  "lease_until": null,
+  "legacy_id": null,
+  "owner": null,
+  "parallelizable": true,
+  "parent_task": "PROJECT_GOAL",
+  "priority": "P2",
+  "priority_hint": "P2",
+  "resource_locks": [
+    "daily-market-summary-contract"
+  ],
+  "review_required": true,
+  "reviewer": "lead",
+  "risk": "high",
+  "schema_version": 1,
+  "slug": "define-an-evidence-bound-local-daily-korean-market-summary-contract",
+  "state": "review",
+  "title": "Define an evidence-bound local daily Korean market-summary contract",
+  "updated_at": "2026-08-27T02:30:23+09:00",
+  "worktree": null,
+  "write_scope": [
+    "docs/gui/DAILY_MARKET_SUMMARY_CONTRACT.md",
+    "docs/gui/GUI_STATUS.md",
+    "docs/project/PROJECT_STATUS.md",
+    "docs/project/REPOSITORY_MAP.md"
+  ],
+  "writer_lane": "shared"
+}

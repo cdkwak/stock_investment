@@ -1,0 +1,40 @@
+{
+  "assigned_agent": "root",
+  "assigned_role": "lead",
+  "branch": null,
+  "completed_at": "2026-08-26T13:43:11+09:00",
+  "created_at": "2026-08-25T09:04:24+09:00",
+  "created_by": "codex",
+  "depends_on": [
+    "RQ-20260825T044838-716F"
+  ],
+  "fingerprint": "canonical-blocker-status-queue-contradiction-v1",
+  "heartbeat": null,
+  "id": "RQ-20260825T090424-1C38",
+  "kind": "bug",
+  "lease_until": null,
+  "legacy_id": null,
+  "owner": null,
+  "parallelizable": false,
+  "parent_task": "USER-20260825-GUI-DATA-FRESHNESS",
+  "priority": "P0",
+  "priority_hint": "P0",
+  "resource_locks": [
+    "canonical-equity-status-reconciliation"
+  ],
+  "review_required": true,
+  "reviewer": "goal_inbox_review",
+  "risk": "medium",
+  "schema_version": 1,
+  "slug": "reconcile-stale-canonical-acl-blocker-with-current-readable-state",
+  "state": "done",
+  "title": "Reconcile stale canonical ACL blocker with current readable state",
+  "updated_at": "2026-08-26T13:43:11+09:00",
+  "worktree": null,
+  "write_scope": [
+    "artifacts/request_queue/BOARD.md",
+    "docs/data/DATASET_INDEX.md",
+    "docs/data/DATA_STATUS.md"
+  ],
+  "writer_lane": "data"
+}

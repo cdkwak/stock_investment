@@ -1,0 +1,42 @@
+{
+  "assigned_agent": "codex_gui_c938_b",
+  "assigned_role": "implementer",
+  "branch": null,
+  "completed_at": "2026-08-26T22:31:08+09:00",
+  "created_at": "2026-08-26T05:53:28+09:00",
+  "created_by": "codex_root",
+  "depends_on": [
+    "RQ-20260824T235216-F363",
+    "RQ-20260825T012939-F2B9"
+  ],
+  "fingerprint": "account-per-source-drilldown-preserve-global-failclosed-v1",
+  "heartbeat": null,
+  "id": "RQ-20260826T055328-C938",
+  "kind": "bug",
+  "lease_until": null,
+  "legacy_id": null,
+  "owner": null,
+  "parallelizable": true,
+  "parent_task": "DIRECT_ACCOUNT_GUI_AUDIT_20260826",
+  "priority": "P1",
+  "priority_hint": "P1",
+  "resource_locks": [
+    "account-page"
+  ],
+  "review_required": true,
+  "reviewer": "lead",
+  "risk": "high",
+  "schema_version": 1,
+  "slug": "add-fail-closed-per-account-drill-down-when-sibling-sources-are-unavaila",
+  "state": "done",
+  "title": "Add fail-closed per-account drill-down when sibling sources are unavailable",
+  "updated_at": "2026-08-26T22:31:08+09:00",
+  "worktree": null,
+  "write_scope": [
+    "src/stock_data/gui/account_snapshot_service.py",
+    "src/stock_data/gui/main_window.py",
+    "tests/unit/gui/test_gui_backtest.py",
+    "tests/unit/gui/test_gui_services.py"
+  ],
+  "writer_lane": "gui"
+}

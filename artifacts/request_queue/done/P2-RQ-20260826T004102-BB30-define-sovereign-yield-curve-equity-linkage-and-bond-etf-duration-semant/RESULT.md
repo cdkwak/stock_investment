@@ -1,0 +1,4 @@
+result: A versioned documentation-only semantic contract now prevents sovereign yields, cash/futures prices, curve components, historical linkage, and bond-ETF fields from being silently conflated.
+changed: Added SOVEREIGN_YIELD_BOND_ETF_SEMANTICS.md and linked the future non-authorizing boundary from Project Status.
+verified: Mapped every Project Goal rate/TLT requirement, validated 28 required terms and local links, and preserved provider/Data/GUI/Backtest/predictive/execution prohibitions.; independent review by lead: Independent documentation review: contract hash matches, all 28 required identity/time/finality/curve/component/linkage/bond-ETF terms are present, Project Status links resolve, futures prices cannot become yields, asynchronous inputs fail closed, missing components stay unsupported, and provider/Data/GUI/predictive/execution authority remains separate.
+completed_at: 2026-08-26T02:39:09+09:00

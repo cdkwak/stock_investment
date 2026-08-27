@@ -1,0 +1,43 @@
+{
+  "assigned_agent": "codex_root",
+  "assigned_role": "worker",
+  "branch": null,
+  "completed_at": "2026-08-26T02:27:12+09:00",
+  "created_at": "2026-08-25T23:25:33+09:00",
+  "created_by": "codex_root",
+  "depends_on": [
+    "RQ-20260826T000139-B1EB",
+    "RQ-20260825T233359-0290"
+  ],
+  "fingerprint": "dashboard-market-valuation-kospi-kosdaq-per-pbr-vs-historical-baseline-v1",
+  "heartbeat": null,
+  "id": "RQ-20260825T232533-76A1",
+  "kind": "bug",
+  "lease_until": null,
+  "legacy_id": null,
+  "owner": null,
+  "parallelizable": true,
+  "parent_task": "RQ-20260825T093322-7BDB",
+  "priority": "P1",
+  "priority_hint": "P1",
+  "resource_locks": [
+    "gui-dashboard-layout"
+  ],
+  "review_required": true,
+  "reviewer": "lead",
+  "risk": "medium",
+  "schema_version": 1,
+  "slug": "add-kospi-kosdaq-market-per-pbr-history-comparison-to-dashboard",
+  "state": "done",
+  "title": "Add KOSPI KOSDAQ market PER PBR history comparison to Dashboard",
+  "updated_at": "2026-08-26T02:27:12+09:00",
+  "worktree": null,
+  "write_scope": [
+    "docs/gui/GUI_STATUS.md",
+    "src/stock_data/gui/main_window.py",
+    "src/stock_data/gui/services.py",
+    "tests/unit/gui/test_gui_backtest.py",
+    "tests/unit/gui/test_gui_services.py"
+  ],
+  "writer_lane": "gui"
+}

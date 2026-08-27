@@ -1,0 +1,4 @@
+result: Established a dated primary-source decision that independently keeps exact KOSPI forward PER and forward PBR unsupported and numeric-free while preserving accepted KRX descriptive PER/PBR.
+changed: Created the bounded KOSPI forward valuation source-decision matrix/reopen gate and added the authoritative Data Status route.
+verified: Independent read-only review PASS; all required identity/horizon/aggregation/PIT/schema/rights/cost fields covered; primary URLs accessible; 104 local links and text integrity pass; no provider/API sample, purchase, data, GUI/runtime, or predictive action.; independent review by lead: Independent read-only review PASS: exact KOSPI identity, separate forward PER and PBR unsupported decisions, numeric-use prohibition, primary-source semantics/PIT/schema/rights/cost evidence, and reopen gates verified; no provider, purchase, data, GUI, or predictive action.
+completed_at: 2026-08-26T19:11:51+09:00

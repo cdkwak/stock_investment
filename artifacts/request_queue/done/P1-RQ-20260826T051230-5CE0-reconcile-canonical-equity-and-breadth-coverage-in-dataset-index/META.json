@@ -1,0 +1,39 @@
+{
+  "assigned_agent": "review_e084_dataset_index",
+  "assigned_role": "data_owner",
+  "branch": null,
+  "completed_at": "2026-08-26T18:28:04+09:00",
+  "created_at": "2026-08-26T05:12:30+09:00",
+  "created_by": "codex_root",
+  "depends_on": [
+    "RQ-20260826T024243-0E3A",
+    "RQ-20260826T035407-5A8A"
+  ],
+  "fingerprint": "dataset-index:canonical-equity-breadth:retained-coverage-reconcile",
+  "heartbeat": null,
+  "id": "RQ-20260826T051230-5CE0",
+  "kind": "bug",
+  "lease_until": null,
+  "legacy_id": null,
+  "owner": null,
+  "parallelizable": false,
+  "parent_task": "RQ-20260826T024243-0E3A",
+  "priority": "P1",
+  "priority_hint": "P1",
+  "resource_locks": [
+    "data-canonical-docs"
+  ],
+  "review_required": true,
+  "reviewer": "goal_inbox_review",
+  "risk": "low",
+  "schema_version": 1,
+  "slug": "reconcile-canonical-equity-and-breadth-coverage-in-dataset-index",
+  "state": "done",
+  "title": "Reconcile canonical equity and breadth coverage in Dataset Index",
+  "updated_at": "2026-08-26T18:28:04+09:00",
+  "worktree": null,
+  "write_scope": [
+    "docs/data/DATASET_INDEX.md"
+  ],
+  "writer_lane": "data"
+}

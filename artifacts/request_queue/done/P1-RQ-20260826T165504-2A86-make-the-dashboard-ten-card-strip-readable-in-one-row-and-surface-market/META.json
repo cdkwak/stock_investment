@@ -1,0 +1,42 @@
+{
+  "assigned_agent": "review_2eaa_gui_writer",
+  "assigned_role": "writer",
+  "branch": null,
+  "completed_at": "2026-08-26T19:20:16+09:00",
+  "created_at": "2026-08-26T16:55:04+09:00",
+  "created_by": "root",
+  "depends_on": [
+    "RQ-20260826T025135-936A"
+  ],
+  "fingerprint": "gui-dashboard-ten-card-one-row-valuation-mean-v1",
+  "heartbeat": null,
+  "id": "RQ-20260826T165504-2A86",
+  "kind": "bug",
+  "lease_until": null,
+  "legacy_id": null,
+  "owner": null,
+  "parallelizable": false,
+  "parent_task": "DIRECT-USER-DASHBOARD-20260826",
+  "priority": "P1",
+  "priority_hint": "P1",
+  "resource_locks": [
+    "qt-process"
+  ],
+  "review_required": true,
+  "reviewer": "recheck_repo",
+  "risk": "medium",
+  "schema_version": 1,
+  "slug": "make-the-dashboard-ten-card-strip-readable-in-one-row-and-surface-market",
+  "state": "done",
+  "title": "Make the Dashboard ten-card strip readable in one row and surface market PER/PBR first",
+  "updated_at": "2026-08-26T19:20:16+09:00",
+  "worktree": null,
+  "write_scope": [
+    "docs/gui/GUI_STATUS.md",
+    "src/stock_data/gui/main_window.py",
+    "src/stock_data/gui/services.py",
+    "tests/unit/gui/test_gui_backtest.py",
+    "tests/unit/gui/test_gui_services.py"
+  ],
+  "writer_lane": "gui"
+}

@@ -1,0 +1,39 @@
+{
+  "assigned_agent": "codex_root_1114",
+  "assigned_role": "backtest",
+  "branch": null,
+  "completed_at": "2026-08-26T03:22:11+09:00",
+  "created_at": "2026-08-26T00:35:17+09:00",
+  "created_by": "goal_inbox_review",
+  "depends_on": [
+    "RQ-20260826T003442-1C1B"
+  ],
+  "fingerprint": "goal-crash-risk-state-and-stress-validation-contract-v1",
+  "heartbeat": null,
+  "id": "RQ-20260826T003517-1114",
+  "kind": "bug",
+  "lease_until": null,
+  "legacy_id": null,
+  "owner": null,
+  "parallelizable": true,
+  "parent_task": "PROJECT_GOAL",
+  "priority": "P2",
+  "priority_hint": "P2",
+  "resource_locks": [
+    "backtest-crash-risk-contract"
+  ],
+  "review_required": true,
+  "reviewer": "lead",
+  "risk": "high",
+  "schema_version": 1,
+  "slug": "define-multi-factor-crash-risk-states-and-point-in-time-stress-validatio",
+  "state": "done",
+  "title": "Define multi-factor crash-risk states and point-in-time stress validation",
+  "updated_at": "2026-08-26T03:22:11+09:00",
+  "worktree": null,
+  "write_scope": [
+    "docs/backtest/BACKTEST_STATUS.md",
+    "docs/backtest/CRASH_RISK_VALIDATION_CONTRACT.md"
+  ],
+  "writer_lane": "backtest"
+}

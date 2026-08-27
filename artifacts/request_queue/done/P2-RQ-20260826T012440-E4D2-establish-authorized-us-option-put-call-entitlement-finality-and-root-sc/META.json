@@ -1,0 +1,37 @@
+{
+  "assigned_agent": "codex_root",
+  "assigned_role": "project_owner",
+  "branch": null,
+  "completed_at": "2026-08-26T19:20:44+09:00",
+  "created_at": "2026-08-26T01:24:40+09:00",
+  "created_by": "codex_root_goal_planner",
+  "depends_on": [],
+  "fingerprint": "goal-us-option-put-call-entitlement-finality-root-scope-evidence-v1",
+  "heartbeat": null,
+  "id": "RQ-20260826T012440-E4D2",
+  "kind": "bug",
+  "lease_until": null,
+  "legacy_id": null,
+  "owner": null,
+  "parallelizable": true,
+  "parent_task": "PROJECT_GOAL",
+  "priority": "P2",
+  "priority_hint": "P2",
+  "resource_locks": [
+    "us-option-pcr-source-decision"
+  ],
+  "review_required": true,
+  "reviewer": "lead",
+  "risk": "high",
+  "schema_version": 1,
+  "slug": "establish-authorized-us-option-put-call-entitlement-finality-and-root-sc",
+  "state": "done",
+  "title": "Establish authorized US option put-call entitlement finality and root-scope evidence",
+  "updated_at": "2026-08-26T19:20:44+09:00",
+  "worktree": null,
+  "write_scope": [
+    "docs/data/DATA_STATUS.md",
+    "docs/data/sources/us_option_pcr/US_OPTION_PCR_SOURCE_DECISION.md"
+  ],
+  "writer_lane": "data"
+}

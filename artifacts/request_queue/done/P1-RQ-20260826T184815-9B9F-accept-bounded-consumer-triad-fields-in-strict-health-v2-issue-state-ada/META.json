@@ -1,0 +1,37 @@
+{
+  "assigned_agent": "codex_root",
+  "assigned_role": "project_owner",
+  "branch": null,
+  "completed_at": "2026-08-26T18:57:18+09:00",
+  "created_at": "2026-08-26T18:48:15+09:00",
+  "created_by": "codex_root",
+  "depends_on": [],
+  "fingerprint": "health-v2-consumer-triad-strict-adapter-compatibility",
+  "heartbeat": null,
+  "id": "RQ-20260826T184815-9B9F",
+  "kind": "bug",
+  "lease_until": null,
+  "legacy_id": null,
+  "owner": null,
+  "parallelizable": true,
+  "parent_task": "RQ-20260826T024929-3AA4",
+  "priority": "P1",
+  "priority_hint": "P1",
+  "resource_locks": [
+    "health-v2-issue-state-adapter"
+  ],
+  "review_required": true,
+  "reviewer": "lead",
+  "risk": "medium",
+  "schema_version": 1,
+  "slug": "accept-bounded-consumer-triad-fields-in-strict-health-v2-issue-state-ada",
+  "state": "done",
+  "title": "Accept bounded consumer-triad fields in strict Health V2 issue-state adapter",
+  "updated_at": "2026-08-26T18:57:18+09:00",
+  "worktree": null,
+  "write_scope": [
+    "src/issue_state/adapters.py",
+    "tests/unit/issue_state/test_adapters.py"
+  ],
+  "writer_lane": "data"
+}

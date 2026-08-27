@@ -1,0 +1,45 @@
+{
+  "assigned_agent": "codex_root",
+  "assigned_role": "data_owner",
+  "branch": null,
+  "completed_at": null,
+  "created_at": "2026-08-26T05:25:21+09:00",
+  "created_by": "codex_root_goal_planner",
+  "depends_on": [
+    "RQ-20260825T012923-BFC5"
+  ],
+  "fingerprint": "toss-readonly-account-daily-scheduled-refresh-v1",
+  "heartbeat": null,
+  "id": "RQ-20260826T052521-3082",
+  "kind": "bug",
+  "lease_until": null,
+  "legacy_id": null,
+  "owner": null,
+  "parallelizable": true,
+  "parent_task": "PROJECT_GOAL",
+  "priority": "P1",
+  "priority_hint": "P1",
+  "resource_locks": [
+    "toss-account-snapshot"
+  ],
+  "review_required": true,
+  "reviewer": "independent-agent",
+  "risk": "high",
+  "schema_version": 1,
+  "slug": "define-a-secure-scheduled-daily-toss-read-only-account-refresh",
+  "state": "blocked",
+  "title": "Define a secure scheduled daily Toss read-only account refresh",
+  "updated_at": "2026-08-26T18:27:46+09:00",
+  "worktree": null,
+  "write_scope": [
+    "docs/data/DATA_STATUS.md",
+    "docs/data/operations/TOSS_ACCOUNT_SNAPSHOT_READONLY.md",
+    "scripts/maintenance/run_toss_account_snapshot.py",
+    "scripts/register_data_operations_tasks.ps1",
+    "src/stock_data/orchestration/toss_account_runtime.py",
+    "src/stock_data/orchestration/toss_account_snapshot.py",
+    "tests/integration/pipelines/test_toss_account_snapshot.py",
+    "tests/unit/orchestration/test_toss_account_runtime.py"
+  ],
+  "writer_lane": "data"
+}

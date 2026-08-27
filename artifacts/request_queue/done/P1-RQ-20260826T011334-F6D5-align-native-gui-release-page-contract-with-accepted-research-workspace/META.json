@@ -1,0 +1,39 @@
+{
+  "assigned_agent": "codex_root",
+  "assigned_role": "worker",
+  "branch": null,
+  "completed_at": "2026-08-26T02:22:11+09:00",
+  "created_at": "2026-08-26T01:13:34+09:00",
+  "created_by": "codex_root",
+  "depends_on": [
+    "RQ-20260825T233359-0290"
+  ],
+  "fingerprint": "native-gui-expected-pages-misses-accepted-research-workspace-v1",
+  "heartbeat": null,
+  "id": "RQ-20260826T011334-F6D5",
+  "kind": "bug",
+  "lease_until": null,
+  "legacy_id": null,
+  "owner": null,
+  "parallelizable": true,
+  "parent_task": "RQ-20260825T233359-0290",
+  "priority": "P1",
+  "priority_hint": "P1",
+  "resource_locks": [
+    "qt-process"
+  ],
+  "review_required": true,
+  "reviewer": "lead",
+  "risk": "medium",
+  "schema_version": 1,
+  "slug": "align-native-gui-release-page-contract-with-accepted-research-workspace",
+  "state": "done",
+  "title": "Align native GUI release page contract with accepted Research Workspace",
+  "updated_at": "2026-08-26T02:22:11+09:00",
+  "worktree": null,
+  "write_scope": [
+    "src/stock_data/orchestration/release_readiness.py",
+    "tests/unit/orchestration/test_release_readiness.py"
+  ],
+  "writer_lane": "gui"
+}

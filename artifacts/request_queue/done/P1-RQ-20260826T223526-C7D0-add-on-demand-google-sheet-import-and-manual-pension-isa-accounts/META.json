@@ -1,0 +1,48 @@
+{
+  "assigned_agent": "codex_gui_c7d0_a",
+  "assigned_role": "implementer",
+  "branch": null,
+  "completed_at": "2026-08-26T23:16:10+09:00",
+  "created_at": "2026-08-26T22:35:26+09:00",
+  "created_by": "codex_root_account_sources",
+  "depends_on": [
+    "RQ-20260826T055328-C938"
+  ],
+  "fingerprint": "account-on-demand-google-sheet-manual-pension-isa-v1",
+  "heartbeat": null,
+  "id": "RQ-20260826T223526-C7D0",
+  "kind": "bug",
+  "lease_until": null,
+  "legacy_id": null,
+  "owner": null,
+  "parallelizable": true,
+  "parent_task": "USER_REQUEST_20260826_ACCOUNT_SOURCES",
+  "priority": "P1",
+  "priority_hint": "P1",
+  "resource_locks": [
+    "account-page",
+    "manual-account-store"
+  ],
+  "review_required": true,
+  "reviewer": "lead",
+  "risk": "high",
+  "schema_version": 1,
+  "slug": "add-on-demand-google-sheet-import-and-manual-pension-isa-accounts",
+  "state": "done",
+  "title": "Add on-demand Google Sheet import and manual pension/ISA accounts",
+  "updated_at": "2026-08-26T23:16:10+09:00",
+  "worktree": null,
+  "write_scope": [
+    "docs/gui/GUI_STATUS.md",
+    "src/stock_data/gui/account_snapshot_service.py",
+    "src/stock_data/gui/google_sheet_account_import.py",
+    "src/stock_data/gui/main_window.py",
+    "src/stock_data/gui/manual_account_snapshot.py",
+    "src/stock_data/gui/manual_account_store.py",
+    "tests/unit/gui/test_google_sheet_account_import.py",
+    "tests/unit/gui/test_gui_backtest.py",
+    "tests/unit/gui/test_manual_account_snapshot.py",
+    "tests/unit/gui/test_manual_account_store.py"
+  ],
+  "writer_lane": "gui"
+}

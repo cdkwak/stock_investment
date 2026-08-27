@@ -1,0 +1,36 @@
+{
+  "assigned_agent": "review_d1ad_source_registry_d6eb",
+  "assigned_role": "worker",
+  "branch": null,
+  "completed_at": "2026-08-26T20:09:56+09:00",
+  "created_at": "2026-08-26T18:24:30+09:00",
+  "created_by": "review_e084_dataset_index",
+  "depends_on": [],
+  "fingerprint": "source-registry-kr-index-daily-coverage-stale-20260825-v1",
+  "heartbeat": null,
+  "id": "RQ-20260826T182430-D6EB",
+  "kind": "bug",
+  "lease_until": null,
+  "legacy_id": null,
+  "owner": null,
+  "parallelizable": true,
+  "parent_task": "RQ-20260826T051230-5CE0",
+  "priority": "P1",
+  "priority_hint": "P1",
+  "resource_locks": [
+    "source-registry-kr-index-coverage"
+  ],
+  "review_required": false,
+  "reviewer": null,
+  "risk": "low",
+  "schema_version": 1,
+  "slug": "reconcile-stale-kr_index_daily-coverage-in-source-registry",
+  "state": "done",
+  "title": "Reconcile stale kr_index_daily coverage in Source Registry",
+  "updated_at": "2026-08-26T20:09:56+09:00",
+  "worktree": null,
+  "write_scope": [
+    "docs/data/SOURCE_REGISTRY.md"
+  ],
+  "writer_lane": "data"
+}

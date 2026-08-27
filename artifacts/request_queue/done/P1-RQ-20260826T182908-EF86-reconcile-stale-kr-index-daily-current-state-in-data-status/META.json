@@ -1,0 +1,36 @@
+{
+  "assigned_agent": "codex_root",
+  "assigned_role": "data_owner",
+  "branch": null,
+  "completed_at": "2026-08-26T18:31:25+09:00",
+  "created_at": "2026-08-26T18:29:08+09:00",
+  "created_by": "codex_root",
+  "depends_on": [],
+  "fingerprint": "data-status-kr-index-daily-current-through-20260825",
+  "heartbeat": null,
+  "id": "RQ-20260826T182908-EF86",
+  "kind": "bug",
+  "lease_until": null,
+  "legacy_id": null,
+  "owner": null,
+  "parallelizable": true,
+  "parent_task": "RQ-20260826T175151-C215",
+  "priority": "P1",
+  "priority_hint": "P1",
+  "resource_locks": [
+    "data-status"
+  ],
+  "review_required": false,
+  "reviewer": null,
+  "risk": "low",
+  "schema_version": 1,
+  "slug": "reconcile-stale-kr-index-daily-current-state-in-data-status",
+  "state": "done",
+  "title": "Reconcile stale KR index daily current state in Data Status",
+  "updated_at": "2026-08-26T18:31:25+09:00",
+  "worktree": null,
+  "write_scope": [
+    "docs/data/DATA_STATUS.md"
+  ],
+  "writer_lane": "data"
+}

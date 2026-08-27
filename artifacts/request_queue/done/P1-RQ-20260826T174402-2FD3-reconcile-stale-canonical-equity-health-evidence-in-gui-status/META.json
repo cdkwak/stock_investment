@@ -1,0 +1,36 @@
+{
+  "assigned_agent": "review_2eaa_gui_status_2fd3",
+  "assigned_role": "writer",
+  "branch": null,
+  "completed_at": "2026-08-26T20:09:56+09:00",
+  "created_at": "2026-08-26T17:44:02+09:00",
+  "created_by": "codex_review_e084",
+  "depends_on": [],
+  "fingerprint": "gui-status-canonical-equity-health-20260825",
+  "heartbeat": null,
+  "id": "RQ-20260826T174402-2FD3",
+  "kind": "bug",
+  "lease_until": null,
+  "legacy_id": null,
+  "owner": null,
+  "parallelizable": true,
+  "parent_task": "RQ-20260826T035407-5A8A",
+  "priority": "P1",
+  "priority_hint": "P1",
+  "resource_locks": [
+    "gui-status-health-reconciliation"
+  ],
+  "review_required": false,
+  "reviewer": null,
+  "risk": "low",
+  "schema_version": 1,
+  "slug": "reconcile-stale-canonical-equity-health-evidence-in-gui-status",
+  "state": "done",
+  "title": "Reconcile stale canonical-equity Health evidence in GUI Status",
+  "updated_at": "2026-08-26T20:09:56+09:00",
+  "worktree": null,
+  "write_scope": [
+    "docs/gui/GUI_STATUS.md"
+  ],
+  "writer_lane": "gui"
+}

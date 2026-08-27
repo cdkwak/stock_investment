@@ -1,0 +1,3 @@
+reason: All implementation, scheduler, privacy, replay, and independent technical gates pass; the required natural-success observation cannot exist before the next installed daily occurrence because 2026-08-26 terminally failed closed and is no-repeat.
+required_action: Observe the installed task naturally after 07:00 KST, then validate the exact identifier-free occurrence and last receipt, provider-call budget, snapshot atomicity/privacy, and task result without a manual provider retry.
+resume_condition: 2026-08-27T07:01:00+09:00 and the Windows task has produced or attempted the 2026-08-27 natural occurrence.

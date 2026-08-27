@@ -1,0 +1,46 @@
+{
+  "assigned_agent": "root",
+  "assigned_role": "lead",
+  "branch": null,
+  "completed_at": "2026-08-26T13:35:30+09:00",
+  "created_at": "2026-08-26T02:42:43+09:00",
+  "created_by": "codex_root",
+  "depends_on": [
+    "RQ-20260825T090304-0CDC"
+  ],
+  "fingerprint": "canonical-equity-multisession-bounded-catchup-v1",
+  "heartbeat": null,
+  "id": "RQ-20260826T024243-0E3A",
+  "kind": "bug",
+  "lease_until": null,
+  "legacy_id": null,
+  "owner": null,
+  "parallelizable": false,
+  "parent_task": "USER-20260826-DATA-FRESHNESS-AUTONOMY",
+  "priority": "P1",
+  "priority_hint": "P1",
+  "resource_locks": [
+    "canonical-equity-catchup-policy"
+  ],
+  "review_required": true,
+  "reviewer": "goal_inbox_review",
+  "risk": "high",
+  "schema_version": 1,
+  "slug": "bound-canonical-equity-catch-up-by-call-and-time-budget-instead-of-one-d",
+  "state": "done",
+  "title": "Bound canonical equity catch-up by call and time budget instead of one date",
+  "updated_at": "2026-08-26T13:35:30+09:00",
+  "worktree": null,
+  "write_scope": [
+    "docs/data/DATA_STATUS.md",
+    "docs/data/operations/CANONICAL_EQUITY_DAILY.md",
+    "scripts/maintenance/run_provider_scheduler.py",
+    "src/stock_data/orchestration/canonical_equity_daily.py",
+    "src/stock_data/orchestration/daily_operations.py",
+    "src/stock_data/orchestration/provider_scheduler.py",
+    "tests/unit/orchestration/test_canonical_equity_daily.py",
+    "tests/unit/orchestration/test_provider_scheduler.py",
+    "tests/unit/orchestration/test_provider_scheduler_cli.py"
+  ],
+  "writer_lane": "data"
+}
