@@ -567,8 +567,8 @@ def plan_scopes(
     if trading_dates[0] < MINIMUM_SOURCE_DATES[dataset]:
         raise ValueError(f"{dataset} start precedes smoke-confirmed source boundary")
     korea_today = datetime.now(ZoneInfo("Asia/Seoul")).date()
-    if dataset in {"trading", "investor"} and trading_dates[-1] >= korea_today:
-        raise ValueError(f"{dataset} enforces a T+1 minimum collection policy")
+    if dataset == "trading" and trading_dates[-1] >= korea_today:
+        raise ValueError("trading enforces a T+1 minimum collection policy")
     scopes = []
     if dataset in {"trading", "balance"}:
         factory = trading_scope if dataset == "trading" else balance_scope

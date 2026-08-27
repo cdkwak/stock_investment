@@ -12,7 +12,7 @@ def test_short_selling_v2_contracts_remain_separate_and_policy_gated() -> None:
     )
     assert contracts[0].status == "implementation_ready_t_plus_1_minimum"
     assert contracts[1].status == "implementation_ready_predictive_use_blocked"
-    assert contracts[2].status == "implementation_ready_t_plus_1_minimum"
+    assert contracts[2].status == "implementation_ready_same_day_after_1810_descriptive"
     assert all(item.version == 2 for item in contracts)
     assert all(item.layer == "normalized" for item in contracts)
     assert all(item.partition_by == ("market", "year") for item in contracts)

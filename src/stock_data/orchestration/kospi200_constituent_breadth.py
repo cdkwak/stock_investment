@@ -143,9 +143,9 @@ def run_kospi200_constituent_breadth_daily(
     )
     if capture.business_calls != 1 or capture.retry_count != 0:
         raise KOSPI200BreadthOperationError("constituent provider call budget differs")
-    if len(membership) != 200 or membership["symbol"].nunique() != 200:
+    if len(membership) < 200 or membership["symbol"].nunique() != len(membership):
         raise KOSPI200BreadthOperationError(
-            "exact KOSPI200 response must contain 200 unique members"
+            "exact KOSPI200 response must contain at least 200 unique members"
         )
     result = run_offline_kospi200_scope(
         root, membership, equity_prices,

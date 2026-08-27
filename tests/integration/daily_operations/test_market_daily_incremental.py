@@ -1,10 +1,11 @@
-from datetime import date
+from datetime import date, datetime
 import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pandas as pd
 import pytest
+from zoneinfo import ZoneInfo
 
 from scripts.manual.collect import run_market_daily_incremental as market_daily_cli
 import stock_data.orchestration.market_daily_incremental as market_daily
@@ -353,7 +354,17 @@ def test_short_investor_exact_date_has_four_business_and_nine_raw_calls(tmp_path
     plan = short_plan(tmp_path, "investor")
     assert plan.estimated_api_calls == 4
     assert short_selling_raw_call_budget("investor", plan.estimated_api_calls) == 9
-    assert SHORT_SELLING_FINALITY_POLICIES["investor"] == "NEXT_XKRX_SESSION_T_PLUS_1"
+    assert SHORT_SELLING_FINALITY_POLICIES["investor"] == (
+        "SAME_XKRX_SESSION_AFTER_1810_AS_RETRIEVED"
+    )
+
+
+def test_short_investor_allows_same_day_scope_while_trading_remains_t_plus_1() -> None:
+    korea_today = datetime.now(ZoneInfo("Asia/Seoul")).date()
+
+    assert len(plan_scopes("investor", (korea_today,))) == 4
+    with pytest.raises(ValueError, match="trading enforces a T\\+1 minimum"):
+        plan_scopes("trading", (korea_today,))
 
 
 def test_short_investor_cli_rejects_non_exact_raw_budget_before_network(tmp_path):

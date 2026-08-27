@@ -16,8 +16,10 @@ does not change or reinterpret the retained historical result.
   `1028`. A current list is never carried backward or forward.
 - Exactly one business response is allowed, with retry count zero. Authentication
   traffic is not a dataset business response.
-- The response must contain exactly 200 unique, valid member symbols. Empty,
-  malformed, partial, or duplicate scope fails closed.
+- The response must contain at least the nominal 200 unique, valid member symbols.
+  The exact source-reported count is retained because a corporate-action transition
+  can temporarily add a successor constituent before the index removes its
+  predecessor. Empty, sub-200, malformed, or duplicate scope fails closed.
 
 ## Landing and promotion boundary
 

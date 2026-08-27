@@ -94,11 +94,13 @@ KR_SHORT_SELLING_BALANCE_DAILY = DatasetContract(
 KR_SHORT_SELLING_INVESTOR_DAILY = DatasetContract(
     name="kr_short_selling_investor_daily",
     version=2,
-    status="implementation_ready_t_plus_1_minimum",
+    status="implementation_ready_same_day_after_1810_descriptive",
     description=(
         "Market-level KRX short-selling observations from MDCSTAT30301, normalized "
-        "to investor class and source metric. Research availability is no earlier "
-        "than T+1. Blank-date all-zero source placeholders are valid-empty, not rows."
+        "to investor class and source metric. The accepted operational boundary is "
+        "the same XKRX session after 18:10 KST, preserved AS_RETRIEVED and blocked "
+        "from predictive use. Blank-date all-zero source placeholders are valid-empty, "
+        "not rows."
     ),
     source="authenticated_pykrx_1.2.8:MDCSTAT30301",
     layer="normalized",

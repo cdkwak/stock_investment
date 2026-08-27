@@ -199,6 +199,36 @@ def test_daily_operation_uses_latest_canonical_date_then_replays_before_provider
     assert replay.status == "NOOP_ALREADY_SUCCEEDED" and replay.api_calls == 0
 
 
+def test_daily_operation_accepts_exact_transitional_201_member_response(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    symbols = tuple(f"{value:06d}" for value in range(1, 202))
+    target_membership = membership("2026-08-25", symbols)
+    monkeypatch.setattr(
+        operation, "latest_accepted_canonical_target", lambda _root: date(2026, 8, 25),
+    )
+    monkeypatch.setattr(
+        operation, "read_dataset",
+        lambda _root, contract, _validator: (
+            bulk_prices(symbols=symbols)
+            if contract is KR_EQUITY_PRICE_DAILY else pytest.fail("unexpected read")
+        ),
+    )
+    monkeypatch.setattr(
+        operation, "capture_kospi200_constituents",
+        lambda _target, **_kwargs: (
+            SimpleNamespace(business_calls=1, retry_count=0), target_membership,
+        ),
+    )
+
+    result = operation.run_kospi200_constituent_breadth_daily(
+        tmp_path, market_date="2026-08-25", run_id="transitional-201",
+    )
+
+    assert result.status == "SUCCEEDED"
+    assert result.constituent_rows == result.price_rows == 201
+
+
 def test_daily_operation_rejects_nonlatest_canonical_target_before_provider(
     tmp_path: Path, monkeypatch,
 ) -> None:

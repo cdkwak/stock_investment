@@ -7,7 +7,9 @@ KR_INDEX_CONSTITUENT_DAILY = DatasetContract(
     status="accepted_exact_date_only",
     description=(
         "Dated index membership observation. A row is valid only for its exact "
-        "queried date; it never implies membership before or after that date."
+        "queried date; it never implies membership before or after that date. The "
+        "source-reported exact membership may temporarily exceed the nominal 200 "
+        "during a corporate-action transition."
     ),
     source="KRX MDCSTAT00601 exact-date observation",
     layer="normalized",
