@@ -1,8 +1,14 @@
 # Project Roadmap
 
-This repository is evolving into a personal quantitative investment platform that supports historical research, reproducible backtesting, realtime monitoring, account management, paper trading, and eventually guarded live trading.
+The durable user-owned project goal is defined in
+[`PROJECT_GOAL.md`](PROJECT_GOAL.md).
+This roadmap owns the architecture and sequence toward that goal.
 
 Keep the project in **one repository for now**, while enforcing domain boundaries that allow components to be separated later without redesigning the core.
+
+This roadmap is a sequencing view. [`PROJECT_STATUS.md`](PROJECT_STATUS.md)
+remains authoritative for the selected domain, current gate, blockers, and
+next authorized work.
 
 ```text
 Historical Data ──> Features ──┐
@@ -65,9 +71,18 @@ The following rules are mandatory:
 
 ## Development Sequence
 
-### 1. Historical Data — Maintenance and Gap Filling
+### 1. Historical Data — Selected Active Expansion and Automation
 
-The core historical collection baseline is established.
+The core historical collection baseline and bounded daily-operation controls
+are established. Data is now the primary operational domain alongside active
+parallel GUI/Feature/Backtest engineering. The standing
+autonomous source-onboarding runbook permits agents to call public APIs and use
+existing `.env`-injected credentials for market, macro, realtime, and read-only
+account data; then proceed through contract, Landing-first collection, validated
+promotion, health, and scheduling without a new approval for each normal step.
+Source-specific semantic, rights, finality, PIT, atomicity, and idempotency gates
+remain mandatory. Secret disclosure, orders, transfers, purchases,
+subscriptions, binding agreements, and broker-side mutations remain excluded.
 
 Continue only high-value work:
 
@@ -97,6 +112,29 @@ Initial feature families should include:
 * market-cap and universe attributes;
 * interest-rate, currency, and macroeconomic regimes.
 
+Market valuation and earnings research must keep two independent axes instead
+of compressing them into one unexplained score:
+
+* `Valuation level`: exact current/trailing/forward identity, 5-year and
+  10-year as-of-only percentiles, PBR with separately accepted ROE context,
+  and an earnings-yield gap only when the matching forward horizon and Korean
+  government-bond observation are both accepted;
+* `Earnings momentum`: point-in-time forward EPS/BPS/ROE levels, 1-month and
+  3-month estimate changes, revision breadth/up/down ratios, contributor and
+  vintage lineage;
+* `Price driver`: a versioned decomposition of index return into forward-EPS
+  change and forward-multiple change only when price and estimate horizons,
+  timestamps, aggregation and universes reconcile exactly.
+
+Until those forward-estimate contracts exist, KRX provider-native PER/PBR may
+show only descriptive own-history context. It cannot produce expected earnings
+growth, expected book growth, PBR/ROE residuals, yield-gap values, `EARLY
+RECOVERY`, `LATE BULL`, `TOP RISK`, low/high-point labels, or a neutral zero for
+the missing earnings axis. Later validation must test the two axes and their
+interaction against pre-registered 3/6/12-month returns and drawdowns using
+purged walk-forward evaluation; the final holdout stays sealed during feature
+selection.
+
 Every feature must define:
 
 * source dataset version;
@@ -106,9 +144,17 @@ Every feature must define:
 * transformation parameters;
 * output schema and validation rules.
 
-### 3. Backtest — Primary Active Phase
+### 3. Backtest — Accepted Foundation and Active Offline Expansion
 
-Backtest development is now the primary engineering focus.
+The accepted Phase 1 Feature/PIT contracts, frozen retained input,
+deterministic features/labels/walk-forward, descriptive signal replay, and typed
+five-file close-proxy generation remain supported reproducible baselines. They
+are not a ceiling on new work. Agents may build versioned offline models,
+historical executable-instrument fills, richer costs/accounting, optimization
+research, result services, and local paper simulation in parallel with Data.
+Each new path must preserve PIT/leakage controls, keep the existing final holdout
+sealed during development, and avoid provider or broker mutation calls from
+Backtest code.
 
 The first usable engine should support:
 
@@ -136,9 +182,20 @@ Frozen Dataset
     → Reproducible Report
 ```
 
-### 4. GUI — Early Vertical Integration
+### 4. GUI — Implemented Local MVP and Typed Backtest Result Integration
 
-GUI work should begin once `BacktestService` and `BacktestResult` have stable minimal interfaces. It does not need to wait for every backtest feature to be complete.
+The local read-only Dashboard and Index MVP is implemented and validated over
+retained artifacts. The Backtest page now runs the fixed offline replay in a
+background workflow and renders only the strict validated close-proxy result;
+it does not own features, signals, labels, fills, accounting, or metrics.
+Versioned executable-instrument simulation and richer portfolio semantics are
+authorized follow-on work; the fixed close-proxy result remains supported.
+
+Dashboard source preparation and runtime services must continue to preserve
+`*_daily` versus `*_snapshot` boundaries, provider labels, provisional state,
+and provider-aware call controls. They must not call providers, implement collectors,
+calculate model/strategy/accounting values in presentation code, or imply that a
+display-source decision authorizes a Data operation or predictive use.
 
 The first GUI milestone should provide:
 
@@ -152,6 +209,15 @@ The first GUI milestone should provide:
 * warnings, validation failures, and run metadata.
 
 The GUI remains a thin client. Data preparation, feature computation, strategy evaluation, accounting, and metrics stay in their domain services.
+
+The durable goal also includes eventual access away from the development laptop.
+That remains a later deployment phase: an always-on machine may host a read-only
+application service over published snapshots and health state, while provider
+credentials and read-only account refresh remain behind sanitized services that
+may operate under the standing API authorization. Order, transfer, withdrawal,
+purchase, subscription, and binding-agreement capabilities remain prohibited.
+A NAS may retain backups or published artifacts, but file sharing alone is not
+the application-service boundary.
 
 ### 5. Realtime Data
 
@@ -238,24 +304,31 @@ Historical Replay
 
 ## Current Phase and Priority
 
-| Area               | Current state                                                         | Priority |
-| ------------------ | --------------------------------------------------------------------- | -------: |
-| Historical data    | Core baseline established; maintenance and gap filling continue       |      20% |
-| Features           | Immediate foundation work                                             |      25% |
-| Backtest           | Primary active development phase                                      |      45% |
-| GUI                | Begin minimal vertical integration after Backtest v0 interfaces exist |      10% |
-| Realtime data      | Planned after first research workflow is operational                  |    Later |
-| Account management | Architecture defined; implementation follows realtime integration     |    Later |
-| Paper/live trading | Gated by backtest, realtime, reconciliation, and safety validation    |    Final |
+| Area               | Current state                                                         | Routing |
+| ------------------ | --------------------------------------------------------------------- | ------- |
+| Historical data    | Selected for autonomous public/existing-credential API operations, contract-valid storage, read-only refresh, health, and automation | Selected |
+| Features           | Deterministic Phase 1 feature/PIT foundation implemented over the frozen input | Supporting |
+| Backtest           | Accepted close-proxy baseline plus autonomous versioned offline model, fill, cost, accounting, and simulation engineering; existing final holdout sealed | Active parallel |
+| GUI                | Implemented local surfaces plus autonomous typed GUI/application-service engineering | Active parallel |
+| Realtime data      | Read-only collection, normalization, storage, and shadow consumption authorized | Active Data expansion |
+| Account management | Existing-credential read-only integration and reconciliation engineering authorized; mutations prohibited | Active read-only parallel |
+| Paper/live trading | Local paper simulation authorized; all real or paper-broker order endpoints and financial mutations prohibited | Simulation only |
 
-The project must no longer operate in a Data-only mode. Data work should continue in the background without blocking the Feature, Backtest, and initial GUI phases.
+The project is routed to Data for autonomous public and existing-credential API
+operations, read-only refreshes, source expansion, and automation. GUI,
+Features, offline Backtest/ML, portfolio simulation, and local paper simulation
+may advance in parallel with non-overlapping scopes. No real or paper-broker
+order execution, transfer, purchase, subscription, binding-contract, or
+broker-side financial mutation is authorized by this roadmap.
 
 ## Persistent References
 
 * [README](../../README.md) — repository setup, layout, and supported entry points.
-* [Data status](DATA_STATUS.md) — authoritative dataset coverage, limitations, and blockers.
-* [Data API inventory](../data/inventory/DATA_API_INVENTORY.md) — provider, credential, and API boundaries.
-* [Dataset inventory](../data/inventory/D001_DATASET_INVENTORY.md) — reproducible artifact inventory.
-* [Active runbooks](../runbooks/active/) — current collection, validation, recovery, and maintenance procedures.
+* [Data status](../data/DATA_STATUS.md) — authoritative dataset coverage, limitations, and blockers.
+* [Data API inventory](../archive/data/evidence/2026-08-data-phase/inventory/DATA_API_INVENTORY.md) — archived provider, credential, and API evidence.
+* [Dataset inventory](../archive/data/evidence/2026-08-data-phase/inventory/D001_DATASET_INVENTORY.md) — archived reproducible artifact inventory.
+* [Data runbooks](../data/operations/) — procedures currently routed by Data Status.
+* [GUI status](../gui/GUI_STATUS.md) — active GUI engineering state, runtime boundaries, and typed service route.
+* [Backtest status](../backtest/BACKTEST_STATUS.md) — authoritative accepted Backtest boundary and holdout gate.
 
 Detailed schemas, provider limitations, API call budgets, dataset-specific decisions, and operational procedures belong in those references rather than this roadmap.

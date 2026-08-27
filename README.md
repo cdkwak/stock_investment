@@ -21,6 +21,49 @@ python -m venv .venv
 Secrets belong only in `.env`; never commit or print them.
 [`.env.example`](.env.example) contains variable names without values.
 
+## Dashboard GUI
+
+The PySide6/PyQtGraph Dashboard is a no-network, read-only view over retained
+local artifacts:
+
+```powershell
+.\.venv\Scripts\python.exe .\app.py
+```
+
+It never refreshes or promotes data. Each card retains its own source,
+market-date/freshness, and semantic/PIT status.
+
+## Daily offline release smoke
+
+Use the supported provider-free smoke after installation or an update. It opens
+and closes the native 1600x900 application, visits the Dashboard, Index, Data
+Status, Account, and Net Worth pages, checks retained schema/freshness/chart and
+read-only scheduler state, and verifies user data was not changed.
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\maintenance\run_release_readiness_smoke.py --output artifacts\release_readiness\release_readiness_latest.json
+```
+
+The JSON report records exact code and retained-input identities. Exit status is
+`0` for `PASS`, `2` for `DEGRADED`, and `1` for `FAIL`. `EXPECTED_LAG` is listed
+separately; stale, unknown, blocked, unavailable, or unverified scheduler state
+is never reported as a clean pass. The command never loads `.env`, calls a
+provider, changes a scheduler definition, or updates market/account data.
+
+## Overnight development ML
+
+The supported ML research entry point runs for at most eight hours over the
+verified frozen development slice, keeps the final holdout untouched, and stores
+resumable trials in local SQLite:
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\run_overnight_ml.py --duration-hours 8 --keep-awake
+.\.venv\Scripts\python.exe .\scripts\run_overnight_ml.py --status
+```
+
+Results are development candidates only. See the
+[Overnight ML Runbook](docs/backtest/OVERNIGHT_ML_RUNBOOK.md).
+
 ## Data layout
 
 ```text
@@ -38,35 +81,32 @@ replacement. Failed or empty responses must not replace valid data.
 
 ## Data v1 runner
 
-The only supported CLI entry point is `scripts/run_data_v1.py`.
+The only supported Data v1 collection CLI entry point is `scripts/run_data_v1.py`.
 
 ```powershell
 .\.venv\Scripts\python.exe .\scripts\run_data_v1.py --status
 .\.venv\Scripts\python.exe .\scripts\run_data_v1.py --no-live --skip-krx
 ```
 
-Live collection requires the explicit `--live` flag and approved provider
-access. KRX is skipped by default. Authenticated pykrx/KRX collection is allowed
-only through an explicitly bounded, D-authorized manual run with one request
-stream, a D-owned lock, Landing-first capture, and exact ledger/checkpoint gates.
-Passing a feasibility pilot does not authorize a bulk backfill.
+Live collection keeps the explicit `--live` flag as an operator mistake guard;
+Project/Data Status provide standing authorization for public and existing-
+credential provider access. KRX is skipped by default unless selected by the
+operation. Use provider-aware concurrency/rate limits, the Data-owned lock,
+Landing-first capture, and durable ledger/checkpoint gates. A successful pilot
+may be expanded or automated when current identity, schema, rights, finality,
+PIT, idempotency, and prior-valid-data protections support the larger scope; it
+does not require a new permission-only approval.
 
 ## Repository map
 
-- [`src/stock_data/`](src/stock_data/) contains the data-layer implementation.
-- [`scripts/run_data_v1.py`](scripts/run_data_v1.py) is the supported regular
-  runner; [`scripts/manual/`](scripts/manual/) contains approval-gated
-  diagnostics, pilots, migrations, and backfills.
-- [`tests/`](tests/) contains the offline unit test suite and fixtures.
-- [`docs/data/inventory/DATA_API_INVENTORY.md`](docs/data/inventory/DATA_API_INVENTORY.md) describes provider
-  contracts, while [`docs/project/DATA_STATUS.md`](docs/project/DATA_STATUS.md) records verified
-  coverage, blockers, and availability rules.
-- [`docs/project/PROJECT_STATUS.md`](docs/project/PROJECT_STATUS.md) is the first
-  project-state document to read at session start.
-- [`docs/project/PROJECT_ROADMAP.md`](docs/project/PROJECT_ROADMAP.md) defines the long-term
-  domain boundaries and development sequence.
-- [`docs/runbooks/active/`](docs/runbooks/active/) contains currently actionable
-  procedures; blocked work is under [`docs/runbooks/deferred/`](docs/runbooks/deferred/).
-  Archived Data-phase procedures are historical evidence, not active instructions.
-  The deferred set includes the
-  [authenticated pykrx historical plan](docs/runbooks/deferred/PYKRX_AUTHENTICATED_HISTORICAL_PLAN.md).
+- [Documentation Router — bounded agent reading](docs/README.md)
+- [Project Goal — user-owned durable outcome](docs/project/PROJECT_GOAL.md)
+- [Project Status — session routing entry point](docs/project/PROJECT_STATUS.md)
+- [Scheduler Status — installed tasks, gaps, and consolidation](docs/project/SCHEDULER_STATUS.md)
+- [Data Status — Data-layer entry point](docs/data/DATA_STATUS.md)
+- [Backtest Status — Backtest-layer entry point](docs/backtest/BACKTEST_STATUS.md)
+- [GUI Status — Dashboard and local-runtime entry point](docs/gui/GUI_STATUS.md)
+- [Request Queue Board — queue-backed work view](artifacts/request_queue/BOARD.md)
+- [Project Roadmap — long-term sequencing only](docs/project/PROJECT_ROADMAP.md)
+- [Repository Map](docs/project/REPOSITORY_MAP.md)
+- [Dataset Index](docs/data/DATASET_INDEX.md)
