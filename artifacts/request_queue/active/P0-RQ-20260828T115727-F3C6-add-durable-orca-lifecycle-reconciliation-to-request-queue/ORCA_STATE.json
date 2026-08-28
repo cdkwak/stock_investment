@@ -1,0 +1,18 @@
+{
+  "attempt": 0,
+  "candidate_commit": null,
+  "diff_digest": null,
+  "dispatch_id": null,
+  "last_error": null,
+  "last_reconciled_at": null,
+  "last_transition_at": "2026-08-28T17:46:39+09:00",
+  "next_action": "Commit the tested candidate and dispatch independent Orca review",
+  "observed_dispatch_status": null,
+  "phase": "BOUND",
+  "queue_task_id": "RQ-20260828T115727-F3C6",
+  "review_generation": null,
+  "run_id": "run_9f282fad1ff5",
+  "schema_version": 1,
+  "task_id": "task_ed07b588b225",
+  "waiting_for": "dispatch"
+}

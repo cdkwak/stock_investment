@@ -18,6 +18,7 @@ from typing import Iterable, Sequence
 
 STATE_PARTS = {
     "new": ("inbox", "new"),
+    "waiting": ("waiting",),
     "ready": ("inbox", "ready"),
     "active": ("active",),
     "review": ("review",),
@@ -43,7 +44,24 @@ HANDOFF_KEYS = (
     "tests", "risks", "new_discoveries",
 )
 WRITER_LIMIT = 3
+LEAD_WIP_LIMIT = 3
 WRITER_LANES = ("gui", "data", "backtest", "shared")
+DOMAINS = ("data", "backtest", "gui", "infra", "broker", "research", "integration", "shared")
+WAITING_KEYS = ("reason", "resume_condition", "next_check_at", "waiting_since")
+ORCA_STATE_NAME = "ORCA_STATE.json"
+ORCA_STATE_SCHEMA = 1
+ORCA_STATE_KEYS = (
+    "schema_version", "queue_task_id", "run_id", "task_id", "dispatch_id",
+    "attempt", "phase", "waiting_for", "next_action", "candidate_commit",
+    "diff_digest", "review_generation", "observed_dispatch_status",
+    "last_transition_at", "last_reconciled_at", "last_error",
+)
+ORCA_PHASES = (
+    "BOUND", "DISPATCHED", "WAITING_FOR_WORKER_DONE", "RECOVERY_REQUIRED",
+    "SUCCEEDED", "REVIEWING",
+)
+ORCA_OBSERVED_STATUSES = ("pending", "running", "completed", "failed", "cancelled", "blocked")
+ORCA_REVIEW_KEYS = ("orca_dispatch_id", "candidate_commit", "diff_digest")
 COMPLETED_INDEX_NAME = "COMPLETED_INDEX.json"
 COMPLETED_INDEX_SCHEMA = 1
 COMPLETED_ENTRY_KEYS = (
@@ -353,6 +371,15 @@ def _clean(value: object) -> str:
     return " ".join(str(value or "").split())
 
 
+def _validated_lead_owner(value: object) -> str | None:
+    if value is None:
+        return None
+    owner = _clean(value)
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,119}", owner) is None:
+        raise QueueError("Lead owner is invalid")
+    return owner
+
+
 def _handoff_text(values: dict[str, object]) -> str:
     return "\n".join(f"{key}: {_clean(values.get(key))}" for key in HANDOFF_KEYS) + "\n"
 
@@ -368,6 +395,134 @@ def _read_handoff(task: Path) -> dict[str, str]:
         if separator and key in HANDOFF_KEYS:
             result[key] = value.strip()
     return result
+
+
+def _waiting_text(values: dict[str, object]) -> str:
+    return "\n".join(f"{key}: {_clean(values.get(key))}" for key in WAITING_KEYS) + "\n"
+
+
+def _read_waiting(task: Path) -> dict[str, str]:
+    result: dict[str, str] = {}
+    try:
+        lines = (task / "WAITING.md").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return result
+    for line in lines:
+        key, separator, value = line.partition(":")
+        if separator and key in WAITING_KEYS:
+            result[key] = value.strip()
+    return result
+
+
+def _validate_orca_identifier(value: object, *, label: str) -> str:
+    if (
+        not isinstance(value, str) or not value or len(value) > 160
+        or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]*", value) is None
+    ):
+        raise QueueError(f"Orca {label} is invalid")
+    return value
+
+
+def _load_orca_state(task: Path, *, required: bool = False) -> dict[str, object] | None:
+    path = task / ORCA_STATE_NAME
+    if not path.exists():
+        if required:
+            raise QueueError("Orca state is not bound")
+        return None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise QueueError(f"Orca state is unreadable: {error}") from error
+    if not isinstance(value, dict) or set(value) != set(ORCA_STATE_KEYS):
+        raise QueueError("Orca state schema differs")
+    if value.get("schema_version") != ORCA_STATE_SCHEMA:
+        raise QueueError("Orca state schema version differs")
+    queue_task_id = value.get("queue_task_id")
+    if not isinstance(queue_task_id, str) or TASK_ID.fullmatch(queue_task_id) is None:
+        raise QueueError("Orca queue task id is invalid")
+    meta = _load_meta(task)
+    if queue_task_id != meta.get("id"):
+        raise QueueError("Orca queue task id differs")
+    _validate_orca_identifier(value.get("run_id"), label="run id")
+    _validate_orca_identifier(value.get("task_id"), label="task id")
+    dispatch_id = value.get("dispatch_id")
+    if dispatch_id is not None:
+        _validate_orca_identifier(dispatch_id, label="dispatch id")
+    attempt = value.get("attempt")
+    if not isinstance(attempt, int) or isinstance(attempt, bool) or attempt < 0:
+        raise QueueError("Orca attempt is invalid")
+    phase = value.get("phase")
+    if phase not in ORCA_PHASES:
+        raise QueueError("Orca phase is invalid")
+    if phase == "BOUND":
+        if dispatch_id is not None or attempt != 0:
+            raise QueueError("bound Orca state cannot carry a dispatch")
+    elif dispatch_id is None or attempt < 1:
+        raise QueueError("dispatched Orca state has no attempt identity")
+    for key in ("waiting_for", "next_action"):
+        item = value.get(key)
+        if not isinstance(item, str) or not item.strip() or len(item) > 240:
+            raise QueueError(f"Orca {key} is invalid")
+    candidate = value.get("candidate_commit")
+    if candidate is not None and (
+        not isinstance(candidate, str) or re.fullmatch(r"[0-9a-fA-F]{7,64}", candidate) is None
+    ):
+        raise QueueError("Orca candidate commit is invalid")
+    diff_digest = value.get("diff_digest")
+    if diff_digest is not None and (
+        not isinstance(diff_digest, str) or re.fullmatch(r"[0-9a-f]{64}", diff_digest) is None
+    ):
+        raise QueueError("Orca diff digest is invalid")
+    if phase in {"SUCCEEDED", "REVIEWING"} and (candidate is None or diff_digest is None):
+        raise QueueError("successful Orca state lacks candidate binding")
+    review_generation = value.get("review_generation")
+    if review_generation is not None and (
+        not isinstance(review_generation, str)
+        or re.fullmatch(r"[0-9a-f]{32}", review_generation) is None
+    ):
+        raise QueueError("Orca review generation is invalid")
+    if phase == "REVIEWING" and review_generation is None:
+        raise QueueError("reviewing Orca state lacks review generation")
+    if phase != "REVIEWING" and review_generation is not None:
+        raise QueueError("non-reviewing Orca state carries a review generation")
+    observed = value.get("observed_dispatch_status")
+    if observed is not None and observed not in ORCA_OBSERVED_STATUSES:
+        raise QueueError("Orca observed dispatch status is invalid")
+    for key in ("last_transition_at", "last_reconciled_at"):
+        timestamp = value.get(key)
+        if timestamp is not None and _aware(timestamp) is None:
+            raise QueueError(f"Orca {key} is invalid")
+    if _aware(value.get("last_transition_at")) is None:
+        raise QueueError("Orca transition timestamp is missing")
+    error = value.get("last_error")
+    if error is not None and (not isinstance(error, str) or not error.strip() or len(error) > 512):
+        raise QueueError("Orca last error is invalid")
+    if phase == "RECOVERY_REQUIRED" and error is None:
+        raise QueueError("Orca recovery state lacks an error")
+    return value
+
+
+def _write_orca_state(task: Path, value: dict[str, object]) -> None:
+    _atomic_json(task / ORCA_STATE_NAME, value)
+    _load_orca_state(task, required=True)
+
+
+def _verify_orca_review_binding(task: Path, review: dict[str, str]) -> None:
+    state = _load_orca_state(task)
+    if state is None:
+        return
+    if state.get("phase") != "REVIEWING":
+        raise QueueError("Orca review state is not reviewing")
+    expected = {
+        "orca_dispatch_id": state.get("dispatch_id"),
+        "candidate_commit": state.get("candidate_commit"),
+        "diff_digest": state.get("diff_digest"),
+        "review_generation": state.get("review_generation"),
+    }
+    for key, value in expected.items():
+        actual = review.get(key)
+        if not isinstance(value, str) or not isinstance(actual, str) or not secrets.compare_digest(value, actual):
+            raise QueueError(f"Orca review binding differs: {key}")
 
 
 def _handoff_snapshot_digest(task: Path) -> str:
@@ -452,7 +607,7 @@ def _digest(root: Path) -> str:
         digest.update(completed_index.read_bytes())
     for state, task, _meta in sorted(_all(root), key=lambda item: (item[0], item[1].name)):
         digest.update(f"{state}/{task.name}\0".encode())
-        for name in ("META.json", "HANDOFF.md"):
+        for name in ("META.json", "HANDOFF.md", "WAITING.md", ORCA_STATE_NAME, "REVIEW.md"):
             path = task / name
             if path.is_file():
                 digest.update(path.read_bytes())
@@ -472,9 +627,12 @@ def _board(root: Path, *, updated_at: str | None = None) -> str:
         lines.append("- none")
     for _state, path, meta in active:
         handoff = _read_handoff(path)
+        orca_state = _load_orca_state(path)
         lines.append(
             f"- {path.name} | owner={meta.get('owner') or '-'} | "
+            f"domain={meta.get('domain') or '-'} | lead={meta.get('lead_owner') or '-'} | "
             f"lane={_writer_lane(meta, meta.get('write_scope') or [])} | "
+            f"orca={orca_state.get('phase') if orca_state else '-'} | "
             f"phase={handoff.get('phase') or '-'} | heartbeat={meta.get('heartbeat') or '-'} | "
             f"next={handoff.get('next') or '-'}"
         )
@@ -483,7 +641,24 @@ def _board(root: Path, *, updated_at: str | None = None) -> str:
     if not review:
         lines.append("- none")
     for _state, path, meta in review:
-        lines.append(f"- {path.name} | reviewer={meta.get('reviewer') or '-'}")
+        orca_state = _load_orca_state(path)
+        lines.append(
+            f"- {path.name} | domain={meta.get('domain') or '-'} | "
+            f"lead={meta.get('lead_owner') or '-'} | reviewer={meta.get('reviewer') or '-'} | "
+            f"orca={orca_state.get('phase') if orca_state else '-'}"
+        )
+    lines.extend(("", "## Waiting"))
+    waiting = sorted((item for item in tasks if item[0] == "waiting"), key=_task_sort)
+    if not waiting:
+        lines.append("- none")
+    for _state, path, meta in waiting:
+        receipt = _read_waiting(path)
+        lines.append(
+            f"- {path.name} | domain={meta.get('domain') or '-'} | "
+            f"lead={meta.get('lead_owner') or '-'} | "
+            f"next_check_at={receipt.get('next_check_at') or '-'} | "
+            f"resume={receipt.get('resume_condition') or '-'}"
+        )
     lines.extend(("", "## Ready"))
     ready = sorted((item for item in tasks if item[0] == "ready"), key=_task_sort)
     if not ready:
@@ -494,7 +669,10 @@ def _board(root: Path, *, updated_at: str | None = None) -> str:
             ",".join(str(value) for value in raw_dependencies) or "-"
             if isinstance(raw_dependencies, list) else "<invalid>"
         )
-        lines.append(f"{number}. {path.name} | depends_on={dependencies}")
+        lines.append(
+            f"{number}. {path.name} | domain={meta.get('domain') or '-'} | "
+            f"lead={meta.get('lead_owner') or '-'} | depends_on={dependencies}"
+        )
     new_count = sum(state == "new" for state, _path, _meta in tasks)
     lines.extend(("", "## New Discoveries", f"- count: {new_count}", "", "## Blocked"))
     blocked = sorted((item for item in tasks if item[0] == "blocked"), key=_task_sort)
@@ -700,7 +878,7 @@ def command_discover(args: argparse.Namespace, root: Path) -> None:
     if goal_discovery:
         live = tuple(
             (state, meta) for state, _path, meta in _all(root)
-            if state in {"ready", "active", "review"}
+            if state in {"waiting", "ready", "active", "review"}
         )
         p0_live = any(meta.get("priority") == "P0" for _state, meta in live)
         if p0_live or len(live) >= 6:
@@ -732,6 +910,7 @@ def command_discover(args: argparse.Namespace, root: Path) -> None:
             "parent_task": args.source_task, "depends_on": [],
             "fingerprint": args.fingerprint, "write_scope": [],
             "writer_lane": None, "resource_locks": [],
+            "domain": args.domain, "lead_owner": _validated_lead_owner(args.lead_owner),
             "parallelizable": True, "review_required": False,
             "lease_until": None, "heartbeat": None, "worktree": None,
             "branch": None,
@@ -778,6 +957,10 @@ def command_triage(args: argparse.Namespace, root: Path) -> None:
         "parallelizable": args.parallelizable,
         "review_required": args.review_required, "reviewer": args.reviewer,
     })
+    if args.domain is not None:
+        meta["domain"] = args.domain
+    if args.lead_owner is not None:
+        meta["lead_owner"] = _validated_lead_owner(args.lead_owner)
     allow = "\n".join(f"- {value}" for value in args.allow)
     deny = "\n".join(f"- {value}" for value in args.deny)
     _atomic_text(task / "TASK.md", (
@@ -880,7 +1063,20 @@ def command_claim(args: argparse.Namespace, root: Path) -> None:
             if reviewer == args.owner:
                 raise QueueError("reviewer must differ from the implementing owner")
         all_tasks = _all(root)
-        if any(state == "active" and active.get("owner") == args.owner for state, _path, active in all_tasks):
+        same_owner = [
+            active for state, _path, active in all_tasks
+            if state == "active" and active.get("owner") == args.owner
+        ]
+        if args.role == "lead":
+            _validated_lead_owner(args.owner)
+            if any(active.get("assigned_role") != "lead" for active in same_owner):
+                raise QueueError(f"lead owner also holds a non-lead Active task: {args.owner}")
+            if len(same_owner) >= LEAD_WIP_LIMIT:
+                raise QueueError(f"lead WIP limit reached: {args.owner}")
+            routed_lead = meta.get("lead_owner")
+            if routed_lead is not None and routed_lead != args.owner:
+                raise QueueError(f"task is routed to a different Lead: {routed_lead}")
+        elif same_owner:
             raise QueueError(f"owner already has an active task: {args.owner}")
         raw_dependencies = meta.get("depends_on")
         if not isinstance(raw_dependencies, list):
@@ -950,6 +1146,10 @@ def command_claim(args: argparse.Namespace, root: Path) -> None:
             raise QueueError(f"active destination exists: {destination}")
         os.replace(task, destination)
         now = _now()
+        if args.domain is not None:
+            meta["domain"] = args.domain
+        if args.role == "lead":
+            meta["lead_owner"] = _validated_lead_owner(args.owner)
         meta.update({
             "state": "active", "owner": args.owner, "assigned_role": args.role,
             "assigned_agent": args.owner, "heartbeat": _stamp(now),
@@ -1026,11 +1226,16 @@ def _validate_expired_active_receipt(task: Path, meta: dict[str, object]) -> Non
     except OSError as error:
         raise QueueError(f"expired active recovery task is unreadable: {task}") from error
     expected_files = set(REQUIRED_TASK_FILES)
+    actual_files = {entry.name for entry in entries}
     if (
-        {entry.name for entry in entries} != expected_files
+        frozenset(actual_files) not in {
+            frozenset(expected_files), frozenset((*expected_files, ORCA_STATE_NAME)),
+        }
         or any(entry.is_symlink() or not entry.is_file() for entry in entries)
     ):
         raise QueueError("expired active recovery task files are invalid")
+    if ORCA_STATE_NAME in actual_files:
+        _load_orca_state(task, required=True)
 
     match = TASK_NAME.fullmatch(task.name)
     if match is None:
@@ -1219,14 +1424,32 @@ def _result(task: Path, result: str, changed: str, verified: str, completed_at: 
 def _review(
     task: Path, result: str, changed: str, verified: str, *,
     review_generation: str, submitted_at: str, handoff_sha256: str,
+    orca_binding: dict[str, object] | None = None,
 ) -> None:
-    _atomic_text(task / "REVIEW.md", (
+    body = (
         f"result: {_clean(result)}\nchanged: {_clean(changed)}\n"
         f"verified: {_clean(verified)}\n"
         f"review_generation: {review_generation}\n"
         f"handoff_sha256: {handoff_sha256}\n"
         f"submitted_at: {submitted_at}\n"
-    ))
+    )
+    if orca_binding is not None:
+        body += "".join(f"{key}: {_clean(orca_binding.get(key))}\n" for key in ORCA_REVIEW_KEYS)
+    _atomic_text(task / "REVIEW.md", body)
+
+
+def _mark_orca_review_rework(task: Path, *, basis: str, next_action: str) -> None:
+    state = _load_orca_state(task)
+    if state is None:
+        return
+    now = _now()
+    state.update({
+        "phase": "RECOVERY_REQUIRED", "waiting_for": "lead_recovery",
+        "next_action": next_action, "review_generation": None,
+        "last_transition_at": _stamp(now),
+        "last_error": f"Independent review requires recovery: {basis}"[:512],
+    })
+    _write_orca_state(task, state)
 
 
 def _read_fields(path: Path, keys: Sequence[str]) -> dict[str, str]:
@@ -1251,6 +1474,9 @@ def command_submit(args: argparse.Namespace, root: Path) -> None:
         raise QueueError("review submission requires a reviewer")
     if needs_review and reviewer == meta.get("assigned_agent"):
         raise QueueError("reviewer must differ from the implementing agent")
+    orca_state = _load_orca_state(task)
+    if orca_state is not None and orca_state.get("phase") != "SUCCEEDED":
+        raise QueueError("Queue submit requires a succeeded Orca dispatch")
     now = _now()
     if needs_review:
         review_generation = secrets.token_hex(16)
@@ -1261,7 +1487,23 @@ def command_submit(args: argparse.Namespace, root: Path) -> None:
             task, args.result, args.changed, args.verified,
             review_generation=review_generation, submitted_at=_stamp(now),
             handoff_sha256=_handoff_snapshot_digest(task),
+            orca_binding=(
+                {
+                    "orca_dispatch_id": orca_state["dispatch_id"],
+                    "candidate_commit": orca_state["candidate_commit"],
+                    "diff_digest": orca_state["diff_digest"],
+                }
+                if orca_state is not None else None
+            ),
         )
+        if orca_state is not None:
+            orca_state.update({
+                "phase": "REVIEWING", "waiting_for": "independent_review",
+                "next_action": "Independent review of the bound candidate",
+                "review_generation": review_generation,
+                "last_transition_at": _stamp(now), "last_error": None,
+            })
+            _write_orca_state(task, orca_state)
         meta["reviewer"] = reviewer
         meta["review_required"] = True
         meta.pop("claim_token_sha256", None)
@@ -1270,6 +1512,8 @@ def command_submit(args: argparse.Namespace, root: Path) -> None:
     else:
         completed_at = _stamp(now)
         _result(task, args.result, args.changed, args.verified, completed_at)
+        if orca_state is not None:
+            (task / ORCA_STATE_NAME).unlink()
         meta.pop("claim_token_sha256", None)
         meta.update({"owner": None, "completed_at": completed_at, "lease_until": None, "heartbeat": None})
         handoff = _read_handoff(task)
@@ -1287,10 +1531,11 @@ def command_review_pass(args: argparse.Namespace, root: Path) -> None:
         raise QueueError("reviewer must differ from the implementing agent")
     review_keys = (
         "result", "changed", "verified", "review_generation",
-        "handoff_sha256", "submitted_at",
+        "handoff_sha256", "submitted_at", *ORCA_REVIEW_KEYS,
     )
     review = _read_fields(task / "REVIEW.md", review_keys)
-    missing = [key for key in review_keys if not review.get(key)]
+    required_review_keys = review_keys[:6]
+    missing = [key for key in required_review_keys if not review.get(key)]
     if missing:
         raise QueueError(f"review receipt is incomplete: {missing}")
     if not secrets.compare_digest(
@@ -1303,6 +1548,7 @@ def command_review_pass(args: argparse.Namespace, root: Path) -> None:
         review["handoff_sha256"], _handoff_snapshot_digest(task),
     ):
         raise QueueError("review HANDOFF differs from the submitted snapshot")
+    _verify_orca_review_binding(task, review)
     decision_basis = _clean(args.decision_basis)
     if not decision_basis:
         raise QueueError("review decision basis cannot be empty")
@@ -1314,6 +1560,10 @@ def command_review_pass(args: argparse.Namespace, root: Path) -> None:
     )
     _result(task, review["result"], review["changed"], verified, completed_at)
     (task / "REVIEW.md").unlink()
+    try:
+        (task / ORCA_STATE_NAME).unlink()
+    except FileNotFoundError:
+        pass
     meta.update({"owner": None, "completed_at": completed_at, "lease_until": None, "heartbeat": None})
     handoff = _read_handoff(task)
     handoff.update({"updated_at": _stamp(now), "phase": "completed", "next": "none"})
@@ -1327,7 +1577,7 @@ def command_review_fail(args: argparse.Namespace, root: Path) -> None:
     if meta.get("reviewer") and meta.get("reviewer") != args.reviewer:
         raise QueueError(f"reviewer differs: {meta.get('reviewer')}")
     review = _read_fields(
-        task / "REVIEW.md", ("review_generation", "handoff_sha256"),
+        task / "REVIEW.md", ("review_generation", "handoff_sha256", *ORCA_REVIEW_KEYS),
     )
     missing = [key for key in ("review_generation", "handoff_sha256") if not review.get(key)]
     if missing:
@@ -1342,6 +1592,7 @@ def command_review_fail(args: argparse.Namespace, root: Path) -> None:
         review["handoff_sha256"], _handoff_snapshot_digest(task),
     ):
         raise QueueError("review HANDOFF differs from the submitted snapshot")
+    _verify_orca_review_binding(task, review)
     decision_basis = _clean(args.decision_basis)
     if not decision_basis:
         raise QueueError("review decision basis cannot be empty")
@@ -1349,6 +1600,7 @@ def command_review_fail(args: argparse.Namespace, root: Path) -> None:
         (task / "REVIEW.md").unlink()
     except FileNotFoundError:
         pass
+    _mark_orca_review_rework(task, basis=decision_basis, next_action=args.next)
     meta.update({"owner": None, "assigned_role": None, "assigned_agent": None, "completed_at": None, "lease_until": None, "heartbeat": None})
     handoff = _read_handoff(task)
     handoff.update({
@@ -1370,7 +1622,7 @@ def command_review_recover(args: argparse.Namespace, root: Path) -> None:
     if args.reviewer == meta.get("assigned_agent"):
         raise QueueError("reviewer must differ from the implementing agent")
     review = _read_fields(
-        task / "REVIEW.md", ("review_generation", "handoff_sha256"),
+        task / "REVIEW.md", ("review_generation", "handoff_sha256", *ORCA_REVIEW_KEYS),
     )
     if not review.get("review_generation"):
         raise QueueError("review receipt has no generation")
@@ -1399,6 +1651,7 @@ def command_review_recover(args: argparse.Namespace, root: Path) -> None:
         (task / "REVIEW.md").unlink()
     except FileNotFoundError:
         pass
+    _mark_orca_review_rework(task, basis=decision_basis, next_action=next_action)
     meta.update({
         "owner": None, "assigned_role": None, "assigned_agent": None,
         "completed_at": None, "lease_until": None, "heartbeat": None,
@@ -1469,6 +1722,235 @@ def command_unblock(args: argparse.Namespace, root: Path) -> None:
     handoff.update({"updated_at": _stamp(), "phase": "ready", "next": args.next})
     _atomic_text(task / "HANDOFF.md", _handoff_text(handoff))
     _move(root, "ready", task, meta)
+    print(meta["id"])
+
+
+def command_route(args: argparse.Namespace, root: Path) -> None:
+    state, task, meta = find_task(root, args.task, {"new", "waiting", "ready", "active"})
+    if state == "active":
+        _authorize_active_claim(args, root, task, meta)
+        if meta.get("assigned_role") == "lead" and args.lead_owner != meta.get("owner"):
+            raise QueueError("an Active Lead task must remain routed to its token owner")
+    lead_owner = _validated_lead_owner(args.lead_owner)
+    assert lead_owner is not None
+    now = _now()
+    meta.update({
+        "domain": args.domain, "lead_owner": lead_owner, "updated_at": _stamp(now),
+    })
+    if state == "active":
+        meta["heartbeat"] = _stamp(now)
+    _atomic_json(task / "META.json", meta)
+    handoff = _read_handoff(task)
+    handoff.update({"updated_at": _stamp(now), "next": args.next})
+    _atomic_text(task / "HANDOFF.md", _handoff_text(handoff))
+    write_board(root)
+    print(meta["id"])
+
+
+def _clear_active_assignment(meta: dict[str, object]) -> None:
+    meta.pop("claim_token_sha256", None)
+    meta.update({
+        "owner": None, "assigned_role": None, "assigned_agent": None,
+        "lease_until": None, "heartbeat": None,
+    })
+
+
+def command_release(args: argparse.Namespace, root: Path) -> None:
+    _state, task, meta = find_task(root, args.task, {"active"})
+    _authorize_active_claim(args, root, task, meta)
+    reason = _clean(args.reason)
+    next_action = _clean(args.next)
+    if not reason or not next_action:
+        raise QueueError("release reason and next action cannot be empty")
+    _clear_active_assignment(meta)
+    handoff = _read_handoff(task)
+    handoff.update({
+        "updated_at": _stamp(), "phase": "released",
+        "summary": f"Lead safely released Active work: {reason}", "next": next_action,
+    })
+    _atomic_text(task / "HANDOFF.md", _handoff_text(handoff))
+    _move(root, "ready", task, meta)
+    print(meta["id"])
+
+
+def command_wait(args: argparse.Namespace, root: Path) -> None:
+    state, task, meta = find_task(root, args.task, {"ready", "active"})
+    if state == "active":
+        _authorize_active_claim(args, root, task, meta)
+    reason = _clean(args.reason)
+    resume_condition = _clean(args.resume_condition)
+    next_check_at = _clean(args.next_check_at) or "none"
+    if not reason or not resume_condition:
+        raise QueueError("waiting reason and resume condition cannot be empty")
+    if next_check_at != "none" and _aware(next_check_at) is None:
+        raise QueueError("waiting next check timestamp is invalid")
+    now = _now()
+    _atomic_text(task / "WAITING.md", _waiting_text({
+        "reason": reason, "resume_condition": resume_condition,
+        "next_check_at": next_check_at, "waiting_since": _stamp(now),
+    }))
+    if state == "active":
+        _clear_active_assignment(meta)
+    handoff = _read_handoff(task)
+    handoff.update({
+        "updated_at": _stamp(now), "phase": "waiting", "summary": reason,
+        "next": resume_condition,
+    })
+    _atomic_text(task / "HANDOFF.md", _handoff_text(handoff))
+    _move(root, "waiting", task, meta)
+    print(meta["id"])
+
+
+def command_resume_waiting(args: argparse.Namespace, root: Path) -> None:
+    _state, task, meta = find_task(root, args.task, {"waiting"})
+    decision_basis = _clean(args.decision_basis)
+    next_action = _clean(args.next)
+    if not decision_basis or not next_action:
+        raise QueueError("waiting resume basis and next action cannot be empty")
+    try:
+        (task / "WAITING.md").unlink()
+    except FileNotFoundError:
+        pass
+    handoff = _read_handoff(task)
+    handoff.update({
+        "updated_at": _stamp(), "phase": "ready",
+        "summary": f"Waiting condition cleared: {decision_basis}", "next": next_action,
+    })
+    _atomic_text(task / "HANDOFF.md", _handoff_text(handoff))
+    _move(root, "ready", task, meta)
+    print(meta["id"])
+
+
+def command_orca_bind(args: argparse.Namespace, root: Path) -> None:
+    _state, task, meta = find_task(root, args.task, {"active"})
+    _authorize_active_claim(args, root, task, meta)
+    if args.lease_minutes <= 0:
+        raise QueueError("lease minutes must be positive")
+    if meta.get("assigned_role") != "lead":
+        raise QueueError("Orca execution binding requires a Lead-owned Queue task")
+    if _load_orca_state(task) is not None:
+        raise QueueError("Orca state is already bound")
+    now = _now()
+    next_action = _clean(args.next_action)
+    if not next_action:
+        raise QueueError("Orca next action cannot be empty")
+    state: dict[str, object] = {
+        "schema_version": ORCA_STATE_SCHEMA,
+        "queue_task_id": meta["id"],
+        "run_id": _validate_orca_identifier(args.run_id, label="run id"),
+        "task_id": _validate_orca_identifier(args.orca_task_id, label="task id"),
+        "dispatch_id": None,
+        "attempt": 0,
+        "phase": "BOUND",
+        "waiting_for": "dispatch",
+        "next_action": next_action,
+        "candidate_commit": None,
+        "diff_digest": None,
+        "review_generation": None,
+        "observed_dispatch_status": None,
+        "last_transition_at": _stamp(now),
+        "last_reconciled_at": None,
+        "last_error": None,
+    }
+    _write_orca_state(task, state)
+    meta.update({
+        "lead_owner": args.owner, "domain": args.domain or meta.get("domain") or "infra",
+        "heartbeat": _stamp(now),
+        "lease_until": _stamp(now + timedelta(minutes=args.lease_minutes)),
+        "updated_at": _stamp(now),
+    })
+    _atomic_json(task / "META.json", meta)
+    handoff = _read_handoff(task)
+    handoff.update({
+        "updated_at": _stamp(now), "phase": "orca_bound", "next": next_action,
+    })
+    _atomic_text(task / "HANDOFF.md", _handoff_text(handoff))
+    write_board(root)
+    print(meta["id"])
+
+
+def command_orca_reconcile(args: argparse.Namespace, root: Path) -> None:
+    _state, task, meta = find_task(root, args.task, {"active"})
+    _authorize_active_claim(args, root, task, meta)
+    if args.lease_minutes <= 0:
+        raise QueueError("lease minutes must be positive")
+    state = _load_orca_state(task, required=True)
+    assert state is not None
+    dispatch_id = _validate_orca_identifier(args.dispatch_id, label="dispatch id")
+    if args.attempt < 1:
+        raise QueueError("Orca attempt must be positive")
+    current_attempt = int(state["attempt"])
+    current_dispatch = state.get("dispatch_id")
+    if current_dispatch is None:
+        if current_attempt != 0 or args.attempt != 1:
+            raise QueueError("first Orca dispatch must be attempt 1")
+    elif current_dispatch == dispatch_id:
+        if args.attempt != current_attempt:
+            raise QueueError("Orca dispatch attempt differs")
+    else:
+        if state.get("phase") != "RECOVERY_REQUIRED" or args.attempt != current_attempt + 1:
+            raise QueueError("replacement Orca dispatch requires one recovery generation increment")
+    next_action = _clean(args.next_action)
+    if not next_action:
+        raise QueueError("Orca next action cannot be empty")
+    phase_for_status = {
+        "pending": ("DISPATCHED", "worker_start"),
+        "running": ("WAITING_FOR_WORKER_DONE", "worker_done"),
+        "completed": ("SUCCEEDED", "queue_submit"),
+        "failed": ("RECOVERY_REQUIRED", "lead_recovery"),
+        "cancelled": ("RECOVERY_REQUIRED", "lead_recovery"),
+        "blocked": ("RECOVERY_REQUIRED", "lead_recovery"),
+    }
+    phase, waiting_for = phase_for_status[args.observed_status]
+    error = _clean(args.error) or None
+    if phase == "RECOVERY_REQUIRED" and error is None:
+        raise QueueError("failed Orca reconciliation requires --error")
+    candidate = args.candidate_commit
+    diff_digest = args.diff_digest
+    if phase == "SUCCEEDED":
+        if candidate is None or re.fullmatch(r"[0-9a-fA-F]{7,64}", candidate) is None:
+            raise QueueError("completed Orca dispatch requires a candidate commit")
+        if diff_digest is None or re.fullmatch(r"[0-9a-f]{64}", diff_digest) is None:
+            raise QueueError("completed Orca dispatch requires a diff digest")
+    else:
+        candidate = None
+        diff_digest = None
+    desired = {
+        "dispatch_id": dispatch_id, "attempt": args.attempt, "phase": phase,
+        "waiting_for": waiting_for, "next_action": next_action,
+        "candidate_commit": candidate, "diff_digest": diff_digest,
+        "review_generation": None,
+        "observed_dispatch_status": args.observed_status, "last_error": error,
+    }
+    if all(state.get(key) == value for key, value in desired.items()):
+        print(meta["id"])
+        return
+    now = _now()
+    transitioned = (
+        state.get("phase") != phase
+        or state.get("observed_dispatch_status") != args.observed_status
+        or current_dispatch != dispatch_id
+    )
+    state.update({
+        **desired,
+        "last_transition_at": _stamp(now) if transitioned else state["last_transition_at"],
+        "last_reconciled_at": _stamp(now),
+    })
+    _write_orca_state(task, state)
+    meta.update({
+        "heartbeat": _stamp(now),
+        "lease_until": _stamp(now + timedelta(minutes=args.lease_minutes)),
+        "updated_at": _stamp(now),
+    })
+    _atomic_json(task / "META.json", meta)
+    handoff = _read_handoff(task)
+    handoff.update({
+        "updated_at": _stamp(now), "phase": f"orca_{str(phase).casefold()}",
+        "summary": f"Orca dispatch {dispatch_id} observed {args.observed_status}",
+        "next": next_action,
+    })
+    _atomic_text(task / "HANDOFF.md", _handoff_text(handoff))
+    write_board(root)
     print(meta["id"])
 
 
@@ -1696,7 +2178,7 @@ def doctor(root: Path, *, ignore_mutation_lock: bool = False) -> list[str]:
         issues.append("README.md missing")
     allowed_root = {
         "README.md", "BOARD.md", "inbox", "active", "review", "blocked",
-        "done", "templates", COMPLETED_INDEX_NAME, ".queue-mutation.lock",
+        "waiting", "done", "templates", COMPLETED_INDEX_NAME, ".queue-mutation.lock",
     }
     if root.is_dir():
         for child in root.iterdir():
@@ -1715,11 +2197,13 @@ def doctor(root: Path, *, ignore_mutation_lock: bool = False) -> list[str]:
         if not base.is_dir():
             continue
         for child in base.iterdir():
+            if child.name == ".gitkeep" and child.is_file():
+                continue
             if not child.is_dir() or child.name.startswith("."):
                 issues.append(f"invalid entry in {state}: {child}")
     tasks = _all(root)
     seen: dict[str, dict[str, Path]] = {key: {} for key in ("id", "legacy_id", "fingerprint")}
-    owner_active: dict[str, list[Path]] = {}
+    owner_active: dict[str, list[tuple[Path, str]]] = {}
     writer_tasks: list[tuple[Path, str, list[str], list[str]]] = []
     review_reservations: list[tuple[Path, list[str]]] = []
     id_states: dict[str, str] = {}
@@ -1743,9 +2227,12 @@ def doctor(root: Path, *, ignore_mutation_lock: bool = False) -> list[str]:
         allowed_files = set(REQUIRED_TASK_FILES)
         allowed_files.update({
             "review": {"REVIEW.md"},
+            "waiting": {"WAITING.md"},
             "blocked": {"BLOCKED.md"},
             "done": {"RESULT.md"},
         }.get(state, set()))
+        if state in {"ready", "waiting", "active", "review", "blocked"}:
+            allowed_files.add(ORCA_STATE_NAME)
         for entry in task.iterdir():
             if not entry.is_file() or entry.name not in allowed_files:
                 issues.append(f"unexpected task entry for {state}: {entry}")
@@ -1770,7 +2257,7 @@ def doctor(root: Path, *, ignore_mutation_lock: bool = False) -> list[str]:
         optional_strings = (
             "legacy_id", "owner", "assigned_role", "assigned_agent", "reviewer",
             "completed_at", "parent_task", "lease_until", "heartbeat", "worktree",
-            "branch",
+            "branch", "domain", "lead_owner",
         )
         for key in optional_strings:
             if meta.get(key) is not None and not isinstance(meta.get(key), str):
@@ -1778,6 +2265,8 @@ def doctor(root: Path, *, ignore_mutation_lock: bool = False) -> list[str]:
         for key in ("parallelizable", "review_required"):
             if not isinstance(meta.get(key), bool):
                 issues.append(f"invalid META {key} type: {task}")
+        if meta.get("domain") is not None and meta.get("domain") not in DOMAINS:
+            issues.append(f"invalid META domain: {task}")
         raw_dependencies = meta.get("depends_on")
         valid_dependencies = isinstance(raw_dependencies, list)
         if not valid_dependencies:
@@ -1834,6 +2323,11 @@ def doctor(root: Path, *, ignore_mutation_lock: bool = False) -> list[str]:
             issues.append(f"{task}: {error}")
             task_locks = []
         handoff = _read_handoff(task)
+        try:
+            orca_state = _load_orca_state(task)
+        except QueueError as error:
+            issues.append(f"invalid Orca state: {task}: {error}")
+            orca_state = None
         missing_handoff = [key for key in HANDOFF_KEYS if key not in handoff]
         if missing_handoff:
             issues.append(f"missing HANDOFF fields {missing_handoff}: {task}")
@@ -1844,7 +2338,9 @@ def doctor(root: Path, *, ignore_mutation_lock: bool = False) -> list[str]:
             if not owner or not meta.get("assigned_role") or not meta.get("assigned_agent"):
                 issues.append(f"active assignment missing: {task}")
             else:
-                owner_active.setdefault(owner, []).append(task)
+                owner_active.setdefault(owner, []).append((task, str(meta.get("assigned_role"))))
+            if meta.get("assigned_role") == "lead" and meta.get("lead_owner") != owner:
+                issues.append(f"Active Lead routing differs from owner: {task}")
             lease = _aware(meta.get("lease_until"))
             heartbeat = _aware(meta.get("heartbeat"))
             if lease is None or heartbeat is None:
@@ -1884,10 +2380,10 @@ def doctor(root: Path, *, ignore_mutation_lock: bool = False) -> list[str]:
                 issues.append(f"reviewer missing: {task}")
             review_keys = (
                 "result", "changed", "verified", "review_generation",
-                "handoff_sha256", "submitted_at",
+                "handoff_sha256", "submitted_at", *ORCA_REVIEW_KEYS,
             )
             review = _read_fields(task / "REVIEW.md", review_keys)
-            for key in review_keys:
+            for key in review_keys[:6]:
                 if not review.get(key):
                     issues.append(f"review field {key} missing: {task}")
             generation = review.get("review_generation", "")
@@ -1908,6 +2404,21 @@ def doctor(root: Path, *, ignore_mutation_lock: bool = False) -> list[str]:
                 issues.append(f"review submitted_at invalid: {task}")
             if (task / "RESULT.md").exists() or meta.get("completed_at") is not None:
                 issues.append(f"review task is already marked complete: {task}")
+            if orca_state is not None:
+                try:
+                    _verify_orca_review_binding(task, review)
+                except QueueError as error:
+                    issues.append(f"review Orca binding invalid: {task}: {error}")
+        elif state == "waiting":
+            waiting = _read_waiting(task)
+            for key in WAITING_KEYS:
+                if not waiting.get(key):
+                    issues.append(f"waiting field {key} missing: {task}")
+            next_check_at = waiting.get("next_check_at")
+            if next_check_at and next_check_at != "none" and _aware(next_check_at) is None:
+                issues.append(f"waiting next_check_at invalid: {task}")
+            if waiting.get("waiting_since") and _aware(waiting["waiting_since"]) is None:
+                issues.append(f"waiting since invalid: {task}")
         elif state == "blocked":
             blocked = _read_fields(
                 task / "BLOCKED.md", ("reason", "required_action", "resume_condition"),
@@ -1930,9 +2441,14 @@ def doctor(root: Path, *, ignore_mutation_lock: bool = False) -> list[str]:
                 issues.append(f"done completed_at mismatch: {task}")
             if (task / "REVIEW.md").exists():
                 issues.append(f"done review receipt remains: {task}")
-    for owner, paths in owner_active.items():
-        if len(paths) > 1:
-            issues.append(f"owner has multiple active tasks: {owner}: {paths}")
+    for owner, assignments in owner_active.items():
+        if len(assignments) <= 1:
+            continue
+        paths = [path for path, _role in assignments]
+        if any(role != "lead" for _path, role in assignments):
+            issues.append(f"non-Lead owner has multiple active tasks: {owner}: {paths}")
+        elif len(assignments) > LEAD_WIP_LIMIT:
+            issues.append(f"Lead WIP limit exceeded: {owner}: {paths}")
     if len(writer_tasks) > WRITER_LIMIT:
         issues.append(
             f"production writer limit exceeded: {[item[0] for item in writer_tasks]}"
@@ -2019,6 +2535,8 @@ def build_parser() -> argparse.ArgumentParser:
     for name in ("title", "discovered_by", "source_task", "fingerprint", "symptom", "evidence", "impact", "suspected_scope", "reproduce"):
         discover.add_argument(f"--{name.replace('_', '-')}", required=True)
     discover.add_argument("--priority-hint", choices=tuple(PRIORITY_ORDER), default="P2")
+    discover.add_argument("--domain", choices=DOMAINS, default="shared")
+    discover.add_argument("--lead-owner")
     triage = commands.add_parser("triage")
     triage.add_argument("task")
     triage.add_argument("--priority", choices=tuple(PRIORITY_ORDER), required=True)
@@ -2034,6 +2552,8 @@ def build_parser() -> argparse.ArgumentParser:
     triage.add_argument("--parallelizable", action="store_true")
     triage.add_argument("--review-required", action="store_true")
     triage.add_argument("--reviewer")
+    triage.add_argument("--domain", choices=DOMAINS)
+    triage.add_argument("--lead-owner")
     retarget = commands.add_parser("retarget")
     retarget.add_argument("task")
     retarget.add_argument("--write-scope", action="append")
@@ -2044,7 +2564,8 @@ def build_parser() -> argparse.ArgumentParser:
     claim = commands.add_parser("claim")
     claim.add_argument("task")
     claim.add_argument("--owner", required=True)
-    claim.add_argument("--role", default="worker")
+    claim.add_argument("--role", choices=("worker", "lead"), default="worker")
+    claim.add_argument("--domain", choices=DOMAINS)
     claim.add_argument("--lease-minutes", type=int, default=60)
     claim.add_argument("--next", required=True)
     recover_expired_active = commands.add_parser("recover-expired-active")
@@ -2109,6 +2630,56 @@ def build_parser() -> argparse.ArgumentParser:
     unblock = commands.add_parser("unblock")
     unblock.add_argument("task")
     unblock.add_argument("--next", required=True)
+    route = commands.add_parser("route")
+    route.add_argument("task")
+    route.add_argument("--domain", choices=DOMAINS, required=True)
+    route.add_argument("--lead-owner", required=True)
+    route.add_argument("--owner")
+    route.add_argument("--claim-token")
+    route.add_argument("--adopt-legacy-claim", action="store_true")
+    route.add_argument("--next", required=True)
+    release = commands.add_parser("release")
+    release.add_argument("task")
+    release.add_argument("--owner", required=True)
+    release.add_argument("--claim-token")
+    release.add_argument("--adopt-legacy-claim", action="store_true")
+    release.add_argument("--reason", required=True)
+    release.add_argument("--next", required=True)
+    wait = commands.add_parser("wait")
+    wait.add_argument("task")
+    wait.add_argument("--owner")
+    wait.add_argument("--claim-token")
+    wait.add_argument("--adopt-legacy-claim", action="store_true")
+    wait.add_argument("--reason", required=True)
+    wait.add_argument("--resume-condition", required=True)
+    wait.add_argument("--next-check-at", default="none")
+    resume_waiting = commands.add_parser("resume-waiting")
+    resume_waiting.add_argument("task")
+    resume_waiting.add_argument("--decision-basis", required=True)
+    resume_waiting.add_argument("--next", required=True)
+    orca_bind = commands.add_parser("orca-bind")
+    orca_bind.add_argument("task")
+    orca_bind.add_argument("--owner", required=True)
+    orca_bind.add_argument("--claim-token")
+    orca_bind.add_argument("--adopt-legacy-claim", action="store_true")
+    orca_bind.add_argument("--run-id", required=True)
+    orca_bind.add_argument("--orca-task-id", required=True)
+    orca_bind.add_argument("--domain", choices=DOMAINS)
+    orca_bind.add_argument("--next-action", required=True)
+    orca_bind.add_argument("--lease-minutes", type=int, default=60)
+    orca_reconcile = commands.add_parser("orca-reconcile")
+    orca_reconcile.add_argument("task")
+    orca_reconcile.add_argument("--owner", required=True)
+    orca_reconcile.add_argument("--claim-token")
+    orca_reconcile.add_argument("--adopt-legacy-claim", action="store_true")
+    orca_reconcile.add_argument("--dispatch-id", required=True)
+    orca_reconcile.add_argument("--attempt", type=int, required=True)
+    orca_reconcile.add_argument("--observed-status", choices=ORCA_OBSERVED_STATUSES, required=True)
+    orca_reconcile.add_argument("--candidate-commit")
+    orca_reconcile.add_argument("--diff-digest")
+    orca_reconcile.add_argument("--error")
+    orca_reconcile.add_argument("--next-action", required=True)
+    orca_reconcile.add_argument("--lease-minutes", type=int, default=60)
     compact_done = commands.add_parser("compact-done")
     compact_done.add_argument("task")
     compact_done.add_argument("--dry-run", action="store_true")
@@ -2129,7 +2700,11 @@ COMMANDS = {
     "review-pass": command_review_pass, "review-fail": command_review_fail,
     "review-recover": command_review_recover,
     "reopen": command_reopen, "block": command_block,
-    "unblock": command_unblock, "compact-done": command_compact_done,
+    "unblock": command_unblock, "route": command_route,
+    "release": command_release, "wait": command_wait,
+    "resume-waiting": command_resume_waiting,
+    "orca-bind": command_orca_bind, "orca-reconcile": command_orca_reconcile,
+    "compact-done": command_compact_done,
     "prune-done": command_prune_done,
     "doctor": command_doctor,
 }
@@ -2138,7 +2713,8 @@ MUTATING_COMMANDS = {
     "init", "discover", "triage", "retarget", "claim", "recover-expired-active",
     "checkpoint", "submit",
     "review-pass", "review-fail", "reopen", "block", "unblock",
-    "review-recover", "compact-done", "prune-done",
+    "review-recover", "route", "release", "wait", "resume-waiting",
+    "orca-bind", "orca-reconcile", "compact-done", "prune-done",
 }
 
 

@@ -1,27 +1,29 @@
 # Request Queue Board
 
-updated_at: 2026-08-28T12:39:15+09:00
-generated_from_digest: f67faa554413ead9b789da6478a617818317c7c23d083e1e59f4de712141abe6
+updated_at: 2026-08-28T17:46:41+09:00
+generated_from_digest: 71494bb1d06ead92813dcc6450b92f3bea0ea1388403b699946ea52dab0ae67e
 mode: domain-parallel
 writer_limit: 3
 
 ## Active
-- none
+- P0-RQ-20260828T115727-F3C6-add-durable-orca-lifecycle-reconciliation-to-request-queue | owner=queue_v2_lead_root | domain=infra | lead=queue_v2_lead_root | lane=shared | orca=BOUND | phase=candidate_ready | heartbeat=2026-08-28T17:46:41+09:00 | next=Commit candidate and dispatch independent Orca reviewer
 
 ## Review
-- P2-RQ-20260826T003644-E9A5-define-an-evidence-bound-local-daily-korean-market-summary-contract | reviewer=lead
+- P2-RQ-20260826T003644-E9A5-define-an-evidence-bound-local-daily-korean-market-summary-contract | domain=- | lead=- | reviewer=lead | orca=-
+
+## Waiting
+- none
 
 ## Ready
-1. P1-RQ-20260826T014826-B608-add-a-korean-government-bond-yield-curve-to-the-dashboard | depends_on=RQ-20260826T004102-BB30,RQ-20260826T020213-744E,RQ-20260825T232533-76A1,RQ-20260826T011334-F6D5
-2. P1-RQ-20260826T204115-F8F7-restore-compact-one-row-dashboard-market-card-height | depends_on=RQ-20260826T055328-C938
-3. P2-RQ-20260826T004917-0AF5-define-a-pit-vintage-aware-macro-regime-and-market-transmission-contract | depends_on=RQ-20260826T004102-BB30
-4. P2-RQ-20260826T005041-B6C3-define-a-secure-always-on-read-only-application-service-and-remote-acces | depends_on=RQ-20260826T004445-B2ED,RQ-20260826T004630-7CC5,RQ-20260826T003644-E9A5,RQ-20260826T012155-BB66
-5. P2-RQ-20260826T012155-BB66-define-a-holdings-driven-multi-currency-account-nav-and-valuation-freshn | depends_on=RQ-20260826T004445-B2ED
+1. P1-RQ-20260826T014826-B608-add-a-korean-government-bond-yield-curve-to-the-dashboard | domain=- | lead=- | depends_on=RQ-20260826T004102-BB30,RQ-20260826T020213-744E,RQ-20260825T232533-76A1,RQ-20260826T011334-F6D5
+2. P1-RQ-20260826T204115-F8F7-restore-compact-one-row-dashboard-market-card-height | domain=- | lead=- | depends_on=RQ-20260826T055328-C938
+3. P2-RQ-20260826T004917-0AF5-define-a-pit-vintage-aware-macro-regime-and-market-transmission-contract | domain=- | lead=- | depends_on=RQ-20260826T004102-BB30
+4. P2-RQ-20260826T005041-B6C3-define-a-secure-always-on-read-only-application-service-and-remote-acces | domain=- | lead=- | depends_on=RQ-20260826T004445-B2ED,RQ-20260826T004630-7CC5,RQ-20260826T003644-E9A5,RQ-20260826T012155-BB66
+5. P2-RQ-20260826T012155-BB66-define-a-holdings-driven-multi-currency-account-nav-and-valuation-freshn | domain=- | lead=- | depends_on=RQ-20260826T004445-B2ED
 
 ## New Discoveries
 - count: 0
 
 ## Blocked
-- P0-RQ-20260828T115727-F3C6-add-durable-orca-lifecycle-reconciliation-to-request-queue | next=Do not dispatch workers or implement the provisional lifecycle/naming design.
 - P1-RQ-20260826T020213-744E-establish-korean-government-bond-yield-curve-data-contract-and-local-pro | next=Execute batch 2 with the active runbook in the next 17:00-18:00 KST provider-publication window, then validate field/canonical-row comparison and API0 replay.
 - P1-RQ-20260826T052521-3082-define-a-secure-scheduled-daily-toss-read-only-account-refresh | next=Observe the installed task naturally after 07:00 KST, then validate the exact identifier-free occurrence and last receipt, provider-call budget, snapshot atomicity/privacy, and task result without a manual provider retry.

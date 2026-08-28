@@ -34,6 +34,7 @@ artifacts/request_queue/
   inbox/
     new/
     ready/
+  waiting/
   active/
   review/
   blocked/
@@ -45,17 +46,24 @@ Deleted legacy requests are not restored. Done contains only this new batch.
 
 ## Roles and writer mode
 
-- Sol coordinates triage/recovery, prevents scope conflicts, and performs final
-  acceptance when a task requires review. A token-owning worker may claim,
-  checkpoint, submit, or block under the manager rules without fresh Lead
-  approval.
-- A worker implements or reproduces only its assigned scope.
+- MAIN COORDINATOR accepts unstructured user requests, registers discoveries,
+  assigns `domain` and `lead_owner`, manages global priority/dependencies and
+  cross-domain conflicts, and escalates only true user/external gates. It does
+  not normally dispatch workers or review domain-local changes.
+- A Domain Lead claims a Queue work package with `--role lead`, retains its raw
+  claim capability, performs detailed triage, binds an Orca Run/Task, manages
+  Dispatch attempts, workers and an independent reviewer, and submits the
+  accepted candidate. The Queue is the Lead's external memory; the session is
+  replaceable.
+- A worker implements or reproduces only the Dispatch scope. An Orca worker
+  never receives a Queue claim token and never mutates the central Queue.
 - A verifier reviews independently and is read-only unless explicitly assigned
-  as the sole writer.
-- Each live agent may own at most one Active task. Concurrent sessions must use
-  distinct stable owner labels (for example `codex_data_a`, `codex_data_b`), not
-  a shared generic `codex_root`; the raw claim token remains bound to the exact
-  session that received it.
+  as the sole writer. Domain-local review stays with the Domain Lead; MAIN sees
+  only cross-domain interfaces, architecture, schema/contracts, breaking or
+  destructive changes.
+- A non-Lead production worker may own at most one Active task. A Lead may
+  supervise up to `lead_wip_limit: 3` Active work packages, still subject to the
+  global writer limit, exact scope reservations and resource locks.
 - An owner label is not a claimant credential. Every claim returns a one-time
   `claim_token`; retain it in that client only and pass it to every Active-state
   mutation. `META.json` stores only its SHA-256 digest.
@@ -72,10 +80,11 @@ Queue metadata mutations remain globally serialized by `.queue-mutation.lock`;
 contending commands wait briefly and then fail closed rather than mutating in
 parallel.
 Do not let two agents edit overlapping files or hold the same resource lock.
-Production writers use the main shared workspace with exact non-overlapping
-write scopes. Linked worktrees may inspect the queue read-only through the
-canonical manager, but must not run a worktree-local queue manager or mutate the
-central queue.
+Production writers may use an Orca-managed current or child worktree with exact
+non-overlapping write scopes. Only the token-owning Lead uses the canonical
+manager in the main worktree. Child worktrees may inspect Queue receipts
+read-only, but must not run a worktree-local queue manager or mutate the central
+Queue. The Lead reconciles the candidate commit and diff digest before Submit.
 
 A task in `review` reserves its exact normalized `write_scope`. A later claim
 whose production scope overlaps that reservation fails before either task is
@@ -100,6 +109,17 @@ Each task directory contains:
   stale state; never append a timeline or shell transcript.
 - `RESULT.md`: four-line Done receipt when complete.
 - `BLOCKED.md`: three-line external gate only while Blocked.
+- `WAITING.md`: bounded reason, resume condition, next check and waiting start;
+  present only while Waiting.
+- `ORCA_STATE.json`: optional bounded current execution projection. It contains
+  only Queue/Run/Task/Dispatch identity, attempt, phase, `waiting_for`,
+  `next_action`, candidate commit/diff binding and reconciliation timestamps.
+  It never contains transcripts, prompts, terminal handles or heartbeat logs.
+
+Queue v2 keeps the existing stable directory name
+`P0|P1|P2-RQ-...-slug`. Domain routing lives in `META.json` as `domain` and
+`lead_owner`; renaming live directories merely to expose a Lead prefix is not
+part of the protocol.
 
 `write_scope` uses exact repository-relative POSIX paths: no absolute paths,
 parent traversal, or globs.
@@ -116,8 +136,10 @@ and a contained path as overlapping.
 ## States and transitions
 
 - `inbox/new`: evidenced, untriaged discoveries. Not executable work.
+- `waiting`: dependency, capacity, cooldown, scheduled observation or other
+  non-human condition is not ready yet. Waiting holds no writer lane.
 - `inbox/ready`: deduplicated, reproduced, scoped, prioritized work. Workers
-  claim only here.
+  or Leads claim only here.
 - `active`: currently owned work with lease, heartbeat, and exact next action.
 - `review`: implementation and automated checks are complete. `agent_review`
   is for independent technical review; `user_review` is only for a genuinely
@@ -125,12 +147,15 @@ and a contained path as overlapping.
   permission to continue ordinary work.
 - `blocked`: no safe in-scope action remains and completion requires an
   unavailable required secret/entitlement, a rejected
-  administrator/protected-resource escalation, an exact future provider
-  publication/session/cooldown time, or a user-only action outside standing
-  authority.
+  administrator/protected-resource escalation, or a user-only action outside
+  standing authority.
 - `done`: accepted result for this batch; keep the receipt short.
 
 Normal low-risk flow: `new -> ready -> active -> done`.
+
+Scheduling flow: `new|ready -> waiting -> ready`. A Lead may also safely return
+owned work with `active -> ready` via `release`; this is not a failure or a
+human gate.
 
 Reviewed flow: `ready -> active -> review -> done`; failed review returns to
 Ready, never Blocked.
@@ -144,12 +169,10 @@ focused automated validation fully covers the Done When.
 External-gate flow: `active -> blocked -> ready` after the resume condition.
 
 A task whose next required observation is tied to a future publication date,
-market session, cooldown, or other wall-clock event must not occupy an Active
+market session, cooldown, capacity or dependency must not occupy an Active
 writer lane while merely waiting. Checkpoint completed evidence, move it to
-Blocked with the exact earliest resume condition, release the lane, and claim a
-different dependency-ready task. This is queue scheduling, not a project-wide
-work prohibition; other tasks continue normally and the time-gated task returns
-to Ready when its condition is met.
+Waiting with the exact resume condition and optional next-check timestamp,
+release the lane, and claim a different dependency-ready task.
 
 Code bugs, implementation errors, fixture problems, failing tests, semantic or
 PIT uncertainty, provider failures, retry design, stale documentation, disabled
@@ -168,8 +191,14 @@ All state changes use:
 python scripts/request_queue.py status --compact
 python scripts/request_queue.py discover ...
 python scripts/request_queue.py triage <TASK_ID> ... --writer-lane gui --resource-lock qt-process
-python scripts/request_queue.py claim <TASK_ID> --owner <agent> --next <action>
+python scripts/request_queue.py route <TASK_ID> --domain data --lead-owner data_lead --next <action>
+python scripts/request_queue.py wait <TASK_ID> --reason <reason> --resume-condition <condition>
+python scripts/request_queue.py resume-waiting <TASK_ID> --decision-basis <basis> --next <action>
+python scripts/request_queue.py claim <TASK_ID> --owner <lead> --role lead --domain data --next <action>
 python scripts/request_queue.py checkpoint <TASK_ID> --owner <agent> --claim-token <token> ...
+python scripts/request_queue.py release <TASK_ID> --owner <lead> --claim-token <token> --reason <reason> --next <action>
+python scripts/request_queue.py orca-bind <TASK_ID> --owner <lead> --claim-token <token> --run-id <run> --orca-task-id <task> --next-action <action>
+python scripts/request_queue.py orca-reconcile <TASK_ID> --owner <lead> --claim-token <token> --dispatch-id <dispatch> --attempt 1 --observed-status running --next-action <action>
 python scripts/request_queue.py submit <TASK_ID> --owner <agent> --claim-token <token> ...
 python scripts/request_queue.py review-pass <TASK_ID> --reviewer <agent> --review-generation <token> --decision-basis <basis>
 python scripts/request_queue.py review-fail <TASK_ID> --reviewer <agent> --review-generation <token> --decision-basis <basis> --next <action>
@@ -238,6 +267,38 @@ scope/resource-lock conflicts,
 dependencies/cycles, Review/Blocked/Done fields, and BOARD digest. Only
 `doctor --fix-board` may safely regenerate the derived board; it does not move or
 rewrite tasks.
+
+## Orca execution and Watchdog reconciliation
+
+Queue and Orca do not duplicate authority:
+
+- Queue owns request identity, domain/Lead routing, priority, dependencies,
+  claim capability, write reservations, review policy and business lifecycle.
+- Orca owns Run/Task/Dispatch execution, terminal/process state and individual
+  attempts.
+- `ORCA_STATE.json` is only the bounded join between them. `orca-bind` records
+  Run and Task identity. `orca-reconcile` records one observed Dispatch status
+  and maps it deterministically to `DISPATCHED`,
+  `WAITING_FOR_WORKER_DONE`, `SUCCEEDED`, or `RECOVERY_REQUIRED`.
+
+The same reconciliation observation is byte-idempotent. A replacement Dispatch
+is accepted only from `RECOVERY_REQUIRED` with exactly one attempt increment;
+stale or identity-changing observations fail before mutation. `completed`
+requires both `candidate_commit` and a SHA-256 `diff_digest`.
+
+A Python Watchdog or scheduler may watch a durable Orca-event outbox and invoke
+the canonical `orca-reconcile` command as an edge trigger. It may retry the same
+event freely, but it must never edit Queue files, infer completion from a
+terminal disappearing, move state directories, or become a second source of
+truth. On restart, the Lead reads Orca Dispatch state and replays reconciliation;
+Queue state remains recoverable without Watchdog memory.
+
+For an Orca-backed reviewed Submit, `REVIEW.md` binds
+`dispatch_id + candidate_commit + diff_digest + review_generation`. Review pass
+or fail rejects any mismatch. A failed review returns the Queue task to Ready
+and marks the Orca projection `RECOVERY_REQUIRED`; accepted Done receipts remove
+the live projection because Git and the short result receipt retain completed
+history.
 
 `compact-done` is an explicit, one-task operation. It first requires a clean
 Doctor result, an unreferenced valid Done receipt, and proof that every file in
