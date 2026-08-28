@@ -1,3 +1,3 @@
-reason: Fresh Orca Worker dispatch ctx_3360ef20de13 failed at dispatch_input with agent_prompt_stalled before implementation began; cleanup also returned release_unknown/tab_not_found.
-required_action: Inspect Orca dispatch ctx_3360ef20de13 and the reused terminal mapping; do not extend this failed Run with another retry or recovery chain.
-resume_condition: Start from a new Run only after Orca can create and prompt a fresh task-scoped Worker terminal without dispatch_input failure.
+reason: User requested an immediate pause while redesigning the Orca and Request Queue structure in ChatGPT.
+required_action: Do not dispatch workers or implement the provisional lifecycle/naming design.
+resume_condition: Resume only after the user provides the revised structure and explicitly asks to continue.

@@ -1,7 +1,7 @@
 # Request Queue Board
 
-updated_at: 2026-08-28T12:14:03+09:00
-generated_from_digest: e1f14087a551282004720032bf6a2ca109a3133db0e57765c27562827845041c
+updated_at: 2026-08-28T12:39:15+09:00
+generated_from_digest: f67faa554413ead9b789da6478a617818317c7c23d083e1e59f4de712141abe6
 mode: domain-parallel
 writer_limit: 3
 
@@ -22,6 +22,6 @@ writer_limit: 3
 - count: 0
 
 ## Blocked
-- P0-RQ-20260828T115727-F3C6-add-durable-orca-lifecycle-reconciliation-to-request-queue | next=Inspect Orca dispatch ctx_3360ef20de13 and the reused terminal mapping; do not extend this failed Run with another retry or recovery chain.
+- P0-RQ-20260828T115727-F3C6-add-durable-orca-lifecycle-reconciliation-to-request-queue | next=Do not dispatch workers or implement the provisional lifecycle/naming design.
 - P1-RQ-20260826T020213-744E-establish-korean-government-bond-yield-curve-data-contract-and-local-pro | next=Execute batch 2 with the active runbook in the next 17:00-18:00 KST provider-publication window, then validate field/canonical-row comparison and API0 replay.
 - P1-RQ-20260826T052521-3082-define-a-secure-scheduled-daily-toss-read-only-account-refresh | next=Observe the installed task naturally after 07:00 KST, then validate the exact identifier-free occurrence and last receipt, provider-call budget, snapshot atomicity/privacy, and task result without a manual provider retry.
