@@ -33,3 +33,4 @@ htmlcov/
 /debug.log
 /scripts/manual/build/promote_kr_index_daily_landing.py
 /artifacts/test_tmp/
+/artifacts/daily_health/universe_data_v2_20260819.json

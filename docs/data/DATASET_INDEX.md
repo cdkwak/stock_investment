@@ -56,8 +56,10 @@ view. Its retained reconciliation inputs are
 [`full_dataset_universe_20260818.csv`](../../artifacts/data_inventory/full_dataset_universe_20260818.csv)
 and
 [`full_dataset_universe_multiaxis_20260818.csv`](../../artifacts/data_inventory/full_dataset_universe_multiaxis_20260818.csv).
-Current runtime truth is projected by the retained Health V2 artifact selected
-by Data Status; physical Dashboard routing remains owned by
+The Data-Status-selected Health V2 path projects current runtime truth. It is a
+local mutable/regeneratable projection retained locally and intentionally
+Git-ignored; its bytes are not canonical Git evidence. Physical Dashboard
+routing remains owned by
 [`DASHBOARD_DATA_MAP.md`](../gui/DASHBOARD_DATA_MAP.md). Historical 111-row GUI
 audits and compact execution CSV views are not part of the canonical baseline
 and must not be cited as active files. Navigation and audit views never
