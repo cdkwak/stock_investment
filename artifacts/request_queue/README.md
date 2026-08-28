@@ -65,10 +65,11 @@ Deleted legacy requests are not restored. Done contains only this new batch.
 - A non-Lead production worker may own at most one Active task. A Lead may
   supervise up to `lead_wip_limit: 3` Active work packages, still subject to the
   global writer limit, exact scope reservations and resource locks.
-- Exactly one live Lead controller uses each stable `lead_owner` label. A
-  routed Lead may resume its own Active packages without a session-local token;
-  every mutation is still serialized by the Queue manager and must match the
-  retained owner and route. Non-Lead direct claims retain the one-time
+- A routed Lead may resume its own Active packages without a session-local
+  token: it reads the current `generation` from `status --lead-owner` and sends
+  that value as `--expected-generation`. The Queue manager serializes mutations
+  and accepts only the current generation, so a stale duplicate Lead cannot
+  overwrite newer Queue state. Non-Lead direct claims retain the one-time
   `claim_token` safeguard.
 - `writer_limit: 3`: up to three non-shared production writers may be Active
   when their exact write scopes and resource locks are pairwise disjoint,
@@ -199,10 +200,10 @@ python scripts/request_queue.py route <TASK_ID> --domain data --lead-owner data_
 python scripts/request_queue.py wait <TASK_ID> --reason <reason> --resume-condition <condition>
 python scripts/request_queue.py resume-waiting <TASK_ID> --decision-basis <basis> --next <action>
 python scripts/request_queue.py claim <TASK_ID> --owner <lead> --role lead --domain data --next <action>
-python scripts/request_queue.py checkpoint <TASK_ID> --owner <lead> ...
-python scripts/request_queue.py release <TASK_ID> --owner <lead> --reason <reason> --next <action>
-python scripts/request_queue.py orca-bind <TASK_ID> --owner <lead> --run-id <run> --orca-task-id <task> --next-action <action>
-python scripts/request_queue.py submit <TASK_ID> --owner <lead> ...
+python scripts/request_queue.py checkpoint <TASK_ID> --owner <lead> --expected-generation <generation> ...
+python scripts/request_queue.py release <TASK_ID> --owner <lead> --expected-generation <generation> --reason <reason> --next <action>
+python scripts/request_queue.py orca-bind <TASK_ID> --owner <lead> --expected-generation <generation> --run-id <run> --orca-task-id <task> --next-action <action>
+python scripts/request_queue.py submit <TASK_ID> --owner <lead> --expected-generation <generation> ...
 python scripts/request_queue.py review-pass <TASK_ID> --reviewer <agent> --review-generation <token> --decision-basis <basis>
 python scripts/request_queue.py review-fail <TASK_ID> --reviewer <agent> --review-generation <token> --decision-basis <basis> --next <action>
 python scripts/request_queue.py reopen <TASK_ID> --reason <evidence> --next <action>
@@ -217,8 +218,9 @@ python scripts/request_queue.py doctor
 
 Claim uses a same-volume atomic move and one claimant wins. A routed package can
 be claimed only by its exact Lead using the retained domain. Lead mutations
-authorize against that stable owner/route so a replacement Lead session can
-resume immediately from Queue state. Non-Lead claims still return an
+authorize against that stable owner/route plus the current Queue generation,
+so a replacement Lead session can resume immediately while stale sessions fail
+closed. Non-Lead claims still return an
 unpredictable raw `claim_token`; only its SHA-256 digest is stored. Active
 leases default to 60 minutes and checkpoint renews the heartbeat. Expiry is
 reported by Doctor but never causes automatic takeover by a different owner.

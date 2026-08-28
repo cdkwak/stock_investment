@@ -292,11 +292,18 @@ def test_routed_lead_reads_own_worklist_and_resumes_without_session_token(
     assert task_id in worklist
     assert "domain=data" in worklist
     assert "next=dispatch bounded workers" in worklist
+    generation = worklist.split("generation=", 1)[1].split()[0]
 
     assert _RAW_QUEUE_MAIN([
         "--root", str(root), "checkpoint", task_id, "--owner", "data_lead",
+        "--expected-generation", generation,
         "--phase", "implementing", "--next", "collect worker results",
     ]) == 0
+    assert _RAW_QUEUE_MAIN([
+        "--root", str(root), "checkpoint", task_id, "--owner", "data_lead",
+        "--expected-generation", generation,
+        "--phase", "stale", "--next", "must not overwrite the new generation",
+    ]) == 2
     active = next((root / "active").iterdir())
     meta_path = active / "META.json"
     meta = json.loads(meta_path.read_text(encoding="utf-8"))

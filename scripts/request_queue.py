@@ -94,7 +94,13 @@ def _authorize_active_claim(
     if meta.get("assigned_role") == "lead":
         if meta.get("lead_owner") != args.owner:
             raise QueueError("Active Lead routing differs from owner")
-        return
+        generation = getattr(args, "expected_generation", None)
+        if generation is not None:
+            if not isinstance(generation, str) or not secrets.compare_digest(
+                generation, _queue_generation(task)
+            ):
+                raise QueueError("Active Lead Queue generation differs")
+            return
     token = getattr(args, "claim_token", None)
     expected = meta.get("claim_token_sha256")
     if expected is None:
@@ -363,6 +369,16 @@ def _queue_text_bytes(path: Path) -> bytes:
     """Return receipt bytes normalized across Git LF/CRLF checkouts."""
 
     return path.read_bytes().replace(b"\r\n", b"\n")
+
+
+def _queue_generation(task: Path) -> str:
+    digest = hashlib.sha256()
+    for name in ("META.json", "HANDOFF.md", ORCA_STATE_NAME):
+        path = task / name
+        if path.is_file():
+            digest.update(name.encode("utf-8") + b"\0")
+            digest.update(_queue_text_bytes(path))
+    return digest.hexdigest()
 
 
 def _task_receipt_digest(task: Path) -> str:
@@ -863,6 +879,7 @@ def command_status(args: argparse.Namespace, root: Path) -> None:
             print(
                 f"state={state} task={path.name} priority={meta.get('priority')} "
                 f"domain={meta.get('domain') or '-'} depends_on={depends_on} "
+                f"generation={_queue_generation(path)} "
                 f"phase={handoff.get('phase') or '-'} next={handoff.get('next') or '-'}"
             )
         return
@@ -2647,6 +2664,7 @@ def build_parser() -> argparse.ArgumentParser:
     checkpoint.add_argument("task")
     checkpoint.add_argument("--owner", required=True)
     checkpoint.add_argument("--claim-token")
+    checkpoint.add_argument("--expected-generation")
     checkpoint.add_argument("--adopt-legacy-claim", action="store_true")
     checkpoint.add_argument("--lease-minutes", type=int, default=60)
     checkpoint.add_argument("--require-review", action="store_true")
@@ -2658,6 +2676,7 @@ def build_parser() -> argparse.ArgumentParser:
     submit.add_argument("task")
     submit.add_argument("--owner", required=True)
     submit.add_argument("--claim-token")
+    submit.add_argument("--expected-generation")
     submit.add_argument("--adopt-legacy-claim", action="store_true")
     submit.add_argument("--result", required=True)
     submit.add_argument("--changed", required=True)
@@ -2689,6 +2708,7 @@ def build_parser() -> argparse.ArgumentParser:
     block.add_argument("task")
     block.add_argument("--owner", required=True)
     block.add_argument("--claim-token")
+    block.add_argument("--expected-generation")
     block.add_argument("--adopt-legacy-claim", action="store_true")
     block.add_argument("--reason", required=True)
     block.add_argument("--required-action", required=True)
@@ -2702,12 +2722,14 @@ def build_parser() -> argparse.ArgumentParser:
     route.add_argument("--lead-owner", required=True)
     route.add_argument("--owner")
     route.add_argument("--claim-token")
+    route.add_argument("--expected-generation")
     route.add_argument("--adopt-legacy-claim", action="store_true")
     route.add_argument("--next", required=True)
     release = commands.add_parser("release")
     release.add_argument("task")
     release.add_argument("--owner", required=True)
     release.add_argument("--claim-token")
+    release.add_argument("--expected-generation")
     release.add_argument("--adopt-legacy-claim", action="store_true")
     release.add_argument("--reason", required=True)
     release.add_argument("--next", required=True)
@@ -2715,6 +2737,7 @@ def build_parser() -> argparse.ArgumentParser:
     wait.add_argument("task")
     wait.add_argument("--owner")
     wait.add_argument("--claim-token")
+    wait.add_argument("--expected-generation")
     wait.add_argument("--adopt-legacy-claim", action="store_true")
     wait.add_argument("--reason", required=True)
     wait.add_argument("--resume-condition", required=True)
@@ -2727,6 +2750,7 @@ def build_parser() -> argparse.ArgumentParser:
     orca_bind.add_argument("task")
     orca_bind.add_argument("--owner", required=True)
     orca_bind.add_argument("--claim-token")
+    orca_bind.add_argument("--expected-generation")
     orca_bind.add_argument("--adopt-legacy-claim", action="store_true")
     orca_bind.add_argument("--run-id", required=True)
     orca_bind.add_argument("--orca-task-id", required=True)
@@ -2737,6 +2761,7 @@ def build_parser() -> argparse.ArgumentParser:
     orca_reconcile.add_argument("task")
     orca_reconcile.add_argument("--owner", required=True)
     orca_reconcile.add_argument("--claim-token")
+    orca_reconcile.add_argument("--expected-generation")
     orca_reconcile.add_argument("--adopt-legacy-claim", action="store_true")
     orca_reconcile.add_argument("--dispatch-id", required=True)
     orca_reconcile.add_argument("--attempt", type=int, required=True)
