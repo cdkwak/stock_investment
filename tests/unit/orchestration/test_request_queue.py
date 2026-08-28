@@ -323,6 +323,23 @@ def test_orca_reconciliation_binds_retry_candidate_and_review_generation(tmp_pat
             "orca": active / queue.ORCA_STATE_NAME, "board": root / "BOARD.md",
         }.items()
     }
+    live_receipt = _task_bytes(active)
+    live_board = (root / "BOARD.md").read_bytes()
+    assert queue.main([
+        "--root", str(root), "release", task_id, "--owner", "data_lead",
+        "--reason", "unsafe while live", "--next", "must not move",
+    ]) == 2
+    assert queue.main([
+        "--root", str(root), "wait", task_id, "--owner", "data_lead",
+        "--reason", "unsafe while live", "--resume-condition", "must not move",
+    ]) == 2
+    assert queue.main([
+        "--root", str(root), "block", task_id, "--owner", "data_lead",
+        "--reason", "unsafe while live", "--required-action", "must not move",
+        "--resume-condition", "must not move",
+    ]) == 2
+    assert _task_bytes(active) == live_receipt
+    assert (root / "BOARD.md").read_bytes() == live_board
     assert queue.main([
         "--root", str(root), "orca-reconcile", task_id, "--owner", "data_lead",
         "--dispatch-id", "ctx_attempt_1", "--attempt", "1",

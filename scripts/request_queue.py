@@ -60,6 +60,7 @@ ORCA_PHASES = (
     "BOUND", "DISPATCHED", "WAITING_FOR_WORKER_DONE", "RECOVERY_REQUIRED",
     "SUCCEEDED", "REVIEWING",
 )
+ORCA_LIVE_PHASES = {"DISPATCHED", "WAITING_FOR_WORKER_DONE"}
 ORCA_OBSERVED_STATUSES = ("pending", "running", "completed", "failed", "cancelled", "blocked")
 ORCA_REVIEW_KEYS = ("orca_dispatch_id", "candidate_commit", "diff_digest")
 COMPLETED_INDEX_NAME = "COMPLETED_INDEX.json"
@@ -505,6 +506,15 @@ def _load_orca_state(task: Path, *, required: bool = False) -> dict[str, object]
 def _write_orca_state(task: Path, value: dict[str, object]) -> None:
     _atomic_json(task / ORCA_STATE_NAME, value)
     _load_orca_state(task, required=True)
+
+
+def _require_orca_dispatch_settled(task: Path, *, action: str) -> None:
+    state = _load_orca_state(task)
+    if state is not None and state.get("phase") in ORCA_LIVE_PHASES:
+        raise QueueError(
+            f"cannot {action} while Orca Dispatch {state.get('dispatch_id')} is live; "
+            "fence and reconcile it first"
+        )
 
 
 def _verify_orca_review_binding(task: Path, review: dict[str, str]) -> None:
@@ -1236,6 +1246,7 @@ def _validate_expired_active_receipt(task: Path, meta: dict[str, object]) -> Non
         raise QueueError("expired active recovery task files are invalid")
     if ORCA_STATE_NAME in actual_files:
         _load_orca_state(task, required=True)
+        _require_orca_dispatch_settled(task, action="recover an expired Active claim")
 
     match = TASK_NAME.fullmatch(task.name)
     if match is None:
@@ -1698,6 +1709,7 @@ def command_reopen(args: argparse.Namespace, root: Path) -> None:
 def command_block(args: argparse.Namespace, root: Path) -> None:
     _state, task, meta = find_task(root, args.task, {"active"})
     _authorize_active_claim(args, root, task, meta)
+    _require_orca_dispatch_settled(task, action="move work to Blocked")
     _atomic_text(task / "BLOCKED.md", (
         f"reason: {_clean(args.reason)}\nrequired_action: {_clean(args.required_action)}\n"
         f"resume_condition: {_clean(args.resume_condition)}\n"
@@ -1758,6 +1770,7 @@ def _clear_active_assignment(meta: dict[str, object]) -> None:
 def command_release(args: argparse.Namespace, root: Path) -> None:
     _state, task, meta = find_task(root, args.task, {"active"})
     _authorize_active_claim(args, root, task, meta)
+    _require_orca_dispatch_settled(task, action="release Active work")
     reason = _clean(args.reason)
     next_action = _clean(args.next)
     if not reason or not next_action:
@@ -1777,6 +1790,7 @@ def command_wait(args: argparse.Namespace, root: Path) -> None:
     state, task, meta = find_task(root, args.task, {"ready", "active"})
     if state == "active":
         _authorize_active_claim(args, root, task, meta)
+    _require_orca_dispatch_settled(task, action="move work to Waiting")
     reason = _clean(args.reason)
     resume_condition = _clean(args.resume_condition)
     next_check_at = _clean(args.next_check_at) or "none"
@@ -2328,6 +2342,11 @@ def doctor(root: Path, *, ignore_mutation_lock: bool = False) -> list[str]:
         except QueueError as error:
             issues.append(f"invalid Orca state: {task}: {error}")
             orca_state = None
+        if (
+            orca_state is not None and state != "active"
+            and orca_state.get("phase") in ORCA_LIVE_PHASES
+        ):
+            issues.append(f"non-Active task carries a live Orca Dispatch: {task}")
         missing_handoff = [key for key in HANDOFF_KEYS if key not in handoff]
         if missing_handoff:
             issues.append(f"missing HANDOFF fields {missing_handoff}: {task}")

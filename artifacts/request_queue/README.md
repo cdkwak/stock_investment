@@ -293,6 +293,11 @@ terminal disappearing, move state directories, or become a second source of
 truth. On restart, the Lead reads Orca Dispatch state and replays reconciliation;
 Queue state remains recoverable without Watchdog memory.
 
+`release`, `wait`, `block`, and expired-claim recovery fail closed while the
+projection is `DISPATCHED` or `WAITING_FOR_WORKER_DONE`. The Lead must first
+fence the exact Dispatch and reconcile its terminal status, preventing a
+possibly-live worker from being duplicated after the Queue lane is released.
+
 For an Orca-backed reviewed Submit, `REVIEW.md` binds
 `dispatch_id + candidate_commit + diff_digest + review_generation`. Review pass
 or fail rejects any mismatch. A failed review returns the Queue task to Ready

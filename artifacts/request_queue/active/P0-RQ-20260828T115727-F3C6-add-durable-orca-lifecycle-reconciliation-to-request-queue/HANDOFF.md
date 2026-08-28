@@ -1,9 +1,9 @@
-updated_at: 2026-08-28T17:46:41+09:00
-phase: candidate_ready
-summary: Queue v2 multi-Lead control plane implemented with Waiting, safe release, domain routing, bounded Orca reconciliation, and review binding
-completed: Implementation and focused regression suite
-next: Commit candidate and dispatch independent Orca reviewer
+updated_at: 2026-08-28T18:00:58+09:00
+phase: review_recovery
+summary: Queue v2 candidate is implemented and tested; two independent Orca reviewer attempts failed in the execution layer
+completed: Queue v2 implementation, live Dispatch reconciliation attempts 1 and 2, resource cleanup, and live-Dispatch release fencing
+next: Recover independent review after Orca agent input and nested shell execution are healthy
 files_touched: artifacts/request_queue/README.md; scripts/request_queue.py; tests/unit/orchestration/test_request_queue.py
-tests: 76 request queue tests passed; py_compile passed; Queue Doctor OK; git diff --check passed
-risks: Live Orca desktop graph was stuck; headless runtime is healthy and used for canary review
-new_discoveries: Desktop Orca runtime can leave a stale crashpad helper and require elevated headless serve
+tests: 76 request queue tests passed after live-Dispatch fence; Queue Doctor pending final commit; git diff check pending final commit
+risks: Independent review not completed: Codex nested shell stalled; Claude dispatch_input returned agent_prompt_stalled
+new_discoveries: Orca headless orchestration is healthy but agent execution can fail separately; reviewer worktree was removed
