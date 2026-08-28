@@ -11,6 +11,12 @@ owned Active task before considering Ready work. Otherwise claim only from
 `inbox/ready/` with `scripts/request_queue.py`. Read only that task's `TASK.md`
 and `HANDOFF.md`, then follow the normal repository authority route.
 
+Use [WORKFLOW.md](WORKFLOW.md) for the concise current operating-model snapshot
+and [WORKFLOW_CHANGELOG.md](WORKFLOW_CHANGELOG.md) for the append-only record of
+material workflow changes. Use [PIPELINE.md](PIPELINE.md) for durable Orca role,
+session-reuse, and restart-reconciliation guidance. This README remains the
+canonical protocol and `BOARD.md` remains the generated current-state view.
+
 Do not normally scan Done, Review, Blocked, old conversations, scheduler
 history, or unrelated repository areas. Queue records never override the
 current user request, Status, contracts, runbooks, permissions, or frozen-domain
@@ -31,6 +37,9 @@ instead of blocking the work that remains in scope.
 artifacts/request_queue/
   README.md
   BOARD.md
+  WORKFLOW.md
+  WORKFLOW_CHANGELOG.md
+  PIPELINE.md
   inbox/
     new/
     ready/
@@ -46,10 +55,11 @@ Deleted legacy requests are not restored. Done contains only this new batch.
 
 ## Roles and writer mode
 
-- MAIN COORDINATOR accepts unstructured user requests, registers discoveries,
-  assigns `domain` and `lead_owner`, manages global priority/dependencies and
-  cross-domain conflicts, and escalates only true user/external gates. It does
-  not normally dispatch workers or review domain-local changes.
+- MAIN COORDINATOR accepts unstructured user requests and managed discovery
+  proposals, assigns `domain` and `lead_owner`, manages global
+  priority/dependencies and cross-domain conflicts, and escalates only true
+  user/external gates. It does not manually reproduce every finding, normally
+  dispatch workers, or review domain-local changes.
 - A Domain Lead reads only its routed work with `status --lead-owner <lead>`,
   claims a package with `--role lead`, decomposes it, manages Orca workers and
   an independent reviewer, and submits the accepted result. Queue files are the
@@ -62,6 +72,14 @@ Deleted legacy requests are not restored. Done contains only this new batch.
   as the sole writer. Domain-local review stays with the Domain Lead; MAIN sees
   only cross-domain interfaces, architecture, schema/contracts, breaking or
   destructive changes.
+- Worker and Reviewer findings travel to their Domain Lead. The Lead either
+  returns an in-scope defect for rework or registers a disjoint, evidenced
+  candidate in `inbox/new` with `--intake-role lead` and the original
+  `--reported-by-role`. A finding is not executable until Coordinator triage.
+- A Goal Planner may read the user-owned Goal plus current Status and create
+  only deduplicated `inbox/new` candidates with `--intake-role goal_planner`.
+  It cannot edit the Goal, triage, route, claim, execute, review, or update
+  Status.
 - A non-Lead production worker may own at most one Active task. A Lead may
   supervise up to `lead_wip_limit: 3` Active work packages, still subject to the
   global writer limit, exact scope reservations and resource locks.
@@ -79,6 +97,29 @@ Deleted legacy requests are not restored. Done contains only this new batch.
   unclassified scopes fail closed into `shared`.
 - Multiple read-only investigations may run in parallel without consuming a
   writer slot.
+
+### Role permissions and escalation
+
+- MAIN owns global Queue intake, triage, routing, priority, dependencies and
+  cross-domain integration. It does not take over ordinary domain debugging.
+- A Domain Lead owns decomposition, model profile selection, Orca worker and
+  reviewer lifecycle, in-scope rework, and accepted discovery intake for its
+  routed packages.
+- Workers may edit and test only their exact dispatched scope. Reviewers are
+  read-only by default and return `PASS`, `FIX`, or a finding to the Lead.
+- Goal Planners and Watchdogs are read-mostly: the Planner may only create New
+  candidates, while the Watchdog may only observe, wake and notify the routed
+  Lead or MAIN. Neither may move Queue lifecycle state.
+- Repository bugs, failing tests, semantics/PIT/finality investigation,
+  provider errors, scheduler repair, public or existing-credential API work,
+  ordinary tool approval, and safe bounded retries stay inside the Lead lane.
+  They do not become user escalations or block the whole task.
+- Escalate to the user only when the exact next action is genuinely
+  non-delegable: real or paper-broker order submission/amendment/cancellation,
+  transfer/withdrawal, purchase/subscription or binding agreement, a required
+  user Goal/risk-policy choice, or an unavailable credential/entitlement after
+  every safe independent action is exhausted. Never ask for permission to
+  bypass access controls or disclose secrets; those actions remain prohibited.
 
 Queue metadata mutations remain globally serialized by `.queue-mutation.lock`;
 contending commands wait briefly and then fail closed rather than mutating in
@@ -106,7 +147,9 @@ P0, P1, P2; within a priority the coordinator considers dependencies and then
 Each task directory contains:
 
 - `META.json`: identity, state, assignment, fingerprint, dependencies,
-  write scope, review flag, lease, and heartbeat. The manager owns mutations.
+  write scope, review flag, lease, heartbeat, optional discovery provenance,
+  complexity and model profiles. The manager owns mutations. Older tasks may
+  omit the added profile/provenance fields; routing applies safe defaults.
 - `TASK.md`: short Problem, Evidence, allow/deny Scope, Done When, and Verify.
   Keep it stable after triage.
 - `HANDOFF.md`: the current checkpoint only, at most about 40 lines. Replace
@@ -136,6 +179,24 @@ tokens for non-file resources such as `qt-process`, `live-data-root`, a shared
 registry, or a status document. Any matching token blocks a concurrent claim
 even when file scopes differ. Scope comparison also treats a declared directory
 and a contained path as overlapping.
+
+`priority` is urgency, not difficulty. Triage records `complexity` separately
+as `small`, `standard`, `complex`, or `critical`; `risk` is `low`, `medium`,
+`high`, or `critical`. The Queue derives provider-independent Worker and
+Reviewer profiles and the Lead maps them to current Orca launch preferences:
+
+| Profile | Current Orca model / effort | Intended work |
+|---|---|---|
+| `fast` | `gpt-5.6-luna / medium` | small, deterministic, low-risk work |
+| `balanced` | `gpt-5.6-terra / medium` | ordinary single-domain work |
+| `strong` | `gpt-5.6-sol / high` | complex or high-risk implementation |
+| `critical` | `gpt-5.6-sol / xhigh` | critical work and strongest review |
+
+The Worker uses the maximum tier implied by complexity and risk. Required
+independent review uses one tier stronger, capped at `critical`, and always a
+fresh session. These are launch profiles rather than durable provider
+contracts; update the mapping when Orca model availability changes without
+rewriting historical tasks.
 
 ## States and transitions
 
@@ -194,9 +255,9 @@ All state changes use:
 ```powershell
 python scripts/request_queue.py status --compact
 python scripts/request_queue.py status --lead-owner data_lead
-python scripts/request_queue.py discover ...
-python scripts/request_queue.py triage <TASK_ID> ... --writer-lane gui --resource-lock qt-process
-python scripts/request_queue.py route <TASK_ID> --domain data --lead-owner data_lead --next <action>
+python scripts/request_queue.py discover ... --intake-role lead --reported-by-role reviewer
+python scripts/request_queue.py triage <TASK_ID> ... --complexity complex --risk high --writer-lane gui --resource-lock qt-process
+python scripts/request_queue.py route <TASK_ID> --domain data --lead-owner data_lead --complexity standard --next <action>
 python scripts/request_queue.py wait <TASK_ID> --reason <reason> --resume-condition <condition>
 python scripts/request_queue.py resume-waiting <TASK_ID> --decision-basis <basis> --next <action>
 python scripts/request_queue.py claim <TASK_ID> --owner <lead> --role lead --domain data --next <action>
@@ -282,6 +343,10 @@ Queue and Orca do not duplicate authority:
 - Orca owns execution: Lead/worker/reviewer conversations, Dispatch attempts,
   terminal/process state and wakeups. Queue Submit does not require a mirrored
   Orca Dispatch status.
+- `status --lead-owner` exposes the derived Worker and Reviewer model/effort
+  plan. The Lead supplies those values to `orca orchestration worker-start`
+  when launching fresh agents; a model launch failure is ordinary Lead-owned
+  recovery, not a user escalation.
 - `orca-bind` stores only the Orca Run/Task locator needed to reopen execution
   context. The older `orca-reconcile` command remains a compatibility telemetry
   path; normal Lead operation does not depend on it and its phase is not a
@@ -331,14 +396,27 @@ Register a separate discovery only with reproducible evidence and a unique
 fingerprint. Do not silently expand Active scope. Duplicate evidence belongs on
 the existing task; a non-P0 discovery does not interrupt current work.
 
+Discovery is two-stage. A Worker or Reviewer reports a finding to its Lead; it
+does not decide priority, routing, model, or execution. The Lead validates the
+evidence and registers only a disjoint candidate in `inbox/new`, preserving the
+original reporter role. MAIN then performs global deduplication, priority,
+dependencies, write reservations, domain/Lead routing, complexity/risk and
+review policy before `new -> ready`. Urgent findings use Orca escalation to the
+Lead, but only MAIN may promote them into executable Queue work.
+
 Fingerprint equality is only the first duplicate check. Before triage and again
 before claim, compare the task's Done When and exact write scope with Done
 receipts completed after the task was created. If newer work already satisfies
 the request, validate that result instead of repeating implementation or review;
-record the duplicate/satisfaction evidence on the existing task. When any P0 is
-live, or `Ready + Active + Review >= 6`, suspend unsolicited Goal/Inbox
-discovery passes while continuing explicit user intake and execution of the
-existing backlog.
+record the duplicate/satisfaction evidence on the existing task. Unsolicited
+Goal planning uses an operational low-water mark, not a raw Queue count. Pause
+it when a P0 is Ready/Active/Review, when six dependency-ready tasks are already
+routed to Leads across Ready/Active/Review, or when six untriaged discoveries
+already await Coordinator work. Unassigned Ready tasks, unresolved dependencies
+and timed Waiting work do not pretend to be runnable Lead buffer. An explicit
+user-triggered Goal update may run one bounded planning pass with
+`--explicit-user-trigger`; explicit user intake and task-derived defects always
+remain allowed.
 
 Before Submit, re-read Done When, inspect the scoped diff, run the exact focused
 test and the smallest useful regression, and update HANDOFF. A Done receipt is:

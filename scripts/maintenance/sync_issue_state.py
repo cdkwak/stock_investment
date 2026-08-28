@@ -346,6 +346,7 @@ def discover(
         str(project_root / "artifacts/request_queue"), "discover",
         "--title", str(template["title"]), "--discovered-by", "issue-state-sync",
         "--source-task", "ISSUE_STATE_SYNC", "--fingerprint", fingerprint,
+        "--intake-role", "runtime_monitor", "--reported-by-role", "runtime_monitor",
         "--symptom", str(template["symptom"]), "--evidence", evidence,
         "--impact", str(template["impact"]), "--suspected-scope", str(template["suspected_scope"]),
         "--reproduce", str(template["reproduce"]), "--priority-hint", str(template["priority_hint"]),

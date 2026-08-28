@@ -47,6 +47,19 @@ WRITER_LIMIT = 3
 LEAD_WIP_LIMIT = 3
 WRITER_LANES = ("gui", "data", "backtest", "shared")
 DOMAINS = ("data", "backtest", "gui", "infra", "broker", "research", "integration", "shared")
+DISCOVERY_INTAKE_ROLES = ("coordinator", "lead", "goal_planner", "runtime_monitor")
+DISCOVERY_REPORTER_ROLES = ("user", "worker", "reviewer", "lead", "goal_planner", "runtime_monitor")
+COMPLEXITIES = ("small", "standard", "complex", "critical")
+RISKS = ("low", "medium", "high", "critical")
+MODEL_PROFILE_ORDER = ("fast", "balanced", "strong", "critical")
+MODEL_PROFILE_POLICY = {
+    "fast": ("gpt-5.6-luna", "medium"),
+    "balanced": ("gpt-5.6-terra", "medium"),
+    "strong": ("gpt-5.6-sol", "high"),
+    "critical": ("gpt-5.6-sol", "xhigh"),
+}
+GOAL_RUNNABLE_TARGET = WRITER_LIMIT * 2
+GOAL_DISCOVERY_INBOX_LIMIT = WRITER_LIMIT * 2
 WAITING_KEYS = ("reason", "resume_condition", "next_check_at", "waiting_since")
 ORCA_STATE_NAME = "ORCA_STATE.json"
 ORCA_STATE_SCHEMA = 1
@@ -72,6 +85,7 @@ ORCA_OBSERVATION_RANK = {
 ORCA_TERMINAL_STATUSES = {"completed", "failed", "cancelled", "blocked"}
 COMPLETED_INDEX_NAME = "COMPLETED_INDEX.json"
 COMPLETED_INDEX_SCHEMA = 1
+WORKFLOW_DOCUMENTS = ("WORKFLOW.md", "WORKFLOW_CHANGELOG.md", "PIPELINE.md")
 COMPLETED_ENTRY_KEYS = (
     "id", "legacy_id", "fingerprint", "completed_at", "directory",
     "result_summary", "receipt_sha256",
@@ -415,6 +429,73 @@ def _validated_lead_owner(value: object) -> str | None:
     return owner
 
 
+def _is_goal_source(value: object) -> bool:
+    source = str(value or "").strip().casefold()
+    return source in {"project_goal", "project-goal"} or source.startswith("goal:")
+
+
+def _model_profiles(
+    complexity: object, risk: object, *, review_required: bool,
+) -> tuple[str, str | None]:
+    normalized_complexity = str(complexity or "standard")
+    normalized_risk = str(risk or "medium")
+    if normalized_complexity not in COMPLEXITIES:
+        normalized_complexity = "standard"
+    if normalized_risk not in RISKS:
+        normalized_risk = "medium"
+    tier = max(
+        COMPLEXITIES.index(normalized_complexity),
+        RISKS.index(normalized_risk),
+    )
+    worker_profile = MODEL_PROFILE_ORDER[tier]
+    reviewer_profile = (
+        MODEL_PROFILE_ORDER[min(tier + 1, len(MODEL_PROFILE_ORDER) - 1)]
+        if review_required else None
+    )
+    return worker_profile, reviewer_profile
+
+
+def _apply_model_profiles(
+    meta: dict[str, object], *, complexity: object | None = None,
+    risk: object | None = None, review_required: bool | None = None,
+) -> None:
+    effective_complexity = str(complexity or meta.get("complexity") or "standard")
+    effective_risk = str(risk or meta.get("risk") or "medium")
+    effective_review = (
+        bool(meta.get("review_required")) if review_required is None else review_required
+    )
+    worker_profile, reviewer_profile = _model_profiles(
+        effective_complexity, effective_risk, review_required=effective_review,
+    )
+    meta.update({
+        "complexity": effective_complexity,
+        "worker_profile": worker_profile,
+        "reviewer_profile": reviewer_profile,
+    })
+
+
+def _model_launch_text(profile: object) -> str:
+    if not isinstance(profile, str) or profile not in MODEL_PROFILE_POLICY:
+        return "-"
+    model, effort = MODEL_PROFILE_POLICY[profile]
+    return f"{model}/{effort}"
+
+
+def _task_model_profiles(meta: dict[str, object]) -> tuple[str, str | None]:
+    derived_worker, derived_reviewer = _model_profiles(
+        meta.get("complexity"), meta.get("risk"),
+        review_required=bool(meta.get("review_required")),
+    )
+    worker = meta.get("worker_profile")
+    reviewer = meta.get("reviewer_profile")
+    return (
+        worker if isinstance(worker, str) and worker in MODEL_PROFILE_ORDER else derived_worker,
+        reviewer
+        if isinstance(reviewer, str) and reviewer in MODEL_PROFILE_ORDER
+        else derived_reviewer,
+    )
+
+
 def _handoff_text(values: dict[str, object]) -> str:
     return "\n".join(f"{key}: {_clean(values.get(key))}" for key in HANDOFF_KEYS) + "\n"
 
@@ -616,6 +697,35 @@ def _all(root: Path) -> list[tuple[str, Path, dict[str, object]]]:
     return result
 
 
+def _goal_backlog(root: Path) -> tuple[bool, int, int]:
+    tasks = _all(root)
+    completed = {
+        str(meta.get("id")) for state, _path, meta in tasks if state == "done"
+    }
+    completed.update(str(entry["id"]) for entry in _load_completed_index(root))
+    p0_live = any(
+        state in {"ready", "active", "review"} and meta.get("priority") == "P0"
+        for state, _path, meta in tasks
+    )
+    runnable = 0
+    for state, _path, meta in tasks:
+        if state not in {"ready", "active", "review"}:
+            continue
+        if meta.get("domain") not in DOMAINS or _validated_lead_owner(
+            meta.get("lead_owner")
+        ) is None:
+            continue
+        if state == "ready":
+            dependencies = meta.get("depends_on")
+            if not isinstance(dependencies, list) or any(
+                dependency not in completed for dependency in dependencies
+            ):
+                continue
+        runnable += 1
+    pending_discoveries = sum(state == "new" for state, _path, _meta in tasks)
+    return p0_live, runnable, pending_discoveries
+
+
 def _digest(root: Path) -> str:
     digest = hashlib.sha256()
     completed_index = root / COMPLETED_INDEX_NAME
@@ -645,9 +755,11 @@ def _board(root: Path, *, updated_at: str | None = None) -> str:
     for _state, path, meta in active:
         handoff = _read_handoff(path)
         orca_state = _load_orca_state(path)
+        worker_profile, reviewer_profile = _task_model_profiles(meta)
         lines.append(
             f"- {path.name} | owner={meta.get('owner') or '-'} | "
             f"domain={meta.get('domain') or '-'} | lead={meta.get('lead_owner') or '-'} | "
+            f"worker={worker_profile} | reviewer={reviewer_profile or '-'} | "
             f"lane={_writer_lane(meta, meta.get('write_scope') or [])} | "
             f"orca={'linked' if orca_state else '-'} | "
             f"phase={handoff.get('phase') or '-'} | heartbeat={meta.get('heartbeat') or '-'} | "
@@ -659,9 +771,11 @@ def _board(root: Path, *, updated_at: str | None = None) -> str:
         lines.append("- none")
     for _state, path, meta in review:
         orca_state = _load_orca_state(path)
+        worker_profile, reviewer_profile = _task_model_profiles(meta)
         lines.append(
             f"- {path.name} | domain={meta.get('domain') or '-'} | "
             f"lead={meta.get('lead_owner') or '-'} | reviewer={meta.get('reviewer') or '-'} | "
+            f"profiles={worker_profile}/{reviewer_profile or '-'} | "
             f"orca={'linked' if orca_state else '-'}"
         )
     lines.extend(("", "## Waiting"))
@@ -686,9 +800,12 @@ def _board(root: Path, *, updated_at: str | None = None) -> str:
             ",".join(str(value) for value in raw_dependencies) or "-"
             if isinstance(raw_dependencies, list) else "<invalid>"
         )
+        worker_profile, reviewer_profile = _task_model_profiles(meta)
         lines.append(
             f"{number}. {path.name} | domain={meta.get('domain') or '-'} | "
-            f"lead={meta.get('lead_owner') or '-'} | depends_on={dependencies}"
+            f"lead={meta.get('lead_owner') or '-'} | "
+            f"profiles={worker_profile}/{reviewer_profile or '-'} | "
+            f"depends_on={dependencies}"
         )
     new_count = sum(state == "new" for state, _path, _meta in tasks)
     lines.extend(("", "## New Discoveries", f"- count: {new_count}", "", "## Blocked"))
@@ -872,6 +989,7 @@ def command_status(args: argparse.Namespace, root: Path) -> None:
             return
         for state, path, meta in routed:
             handoff = _read_handoff(path)
+            worker_profile, reviewer_profile = _task_model_profiles(meta)
             dependencies = meta.get("depends_on")
             depends_on = (
                 ",".join(str(value) for value in dependencies) or "-"
@@ -880,6 +998,9 @@ def command_status(args: argparse.Namespace, root: Path) -> None:
             print(
                 f"state={state} task={path.name} priority={meta.get('priority')} "
                 f"domain={meta.get('domain') or '-'} depends_on={depends_on} "
+                f"complexity={meta.get('complexity') or 'standard'} "
+                f"worker={_model_launch_text(worker_profile)} "
+                f"reviewer={_model_launch_text(reviewer_profile)} "
                 f"generation={_queue_generation(path)} "
                 f"phase={handoff.get('phase') or '-'} next={handoff.get('next') or '-'}"
             )
@@ -911,19 +1032,32 @@ def command_discover(args: argparse.Namespace, root: Path) -> None:
         raise QueueError(
             f"fingerprint already exists in completed index: {args.fingerprint}: {compacted}"
         )
-    source_task = str(args.source_task).strip().casefold()
-    goal_discovery = (
-        source_task in {"project_goal", "project-goal"}
-        or source_task.startswith("goal:")
-    )
-    if goal_discovery:
-        live = tuple(
-            (state, meta) for state, _path, meta in _all(root)
-            if state in {"waiting", "ready", "active", "review"}
-        )
-        p0_live = any(meta.get("priority") == "P0" for _state, meta in live)
-        if p0_live or len(live) >= 6:
-            reason = "P0 live" if p0_live else f"live backlog={len(live)}"
+    goal_discovery = _is_goal_source(args.source_task)
+    if args.explicit_user_trigger and not goal_discovery:
+        raise QueueError("--explicit-user-trigger is only valid for Project Goal discovery")
+    if args.intake_role == "goal_planner" and not goal_discovery:
+        raise QueueError("Goal Planner may register only Project Goal discoveries")
+    if goal_discovery and args.intake_role not in {"coordinator", "goal_planner"}:
+        raise QueueError("Project Goal discovery requires Coordinator or Goal Planner intake")
+    if args.intake_role == "runtime_monitor" and args.reported_by_role != "runtime_monitor":
+        raise QueueError("Runtime Monitor intake must originate from Runtime Monitor evidence")
+    if args.reported_by_role in {"worker", "reviewer"} and args.intake_role not in {
+        "coordinator", "lead",
+    }:
+        raise QueueError("Worker and Reviewer findings require Lead or Coordinator intake")
+    if goal_discovery and not args.explicit_user_trigger:
+        p0_live, runnable, pending_discoveries = _goal_backlog(root)
+        if (
+            p0_live
+            or runnable >= GOAL_RUNNABLE_TARGET
+            or pending_discoveries >= GOAL_DISCOVERY_INBOX_LIMIT
+        ):
+            if p0_live:
+                reason = "P0 ready/active/review"
+            elif runnable >= GOAL_RUNNABLE_TARGET:
+                reason = f"assigned runnable backlog={runnable}"
+            else:
+                reason = f"untriaged discovery inbox={pending_discoveries}"
             raise QueueError(
                 "unsolicited Goal discovery paused by backlog throttle: "
                 f"{reason}; explicit user intake and task-derived defects remain allowed"
@@ -949,6 +1083,8 @@ def command_discover(args: argparse.Namespace, root: Path) -> None:
             "created_by": args.discovered_by, "created_at": _stamp(now),
             "updated_at": _stamp(now), "completed_at": None,
             "parent_task": args.source_task, "depends_on": [],
+            "intake_role": args.intake_role,
+            "reported_by_role": args.reported_by_role,
             "fingerprint": args.fingerprint, "write_scope": [],
             "writer_lane": None, "resource_locks": [],
             "domain": args.domain, "lead_owner": _validated_lead_owner(args.lead_owner),
@@ -998,6 +1134,10 @@ def command_triage(args: argparse.Namespace, root: Path) -> None:
         "parallelizable": args.parallelizable,
         "review_required": args.review_required, "reviewer": args.reviewer,
     })
+    _apply_model_profiles(
+        meta, complexity=args.complexity, risk=args.risk,
+        review_required=args.review_required,
+    )
     if args.domain is not None:
         meta["domain"] = args.domain
     if args.lead_owner is not None:
@@ -1448,6 +1588,7 @@ def command_checkpoint(args: argparse.Namespace, root: Path) -> None:
             raise QueueError("reviewer must differ from the implementing agent")
         meta["review_required"] = True
         meta["reviewer"] = reviewer
+        _apply_model_profiles(meta, review_required=True)
     elif args.reviewer:
         if args.reviewer == meta.get("assigned_agent"):
             raise QueueError("reviewer must differ from the implementing agent")
@@ -1521,6 +1662,7 @@ def command_submit(args: argparse.Namespace, root: Path) -> None:
         )
         meta["reviewer"] = reviewer
         meta["review_required"] = True
+        _apply_model_profiles(meta, review_required=True)
         meta.pop("claim_token_sha256", None)
         meta.update({"owner": None, "lease_until": None, "heartbeat": None})
         _move(root, "review", task, meta)
@@ -1760,6 +1902,9 @@ def command_route(args: argparse.Namespace, root: Path) -> None:
     meta.update({
         "domain": args.domain, "lead_owner": lead_owner, "updated_at": _stamp(now),
     })
+    if args.risk is not None:
+        meta["risk"] = args.risk
+    _apply_model_profiles(meta, complexity=args.complexity, risk=args.risk)
     if state == "active":
         meta["heartbeat"] = _stamp(now)
     _atomic_json(task / "META.json", meta)
@@ -2264,6 +2409,7 @@ def doctor(root: Path, *, ignore_mutation_lock: bool = False) -> list[str]:
     allowed_root = {
         "README.md", "BOARD.md", "inbox", "active", "review", "blocked",
         "waiting", "done", "templates", COMPLETED_INDEX_NAME, ".queue-mutation.lock",
+        *WORKFLOW_DOCUMENTS,
     }
     if root.is_dir():
         for child in root.iterdir():
@@ -2342,7 +2488,8 @@ def doctor(root: Path, *, ignore_mutation_lock: bool = False) -> list[str]:
         optional_strings = (
             "legacy_id", "owner", "assigned_role", "assigned_agent", "reviewer",
             "completed_at", "parent_task", "lease_until", "heartbeat", "worktree",
-            "branch", "domain", "lead_owner",
+            "branch", "domain", "lead_owner", "intake_role", "reported_by_role",
+            "complexity", "worker_profile", "reviewer_profile",
         )
         for key in optional_strings:
             if meta.get(key) is not None and not isinstance(meta.get(key), str):
@@ -2352,6 +2499,30 @@ def doctor(root: Path, *, ignore_mutation_lock: bool = False) -> list[str]:
                 issues.append(f"invalid META {key} type: {task}")
         if meta.get("domain") is not None and meta.get("domain") not in DOMAINS:
             issues.append(f"invalid META domain: {task}")
+        if (
+            meta.get("intake_role") is not None
+            and meta.get("intake_role") not in DISCOVERY_INTAKE_ROLES
+        ):
+            issues.append(f"invalid META intake_role: {task}")
+        if (
+            meta.get("reported_by_role") is not None
+            and meta.get("reported_by_role") not in DISCOVERY_REPORTER_ROLES
+        ):
+            issues.append(f"invalid META reported_by_role: {task}")
+        if meta.get("complexity") is not None and meta.get("complexity") not in COMPLEXITIES:
+            issues.append(f"invalid META complexity: {task}")
+        for key in ("worker_profile", "reviewer_profile"):
+            if meta.get(key) is not None and meta.get(key) not in MODEL_PROFILE_ORDER:
+                issues.append(f"invalid META {key}: {task}")
+        if meta.get("complexity") is not None:
+            expected_worker, expected_reviewer = _model_profiles(
+                meta.get("complexity"), meta.get("risk"),
+                review_required=bool(meta.get("review_required")),
+            )
+            if meta.get("worker_profile") != expected_worker:
+                issues.append(f"META worker_profile differs from policy: {task}")
+            if meta.get("reviewer_profile") != expected_reviewer:
+                issues.append(f"META reviewer_profile differs from policy: {task}")
         raw_dependencies = meta.get("depends_on")
         valid_dependencies = isinstance(raw_dependencies, list)
         if not valid_dependencies:
@@ -2621,10 +2792,14 @@ def build_parser() -> argparse.ArgumentParser:
     discover.add_argument("--priority-hint", choices=tuple(PRIORITY_ORDER), default="P2")
     discover.add_argument("--domain", choices=DOMAINS, default="shared")
     discover.add_argument("--lead-owner")
+    discover.add_argument("--intake-role", choices=DISCOVERY_INTAKE_ROLES, default="coordinator")
+    discover.add_argument("--reported-by-role", choices=DISCOVERY_REPORTER_ROLES, default="lead")
+    discover.add_argument("--explicit-user-trigger", action="store_true")
     triage = commands.add_parser("triage")
     triage.add_argument("task")
     triage.add_argument("--priority", choices=tuple(PRIORITY_ORDER), required=True)
-    triage.add_argument("--risk", choices=("low", "medium", "high"), required=True)
+    triage.add_argument("--risk", choices=RISKS, required=True)
+    triage.add_argument("--complexity", choices=COMPLEXITIES, default="standard")
     triage.add_argument("--write-scope", action="append", required=True)
     triage.add_argument("--writer-lane", choices=WRITER_LANES)
     triage.add_argument("--resource-lock", action="append", default=[])
@@ -2721,6 +2896,8 @@ def build_parser() -> argparse.ArgumentParser:
     route.add_argument("task")
     route.add_argument("--domain", choices=DOMAINS, required=True)
     route.add_argument("--lead-owner", required=True)
+    route.add_argument("--risk", choices=RISKS)
+    route.add_argument("--complexity", choices=COMPLEXITIES)
     route.add_argument("--owner")
     route.add_argument("--claim-token")
     route.add_argument("--expected-generation")

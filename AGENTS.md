@@ -59,6 +59,16 @@ provider publication/session/cooldown time, or a user-only action outside the st
 authority below. A time-gated queue item releases its writer lane immediately;
 it never pauses unrelated work.
 
+Keep ordinary troubleshooting inside the owning Domain Lead lane. Do not raise
+repository bugs, failing tests, provider behavior, semantic/PIT/finality
+research, scheduler repair, public or existing-credential calls, bounded
+retries, or routine tool approval to the user as a project blocker. Escalate
+only the exact non-delegable action: real or paper-broker mutation,
+transfer/withdrawal, purchase/subscription or binding agreement, a required
+user Goal/risk-policy choice, or a necessary unavailable credential/entitlement
+after every safe independent action is exhausted. Quarantine that exact gate
+and continue every unrelated safe task.
+
 The non-delegable boundaries are: never disclose secrets or direct account
 identifiers; bypass access controls; submit, amend, or cancel real or
 paper-broker orders; transfer or withdraw funds; purchase/subscribe; accept a
@@ -236,10 +246,16 @@ Before ending an implementation or documentation task:
   canonical promotion, shared contracts, and similarly consequential changes.
   Low-risk documentation alignment and deterministic status/view maintenance
   use focused automated validation and the normal no-review flow.
-- When any P0 task is live, or `Ready + Active + Review` is six or more, pause
-  unsolicited Goal/Inbox discovery passes. Continue executing existing work
-  and always accept explicit user requests; this is a backlog throttle, not a
-  project or agent stop.
+- Worker and Reviewer findings go to the routed Lead. The Lead may register a
+  reproducible disjoint candidate in `inbox/new`; only MAIN triages it to Ready
+  and assigns priority, dependencies, domain, Lead, risk/complexity, review
+  policy and model profile.
+- Pause unsolicited Goal discovery only when a P0 is Ready/Active/Review, six
+  dependency-ready tasks are already routed to Leads across
+  Ready/Active/Review, or six discoveries await triage. Unassigned Ready tasks,
+  unresolved dependencies and Waiting work do not count as runnable buffer.
+  A user-triggered Goal update may always run one bounded idempotent planning
+  pass; explicit user intake and task-derived defects remain allowed.
 - A queue task's write scope, resource locks, data invariants, and acceptance
   tests remain binding. Permission-only `deny`, activation, or fresh-approval
   clauses do not override the autonomous execution default above.

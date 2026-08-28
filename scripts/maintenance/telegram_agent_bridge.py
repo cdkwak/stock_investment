@@ -516,6 +516,8 @@ def register_natural_language_request(user_request: str) -> str:
                 "--title", fields["title"],
                 "--discovered-by", "telegram-intake-agent",
                 "--source-task", "telegram-user-request",
+                "--intake-role", "coordinator",
+                "--reported-by-role", "user",
                 "--fingerprint", fields["fingerprint"],
                 "--symptom", fields["symptom"],
                 "--evidence", fields["evidence"],

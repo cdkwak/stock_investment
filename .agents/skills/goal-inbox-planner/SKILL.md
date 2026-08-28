@@ -7,6 +7,13 @@ description: Compare the user-owned Project Goal with current Project and domain
 Run one idempotent planning pass. Repeated invocations provide ongoing Inbox
 maintenance; do not create a long-running loop inside one agent turn.
 
+Run a bounded pass when the user changes `PROJECT_GOAL.md`, explicitly requests
+a Goal sync, or the assigned dependency-ready Lead buffer falls below six and
+the New Inbox is below six. A P0 in Ready/Active/Review pauses only unsolicited
+low-watermark passes. An explicit user-triggered Goal sync still runs once and
+uses `--explicit-user-trigger`. Unassigned Ready tasks, unresolved dependencies
+and Waiting tasks are not runnable Lead buffer.
+
 ## Route
 
 1. Read `AGENTS.md` and apply its temporary-workspace and authority rules.
@@ -29,7 +36,9 @@ maintenance; do not create a long-running loop inside one agent turn.
 6. For each genuinely new gap, call `scripts/request_queue.py discover` with a
    stable fingerprint, reproducible evidence, bounded suspected scope, and an
    honest priority hint. Use `PROJECT_GOAL` as `--source-task` when no existing
-   request is the direct source.
+   request is the direct source. Pass `--intake-role goal_planner` and
+   `--reported-by-role goal_planner`; add `--explicit-user-trigger` only for the
+   one pass directly caused by the user's Goal update or sync request.
 
 ## Discovery gate
 

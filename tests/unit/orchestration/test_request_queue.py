@@ -1102,30 +1102,154 @@ def test_concurrent_discovery_deduplicates_fingerprint(tmp_path: Path) -> None:
     assert len(list((root / "inbox/new").iterdir())) == 1
 
 
-def test_goal_discovery_pauses_at_live_backlog_but_user_intake_continues(
-    tmp_path: Path,
+def test_goal_discovery_uses_assigned_runnable_buffer_and_explicit_goal_bypass(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str],
 ) -> None:
     root = tmp_path / "queue"
     queue.main(["--root", str(root), "init"])
+    task_ids = []
     for index in range(6):
         task_id = _discover(root, f"backlog:{index}")
         _triage(root, task_id, write_scope=f"src/component_{index}.py")
+        task_ids.append(task_id)
 
     goal_args = [
         "--root", str(root), "discover", "--title", "Unsolicited goal idea",
         "--discovered-by", "goal_inbox_review", "--source-task", "PROJECT_GOAL",
+        "--intake-role", "goal_planner", "--reported-by-role", "goal_planner",
         "--priority-hint", "P2", "--fingerprint", "goal:paused:idea",
         "--symptom", "A possible future improvement exists.",
         "--evidence", "Goal comparison only", "--impact", "Optional expansion",
         "--suspected-scope", "src/future.py", "--reproduce", "Planning pass",
     ]
-    assert queue.main(goal_args) == 2
+    assert queue.main(goal_args) == 0
+
+    for index, task_id in enumerate(task_ids):
+        assert queue.main([
+            "--root", str(root), "route", task_id, "--domain", "gui",
+            "--lead-owner", f"gui_lead_{index % 3}", "--next", "Lead dispatch",
+        ]) == 0
+
+    throttled = list(goal_args)
+    throttled[throttled.index("goal:paused:idea")] = "goal:runnable:paused"
+    throttled[throttled.index("Unsolicited goal idea")] = "Second goal idea"
+    capsys.readouterr()
+    assert queue.main(throttled) == 2
+    assert "assigned runnable backlog=6" in capsys.readouterr().err
+
+    explicit = list(throttled)
+    explicit[explicit.index("goal:runnable:paused")] = "goal:explicit:update"
+    explicit.extend(("--explicit-user-trigger",))
+    assert queue.main(explicit) == 0
 
     user_args = list(goal_args)
     user_args[user_args.index("PROJECT_GOAL")] = "telegram-user-request"
     user_args[user_args.index("goal_inbox_review")] = "telegram-intake-agent"
     user_args[user_args.index("goal:paused:idea")] = "user:accepted:request"
+    user_args[user_args.index("goal_planner")] = "coordinator"
+    user_args[user_args.index("goal_planner")] = "user"
     assert queue.main(user_args) == 0
+
+
+def test_discovery_records_managed_intake_and_reporter_roles(tmp_path: Path) -> None:
+    root = tmp_path / "queue"
+    queue.main(["--root", str(root), "init"])
+    args = [
+        "--root", str(root), "discover", "--title", "Reviewer finding",
+        "--discovered-by", "domain_lead", "--source-task", "RQ-parent",
+        "--intake-role", "lead", "--reported-by-role", "reviewer",
+        "--priority-hint", "P1", "--fingerprint", "reviewer:managed:finding",
+        "--symptom", "An independent review found a disjoint defect.",
+        "--evidence", "Focused test reproduces it.", "--impact", "Incorrect output",
+        "--suspected-scope", "src/component.py", "--reproduce", "pytest exact-node",
+    ]
+    assert queue.main(args) == 0
+    task = next((root / "inbox/new").iterdir())
+    meta = json.loads((task / "META.json").read_text(encoding="utf-8"))
+    assert meta["intake_role"] == "lead"
+    assert meta["reported_by_role"] == "reviewer"
+
+    invalid = list(args)
+    invalid[invalid.index("reviewer:managed:finding")] = "reviewer:invalid:intake"
+    invalid[invalid.index("lead")] = "runtime_monitor"
+    assert queue.main(invalid) == 2
+
+
+def test_triage_and_route_publish_difficulty_based_orca_profiles(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = tmp_path / "queue"
+    queue.main(["--root", str(root), "init"])
+    task_id = _discover(root, "queue:model-profile:complex-review")
+    assert queue.main([
+        "--root", str(root), "triage", task_id, "--priority", "P1",
+        "--risk", "high", "--complexity", "complex",
+        "--write-scope", "src/component.py", "--problem", "Complex defect",
+        "--evidence", "A deterministic integration test reproduces it.",
+        "--allow", "src/component.py", "--deny", "external mutations",
+        "--done-when", "The integration boundary is deterministic.",
+        "--verify", "pytest exact-node", "--review-required",
+        "--reviewer", "independent_reviewer",
+    ]) == 0
+    assert queue.main([
+        "--root", str(root), "route", task_id, "--domain", "infra",
+        "--lead-owner", "infra_lead", "--next", "Dispatch profiled workers",
+    ]) == 0
+    ready = next((root / "inbox/ready").iterdir())
+    meta = json.loads((ready / "META.json").read_text(encoding="utf-8"))
+    assert meta["complexity"] == "complex"
+    assert meta["worker_profile"] == "strong"
+    assert meta["reviewer_profile"] == "critical"
+    capsys.readouterr()
+    assert queue.main([
+        "--root", str(root), "status", "--lead-owner", "infra_lead",
+    ]) == 0
+    status = capsys.readouterr().out
+    assert "worker=gpt-5.6-sol/high" in status
+    assert "reviewer=gpt-5.6-sol/xhigh" in status
+    assert queue.doctor(root) == []
+
+
+def test_late_review_requirement_recomputes_reviewer_profile(tmp_path: Path) -> None:
+    checkpoint_root = tmp_path / "checkpoint-queue"
+    queue.main(["--root", str(checkpoint_root), "init"])
+    checkpoint_id = _discover(checkpoint_root, "queue:late-review:checkpoint")
+    _triage(checkpoint_root, checkpoint_id)
+    queue.main([
+        "--root", str(checkpoint_root), "claim", checkpoint_id,
+        "--owner", "terra", "--next", "implement",
+    ])
+    assert queue.main([
+        "--root", str(checkpoint_root), "checkpoint", checkpoint_id,
+        "--owner", "terra", "--require-review", "--reviewer", "sol",
+    ]) == 0
+    active = next((checkpoint_root / "active").iterdir())
+    active_meta = json.loads((active / "META.json").read_text(encoding="utf-8"))
+    assert active_meta["worker_profile"] == "balanced"
+    assert active_meta["reviewer_profile"] == "strong"
+    assert queue.doctor(checkpoint_root) == []
+
+    submit_root = tmp_path / "submit-queue"
+    queue.main(["--root", str(submit_root), "init"])
+    submit_id = _discover(submit_root, "queue:late-review:submit")
+    _triage(submit_root, submit_id)
+    queue.main([
+        "--root", str(submit_root), "claim", submit_id,
+        "--owner", "terra", "--next", "implement",
+    ])
+    assert queue.main([
+        "--root", str(submit_root), "submit", submit_id,
+        "--owner", "terra", "--review", "--reviewer", "sol",
+        "--result", "implemented", "--changed", "src/component.py",
+        "--verified", "tests passed",
+    ]) == 0
+    submitted = next((submit_root / "review").iterdir())
+    submitted_meta = json.loads(
+        (submitted / "META.json").read_text(encoding="utf-8")
+    )
+    assert submitted_meta["worker_profile"] == "balanced"
+    assert submitted_meta["reviewer_profile"] == "strong"
+    assert queue.doctor(submit_root) == []
 
 
 def test_review_required_task_rejects_self_review_assignment(tmp_path: Path) -> None:
@@ -2053,6 +2177,9 @@ def test_invalid_done_receipt_can_be_reopened_only_from_done(tmp_path: Path) -> 
 def test_doctor_is_read_only_and_reports_duplicate_fingerprint_and_stale_board(tmp_path: Path) -> None:
     root = tmp_path / "queue"
     queue.main(["--root", str(root), "init"])
+    assert "PIPELINE.md" in queue.WORKFLOW_DOCUMENTS
+    for name in queue.WORKFLOW_DOCUMENTS:
+        (root / name).write_text(f"# {name}\n", encoding="utf-8")
     _discover(root)
     first = next((root / "inbox/new").iterdir())
     duplicate = first.with_name(first.name + "-duplicate")
@@ -2070,6 +2197,7 @@ def test_doctor_is_read_only_and_reports_duplicate_fingerprint_and_stale_board(t
     assert any("duplicate id" in issue for issue in issues)
     assert any("duplicate fingerprint" in issue for issue in issues)
     assert any("BOARD.md is stale" in issue for issue in issues)
+    assert not any("unexpected queue root entry" in issue for issue in issues)
     assert (root / "BOARD.md").read_bytes() == board_before
     assert duplicate.is_dir()
 
