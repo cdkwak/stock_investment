@@ -232,6 +232,14 @@ rewrite it unless the user explicitly instructs them to do so.
   tune Lead topology, Queue stages, backlog targets, model profiles and review
   policy from observed bottlenecks, while preserving user ownership of the Goal
   and the non-delegable financial, legal, access and secret boundaries.
+- The Project Manager keeps a concise current-workflow snapshot and an
+  append-only workflow change log. Each material change records when and why it
+  changed, the affected roles or Queue stages, and the expected operational
+  effect so the Listener and future agents can reconstruct the current design.
+- The Listener reads those Manager-owned records instead of inferring workflow
+  state from conversation history. When the user asks, it presents the current
+  structure and recent changes in a compact form such as Mermaid, without
+  requiring the user to inspect implementation details.
 - The Listener should acknowledge and retain new user intent promptly even
   while Project Manager and Domain Lead work continues in the background.
 
