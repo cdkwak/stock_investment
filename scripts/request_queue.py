@@ -95,12 +95,13 @@ def _authorize_active_claim(
         if meta.get("lead_owner") != args.owner:
             raise QueueError("Active Lead routing differs from owner")
         generation = getattr(args, "expected_generation", None)
-        if generation is not None:
-            if not isinstance(generation, str) or not secrets.compare_digest(
-                generation, _queue_generation(task)
-            ):
-                raise QueueError("Active Lead Queue generation differs")
-            return
+        if generation is None:
+            raise QueueError("Active Lead mutation requires --expected-generation")
+        if not isinstance(generation, str) or not secrets.compare_digest(
+            generation, _queue_generation(task)
+        ):
+            raise QueueError("Active Lead Queue generation differs")
+        return
     token = getattr(args, "claim_token", None)
     expected = meta.get("claim_token_sha256")
     if expected is None:

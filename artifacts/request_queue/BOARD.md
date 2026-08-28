@@ -1,12 +1,12 @@
 # Request Queue Board
 
-updated_at: 2026-08-28T19:39:32+09:00
-generated_from_digest: b701addcb498820b63f5f1947d355c7ffda15ddd6e9ad99389e79cded421ea7d
+updated_at: 2026-08-28T19:55:51+09:00
+generated_from_digest: 9d1832796754b394894da708739e1c9260ec4d905c77152bcf95985ac9616194
 mode: domain-parallel
 writer_limit: 3
 
 ## Active
-- P0-RQ-20260828T115727-F3C6-add-durable-orca-lifecycle-reconciliation-to-request-queue | owner=queue_v2_lead_root | domain=infra | lead=queue_v2_lead_root | lane=shared | orca=linked | phase=review_ready | heartbeat=2026-08-28T19:39:32+09:00 | next=Parallel read-only Orca architecture and concurrency review of the committed candidate
+- P0-RQ-20260828T115727-F3C6-add-durable-orca-lifecycle-reconciliation-to-request-queue | owner=queue_v2_lead_root | domain=infra | lead=queue_v2_lead_root | lane=shared | orca=linked | phase=review_fix_complete | heartbeat=2026-08-28T19:55:51+09:00 | next=Commit the review fix and run final bounded validation
 
 ## Review
 - P2-RQ-20260826T003644-E9A5-define-an-evidence-bound-local-daily-korean-market-summary-contract | domain=- | lead=- | reviewer=lead | orca=-

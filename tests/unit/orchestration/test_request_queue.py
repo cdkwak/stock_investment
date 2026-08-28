@@ -54,9 +54,17 @@ def _token_aware_main(argv: list[str]) -> int:
             _TOKEN_CONTEXT.token = token
             _TEST_CLAIM_TOKENS[key] = token
         elif command in _ACTIVE_TOKEN_COMMANDS and "--claim-token" not in args:
-            token = _TEST_CLAIM_TOKENS.get(key)
-            if token is not None:
-                args.extend(("--claim-token", token))
+            try:
+                state, task, meta = queue.find_task(root, task_id)
+            except queue.QueueError:
+                state, task, meta = "", root, {}
+            if state == "active" and meta.get("assigned_role") == "lead":
+                if "--expected-generation" not in args:
+                    args.extend(("--expected-generation", queue._queue_generation(task)))
+            else:
+                token = _TEST_CLAIM_TOKENS.get(key)
+                if token is not None:
+                    args.extend(("--claim-token", token))
     return _RAW_QUEUE_MAIN(args)
 
 
@@ -293,6 +301,14 @@ def test_routed_lead_reads_own_worklist_and_resumes_without_session_token(
     assert "domain=data" in worklist
     assert "next=dispatch bounded workers" in worklist
     generation = worklist.split("generation=", 1)[1].split()[0]
+    claim_token = _TEST_CLAIM_TOKENS[(str(root.resolve()), task_id)]
+
+    assert _RAW_QUEUE_MAIN([
+        "--root", str(root), "checkpoint", task_id, "--owner", "data_lead",
+        "--claim-token", claim_token,
+        "--phase", "stale-token", "--next", "must not bypass Lead generation",
+    ]) == 2
+
 
     assert _RAW_QUEUE_MAIN([
         "--root", str(root), "checkpoint", task_id, "--owner", "data_lead",
