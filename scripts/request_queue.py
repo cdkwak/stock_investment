@@ -62,6 +62,15 @@ ORCA_PHASES = (
 )
 ORCA_LIVE_PHASES = {"DISPATCHED", "WAITING_FOR_WORKER_DONE"}
 ORCA_OBSERVED_STATUSES = ("pending", "running", "completed", "failed", "cancelled", "blocked")
+ORCA_OBSERVATION_RANK = {
+    "pending": 0,
+    "running": 1,
+    "completed": 2,
+    "failed": 2,
+    "cancelled": 2,
+    "blocked": 2,
+}
+ORCA_TERMINAL_STATUSES = {"completed", "failed", "cancelled", "blocked"}
 ORCA_REVIEW_KEYS = ("orca_dispatch_id", "candidate_commit", "diff_digest")
 COMPLETED_INDEX_NAME = "COMPLETED_INDEX.json"
 COMPLETED_INDEX_SCHEMA = 1
@@ -694,8 +703,8 @@ def _board(root: Path, *, updated_at: str | None = None) -> str:
     return "\n".join(lines) + "\n"
 
 
-def write_board(root: Path) -> None:
-    _atomic_text(root / "BOARD.md", _board(root))
+def write_board(root: Path, *, updated_at: str | None = None) -> None:
+    _atomic_text(root / "BOARD.md", _board(root, updated_at=updated_at))
 
 
 def _new_id(now: datetime | None = None) -> str:
@@ -1883,6 +1892,36 @@ def command_orca_bind(args: argparse.Namespace, root: Path) -> None:
     print(meta["id"])
 
 
+def _write_orca_reconciliation_receipts(
+    root: Path,
+    task: Path,
+    meta: dict[str, object],
+    *,
+    dispatch_id: str,
+    observed_status: str,
+    phase: str,
+    next_action: str,
+    reconciled_at: datetime,
+    lease_minutes: int,
+) -> None:
+    stamp = _stamp(reconciled_at)
+    meta.update({
+        "heartbeat": stamp,
+        "lease_until": _stamp(reconciled_at + timedelta(minutes=lease_minutes)),
+        "updated_at": stamp,
+    })
+    _atomic_json(task / "META.json", meta)
+    handoff = _read_handoff(task)
+    handoff.update({
+        "updated_at": stamp,
+        "phase": f"orca_{phase.casefold()}",
+        "summary": f"Orca dispatch {dispatch_id} observed {observed_status}",
+        "next": next_action,
+    })
+    _atomic_text(task / "HANDOFF.md", _handoff_text(handoff))
+    write_board(root, updated_at=stamp)
+
+
 def command_orca_reconcile(args: argparse.Namespace, root: Path) -> None:
     _state, task, meta = find_task(root, args.task, {"active"})
     _authorize_active_claim(args, root, task, meta)
@@ -1901,6 +1940,16 @@ def command_orca_reconcile(args: argparse.Namespace, root: Path) -> None:
     elif current_dispatch == dispatch_id:
         if args.attempt != current_attempt:
             raise QueueError("Orca dispatch attempt differs")
+        current_status = state.get("observed_dispatch_status")
+        if current_status not in ORCA_OBSERVATION_RANK:
+            raise QueueError("current Orca dispatch status is invalid")
+        if ORCA_OBSERVATION_RANK[args.observed_status] < ORCA_OBSERVATION_RANK[current_status]:
+            raise QueueError("stale Orca dispatch observation regresses attempt progress")
+        if (
+            current_status in ORCA_TERMINAL_STATUSES
+            and args.observed_status != current_status
+        ):
+            raise QueueError("terminal Orca dispatch observation differs")
     else:
         if state.get("phase") != "RECOVERY_REQUIRED" or args.attempt != current_attempt + 1:
             raise QueueError("replacement Orca dispatch requires one recovery generation increment")
@@ -1937,8 +1986,25 @@ def command_orca_reconcile(args: argparse.Namespace, root: Path) -> None:
         "observed_dispatch_status": args.observed_status, "last_error": error,
     }
     if all(state.get(key) == value for key, value in desired.items()):
+        reconciled_at = _aware(state.get("last_reconciled_at"))
+        if reconciled_at is None:
+            raise QueueError("Orca reconciliation timestamp is missing")
+        _write_orca_reconciliation_receipts(
+            root, task, meta,
+            dispatch_id=dispatch_id,
+            observed_status=args.observed_status,
+            phase=phase,
+            next_action=next_action,
+            reconciled_at=reconciled_at,
+            lease_minutes=args.lease_minutes,
+        )
         print(meta["id"])
         return
+    if (
+        current_dispatch == dispatch_id
+        and state.get("observed_dispatch_status") in ORCA_TERMINAL_STATUSES
+    ):
+        raise QueueError("terminal Orca dispatch receipt differs")
     now = _now()
     transitioned = (
         state.get("phase") != phase
@@ -1951,20 +2017,15 @@ def command_orca_reconcile(args: argparse.Namespace, root: Path) -> None:
         "last_reconciled_at": _stamp(now),
     })
     _write_orca_state(task, state)
-    meta.update({
-        "heartbeat": _stamp(now),
-        "lease_until": _stamp(now + timedelta(minutes=args.lease_minutes)),
-        "updated_at": _stamp(now),
-    })
-    _atomic_json(task / "META.json", meta)
-    handoff = _read_handoff(task)
-    handoff.update({
-        "updated_at": _stamp(now), "phase": f"orca_{str(phase).casefold()}",
-        "summary": f"Orca dispatch {dispatch_id} observed {args.observed_status}",
-        "next": next_action,
-    })
-    _atomic_text(task / "HANDOFF.md", _handoff_text(handoff))
-    write_board(root)
+    _write_orca_reconciliation_receipts(
+        root, task, meta,
+        dispatch_id=dispatch_id,
+        observed_status=args.observed_status,
+        phase=phase,
+        next_action=next_action,
+        reconciled_at=now,
+        lease_minutes=args.lease_minutes,
+    )
     print(meta["id"])
 
 

@@ -349,6 +349,15 @@ def test_orca_reconciliation_binds_retry_candidate_and_review_generation(tmp_pat
     recovery = json.loads((active / queue.ORCA_STATE_NAME).read_text(encoding="utf-8"))
     assert recovery["phase"] == "RECOVERY_REQUIRED"
     assert recovery["waiting_for"] == "lead_recovery"
+    terminal_receipt = _task_bytes(active)
+    terminal_board = (root / "BOARD.md").read_bytes()
+    assert queue.main([
+        "--root", str(root), "orca-reconcile", task_id, "--owner", "data_lead",
+        "--dispatch-id", "ctx_attempt_1", "--attempt", "1",
+        "--observed-status", "running", "--next-action", "stale worker event",
+    ]) == 2
+    assert _task_bytes(active) == terminal_receipt
+    assert (root / "BOARD.md").read_bytes() == terminal_board
     assert queue.main([
         "--root", str(root), "orca-reconcile", task_id, "--owner", "data_lead",
         "--dispatch-id", "ctx_attempt_2", "--attempt", "2",
@@ -388,6 +397,70 @@ def test_orca_reconciliation_binds_retry_candidate_and_review_generation(tmp_pat
     done = next((root / "done").iterdir())
     assert not (done / queue.ORCA_STATE_NAME).exists()
     assert queue.doctor(root) == []
+
+
+def test_orca_reconciliation_exact_replay_repairs_partial_receipts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "queue"
+    queue.main(["--root", str(root), "init"])
+    task_id = _discover(root, "queue:v2:orca-replay-repair")
+    _triage(root, task_id)
+    assert queue.main([
+        "--root", str(root), "claim", task_id, "--owner", "infra_lead",
+        "--role", "lead", "--domain", "infra", "--next", "bind Orca execution",
+    ]) == 0
+    assert queue.main([
+        "--root", str(root), "orca-bind", task_id, "--owner", "infra_lead",
+        "--run-id", "run_replay", "--orca-task-id", "task_replay",
+        "--domain", "infra", "--next-action", "reconcile failed attempt",
+    ]) == 0
+    active = next((root / "active").iterdir())
+    real_atomic_json = queue._atomic_json
+    injected = False
+
+    def fail_first_meta_write(path: Path, value: object) -> None:
+        nonlocal injected
+        if path == active / "META.json" and not injected:
+            injected = True
+            raise OSError("injected META write failure")
+        real_atomic_json(path, value)
+
+    monkeypatch.setattr(queue, "_atomic_json", fail_first_meta_write)
+    reconcile = [
+        "--root", str(root), "orca-reconcile", task_id, "--owner", "infra_lead",
+        "--dispatch-id", "ctx_failed", "--attempt", "1",
+        "--observed-status", "failed", "--error", "agent_prompt_stalled",
+        "--next-action", "dispatch a bounded retry",
+    ]
+    assert queue.main(reconcile) == 2
+    projection = json.loads(
+        (active / queue.ORCA_STATE_NAME).read_text(encoding="utf-8")
+    )
+    assert projection["phase"] == "RECOVERY_REQUIRED"
+
+    monkeypatch.setattr(queue, "_atomic_json", real_atomic_json)
+    assert queue.main(reconcile) == 0
+    reconciled_at = projection["last_reconciled_at"]
+    meta = json.loads((active / "META.json").read_text(encoding="utf-8"))
+    handoff = queue._read_handoff(active)
+    assert meta["updated_at"] == meta["heartbeat"] == reconciled_at
+    assert handoff["updated_at"] == reconciled_at
+    assert handoff["phase"] == "orca_recovery_required"
+    assert f"updated_at: {reconciled_at}\n" in (root / "BOARD.md").read_text(
+        encoding="utf-8"
+    )
+    assert queue.doctor(root) == []
+
+    repaired = {
+        "task": _task_bytes(active),
+        "board": (root / "BOARD.md").read_bytes(),
+    }
+    assert queue.main(reconcile) == 0
+    assert repaired == {
+        "task": _task_bytes(active),
+        "board": (root / "BOARD.md").read_bytes(),
+    }
 
 
 def test_claim_has_one_winner_and_never_overwrites_active_task(tmp_path: Path) -> None:
