@@ -215,6 +215,26 @@ P0의 최신성 복구가 현재 최우선이다. 다만 외부 공급자의 정
 This is the active user-owned Goal. Agents must not invent, broaden, optimize, or
 rewrite it unless the user explicitly instructs them to do so.
 
+## User collaboration operating goal
+
+- The user may continuously state ideas, corrections, priorities and desired
+  outcomes without waiting for implementation to finish.
+- The conversation-facing Listener records only explicit user intent in the
+  Goal layer. It does not own Queue triage, project execution, worker dispatch,
+  review supervision or long-running implementation.
+- A separate Project Manager reads the Goal and current Status, owns the global
+  Queue, resolves duplicates and dependencies, selects Domain Leads, and keeps
+  implementation and review moving asynchronously.
+- Domain Leads manage Workers and Reviewers. Their findings return to the
+  Project Manager for managed intake; findings do not silently rewrite the
+  user-owned Goal.
+- The internal workflow is intentionally evolvable. The Project Manager may
+  tune Lead topology, Queue stages, backlog targets, model profiles and review
+  policy from observed bottlenecks, while preserving user ownership of the Goal
+  and the non-delegable financial, legal, access and secret boundaries.
+- The Listener should acknowledge and retain new user intent promptly even
+  while Project Manager and Domain Lead work continues in the background.
+
 ## Goal-to-Inbox planning contract
 
 A designated planning agent must use
