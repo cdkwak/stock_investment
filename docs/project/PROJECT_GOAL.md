@@ -225,6 +225,14 @@ rewrite it unless the user explicitly instructs them to do so.
 - A separate Project Manager reads the Goal and current Status, owns the global
   Queue, resolves duplicates and dependencies, selects Domain Leads, and keeps
   implementation and review moving asynchronously.
+- The Project Manager is a delegation-first, thin coordination layer and must
+  avoid becoming the project's execution or reporting bottleneck. It delegates
+  bounded ownership, routine decisions, worker supervision and review follow-up
+  to Domain Leads instead of managing individual Workers directly.
+- Domain Leads send the Project Manager concise, structured digests covering
+  outcome, evidence, remaining risk, dependency changes and decisions that
+  exceed their authority. The Manager reads these summaries by default and
+  drills into task-level detail only for conflicts, exceptions or material risk.
 - Domain Leads manage Workers and Reviewers. Their findings return to the
   Project Manager for managed intake; findings do not silently rewrite the
   user-owned Goal.
