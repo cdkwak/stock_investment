@@ -1,0 +1,4 @@
+result: Offline Python Control Plane foundation implemented with both privacy/replay and complete fail-closed migration corrections.
+changed: Added versioned contracts, sanitized ledger, SQLite state, deterministic projections/digest, read-only Queue adapter, source-derived IDs, canonical millisecond metrics, and exact v1 schema-shape validation with regressions.
+verified: Lead inspection; 15 focused tests PASS; 82 request-queue tests PASS; Queue Doctor OK; reviewer partial-schema repro and post-migration usability regressions PASS.; independent review by workflow_control_reviewer_20260829: PASS: immutable packet/handoff hashes unchanged; independent reviewer verified all seven files, all prior defect reproductions, 15 focused tests, 82 request-queue tests, Queue Doctor, real read-only adapter, privacy and disabled boundaries.
+completed_at: 2026-08-29T02:20:14+09:00
