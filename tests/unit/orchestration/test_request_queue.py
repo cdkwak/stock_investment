@@ -258,6 +258,54 @@ def test_waiting_and_lead_release_do_not_abuse_blocked(tmp_path: Path) -> None:
     assert queue.doctor(root) == []
 
 
+def test_routed_lead_reads_own_worklist_and_resumes_without_session_token(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = tmp_path / "queue"
+    queue.main(["--root", str(root), "init"])
+    task_id = _discover(root, "queue:v2:routed-lead-worklist")
+    _triage(root, task_id)
+    assert queue.main([
+        "--root", str(root), "route", task_id, "--domain", "data",
+        "--lead-owner", "data_lead", "--next", "Lead reads and decomposes the task",
+    ]) == 0
+
+    assert _RAW_QUEUE_MAIN([
+        "--root", str(root), "claim", task_id, "--owner", "unrelated_worker",
+        "--role", "worker", "--domain", "data", "--next", "must not claim",
+    ]) == 2
+    assert _RAW_QUEUE_MAIN([
+        "--root", str(root), "claim", task_id, "--owner", "data_lead",
+        "--role", "lead", "--domain", "gui", "--next", "wrong domain",
+    ]) == 2
+    assert queue.main([
+        "--root", str(root), "claim", task_id, "--owner", "data_lead",
+        "--role", "lead", "--domain", "data", "--next", "dispatch bounded workers",
+    ]) == 0
+
+    capsys.readouterr()
+    assert _RAW_QUEUE_MAIN([
+        "--root", str(root), "status", "--lead-owner", "data_lead",
+    ]) == 0
+    worklist = capsys.readouterr().out
+    assert f"state=active task=" in worklist
+    assert task_id in worklist
+    assert "domain=data" in worklist
+    assert "next=dispatch bounded workers" in worklist
+
+    assert _RAW_QUEUE_MAIN([
+        "--root", str(root), "checkpoint", task_id, "--owner", "data_lead",
+        "--phase", "implementing", "--next", "collect worker results",
+    ]) == 0
+    active = next((root / "active").iterdir())
+    meta_path = active / "META.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta["assigned_role"] = "worker"
+    meta_path.write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    queue.write_board(root)
+    assert any("Active Lead routing differs from assignment" in issue for issue in queue.doctor(root))
+
+
 def test_one_lead_can_supervise_three_disjoint_active_packages(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -286,10 +334,10 @@ def test_one_lead_can_supervise_three_disjoint_active_packages(
     assert queue.doctor(root) == []
 
 
-def test_orca_reconciliation_binds_retry_candidate_and_review_generation(tmp_path: Path) -> None:
+def test_orca_link_does_not_duplicate_dispatch_or_review_authority(tmp_path: Path) -> None:
     root = tmp_path / "queue"
     queue.main(["--root", str(root), "init"])
-    task_id = _discover(root, "queue:v2:orca-review-binding")
+    task_id = _discover(root, "queue:v2:orca-link-only")
     _triage(root, task_id, review=True, reviewer="domain_reviewer")
     assert queue.main([
         "--root", str(root), "claim", task_id, "--owner", "data_lead",
@@ -298,77 +346,16 @@ def test_orca_reconciliation_binds_retry_candidate_and_review_generation(tmp_pat
     assert queue.main([
         "--root", str(root), "orca-bind", task_id, "--owner", "data_lead",
         "--run-id", "run_queue_v2", "--orca-task-id", "task_queue_v2",
-        "--domain", "data", "--next-action", "dispatch attempt 1",
-    ]) == 0
+        "--domain", "gui", "--next-action", "must preserve Queue routing",
+    ]) == 2
     assert queue.main([
-        "--root", str(root), "orca-reconcile", task_id, "--owner", "data_lead",
-        "--dispatch-id", "ctx_attempt_1", "--attempt", "1",
-        "--observed-status", "running", "--next-action", "wait for worker_done",
+        "--root", str(root), "orca-bind", task_id, "--owner", "data_lead",
+        "--run-id", "run_queue_v2", "--orca-task-id", "task_queue_v2",
+        "--domain", "data", "--next-action", "dispatch bounded workers",
     ]) == 0
     active = next((root / "active").iterdir())
-    first_observation = {
-        name: path.read_bytes() for name, path in {
-            "meta": active / "META.json", "handoff": active / "HANDOFF.md",
-            "orca": active / queue.ORCA_STATE_NAME, "board": root / "BOARD.md",
-        }.items()
-    }
-    assert queue.main([
-        "--root", str(root), "orca-reconcile", task_id, "--owner", "data_lead",
-        "--dispatch-id", "ctx_attempt_1", "--attempt", "1",
-        "--observed-status", "running", "--next-action", "wait for worker_done",
-    ]) == 0
-    assert first_observation == {
-        name: path.read_bytes() for name, path in {
-            "meta": active / "META.json", "handoff": active / "HANDOFF.md",
-            "orca": active / queue.ORCA_STATE_NAME, "board": root / "BOARD.md",
-        }.items()
-    }
-    live_receipt = _task_bytes(active)
-    live_board = (root / "BOARD.md").read_bytes()
-    assert queue.main([
-        "--root", str(root), "release", task_id, "--owner", "data_lead",
-        "--reason", "unsafe while live", "--next", "must not move",
-    ]) == 2
-    assert queue.main([
-        "--root", str(root), "wait", task_id, "--owner", "data_lead",
-        "--reason", "unsafe while live", "--resume-condition", "must not move",
-    ]) == 2
-    assert queue.main([
-        "--root", str(root), "block", task_id, "--owner", "data_lead",
-        "--reason", "unsafe while live", "--required-action", "must not move",
-        "--resume-condition", "must not move",
-    ]) == 2
-    assert _task_bytes(active) == live_receipt
-    assert (root / "BOARD.md").read_bytes() == live_board
-    assert queue.main([
-        "--root", str(root), "orca-reconcile", task_id, "--owner", "data_lead",
-        "--dispatch-id", "ctx_attempt_1", "--attempt", "1",
-        "--observed-status", "failed", "--error", "agent_prompt_stalled",
-        "--next-action", "dispatch a bounded retry",
-    ]) == 0
-    recovery = json.loads((active / queue.ORCA_STATE_NAME).read_text(encoding="utf-8"))
-    assert recovery["phase"] == "RECOVERY_REQUIRED"
-    assert recovery["waiting_for"] == "lead_recovery"
-    terminal_receipt = _task_bytes(active)
-    terminal_board = (root / "BOARD.md").read_bytes()
-    assert queue.main([
-        "--root", str(root), "orca-reconcile", task_id, "--owner", "data_lead",
-        "--dispatch-id", "ctx_attempt_1", "--attempt", "1",
-        "--observed-status", "running", "--next-action", "stale worker event",
-    ]) == 2
-    assert _task_bytes(active) == terminal_receipt
-    assert (root / "BOARD.md").read_bytes() == terminal_board
-    assert queue.main([
-        "--root", str(root), "orca-reconcile", task_id, "--owner", "data_lead",
-        "--dispatch-id", "ctx_attempt_2", "--attempt", "2",
-        "--observed-status", "pending", "--next-action", "start replacement worker",
-    ]) == 0
-    assert queue.main([
-        "--root", str(root), "orca-reconcile", task_id, "--owner", "data_lead",
-        "--dispatch-id", "ctx_attempt_2", "--attempt", "2",
-        "--observed-status", "completed", "--candidate-commit", "a" * 40,
-        "--diff-digest", "b" * 64, "--next-action", "submit bound candidate",
-    ]) == 0
+    projection = json.loads((active / queue.ORCA_STATE_NAME).read_text(encoding="utf-8"))
+    assert projection["phase"] == "BOUND"
     assert queue.main([
         "--root", str(root), "submit", task_id, "--owner", "data_lead",
         "--result", "Queue v2 implemented", "--changed", "src/component.py",
@@ -379,23 +366,51 @@ def test_orca_reconciliation_binds_retry_candidate_and_review_generation(tmp_pat
         review / "REVIEW.md",
         ("review_generation", "orca_dispatch_id", "candidate_commit", "diff_digest"),
     )
-    assert receipt == {
-        "review_generation": receipt["review_generation"],
-        "orca_dispatch_id": "ctx_attempt_2",
-        "candidate_commit": "a" * 40,
-        "diff_digest": "b" * 64,
-    }
+    assert receipt == {"review_generation": receipt["review_generation"]}
     projection = json.loads((review / queue.ORCA_STATE_NAME).read_text(encoding="utf-8"))
-    assert projection["phase"] == "REVIEWING"
-    assert projection["review_generation"] == receipt["review_generation"]
+    assert projection["phase"] == "BOUND"
     assert queue.main([
         "--root", str(root), "review-pass", task_id,
         "--reviewer", "domain_reviewer",
         "--review-generation", receipt["review_generation"],
-        "--decision-basis", "dispatch, commit, diff, and focused tests match",
+        "--decision-basis", "Queue result and focused tests match",
     ]) == 0
     done = next((root / "done").iterdir())
     assert not (done / queue.ORCA_STATE_NAME).exists()
+    assert queue.doctor(root) == []
+
+
+def test_queue_receipt_hashes_are_portable_across_crlf_checkouts(tmp_path: Path) -> None:
+    root = tmp_path / "queue"
+    queue.main(["--root", str(root), "init"])
+    task_id = _discover(root, "queue:v2:portable-text-receipts")
+    _triage(root, task_id, review=True, reviewer="domain_reviewer")
+    assert queue.main([
+        "--root", str(root), "claim", task_id, "--owner", "data_lead",
+        "--role", "lead", "--domain", "data", "--next", "implement",
+    ]) == 0
+    assert queue.main([
+        "--root", str(root), "submit", task_id, "--owner", "data_lead",
+        "--result", "implemented", "--changed", "src/component.py",
+        "--verified", "focused tests passed",
+    ]) == 0
+    review = next((root / "review").iterdir())
+    expected = (
+        queue._digest(root),
+        queue._handoff_snapshot_digest(review),
+        queue._task_receipt_digest(review),
+    )
+
+    for path in root.rglob("*"):
+        if path.is_file() and path.suffix in {".json", ".md"}:
+            body = path.read_bytes().replace(b"\r\n", b"\n")
+            path.write_bytes(body.replace(b"\n", b"\r\n"))
+
+    assert expected == (
+        queue._digest(root),
+        queue._handoff_snapshot_digest(review),
+        queue._task_receipt_digest(review),
+    )
     assert queue.doctor(root) == []
 
 
