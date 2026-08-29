@@ -13160,7 +13160,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._close_retry_timer.timeout.connect(self._retry_pending_close)
         tabs.setAccessibleName("주요 화면")
         self.setStyleSheet("""
-            QWidget { background:#f4f7fb; color:#132238; font-size:13px; }
+            QWidget { background:#f4f7fb; color:#132238; font-size:9.75pt; }
             QLabel { background:transparent; }
             QFrame#panel, QFrame#card { background:#ffffff; border:1px solid #d7e0eb; border-radius:9px; }
             QFrame#card { padding:7px; }

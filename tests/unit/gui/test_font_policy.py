@@ -16,6 +16,7 @@ def test_application_font_policy_resolves_every_required_korean_glyph() -> None:
 
     assert result.glyphs_supported
     assert result.family
+    assert app.font().pointSizeF() > 0
     assert font_supports_korean(app.font())
     assert all(
         QtGui.QFontMetrics(app.font()).inFontUcs4(ord(character))

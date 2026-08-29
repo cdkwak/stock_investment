@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import threading
 import time
 from dataclasses import replace
@@ -9101,6 +9102,99 @@ def test_primary_chart_pages_fit_inside_a_1600px_main_window(tmp_path):
 
     window.close()
     app.processEvents()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-native Qt diagnostic")
+def test_windows_full_page_navigation_uses_positive_fonts_without_qt_warning(
+    tmp_path, monkeypatch,
+):
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    messages: list[str] = []
+
+    def capture_message(_kind, _context, message):
+        messages.append(message)
+
+    previous_handler = QtCore.qInstallMessageHandler(capture_message)
+    window = None
+    try:
+        window = MainWindow(
+            tmp_path,
+            dashboard_preferences_path=tmp_path / "dashboard-preferences.json",
+            toss_runtime_enabled=False,
+        )
+        _stub_fast_startup_local_reads(window, monkeypatch)
+        window.current_observation_reload_timer.stop()
+        _drain_main_window_workers(app, window, timeout=30.0)
+        window.account_page.render(_synthetic_dual_currency_account_portfolio())
+        window.resize(1600, 900)
+        window.show()
+        app.processEvents()
+
+        for index in range(window.tabs.count()):
+            tab_bar = window.tabs.tabBar()
+            QtTest.QTest.mouseClick(
+                tab_bar,
+                QtCore.Qt.LeftButton,
+                pos=tab_bar.tabRect(index).center(),
+            )
+            app.processEvents()
+        account_index = window.tabs.indexOf(window.account_workspace_page)
+        QtTest.QTest.mouseClick(
+            window.tabs.tabBar(),
+            QtCore.Qt.LeftButton,
+            pos=window.tabs.tabBar().tabRect(account_index).center(),
+        )
+        source_selector = window.account_page.source_selector
+        assert source_selector.font().pointSizeF() > 0
+        for source_index in range(source_selector.count()):
+            QtTest.QTest.mouseClick(
+                source_selector,
+                QtCore.Qt.LeftButton,
+                pos=source_selector.rect().center(),
+            )
+            QtTest.QTest.keyClick(source_selector, QtCore.Qt.Key_Home)
+            for _ in range(source_index):
+                QtTest.QTest.keyClick(source_selector, QtCore.Qt.Key_Down)
+            QtTest.QTest.keyClick(source_selector, QtCore.Qt.Key_Return)
+            app.processEvents()
+        for index in range(window.account_workspace_tabs.count()):
+            tab_bar = window.account_workspace_tabs.tabBar()
+            QtTest.QTest.mouseClick(
+                tab_bar,
+                QtCore.Qt.LeftButton,
+                pos=tab_bar.tabRect(index).center(),
+            )
+            app.processEvents()
+
+        window.account_workspace_tabs.setCurrentWidget(window.account_page)
+        app.processEvents()
+
+        account_charts = (
+            window.account_page.account_charts.allocation_chart_view.chart(),
+            window.account_page.account_charts.history_chart_view.chart(),
+        )
+        for chart in account_charts:
+            assert chart.titleFont().pointSizeF() > 0
+            assert chart.legend().font().pointSizeF() > 0
+            for axis in chart.axes():
+                assert axis.labelsFont().pointSizeF() > 0
+                assert axis.titleFont().pointSizeF() > 0
+            for series in chart.series():
+                if isinstance(series, QtCharts.QPieSeries):
+                    assert all(
+                        slice_.labelFont().pointSizeF() > 0
+                        for slice_ in series.slices()
+                    )
+        assert window.grab().save(str(tmp_path / "windows-full-page-navigation.png"))
+        assert not any(
+            "QFont::setPointSize" in message and "Point size <= 0" in message
+            for message in messages
+        ), messages
+    finally:
+        if window is not None:
+            window.close()
+            app.processEvents()
+        QtCore.qInstallMessageHandler(previous_handler)
 
 
 def test_dashboard_failed_refresh_clears_previous_numbers_metric_by_metric():
