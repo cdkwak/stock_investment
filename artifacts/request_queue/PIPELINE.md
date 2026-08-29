@@ -1,7 +1,7 @@
 # Queue / Orca Agent Pipeline
 
 updated_at: 2026-08-29
-status: operational recovery, session reuse, and offline policy-evaluation guide
+status: reviewed offline Python operational authority; production activation and cutover disabled
 
 This document records how Queue roles, Orca execution state, and Codex sessions
 are resumed without creating a new session or Run for every piece of work. It
@@ -55,6 +55,60 @@ flowchart TD
 The Codex session ID restores conversation context. It does not restore Orca
 Dispatch authority. A resumed agent must be rebound to the correct Run and
 receive a current Task/Dispatch lifecycle before supervised work continues.
+
+## Python operational control plane
+
+The project-local Python controller is the candidate lifecycle authority. It
+can run with Orca disabled and has four deliberately separate boundaries:
+
+1. `RequestQueueStatusAdapter` reads the canonical manager's compact Queue
+   snapshot. `WorkflowController.pump_queue_snapshot` combines that snapshot
+   with sanitized workflow events under a monotonically fenced generation.
+2. `WorkflowController` records accepted facts in the durable workflow state,
+   ignores an exact duplicate without repeating its action, rejects an older
+   lifecycle fact, and emits a content-addressed pump receipt. It atomically
+   reserves the generation and event disposition before any runner side effect;
+   a simultaneous newer generation therefore observes the reserved event and
+   loses without launching a second action. Replaying the same generation and
+   input returns the identical receipt.
+3. `InjectedDirectRunner` performs launch, resume, and settlement only through
+   an injected idempotent boundary. Every operation carries a stable
+   generation-independent `operation_id`; its receipt states
+   `transport=direct`, `orca_used=false`, and
+   `production_mutated=false`. Orca may carry messages but is not required for
+   the event pump or its disabled-Orca canary.
+4. `DiscoveryRegistrar` accepts a Worker or Reviewer finding validated by the
+   routed Lead, or a Lead-origin finding self-validated by that same routed
+   Lead, only at the current Lead generation. All paths require bounded
+   reproducible evidence, a disjoint suspected scope, and duplicate handling.
+   The canonical sink invokes only `scripts/request_queue.py discover`,
+   preserves `reported_by_role`, and returns `state=new` plus
+   `executable=false`; MAIN triage is still required before any candidate can
+   become Ready.
+
+Routing continues to use the deterministic Queue work-item policy, including
+dependency, writer-lane, resource-lock, and exact-scope conflicts. Queue state
+changes remain serialized by `scripts/request_queue.py`; the controller never
+edits Queue files directly and never infers Queue completion from a runner
+receipt.
+
+The controller holds its durable `BEGIN IMMEDIATE` generation/event lock until
+all accepted direct action receipts settle. This intentionally serializes
+in-flight lifecycle effects so a newer REVIEW settlement cannot overtake an
+older unresolved ACTIVE launch even when the two events have different IDs.
+
+Watchdog recovery is bounded to three attempts by default. A connected live
+agent continues without a retry. An agent reported live behind an unverified
+terminal is left alone until terminal identity is proved. Only a dead attempt
+with exact Task, prior Dispatch, next attempt, and deterministic watchdog
+provenance may be settled and resumed; the retry preserves the same Queue Task
+and cannot silently substitute a new task or reused provenance.
+
+This candidate does not install a hook, approve a new command, activate a live
+scheduler, automatically promote a policy, or perform a production cutover.
+The existing independent-review, canary-disabled-by-default, and unconditional
+financial/access/secret/destructive authority refusals remain in force. A
+separately reviewed operation is required before any later cutover.
 
 ## Offline policy lifecycle
 

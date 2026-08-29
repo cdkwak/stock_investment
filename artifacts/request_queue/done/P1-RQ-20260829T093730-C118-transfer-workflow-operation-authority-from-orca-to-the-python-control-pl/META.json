@@ -1,0 +1,50 @@
+{
+  "assigned_agent": "workflow_cutover_lead_20260829",
+  "assigned_role": "lead",
+  "branch": null,
+  "completed_at": "2026-08-29T11:52:57+09:00",
+  "complexity": "critical",
+  "created_at": "2026-08-29T09:37:30+09:00",
+  "created_by": "root_coordinator_20260829",
+  "depends_on": [
+    "RQ-20260829T003946-70A9"
+  ],
+  "domain": "infra",
+  "fingerprint": "workflow-control:python-operational-authority-event-pump-direct-runner-discovery:v1",
+  "heartbeat": null,
+  "id": "RQ-20260829T093730-C118",
+  "intake_role": "coordinator",
+  "kind": "bug",
+  "lead_owner": "workflow_cutover_lead_20260829",
+  "lease_until": null,
+  "legacy_id": null,
+  "owner": null,
+  "parallelizable": false,
+  "parent_task": "user-cutover-20260829",
+  "priority": "P1",
+  "priority_hint": "P1",
+  "reported_by_role": "user",
+  "resource_locks": [
+    "workflow-operational-authority"
+  ],
+  "review_required": true,
+  "reviewer": "workflow_cutover_reviewer_20260829",
+  "reviewer_profile": "critical",
+  "risk": "critical",
+  "schema_version": 1,
+  "slug": "transfer-workflow-operation-authority-from-orca-to-the-python-control-pl",
+  "state": "done",
+  "title": "Transfer workflow operation authority from Orca to the Python Control Plane",
+  "updated_at": "2026-08-29T11:52:57+09:00",
+  "worker_profile": "critical",
+  "worktree": null,
+  "write_scope": [
+    "artifacts/request_queue/PIPELINE.md",
+    "src/stock_data/orchestration/workflow_control/controller.py",
+    "src/stock_data/orchestration/workflow_control/discovery.py",
+    "src/stock_data/orchestration/workflow_control/runner.py",
+    "tests/unit/orchestration/test_workflow_controller.py",
+    "tests/unit/orchestration/test_workflow_discovery.py"
+  ],
+  "writer_lane": "shared"
+}

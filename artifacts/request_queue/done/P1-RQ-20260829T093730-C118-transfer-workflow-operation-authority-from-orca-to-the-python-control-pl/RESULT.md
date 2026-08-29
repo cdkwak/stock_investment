@@ -1,0 +1,4 @@
+result: Final Python control-plane candidate serializes in-flight lifecycle effects, preserves stable direct identities, and routes Worker/Reviewer/Lead discoveries into non-executable New; no production cutover.
+changed: Exact six-file manifest with durable ACTIVE-to-REVIEW ordering, current-generation Lead-origin discovery acceptance, regressions, and synchronized PIPELINE contract.
+verified: focused 19/19; workflow-control 81/81; request-queue 82/82; py_compile; exact-path diff check; Queue Doctor; both reviewer race reproductions closed; independent review by workflow_cutover_reviewer_20260829: Fresh final Reviewer task_d72993b75359 PASS: exact six hashes/HANDOFF matched; 19 focused, 81 workflow-control, 82 request-queue tests, py_compile, diff check, Doctor, both concurrency races, and Worker/Reviewer/Lead New provenance passed.
+completed_at: 2026-08-29T11:52:57+09:00
