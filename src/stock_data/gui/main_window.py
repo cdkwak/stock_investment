@@ -12458,23 +12458,39 @@ class ResearchWorkspacePage(QtWidgets.QWidget):
 
         chart_panel = self._new_panel("CHART")
         chart_layout = QtWidgets.QVBoxLayout(chart_panel)
+        self.chart_stack = QtWidgets.QStackedWidget()
+        self.chart_unavailable = QtWidgets.QLabel(
+            "차트 사용 불가\nCtrl+K로 정확한 종목을 선택하세요."
+        )
+        self.chart_unavailable.setObjectName("unavailableState")
+        self.chart_unavailable.setAccessibleName(
+            "선택 종목 없음 · Research 차트 사용 불가"
+        )
+        self.chart_unavailable.setAlignment(QtCore.Qt.AlignCenter)
+        self.chart_unavailable.setWordWrap(True)
         self.chart = pg.PlotWidget()
         self.chart.setAccessibleName("선택 종목 종가 차트")
         self.chart.showGrid(x=True, y=True, alpha=.2)
         self.chart.setLabel("left", "가격")
         self.chart.setLabel("bottom", "표시 관측 순서")
-        chart_layout.addWidget(self.chart)
+        self.chart_stack.addWidget(self.chart_unavailable)
+        self.chart_stack.addWidget(self.chart)
+        chart_layout.addWidget(self.chart_stack)
 
         table_panel = self._new_panel("OHLCV")
+        # Native Windows' Korean UI font needs more horizontal advance than
+        # the offscreen fallback; reserve enough width for all six meanings.
+        table_panel.setMinimumWidth(420)
         table_layout = QtWidgets.QVBoxLayout(table_panel)
         self.ohlcv_table = QtWidgets.QTableWidget(0, 6)
         self.ohlcv_table.setHorizontalHeaderLabels(
-            ("date", "open", "high", "low", "close", "volume")
+            ("날짜", "시가", "고가", "저가", "종가", "거래량")
         )
+        self.ohlcv_table.setAccessibleName("날짜 시가 고가 저가 종가 거래량 OHLCV 표")
         self.ohlcv_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         self.ohlcv_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         self.ohlcv_table.horizontalHeader().setSectionResizeMode(
-            QtWidgets.QHeaderView.ResizeToContents
+            QtWidgets.QHeaderView.Stretch
         )
         table_layout.addWidget(self.ohlcv_table)
 
@@ -12548,7 +12564,9 @@ class ResearchWorkspacePage(QtWidgets.QWidget):
         self._selected_identity = identity
         self._series_view = None
         self.summary.setText(f"{identity.display_label} · 로컬 시계열 읽는 중…")
-        self._clear_numeric_surfaces()
+        self._clear_numeric_surfaces(
+            f"차트 확인 중\n{identity.display_label}의 로컬 시계열을 검증하고 있습니다."
+        )
         self.instrument_facts.setText(identity.display_label)
         self.source_status.setText("이전 숫자 제거 완료 · exact local typed view 확인 중")
 
@@ -12563,7 +12581,7 @@ class ResearchWorkspacePage(QtWidgets.QWidget):
         try:
             facts = instrument_facts_view(view)
         except (TypeError, ValueError):
-            self._clear_numeric_surfaces()
+            self._clear_numeric_surfaces("차트 사용 불가\n종목 정보 계약 검증 실패")
             self.instrument_facts.setText(view.identity.display_label)
             self.source_status.setText("종목 정보 계약 검증 실패 · 숫자 숨김")
             self.summary.setText(f"{view.identity.display_label} · 숫자 숨김")
@@ -12579,7 +12597,10 @@ class ResearchWorkspacePage(QtWidgets.QWidget):
             + (f"\nreason={view.unavailable_reason}" if view.unavailable_reason else "")
         )
         if not displays_values:
-            self._clear_numeric_surfaces()
+            self._clear_numeric_surfaces(
+                "차트 사용 불가\n"
+                f"{view.unavailable_reason or view.freshness}"
+            )
             self.summary.setText(
                 f"{view.identity.display_label} · 숫자 숨김 · "
                 f"{view.unavailable_reason or view.freshness}"
@@ -12592,10 +12613,17 @@ class ResearchWorkspacePage(QtWidgets.QWidget):
         close = pd.to_numeric(frame["close"], errors="coerce").to_numpy(dtype=float)
         self.chart.clear()
         self.chart.plot(np.arange(len(close), dtype=float), close, pen=pg.mkPen("#60a5fa", width=2))
+        self.chart_stack.setCurrentWidget(self.chart)
         self._render_ohlcv(frame)
 
-    def _clear_numeric_surfaces(self) -> None:
+    def _clear_numeric_surfaces(
+        self,
+        chart_state: str = "차트 사용 불가\nCtrl+K로 정확한 종목을 선택하세요.",
+    ) -> None:
         self.chart.clear()
+        self.chart_unavailable.setText(chart_state)
+        self.chart_unavailable.setAccessibleName(chart_state.replace("\n", " · "))
+        self.chart_stack.setCurrentWidget(self.chart_unavailable)
         self.ohlcv_table.clearContents()
         self.ohlcv_table.setRowCount(0)
 

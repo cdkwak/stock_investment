@@ -345,6 +345,51 @@ def test_research_workspace_renders_exact_typed_ohlcv_and_suppresses_unavailable
     app.processEvents()
 
 
+def test_research_workspace_no_symbol_state_and_ohlcv_headers_fit_at_1600x900(
+    tmp_path,
+):
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    store = research_preferences_module.LocalResearchWorkspacePreferencesStore(
+        tmp_path / "research-workspace.json"
+    )
+    page = main_window_module.ResearchWorkspacePage(
+        store, store.load().preferences,
+    )
+
+    for _ in range(2):
+        page.resize(1600, 900)
+        page.show()
+        app.processEvents()
+
+        assert page._selected_identity is None
+        assert page.chart_stack.currentWidget() is page.chart_unavailable
+        assert page.chart_unavailable.isVisibleTo(page)
+        assert not page.chart.isVisibleTo(page)
+        assert "차트 사용 불가" in page.chart_unavailable.text()
+        assert "Ctrl+K" in page.chart_unavailable.text()
+        assert not page.chart.listDataItems()
+
+        header = page.ohlcv_table.horizontalHeader()
+        labels = ("날짜", "시가", "고가", "저가", "종가", "거래량")
+        assert tuple(
+            page.ohlcv_table.horizontalHeaderItem(column).text()
+            for column in range(page.ohlcv_table.columnCount())
+        ) == labels
+        assert all(
+            header.sectionViewportPosition(column) >= 0
+            and header.sectionViewportPosition(column) + header.sectionSize(column)
+            <= header.viewport().width()
+            and header.sectionSize(column)
+            >= header.fontMetrics().horizontalAdvance(label) + 8
+            for column, label in enumerate(labels)
+        )
+        page.hide()
+        app.processEvents()
+
+    page.close()
+    app.processEvents()
+
+
 def test_research_workspace_panel_preset_save_restart_and_reset(tmp_path):
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     path = tmp_path / "research-workspace.json"

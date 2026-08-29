@@ -1,7 +1,7 @@
 # Request Queue Board
 
-updated_at: 2026-08-30T04:43:29+09:00
-generated_from_digest: 829ee8e5298cc40d9d0758ebaa04fdd37100ffae71d292d7456903459398f1f9
+updated_at: 2026-08-30T05:11:48+09:00
+generated_from_digest: 7ed118f46f04e81c3f8fdb6cc03c7a854a1b6170af31783c361d79fe12b8f839
 mode: domain-parallel
 writer_limit: 3
 
@@ -22,11 +22,10 @@ writer_limit: 3
 5. P2-RQ-20260826T005041-B6C3-define-a-secure-always-on-read-only-application-service-and-remote-acces | domain=- | lead=- | profiles=strong/critical | depends_on=RQ-20260826T004445-B2ED,RQ-20260826T004630-7CC5,RQ-20260826T003644-E9A5,RQ-20260826T012155-BB66
 6. P2-RQ-20260826T012155-BB66-define-a-holdings-driven-multi-currency-account-nav-and-valuation-freshn | domain=- | lead=- | profiles=strong/critical | depends_on=RQ-20260826T004445-B2ED
 7. P2-RQ-20260826T012440-3679-establish-kospi-forward-per-pbr-source-licensing-and-aggregation-evidenc | domain=research | lead=forward_valuation_lead | profiles=strong/critical | depends_on=RQ-20260825T232533-76A1
-8. P2-RQ-20260830T022655-E155-research-empty-chart-appears-numeric-and-ohlcv-headers-clip | domain=gui | lead=gui_lead | profiles=balanced/strong | depends_on=-
-9. P2-RQ-20260830T022656-F3CF-windows-full-page-navigation-emits-negative-qfont-point-size-warnings | domain=gui | lead=gui_lead | profiles=strong/critical | depends_on=-
+8. P2-RQ-20260830T022656-F3CF-windows-full-page-navigation-emits-negative-qfont-point-size-warnings | domain=gui | lead=gui_lead | profiles=strong/critical | depends_on=-
 
 ## New Discoveries
-- count: 2
+- count: 3
 
 ## Blocked
 - none
