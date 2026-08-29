@@ -1,7 +1,7 @@
 # Request Queue Board
 
-updated_at: 2026-08-29T09:55:05+09:00
-generated_from_digest: 1420be33800c425fb4e250c3f69039f211966d77e3af3b1168ccfa2ed19d8e66
+updated_at: 2026-08-29T10:41:28+09:00
+generated_from_digest: 68af6529aa0e556c8fd5af8d6c769bb6ecf33689853631c4f3a72738d018b66c
 mode: domain-parallel
 writer_limit: 3
 
@@ -16,11 +16,10 @@ writer_limit: 3
 
 ## Ready
 1. P1-RQ-20260826T014826-B608-add-a-korean-government-bond-yield-curve-to-the-dashboard | domain=- | lead=- | profiles=strong/critical | depends_on=RQ-20260826T004102-BB30,RQ-20260826T020213-744E,RQ-20260825T232533-76A1,RQ-20260826T011334-F6D5
-2. P1-RQ-20260829T003946-70A9-add-a-fail-closed-workflow-policy-evaluation-and-promotion-lifecycle | domain=infra | lead=workflow_policy_lead_20260829 | profiles=critical/critical | depends_on=RQ-20260829T003900-24A5,RQ-20260829T003912-025B,RQ-20260829T003930-0BD9
-3. P1-RQ-20260829T093730-C118-transfer-workflow-operation-authority-from-orca-to-the-python-control-pl | domain=infra | lead=workflow_cutover_lead_20260829 | profiles=critical/critical | depends_on=RQ-20260829T003946-70A9
-4. P2-RQ-20260826T004917-0AF5-define-a-pit-vintage-aware-macro-regime-and-market-transmission-contract | domain=- | lead=- | profiles=strong/critical | depends_on=RQ-20260826T004102-BB30
-5. P2-RQ-20260826T005041-B6C3-define-a-secure-always-on-read-only-application-service-and-remote-acces | domain=- | lead=- | profiles=strong/critical | depends_on=RQ-20260826T004445-B2ED,RQ-20260826T004630-7CC5,RQ-20260826T003644-E9A5,RQ-20260826T012155-BB66
-6. P2-RQ-20260826T012155-BB66-define-a-holdings-driven-multi-currency-account-nav-and-valuation-freshn | domain=- | lead=- | profiles=strong/critical | depends_on=RQ-20260826T004445-B2ED
+2. P1-RQ-20260829T093730-C118-transfer-workflow-operation-authority-from-orca-to-the-python-control-pl | domain=infra | lead=workflow_cutover_lead_20260829 | profiles=critical/critical | depends_on=RQ-20260829T003946-70A9
+3. P2-RQ-20260826T004917-0AF5-define-a-pit-vintage-aware-macro-regime-and-market-transmission-contract | domain=- | lead=- | profiles=strong/critical | depends_on=RQ-20260826T004102-BB30
+4. P2-RQ-20260826T005041-B6C3-define-a-secure-always-on-read-only-application-service-and-remote-acces | domain=- | lead=- | profiles=strong/critical | depends_on=RQ-20260826T004445-B2ED,RQ-20260826T004630-7CC5,RQ-20260826T003644-E9A5,RQ-20260826T012155-BB66
+5. P2-RQ-20260826T012155-BB66-define-a-holdings-driven-multi-currency-account-nav-and-valuation-freshn | domain=- | lead=- | profiles=strong/critical | depends_on=RQ-20260826T004445-B2ED
 
 ## New Discoveries
 - count: 2

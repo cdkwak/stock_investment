@@ -1,7 +1,7 @@
 # Request Queue Workflow
 
-updated_at: 2026-08-28
-snapshot: Queue v2.1
+updated_at: 2026-08-29
+snapshot: Queue v2.2
 
 This is the concise current operating-model snapshot. The canonical protocol is
 [README.md](README.md), and the generated live state is [BOARD.md](BOARD.md).
@@ -15,8 +15,11 @@ restart reconciliation are defined in [PIPELINE.md](PIPELINE.md).
   runbooks define what work is authorized and what facts are accepted.
 - Queue owns request identity, priority, dependencies, domain and Lead routing,
   exact write reservations, review policy, checkpoint, and business lifecycle.
-- Orca owns supervised execution conversations, Dispatch attempts, terminal
-  state, wakeups, questions, escalations, and `worker_done` delivery.
+- The Python workflow-control package owns deterministic offline policy replay,
+  authority evaluation, and content-addressed lifecycle receipts.
+- Orca may transport supervised conversations, Dispatch attempts, questions,
+  escalations, and `worker_done` delivery. It is optional transport and does
+  not confer policy or production authority.
 - Queue Submit does not require a mirrored Orca Dispatch status. `ORCA_STATE.json`
   is a bounded locator; legacy reconciliation remains compatibility telemetry.
 
@@ -55,6 +58,35 @@ the submitted write reservation. A shared lane is exclusive; other lanes allow
 up to three pairwise-disjoint writers subject to exact scope and resource-lock
 checks. Lead mutations use the current Queue generation, and non-Lead claims use
 the one-time raw claim capability, so stale writers fail closed.
+
+## Policy proposal lifecycle
+
+```text
+accepted workflow-event snapshot -> versioned proposal -> offline replay
+-> immutable independent review -> explicitly enabled bounded canary
+-> promotion or rollback decision receipt -> separate authorized cutover
+```
+
+- Proposal generations are content digests bound to an accepted snapshot
+  generation, canonical event digest, event IDs, and acceptance-receipt digest.
+- Replay is order-independent, offline, and deterministic. Stale generations
+  and event substitution fail before a receipt is issued.
+- The Reviewer identity must differ from the implementation identity. Any
+  proposal change creates a new generation and invalidates prior review.
+- Canary criteria are bounded and disabled by default. Disabled, incomplete,
+  over-bound, or failure-limit canaries return explicit refusal receipts.
+- Promotion and rollback are explicit, content-addressed decisions with
+  `production_mutated=false`; neither automatically changes current policy,
+  Queue state, a scheduler, or an external system.
+- Authority evaluation allows local replay/proposal work, requires review plus
+  standing authority for account reads and lifecycle actions, and always
+  refuses broker/order, transfer/withdrawal, financial mutation,
+  access-control, secret, paid-service, and destructive-migration actions.
+  Unknown and unreviewed standing-authority actions fail closed.
+
+This snapshot defines the offline policy bootstrap only. Live scheduler
+activation and production control-plane cutover remain outside this lifecycle
+and require their own accepted operation.
 
 ## Lead execution loop
 

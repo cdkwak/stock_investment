@@ -1,7 +1,7 @@
 # Queue / Orca Agent Pipeline
 
-updated_at: 2026-08-28
-status: operational recovery and session-reuse guide
+updated_at: 2026-08-29
+status: operational recovery, session reuse, and offline policy-evaluation guide
 
 This document records how Queue roles, Orca execution state, and Codex sessions
 are resumed without creating a new session or Run for every piece of work. It
@@ -18,7 +18,9 @@ snapshot in `WORKFLOW.md`, or live state in `BOARD.md`.
 - Workers are reused when identity, scope, and lifecycle ownership are safe.
 - Reviewers remain independent from the implementation context for each
   immutable review generation.
-- Queue remains business authority; Orca remains execution authority.
+- Queue remains business authority. The Python workflow-control package owns
+  deterministic offline policy evaluation and lifecycle receipts; Orca is an
+  optional supervised transport, not policy authority.
 
 ```mermaid
 flowchart TD
@@ -53,6 +55,34 @@ flowchart TD
 The Codex session ID restores conversation context. It does not restore Orca
 Dispatch authority. A resumed agent must be rebound to the correct Run and
 receive a current Task/Dispatch lifecycle before supervised work continues.
+
+## Offline policy lifecycle
+
+Policy changes are proposals, never direct production mutations. A proposal is
+content-addressed and binds one accepted workflow-event snapshot generation,
+its event IDs and canonical event digest, and the digest of its acceptance
+receipt. Offline replay rejects a stale proposal generation or any substituted
+event set before it produces a deterministic receipt.
+
+Promotion eligibility requires all of the following receipts for the same
+immutable proposal generation:
+
+1. deterministic replay of the accepted snapshot;
+2. `PASS` from a reviewer identity different from the implementation identity;
+3. a bounded canary receipt whose criteria were explicitly enabled and met.
+
+Canary evaluation is disabled by default. Promotion and rollback functions
+produce content-addressed decision receipts with `production_mutated=false`;
+they do not edit Queue state, activate a scheduler, cut over production, or
+call an external service. A later separately reviewed operation must consume an
+approved receipt to perform any authorized cutover.
+
+Authority evaluation is fail closed. Local proposal and replay work is allowed;
+account reads, canaries, promotion, rollback, and other standing-authority
+actions require both standing authority and independent review. Broker/order,
+transfer/withdrawal, financial mutation, access-control, secret handling,
+paid-service, and destructive-migration actions remain prohibited even when a
+caller claims review or standing authority. Unknown action classes are rejected.
 
 ## Durable role registry
 
@@ -127,6 +157,11 @@ Recovery is reconciliation, not blanket recreation.
    work. Preserve the existing Queue Task and checkpoint.
 8. Re-run required independent review from the exact current review generation.
 9. Update the registry only after Orca readback proves the new identities.
+
+Python lifecycle, wakeup, recovery, routing, discovery, and policy authority is
+the target control plane. Until a separately accepted cutover activates those
+operations, this policy lifecycle remains offline and Orca may continue as an
+optional transport without becoming a second source of policy truth.
 
 Typical recovery commands are intentionally shown with placeholders:
 

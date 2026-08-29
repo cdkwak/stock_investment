@@ -35,3 +35,24 @@ continues to describe only the current workflow.
 - Kept Queue as business authority and Orca as execution authority: recovery
   reuses verified Run/Task/session provenance, reconciles stale Dispatches, and
   never treats `reset --all` or blanket process recreation as routine startup.
+
+## 2026-08-29 — Queue v2.2 offline workflow-policy lifecycle
+
+- Added content-addressed, versioned policy proposals bound to an accepted
+  workflow-event snapshot generation, canonical event digest, event IDs, and
+  acceptance-receipt digest, with deterministic offline replay and stale-
+  generation/event-substitution rejection.
+- Required an immutable `PASS` receipt from an identity independent of the
+  implementation identity. Any candidate change creates a new proposal
+  generation and invalidates prior review evidence.
+- Added bounded canary criteria that are disabled by default plus explicit
+  refusal, promotion, and rollback receipts. Receipt evaluation is side-effect
+  free and cannot activate a scheduler, promote production, or mutate Queue or
+  external state.
+- Added fail-closed authority tiers: local proposal/replay work is allowed;
+  account and standing-authority lifecycle actions require review and standing
+  authority; broker/order, transfer/withdrawal, financial, access-control,
+  secret, paid-service, and destructive-migration actions remain prohibited.
+- Established Python workflow-control as the target policy authority while
+  retaining Orca only as optional supervised transport. Live cutover remains a
+  separate reviewed operation.

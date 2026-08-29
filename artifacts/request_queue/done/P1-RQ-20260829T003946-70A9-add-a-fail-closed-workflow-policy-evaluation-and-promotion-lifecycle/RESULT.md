@@ -1,0 +1,4 @@
+result: Offline fail-closed workflow-policy lifecycle is corrected and fully validated without live activation or production mutation.
+changed: Exact six-file manifest now requires a validated same-generation/snapshot-bound ReplayReceipt for promotion, strict boolean authority evidence, physically possible canary counts, and the original immutable lifecycle/docs.
+verified: 27 focused and 144 owning tests PASS; all reviewer negative reproductions PASS; py_compile and exact diff --check PASS; Queue Doctor OK; pre-submit HANDOFF sha256 1d66a0b718953d1ab82960c20acbadb56ffa677c33bc4603f40a66370c7c89c8.; independent review by workflow_control_reviewer_20260829: Fresh independent Reviewer task_036f90b3fd42 verified exact six hashes, Queue generation, HANDOFF digest, 27 focused and 144 owning tests, py_compile, diff check, Doctor, and all three negative regressions; PASS with no mutations.
+completed_at: 2026-08-29T10:41:28+09:00
