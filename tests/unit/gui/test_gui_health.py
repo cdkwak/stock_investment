@@ -510,3 +510,35 @@ def test_data_status_issue_first_layout_preserves_all_typed_detail_and_filters(t
     assert page.detail_text.isVisible()
     page.close()
     app.processEvents()
+
+
+def test_data_status_summary_cards_fit_complete_wrapped_text_at_1600x900(tmp_path):
+    _write_health(tmp_path, [
+        _row("kr_kospi200_index_daily", "UNKNOWN"),
+        _row("global_etf_price_daily", "BLOCKED", "BLOCKED"),
+    ])
+    view = DailyHealthArtifactService(tmp_path).load()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    page = DataStatusPage()
+    page.resize(1600, 840)
+    page.show()
+    page.render_report(view)
+    app.processEvents()
+
+    cards = (page.overall, page.freshness, page.eligibility, page.boundary)
+    assert len(cards) == 4
+    assert len({card.height() for card in cards}) == 1
+    for card in cards:
+        required_height = card.body.fontMetrics().boundingRect(
+            QtCore.QRect(0, 0, max(card.body.width(), 1), 10_000),
+            QtCore.Qt.TextWordWrap,
+            card.body.text(),
+        ).height()
+        assert required_height <= card.body.height()
+        assert card.accessibleDescription() == card.body.text().replace("\n", " · ")
+
+    assert "자동 운영" in page.overall.body.text()
+    assert "전체 80" in page.boundary.body.text()
+    assert "확인 대상 80" in page.boundary.body.text()
+    page.close()
+    app.processEvents()

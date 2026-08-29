@@ -10816,10 +10816,18 @@ class DataStatusPage(QtWidgets.QScrollArea):
         self.freshness = MetricCard("정상")
         self.eligibility = MetricCard("정상적인 지연")
         self.boundary = MetricCard("전체 데이터")
+        self._summary_cards = (
+            self.overall, self.freshness, self.eligibility, self.boundary,
+        )
+        self._summary_card_fit_pending = False
         summary = QtWidgets.QHBoxLayout()
         summary.setSpacing(7)
-        for card in (self.overall, self.freshness, self.eligibility, self.boundary):
-            card.setFixedHeight(102)
+        for card in self._summary_cards:
+            card.setMinimumHeight(102)
+            card.setSizePolicy(
+                QtWidgets.QSizePolicy.Expanding,
+                QtWidgets.QSizePolicy.Minimum,
+            )
             card.setFocusPolicy(QtCore.Qt.StrongFocus)
             card.installEventFilter(self)
             summary.addWidget(card, 1)
@@ -11003,6 +11011,40 @@ class DataStatusPage(QtWidgets.QScrollArea):
         QtWidgets.QWidget.setTabOrder(self.text_filter, self.reset_filters_button)
         QtWidgets.QWidget.setTabOrder(self.reset_filters_button, self.table)
         QtWidgets.QWidget.setTabOrder(self.table, self.detail_panel)
+
+    def _schedule_summary_card_fit(self) -> None:
+        if self._summary_card_fit_pending:
+            return
+        self._summary_card_fit_pending = True
+        QtCore.QTimer.singleShot(0, self._fit_summary_cards_to_text)
+
+    def _fit_summary_cards_to_text(self) -> None:
+        """Give every summary card enough height for its full wrapped text."""
+        self._summary_card_fit_pending = False
+        if not self.isVisible():
+            return
+        required_heights = []
+        for card in self._summary_cards:
+            body_width = max(card.body.width(), 1)
+            body_height = card.body.fontMetrics().boundingRect(
+                QtCore.QRect(0, 0, body_width, 10_000),
+                QtCore.Qt.TextWordWrap,
+                card.body.text(),
+            ).height()
+            chrome_height = max(card.height() - card.body.height(), 0)
+            required_heights.append(max(102, chrome_height + body_height + 2))
+            card.setAccessibleDescription(card.body.text().replace("\n", " · "))
+        target_height = max(required_heights, default=102)
+        for card in self._summary_cards:
+            card.setMinimumHeight(target_height)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt override
+        super().resizeEvent(event)
+        self._schedule_summary_card_fit()
+
+    def showEvent(self, event) -> None:  # noqa: N802 - Qt override
+        super().showEvent(event)
+        self._schedule_summary_card_fit()
 
     def render_refresh_status(self, projection: RefreshStatusProjection) -> None:
         labels = {
@@ -11290,6 +11332,7 @@ class DataStatusPage(QtWidgets.QScrollArea):
             "로컬 보존 데이터 · 읽기 전용",
             f"연구/정적 {_fmt(health.get('research_only', 0))}",
         ])
+        self._schedule_summary_card_fit()
 
     @staticmethod
     def _is_research_static(row: HealthDatasetRow) -> bool:
@@ -11325,6 +11368,7 @@ class DataStatusPage(QtWidgets.QScrollArea):
                 f"전체 {len(view.rows)} · 연구/정적 {research_static}",
                 f"확인 대상 {issue_count} · 예측 사용 제한 {predictive_blocked} · 로컬 읽기 전용",
             ])
+            self._schedule_summary_card_fit()
         detail = f"{'준비됨' if view.artifact_state == 'READY' else '사용 불가'} · {view.source}"
         if view.warning:
             detail += f" · {view.warning}"

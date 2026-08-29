@@ -1,7 +1,7 @@
 # Request Queue Board
 
-updated_at: 2026-08-30T03:15:07+09:00
-generated_from_digest: 1fb7e5920496588f921288382de8b17f39290c2c35952eb4b863bed7a4f1a4d1
+updated_at: 2026-08-30T03:39:08+09:00
+generated_from_digest: 12afe6ff24317c61ed38a552a5bf6bce2f679aa422bd51c90ad0edd2cf6bbccd
 mode: domain-parallel
 writer_limit: 3
 
@@ -22,11 +22,10 @@ writer_limit: 3
 5. P2-RQ-20260826T005041-B6C3-define-a-secure-always-on-read-only-application-service-and-remote-acces | domain=- | lead=- | profiles=strong/critical | depends_on=RQ-20260826T004445-B2ED,RQ-20260826T004630-7CC5,RQ-20260826T003644-E9A5,RQ-20260826T012155-BB66
 6. P2-RQ-20260826T012155-BB66-define-a-holdings-driven-multi-currency-account-nav-and-valuation-freshn | domain=- | lead=- | profiles=strong/critical | depends_on=RQ-20260826T004445-B2ED
 7. P2-RQ-20260826T012440-3679-establish-kospi-forward-per-pbr-source-licensing-and-aggregation-evidenc | domain=research | lead=forward_valuation_lead | profiles=strong/critical | depends_on=RQ-20260825T232533-76A1
-8. P2-RQ-20260830T022652-98DC-data-status-summary-card-detail-text-clips-vertically | domain=gui | lead=gui_lead | profiles=balanced/strong | depends_on=-
-9. P2-RQ-20260830T022654-9DE5-selected-equity-identity-detail-and-right-rail-clip-at-1600x900 | domain=gui | lead=gui_lead | profiles=strong/critical | depends_on=-
-10. P2-RQ-20260830T022655-2FA6-current-candidate-refresh-ends-in-local_candidate_read_failed-without-re | domain=gui | lead=gui_lead | profiles=strong/critical | depends_on=-
-11. P2-RQ-20260830T022655-E155-research-empty-chart-appears-numeric-and-ohlcv-headers-clip | domain=gui | lead=gui_lead | profiles=balanced/strong | depends_on=-
-12. P2-RQ-20260830T022656-F3CF-windows-full-page-navigation-emits-negative-qfont-point-size-warnings | domain=gui | lead=gui_lead | profiles=strong/critical | depends_on=-
+8. P2-RQ-20260830T022654-9DE5-selected-equity-identity-detail-and-right-rail-clip-at-1600x900 | domain=gui | lead=gui_lead | profiles=strong/critical | depends_on=-
+9. P2-RQ-20260830T022655-2FA6-current-candidate-refresh-ends-in-local_candidate_read_failed-without-re | domain=gui | lead=gui_lead | profiles=strong/critical | depends_on=-
+10. P2-RQ-20260830T022655-E155-research-empty-chart-appears-numeric-and-ohlcv-headers-clip | domain=gui | lead=gui_lead | profiles=balanced/strong | depends_on=-
+11. P2-RQ-20260830T022656-F3CF-windows-full-page-navigation-emits-negative-qfont-point-size-warnings | domain=gui | lead=gui_lead | profiles=strong/critical | depends_on=-
 
 ## New Discoveries
 - count: 2
