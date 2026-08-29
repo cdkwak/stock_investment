@@ -1,0 +1,47 @@
+{
+  "assigned_agent": "workflow_routing_lead_20260829",
+  "assigned_role": "lead",
+  "branch": null,
+  "completed_at": "2026-08-29T09:52:06+09:00",
+  "complexity": "complex",
+  "created_at": "2026-08-29T00:39:30+09:00",
+  "created_by": "workflow_steward_20260829",
+  "depends_on": [
+    "RQ-20260829T003900-24A5"
+  ],
+  "domain": "infra",
+  "fingerprint": "workflow-steward:pm-lead-profiles-three-lead-runnable-buffer:v1",
+  "heartbeat": null,
+  "id": "RQ-20260829T003930-0BD9",
+  "intake_role": "goal_planner",
+  "kind": "bug",
+  "lead_owner": "workflow_routing_lead_20260829",
+  "lease_until": null,
+  "legacy_id": null,
+  "owner": null,
+  "parallelizable": true,
+  "parent_task": "PROJECT_GOAL",
+  "priority": "P1",
+  "priority_hint": "P2",
+  "reported_by_role": "goal_planner",
+  "resource_locks": [
+    "workflow-role-routing"
+  ],
+  "review_required": true,
+  "reviewer": "workflow_control_reviewer_20260829",
+  "reviewer_profile": "critical",
+  "risk": "medium",
+  "schema_version": 1,
+  "slug": "add-role-aware-pm-and-lead-profiles-with-a-safe-three-lead-runnable-buff",
+  "state": "done",
+  "title": "Add role-aware PM and Lead profiles with a safe three-Lead runnable-buffer planner",
+  "updated_at": "2026-08-29T09:52:06+09:00",
+  "worker_profile": "strong",
+  "worktree": null,
+  "write_scope": [
+    "src/stock_data/orchestration/workflow_control/codex_adapter.py",
+    "src/stock_data/orchestration/workflow_control/routing.py",
+    "tests/unit/orchestration/test_workflow_routing.py"
+  ],
+  "writer_lane": "data"
+}
