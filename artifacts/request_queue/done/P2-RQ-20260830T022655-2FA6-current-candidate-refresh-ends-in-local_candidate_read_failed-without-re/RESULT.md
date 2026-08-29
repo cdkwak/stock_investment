@@ -1,0 +1,6 @@
+result: F-GUI-20260830-005 fixed: Current Candidates Refresh now loads valid/valid-empty retained results or reports typed privacy-safe missing, corrupt, empty-input, and stale states with exact local recovery actions.
+changed: Added a GUI retained-candidate scan adapter that validates the typed scanner view, applies canonical KR expected-latest policy, sanitizes failures, and preserves READY zero-candidate results; Research Workspace renders accessible recovery text and repeat refresh remains enabled after every result.
+verified: Provider-free current retained scan returns LOCAL_CANDIDATE_INPUT_CORRUPT with recovery instead of terminal LOCAL_CANDIDATE_READ_FAILED; QTest repeat clicks passed; 16 focused scanner/GUI tests passed; py_compile 4/4; diff check clean; Queue Doctor OK.; independent review by fresh_gui_reviewer: Fresh independent critical read-only Reviewer PASS reported by PM for immutable generation 0b5fd4be6b46136ef879af61eb45e589 and HANDOFF sha256 7d5859fb4d2d8744c7f5b6508322a836d4a15df5598f660dc805fa46c600b006; exact hashes and 16 focused tests matched.
+completed_at: 2026-08-30T04:43:29+09:00
+review_generation: 0b5fd4be6b46136ef879af61eb45e589
+reviewed_by: fresh_gui_reviewer

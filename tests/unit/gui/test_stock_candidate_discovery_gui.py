@@ -1,18 +1,21 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime
 import os
 from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6 import QtCore, QtWidgets
+import pytest
+from PySide6 import QtCore, QtTest, QtWidgets
 
 from stock_data.gui.main_window import MainWindow, ResearchWorkspacePage
 from stock_data.gui.research_workspace_preferences import (
     DEFAULT_PREFERENCES,
     LocalResearchWorkspacePreferencesStore,
 )
+from stock_data.gui.services import RetainedCandidateScanService
 from stock_research.candidate_discovery import (
     CandidateAxisEvidence,
     StockCandidateEvidence,
@@ -23,6 +26,7 @@ from stock_research.exploratory_scanner import (
     EXPLORATORY_SCANNER_VERSION,
     ExploratoryCandidateView,
     ExploratoryStockCandidate,
+    LocalExploratoryCandidateScanner,
 )
 
 
@@ -248,3 +252,162 @@ def test_candidate_scan_pending_is_not_overwritten_by_general_equity_request():
     app.processEvents()
     assert resumed == ["candidate"]
     assert fake._equity_pending == ("search", "005930")
+
+
+def exploratory_view(*, as_of: str, with_candidate: bool) -> ExploratoryCandidateView:
+    candidates = (
+        ExploratoryStockCandidate(
+            symbol="005930", name="삼성전자", market="KOSPI",
+            as_of=as_of, close=70_000.0, volume=1_000_000,
+            rsi14=28.5, disparity60=91.2, technical_state="과매도",
+            data_caution=None,
+        ),
+    ) if with_candidate else ()
+    return ExploratoryCandidateView(
+        contract_version=EXPLORATORY_SCANNER_VERSION,
+        availability="READY",
+        as_of=as_of,
+        scanned_instruments=1,
+        eligible_instruments=len(candidates),
+        candidates=candidates,
+        criteria="RSI14 <= 30 OR close/SMA60 <= 80%",
+        source_note=(
+            "kr_equity_price_daily provider-native original price; current dated universe; "
+            "optional exact-date KRX MDCSTAT03501 current PER/PBR observation; "
+            "descriptive only; forward earnings and relative-value judgment not connected"
+        ),
+    )
+
+
+@pytest.mark.parametrize("with_candidate", [True, False])
+def test_retained_candidate_scan_service_preserves_valid_and_valid_empty(
+    tmp_path, with_candidate,
+):
+    view = exploratory_view(as_of="2026-08-25", with_candidate=with_candidate)
+    service = RetainedCandidateScanService(
+        tmp_path,
+        scanner=SimpleNamespace(scan=lambda: view),
+        now_utc=datetime.fromisoformat("2026-08-26T09:00:00+09:00"),
+    )
+
+    result = service.scan()
+
+    assert result == view
+    assert result.availability == "READY"
+    assert result.unavailable_reason is None
+    assert len(result.candidates) == int(with_candidate)
+
+
+@pytest.mark.parametrize(
+    ("scanner_reason", "expected_code", "recovery_fragment"),
+    [
+        (
+            "LOCAL_PRICE_DATASET_MISSING",
+            "LOCAL_CANDIDATE_INPUT_MISSING",
+            "kr_equity_price_daily",
+        ),
+        (
+            "LOCAL_CANDIDATE_READ_FAILED",
+            "LOCAL_CANDIDATE_INPUT_CORRUPT",
+            "검증·재생성",
+        ),
+        (
+            "LOCAL_CANDIDATE_INPUT_EMPTY",
+            "LOCAL_CANDIDATE_INPUT_EMPTY",
+            "최신 파티션",
+        ),
+    ],
+)
+def test_retained_candidate_scan_service_returns_typed_input_recovery(
+    tmp_path, scanner_reason, expected_code, recovery_fragment,
+):
+    unavailable = LocalExploratoryCandidateScanner(tmp_path).unavailable(scanner_reason)
+    service = RetainedCandidateScanService(
+        tmp_path,
+        scanner=SimpleNamespace(scan=lambda: unavailable),
+        now_utc=datetime.fromisoformat("2026-08-30T09:00:00+09:00"),
+    )
+
+    result = service.scan()
+
+    assert result.availability == "UNAVAILABLE"
+    assert result.candidates == ()
+    assert result.unavailable_reason.startswith(expected_code)
+    assert "recovery=" in result.unavailable_reason
+    assert recovery_fragment in result.unavailable_reason
+    assert str(tmp_path) not in result.unavailable_reason
+
+
+def test_retained_candidate_scan_service_reports_stale_dates_and_recovery(tmp_path):
+    view = exploratory_view(as_of="2026-08-25", with_candidate=True)
+    service = RetainedCandidateScanService(
+        tmp_path,
+        scanner=SimpleNamespace(scan=lambda: view),
+        now_utc=datetime.fromisoformat("2026-08-30T09:00:00+09:00"),
+    )
+
+    result = service.scan()
+
+    assert result.availability == "UNAVAILABLE"
+    assert result.unavailable_reason.startswith("LOCAL_CANDIDATE_INPUT_STALE")
+    assert "retained_as_of=2026-08-25" in result.unavailable_reason
+    assert "expected_as_of=2026-08-27" in result.unavailable_reason
+    assert "recovery=" in result.unavailable_reason
+
+
+def test_candidate_worker_fallback_keeps_typed_privacy_safe_recovery(tmp_path):
+    service = RetainedCandidateScanService(tmp_path)
+
+    result = service.unavailable("LOCAL_CANDIDATE_SCAN_FAILED")
+
+    assert result.availability == "UNAVAILABLE"
+    assert result.unavailable_reason.startswith("LOCAL_CANDIDATE_INPUT_CORRUPT")
+    assert "recovery=" in result.unavailable_reason
+    assert "LOCAL_CANDIDATE_SCAN_FAILED" not in result.unavailable_reason
+    assert str(tmp_path) not in result.unavailable_reason
+
+
+def test_candidate_refresh_repeats_after_typed_failure_and_valid_empty(tmp_path):
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    store = LocalResearchWorkspacePreferencesStore(tmp_path / "preferences.json")
+    page = ResearchWorkspacePage(store, DEFAULT_PREFERENCES)
+    page.show()
+    app.processEvents()
+    requests = []
+
+    def begin_refresh():
+        requests.append("refresh")
+        page.begin_candidate_scan()
+
+    page.candidate_scan_requested.connect(begin_refresh)
+    missing = RetainedCandidateScanService(
+        tmp_path,
+        scanner=SimpleNamespace(
+            scan=lambda: LocalExploratoryCandidateScanner(tmp_path).unavailable(
+                "LOCAL_PRICE_DATASET_MISSING"
+            )
+        ),
+        now_utc=datetime.fromisoformat("2026-08-30T09:00:00+09:00"),
+    ).scan()
+    page.render_exploratory_candidates(missing)
+    assert page.candidate_scan_button.isEnabled()
+    assert "LOCAL_CANDIDATE_INPUT_MISSING" in page.candidate_status.text()
+    assert "recovery=" in page.candidate_status.text()
+    assert "입력 오류" in page.candidate_status.accessibleName()
+
+    QtTest.QTest.mouseClick(page.candidate_scan_button, QtCore.Qt.LeftButton)
+    assert requests == ["refresh"]
+    assert not page.candidate_scan_button.isEnabled()
+
+    valid_empty = exploratory_view(as_of="2026-08-28", with_candidate=False)
+    page.render_exploratory_candidates(valid_empty)
+    assert page.candidate_scan_button.isEnabled()
+    assert page.candidate_table.rowCount() == 0
+    assert "정상 완료" in page.candidate_status.text()
+    assert "로컬 입력 정상" in page.candidate_status.accessibleName()
+
+    QtTest.QTest.mouseClick(page.candidate_scan_button, QtCore.Qt.LeftButton)
+    assert requests == ["refresh", "refresh"]
+    assert not page.candidate_scan_button.isEnabled()
+    page.close()
+    app.processEvents()

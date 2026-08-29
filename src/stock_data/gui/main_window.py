@@ -125,6 +125,7 @@ from stock_data.gui.services import (
     InstrumentFactsView,
     IndexSeriesView,
     NormalizedBenchmarkComparisonView,
+    RetainedCandidateScanService,
     MarketFundingView,
     MarketInvestorFlowView,
     MarketValuationView,
@@ -164,7 +165,6 @@ from stock_research.candidate_discovery import (
 )
 from stock_research.exploratory_scanner import (
     ExploratoryCandidateView,
-    LocalExploratoryCandidateScanner,
     validate_exploratory_candidate_view,
 )
 
@@ -12653,6 +12653,7 @@ class ResearchWorkspacePage(QtWidgets.QWidget):
         self.candidate_status.setText(
             "현재 로컬 종목 일봉을 읽는 중입니다 · 화면은 계속 사용할 수 있습니다."
         )
+        self.candidate_status.setAccessibleName("현재 후보 로컬 입력 확인 중")
 
     def render_exploratory_candidates(self, view: ExploratoryCandidateView) -> None:
         """Render partial current-data axes without claiming PIT validation."""
@@ -12664,12 +12665,15 @@ class ResearchWorkspacePage(QtWidgets.QWidget):
         except (AttributeError, TypeError, ValueError):
             self.candidate_axis_status.setText("기술 축 N/A · 실적 축 N/A · 가치 축 N/A")
             self.candidate_status.setText("로컬 후보 결과 검증 실패 · 행 숨김")
+            self.candidate_status.setAccessibleName("현재 후보 결과 계약 검증 실패")
             return
         if view.availability != "READY":
             self.candidate_axis_status.setText("기술 축 N/A · 실적 축 N/A · 가치 축 N/A")
+            reason = view.unavailable_reason or "UNKNOWN"
             self.candidate_status.setText(
-                f"현재 후보를 읽지 못했습니다 ({view.unavailable_reason or 'UNKNOWN'})"
+                f"현재 후보를 읽지 못했습니다 · {reason}"
             )
+            self.candidate_status.setAccessibleName(f"현재 후보 입력 오류 · {reason}")
             return
         valuation_rows = sum(
             candidate.valuation_state == "AVAILABLE_CURRENT_TRAILING"
@@ -12683,11 +12687,16 @@ class ResearchWorkspacePage(QtWidgets.QWidget):
                 if valuation_rows else "현재 PER/PBR N/A"
             )
         )
+        empty_note = (
+            " · 정상 완료: 조건에 맞는 관찰 후보가 없습니다"
+            if view.eligible_instruments == 0 else ""
+        )
         self.candidate_status.setText(
             f"{view.as_of} · {view.scanned_instruments:,}종목 스캔 · "
             f"관찰 후보 {view.eligible_instruments:,}개 중 {len(view.candidates)}개 표시 · "
-            "부분 축 허용 · 설명용 정렬, 매매 추천 아님"
+            f"부분 축 허용 · 설명용 정렬, 매매 추천 아님{empty_note}"
         )
+        self.candidate_status.setAccessibleName("현재 후보 로컬 입력 정상")
         self.candidate_status.setToolTip(
             f"criteria={view.criteria}\nsource={view.source_note}\n"
             f"ranking={view.ranking_basis}"
@@ -12965,7 +12974,7 @@ class MainWindow(QtWidgets.QMainWindow):
             project_root / "artifacts/runtime_logs/application"
         )
         self.service = DashboardService(project_root)
-        self.candidate_scanner = LocalExploratoryCandidateScanner(project_root)
+        self.candidate_scanner = RetainedCandidateScanService(project_root)
         # Never share LocalParquetQuery's mutable caches across concurrent
         # lanes. The dedicated service is restricted to current_card_stage(),
         # whose implementation reads typed current JSON projections only.

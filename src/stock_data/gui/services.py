@@ -56,6 +56,11 @@ from stock_data.validation.kr_index_fundamental_daily import (
 from stock_data.validation.ls_t1633 import validate_ls_t1633_program_trading
 from stock_data.validation.market_15m import audit_market_15m_bars, validate_market_price_15m
 from stock_data.validation.market_60m import validate_market_price_60m
+from stock_research.exploratory_scanner import (
+    ExploratoryCandidateView,
+    LocalExploratoryCandidateScanner,
+    validate_exploratory_candidate_view,
+)
 
 
 PERIOD_ROWS = {
@@ -94,6 +99,83 @@ ASSET_HEALTH_DATASETS = {
     "GOLD": "global_commodity_futures_daily", "WTI": "global_commodity_futures_daily",
 }
 DISPLAYABLE_FRESHNESS = frozenset({"CURRENT", "EXPECTED_LAG"})
+
+
+class RetainedCandidateScanService:
+    """Add typed local-input recovery states around the retained scanner."""
+
+    _MISSING_REASONS = frozenset({
+        "LOCAL_PRICE_DATASET_MISSING",
+        "CURRENT_MARKET_PARTITION_INCOMPLETE",
+    })
+    _EMPTY_REASONS = frozenset({"LOCAL_CANDIDATE_INPUT_EMPTY"})
+
+    def __init__(
+        self,
+        project_root: Path,
+        *,
+        scanner: object | None = None,
+        now_utc: datetime | None = None,
+    ) -> None:
+        self.project_root = Path(project_root)
+        self._scanner = scanner or LocalExploratoryCandidateScanner(project_root)
+        self._view_factory = LocalExploratoryCandidateScanner(project_root)
+        self._now_utc = now_utc
+
+    def unavailable(self, reason: str) -> ExploratoryCandidateView:
+        return self._input_failure(reason)
+
+    def _input_failure(self, reason: str) -> ExploratoryCandidateView:
+        code = str(reason).partition(":")[0]
+        if code in self._MISSING_REASONS:
+            detail = (
+                "LOCAL_CANDIDATE_INPUT_MISSING: 보존된 국내 주가/유니버스 "
+                "파티션이 없습니다. recovery=Data 작업에서 "
+                "kr_equity_price_daily와 kr_equity_canonical_universe_daily를 "
+                "복구한 뒤 현재 후보 새로고침을 다시 누르세요."
+            )
+        elif code in self._EMPTY_REASONS:
+            detail = (
+                "LOCAL_CANDIDATE_INPUT_EMPTY: 보존 파티션은 있으나 검증할 행이 "
+                "없습니다. recovery=두 로컬 일일 데이터셋의 최신 파티션을 "
+                "재생성한 뒤 현재 후보 새로고침을 다시 누르세요."
+            )
+        else:
+            detail = (
+                "LOCAL_CANDIDATE_INPUT_CORRUPT: 보존된 국내 주가/유니버스 입력을 "
+                "읽거나 검증하지 못했습니다. recovery=Data 작업에서 두 로컬 "
+                "일일 데이터셋을 검증·재생성한 뒤 현재 후보 새로고침을 다시 "
+                "누르세요."
+            )
+        return self._view_factory.unavailable(detail)
+
+    def scan(self) -> ExploratoryCandidateView:
+        try:
+            view = validate_exploratory_candidate_view(self._scanner.scan())
+        except (AttributeError, KeyError, OSError, PermissionError, TypeError, ValueError):
+            return self._input_failure("LOCAL_CANDIDATE_READ_FAILED")
+        if view.availability != "READY":
+            return self._input_failure(view.unavailable_reason or "UNKNOWN")
+        try:
+            retained_latest = datetime.strptime(view.as_of or "", "%Y-%m-%d").date()
+            expected = resolve_expected_latest(
+                dataset="kr_equity_price_daily",
+                lane="CANONICAL_EQUITY_DAILY",
+                retained_latest=retained_latest,
+                as_of=self._now_utc or datetime.now(ZoneInfo("UTC")),
+            )
+        except (TypeError, ValueError):
+            return self._input_failure("LOCAL_CANDIDATE_DATE_INVALID")
+        if expected.freshness.value == "STALE":
+            target = expected.expected_available_observation
+            return self._view_factory.unavailable(
+                "LOCAL_CANDIDATE_INPUT_STALE: "
+                f"retained_as_of={retained_latest.isoformat()}, "
+                f"expected_as_of={target.isoformat() if target else 'UNKNOWN'}. "
+                "recovery=Data 작업에서 두 로컬 일일 데이터셋을 expected_as_of까지 "
+                "복구한 뒤 현재 후보 새로고침을 다시 누르세요."
+            )
+        return view
 
 # This GUI reader has no adapter or transport.  It only selects the exact
 # UR-118 local projection which a separately authorized LS operation may have
