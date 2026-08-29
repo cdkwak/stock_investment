@@ -8889,7 +8889,8 @@ def test_dashboard_density_stays_wide_and_compacts_for_scaled_display():
     assert page.oscillator_panel.height() >= 315
     tenth_card = page.market_cards[page._visible_market_card_ids[9]]
     assert page.top_strip.getItemPosition(page.top_strip.indexOf(tenth_card))[:2] == (0, 9)
-    assert page.top_widget.height() == page.COMPACT_MARKET_CARD_HEIGHT
+    assert page.COMPACT_MARKET_CARD_HEIGHT == 112
+    assert page.top_widget.height() == 112
     visible_side = [
         widget for widget in (
             page.oscillator_panel, page.rates_panel, page.account_placeholder,
@@ -8993,8 +8994,10 @@ def test_dashboard_populated_market_values_fit_one_readable_row_at_common_widths
     assert page.top_strip.getItemPosition(
         page.top_strip.indexOf(tenth_card)
     )[:2] == (0, 9)
+    assert page.top_widget.height() == 112
     for identifier in page._visible_market_card_ids:
         card = page.market_cards[identifier]
+        assert card.height() == 112
         for child in (card.title, card.body, card.meta, card.sparkline):
             assert child.isVisible(), (identifier, child.objectName())
             assert child.width() > 0 and child.height() > 0
@@ -9002,6 +9005,7 @@ def test_dashboard_populated_market_values_fit_one_readable_row_at_common_widths
             assert child.geometry().right() <= card.contentsRect().right()
             assert child.geometry().top() >= card.contentsRect().top()
             assert child.geometry().bottom() <= card.contentsRect().bottom()
+        assert card.sparkline.height() >= 18
         assert (
             card.title.fontMetrics().horizontalAdvance(card.title.text())
             <= card.title.width()

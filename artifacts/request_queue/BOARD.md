@@ -1,7 +1,7 @@
 # Request Queue Board
 
-updated_at: 2026-08-29T09:52:40+09:00
-generated_from_digest: c61e2ad8c796f7cdf274a90c7fd9ad31ba2569c3df311e0d2a3d9a29eba5c80e
+updated_at: 2026-08-29T09:55:05+09:00
+generated_from_digest: 1420be33800c425fb4e250c3f69039f211966d77e3af3b1168ccfa2ed19d8e66
 mode: domain-parallel
 writer_limit: 3
 
@@ -9,7 +9,6 @@ writer_limit: 3
 - none
 
 ## Review
-- P1-RQ-20260826T204115-F8F7-restore-compact-one-row-dashboard-market-card-height | domain=gui | lead=gui_density_lead_20260828 | reviewer=gui_density_reviewer_20260829 | profiles=balanced/strong | orca=-
 - P2-RQ-20260826T003644-E9A5-define-an-evidence-bound-local-daily-korean-market-summary-contract | domain=- | lead=- | reviewer=lead | profiles=strong/critical | orca=-
 
 ## Waiting
