@@ -1,7 +1,7 @@
 # Request Queue Board
 
-updated_at: 2026-08-29T11:52:57+09:00
-generated_from_digest: cfcf664ad2e9566e952e7137dfe1086fed5b00cbf3fab1898ab4979748eb0cdb
+updated_at: 2026-08-30T03:15:07+09:00
+generated_from_digest: 1fb7e5920496588f921288382de8b17f39290c2c35952eb4b863bed7a4f1a4d1
 mode: domain-parallel
 writer_limit: 3
 
@@ -16,13 +16,20 @@ writer_limit: 3
 
 ## Ready
 1. P1-RQ-20260826T014826-B608-add-a-korean-government-bond-yield-curve-to-the-dashboard | domain=- | lead=- | profiles=strong/critical | depends_on=RQ-20260826T004102-BB30,RQ-20260826T020213-744E,RQ-20260825T232533-76A1,RQ-20260826T011334-F6D5
-2. P2-RQ-20260826T004917-0AF5-define-a-pit-vintage-aware-macro-regime-and-market-transmission-contract | domain=- | lead=- | profiles=strong/critical | depends_on=RQ-20260826T004102-BB30
-3. P2-RQ-20260826T005041-B6C3-define-a-secure-always-on-read-only-application-service-and-remote-acces | domain=- | lead=- | profiles=strong/critical | depends_on=RQ-20260826T004445-B2ED,RQ-20260826T004630-7CC5,RQ-20260826T003644-E9A5,RQ-20260826T012155-BB66
-4. P2-RQ-20260826T012155-BB66-define-a-holdings-driven-multi-currency-account-nav-and-valuation-freshn | domain=- | lead=- | profiles=strong/critical | depends_on=RQ-20260826T004445-B2ED
+2. P1-RQ-20260826T052521-3082-define-a-secure-scheduled-daily-toss-read-only-account-refresh | domain=data | lead=data_ops_lead | profiles=strong/critical | depends_on=RQ-20260825T012923-BFC5
+3. P1-RQ-20260829T173816-BC24-establish-korea-forward-eps-revision-and-roe-free-observation-eligibilit | domain=research | lead=forward_valuation_lead | profiles=strong/critical | depends_on=-
+4. P2-RQ-20260826T004917-0AF5-define-a-pit-vintage-aware-macro-regime-and-market-transmission-contract | domain=- | lead=- | profiles=strong/critical | depends_on=RQ-20260826T004102-BB30
+5. P2-RQ-20260826T005041-B6C3-define-a-secure-always-on-read-only-application-service-and-remote-acces | domain=- | lead=- | profiles=strong/critical | depends_on=RQ-20260826T004445-B2ED,RQ-20260826T004630-7CC5,RQ-20260826T003644-E9A5,RQ-20260826T012155-BB66
+6. P2-RQ-20260826T012155-BB66-define-a-holdings-driven-multi-currency-account-nav-and-valuation-freshn | domain=- | lead=- | profiles=strong/critical | depends_on=RQ-20260826T004445-B2ED
+7. P2-RQ-20260826T012440-3679-establish-kospi-forward-per-pbr-source-licensing-and-aggregation-evidenc | domain=research | lead=forward_valuation_lead | profiles=strong/critical | depends_on=RQ-20260825T232533-76A1
+8. P2-RQ-20260830T022652-98DC-data-status-summary-card-detail-text-clips-vertically | domain=gui | lead=gui_lead | profiles=balanced/strong | depends_on=-
+9. P2-RQ-20260830T022654-9DE5-selected-equity-identity-detail-and-right-rail-clip-at-1600x900 | domain=gui | lead=gui_lead | profiles=strong/critical | depends_on=-
+10. P2-RQ-20260830T022655-2FA6-current-candidate-refresh-ends-in-local_candidate_read_failed-without-re | domain=gui | lead=gui_lead | profiles=strong/critical | depends_on=-
+11. P2-RQ-20260830T022655-E155-research-empty-chart-appears-numeric-and-ohlcv-headers-clip | domain=gui | lead=gui_lead | profiles=balanced/strong | depends_on=-
+12. P2-RQ-20260830T022656-F3CF-windows-full-page-navigation-emits-negative-qfont-point-size-warnings | domain=gui | lead=gui_lead | profiles=strong/critical | depends_on=-
 
 ## New Discoveries
 - count: 2
 
 ## Blocked
-- P1-RQ-20260826T020213-744E-establish-korean-government-bond-yield-curve-data-contract-and-local-pro | next=Execute batch 2 with the active runbook in the next 17:00-18:00 KST provider-publication window, then validate field/canonical-row comparison and API0 replay.
-- P1-RQ-20260826T052521-3082-define-a-secure-scheduled-daily-toss-read-only-account-refresh | next=Observe the installed task naturally after 07:00 KST, then validate the exact identifier-free occurrence and last receipt, provider-call budget, snapshot atomicity/privacy, and task result without a manual provider retry.
+- none

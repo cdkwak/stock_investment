@@ -637,7 +637,7 @@ class VolumeAxisItem(pg.AxisItem):
         # A stable gutter prevents labels from colliding with bars as the
         # embedded view is resized or hosted in a larger window.
         self.enableAutoSIPrefix(False)
-        self.setWidth(72)
+        self.setWidth(80)
         self.setLabel("거래량(주)")
 
     @staticmethod
@@ -5626,9 +5626,10 @@ class DashboardPage(QtWidgets.QScrollArea):
         self._market_axis = SessionDateAxisItem(orientation="bottom")
         self.market_chart = pg.PlotWidget(axisItems={"bottom": self._market_axis})
         self.market_chart.setBackground("#ffffff")
+        self.market_chart.setViewportMargins(6, 0, 0, 0)
         self.market_chart.setAccessibleName("시장 가격 차트")
         self.market_chart.showGrid(x=True, y=True, alpha=.12)
-        self.market_chart.getAxis("left").setWidth(72)
+        self.market_chart.getAxis("left").setWidth(80)
         # Dashboard overlays share the accepted Index Graph presentation model:
         # price stays on its own scale while RSI and disparity retain truthful,
         # independently-labelled Y axes over the same session positions.
@@ -5689,15 +5690,17 @@ class DashboardPage(QtWidgets.QScrollArea):
         })
         self.market_volume.setBackground("#ffffff")
         self.market_volume.setXLink(self.market_chart)
-        self.market_volume.setFixedHeight(48)
+        self.market_volume.setViewportMargins(6, 0, 0, 0)
+        self.market_volume.setFixedHeight(144)
         self.market_volume.setAccessibleName("시장 거래량 차트")
         kospi_layout.addWidget(self.market_volume)
         self._market_indicator_axis = SessionDateAxisItem(orientation="bottom")
         self.market_indicator = pg.PlotWidget(axisItems={"bottom": self._market_indicator_axis})
         self.market_indicator.setBackground("#ffffff")
         self.market_indicator.setXLink(self.market_chart)
-        self.market_indicator.setFixedHeight(54)
-        self.market_indicator.getAxis("left").setWidth(72)
+        self.market_indicator.setViewportMargins(6, 0, 0, 0)
+        self.market_indicator.setFixedHeight(144)
+        self.market_indicator.getAxis("left").setWidth(80)
         self.market_indicator.setAccessibleName("RSI14 및 60일 괴리율 차트")
         self.market_indicator.hide()
         kospi_layout.addWidget(self.market_indicator)
@@ -8134,7 +8137,8 @@ class IndexPage(QtWidgets.QWidget):
             orientation="bottom", minimum_label_spacing=132.0,
         )
         self.plot=pg.PlotWidget(axisItems={"bottom": self._price_axis}); self.plot.showGrid(x=True,y=True,alpha=.15); root.addWidget(self.plot,3)
-        self.plot.getAxis("left").setWidth(72)
+        self.plot.setViewportMargins(6, 0, 0, 0)
+        self.plot.getAxis("left").setWidth(80)
         self.plot.setAccessibleName("지수 가격·이동평균과 독립축 RSI14·60일 괴리율 차트")
         self._rsi_overlay_axis = self.plot.getAxis("right")
         self._rsi_overlay_axis.setLabel("RSI14 (0–100)", color=INDEX_CURVE_STYLES["rsi14"][1])
@@ -8169,13 +8173,15 @@ class IndexPage(QtWidgets.QWidget):
             orientation="bottom", labels_visible=False,
         )
         self._volume_value_axis = VolumeAxisItem(orientation="left")
-        self.volume=pg.PlotWidget(axisItems={"bottom": self._volume_axis, "left": self._volume_value_axis}); self.volume.setXLink(self.plot); self.volume.setMaximumHeight(180); root.addWidget(self.volume,1)
+        self.volume=pg.PlotWidget(axisItems={"bottom": self._volume_axis, "left": self._volume_value_axis}); self.volume.setXLink(self.plot); self.volume.setMinimumHeight(144); self.volume.setMaximumHeight(180); root.addWidget(self.volume,1)
+        self.volume.setViewportMargins(6, 0, 0, 0)
         self.volume.setAccessibleName("지수 거래량 차트")
         self._indicator_axis = SessionDateAxisItem(
             orientation="bottom", labels_visible=False,
         )
-        self.indicator=pg.PlotWidget(axisItems={"bottom": self._indicator_axis}); self.indicator.setXLink(self.plot); self.indicator.setMaximumHeight(160); self.indicator.hide(); root.addWidget(self.indicator,1)
-        self.indicator.getAxis("left").setWidth(72)
+        self.indicator=pg.PlotWidget(axisItems={"bottom": self._indicator_axis}); self.indicator.setXLink(self.plot); self.indicator.setMinimumHeight(144); self.indicator.setMaximumHeight(160); self.indicator.hide(); root.addWidget(self.indicator,1)
+        self.indicator.setViewportMargins(6, 0, 0, 0)
+        self.indicator.getAxis("left").setWidth(80)
         self.indicator.setAccessibleName("지수 RSI14 및 60일 괴리율 차트")
         self.crosshairs=[]
         for chart in (self.plot,self.volume,self.indicator):

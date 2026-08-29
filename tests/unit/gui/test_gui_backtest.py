@@ -9104,6 +9104,92 @@ def test_primary_chart_pages_fit_inside_a_1600px_main_window(tmp_path):
     app.processEvents()
 
 
+def _assert_lower_left_axis_text_inside_plot(plot: pg.PlotWidget) -> None:
+    """Account for QGraphicsView's reserved viewport margin in widget pixels."""
+
+    axis = plot.getAxis("left")
+    viewport_origin = plot.viewport().mapTo(plot, QtCore.QPoint(0, 0))
+    label_rect = plot.mapFromScene(
+        axis.label.sceneBoundingRect(),
+    ).boundingRect().translated(viewport_origin)
+    assert 0 <= label_rect.left() and label_rect.right() < plot.width(), (
+        plot.accessibleName(), plot.rect(), label_rect,
+    )
+    assert label_rect.height() <= plot.height(), (
+        plot.accessibleName(), plot.rect(), label_rect,
+    )
+    assert plot.viewportMargins().left() >= 6
+    assert axis.width() >= 80
+
+
+def test_primary_chart_lower_panel_axes_fit_at_logical_1600x900():
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    pages: list[QtWidgets.QWidget] = []
+    try:
+        dashboard = DashboardPage()
+        dashboard.resize(1600, 840)
+        dashboard.show()
+        dashboard.render({"dashboard_metrics": {
+            "KOSPI": _metric(
+                "KOSPI", 3_120.0, freshness="CURRENT",
+                state=DashboardDisplayState.VALUE,
+            ),
+        }})
+        dashboard.market_indicator_panel.apply(replace(
+            dashboard.market_indicator_panel.settings(),
+            volume=True, rsi14_mode="Panel",
+        ))
+        dashboard.render_market_chart(_index_series_view().frame)
+        pages.append(dashboard)
+
+        index = IndexPage()
+        index.resize(1600, 840)
+        index.show()
+        index.rsi.setCurrentText("Panel")
+        index.render(_index_series_view())
+        pages.append(index)
+
+        equity = IndividualEquityPage()
+        equity.resize(1600, 840)
+        equity.show()
+        equity._selected_identity = _equity_identity()
+        equity._apply_indicator_settings(replace(
+            equity.indicator_panel.settings(), volume=True,
+            rsi14_mode="Panel",
+        ))
+        equity.render_series(_equity_series_view(equity._selected_identity))
+        equity._set_chart_workspace_visible(True)
+        pages.append(equity)
+
+        etf = IndividualEquityPage(universe="US_ETF")
+        etf.resize(1600, 840)
+        etf.show()
+        etf._selected_identity = _us_etf_identity("SPY")
+        etf._apply_indicator_settings(replace(
+            etf.indicator_panel.settings(), volume=True,
+            rsi14_mode="Panel",
+        ))
+        etf.render_series(_equity_series_view(etf._selected_identity))
+        etf._set_chart_workspace_visible(True)
+        pages.append(etf)
+
+        app.processEvents()
+        for surface, volume_plot, indicator_plot in (
+            ("Dashboard", dashboard.market_volume, dashboard.market_indicator),
+            ("Index Graph", index.volume, index.indicator),
+            ("005930", equity.volume, equity.indicator),
+            ("SPY", etf.volume, etf.indicator),
+        ):
+            assert not volume_plot.isHidden(), surface
+            assert not indicator_plot.isHidden(), surface
+            _assert_lower_left_axis_text_inside_plot(volume_plot)
+            _assert_lower_left_axis_text_inside_plot(indicator_plot)
+    finally:
+        for page in pages:
+            page.close()
+        app.processEvents()
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-native Qt diagnostic")
 def test_windows_full_page_navigation_uses_positive_fonts_without_qt_warning(
     tmp_path, monkeypatch,
