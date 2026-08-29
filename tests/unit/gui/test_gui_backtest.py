@@ -2119,6 +2119,87 @@ def test_equity_selected_unavailable_and_detached_states_keep_workspace(
 
 
 @pytest.mark.parametrize(
+    ("universe", "query", "identity"),
+    [
+        ("KR_EQUITY", "005930", _equity_identity()),
+        ("US_ETF", "SPY", _us_etf_identity("SPY")),
+    ],
+)
+def test_selected_equity_context_and_right_rail_fit_at_logical_1600x900(
+    universe, query, identity,
+):
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    page = IndividualEquityPage(universe=universe)
+    page.setStyleSheet("""
+        QWidget { font-size:9.75pt; }
+        QLabel#sectionTitle { font-size:15px; font-weight:750; }
+        QLabel#chartStatus { padding:4px; }
+        QLabel#freshness { padding:7px; }
+        QPushButton { padding:5px 9px; }
+    """)
+    page.resize(1600, 840)
+    page.show()
+    app.processEvents()
+    page.search_requested.connect(
+        lambda requested: page.render_search(
+            EquitySearchView(requested, (identity,))
+        )
+    )
+    view = (
+        replace(
+            _equity_series_view(identity, display=False),
+            unavailable_reason=(
+                "Current numeric withheld: CURRENT_SOURCE_DATE_NOT_TODAY_KST: "
+                "provider source date does not match today in KST; retained daily "
+                "history remains separate and original-price context is preserved."
+            ),
+        )
+        if universe == "KR_EQUITY"
+        else _blocked_us_etf_series_view(identity)
+    )
+    page.series_requested.connect(lambda *_request: page.render_series(view))
+
+    page.search_input.setText(query)
+    QtTest.QTest.mouseClick(page.search_button, QtCore.Qt.LeftButton)
+    page.search_results.setCurrentIndex(1)
+    QtTest.QTest.mouseClick(page.open_button, QtCore.Qt.LeftButton)
+    page.context_watchlist_splitter.setSizes([2000, 1])
+    app.processEvents()
+
+    assert page._selected_identity == identity
+    assert identity.symbol in page.instrument_facts_identity.text()
+    assert "출처" in page.instrument_facts_context.text()
+    assert "기준" in page.instrument_facts_context.text()
+    assert f"source={view.source}" in page.workspace_info.text()
+    assert f"as_of={view.as_of or 'N/A'}" in page.workspace_info.text()
+    assert view.unavailable_reason in page.status.text()
+    for label in (
+        page.instrument_facts_identity,
+        page.instrument_facts_context,
+        page.instrument_facts_risk,
+        page.summary,
+        page.status,
+        page.workspace_info,
+    ):
+        required_height = page._wrapped_label_height(label)
+        assert required_height <= label.contentsRect().height()
+
+    rail = page.context_watchlist_rail
+    assert rail.geometry().right() <= page.context_watchlist_splitter.contentsRect().right()
+    for button in (
+        page.context_watchlist_add,
+        page.context_watchlist_open,
+        page.context_watchlist_remove,
+        page.context_watchlist_up,
+        page.context_watchlist_down,
+    ):
+        assert button.fontMetrics().horizontalAdvance(button.text()) <= button.contentsRect().width()
+        assert button.visibleRegion().boundingRect() == button.rect()
+    page.close()
+    app.processEvents()
+
+
+@pytest.mark.parametrize(
     ("universe", "kind", "identity"),
     [
         ("KR_EQUITY", "equity", _equity_identity()),

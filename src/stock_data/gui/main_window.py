@@ -8689,6 +8689,7 @@ class IndividualEquityPage(IndexPage):
         self._favorite_keys_by_list: dict[str, frozenset[tuple[str, str]]] = {}
         self._watchlist_state: WatchlistState | None = None
         self._context_watchlist_quotes: dict[tuple[str, str], WatchlistQuote] = {}
+        self._selected_context_fit_pending = False
         super().__init__(parent)
         self._candlestick_mode = True
         is_us_etf = universe == "US_ETF"
@@ -8831,6 +8832,8 @@ class IndividualEquityPage(IndexPage):
         self.workspace_option = QtWidgets.QLabel("옵션: 승인된 로컬 계약이 없어 숫자 표시 불가")
         self.workspace_watchlist = QtWidgets.QLabel("관심종목은 정확한 시장·종목 식별정보만 사용합니다.")
         for label, title in ((self.workspace_info, "정보"), (self.workspace_dividend, "배당"), (self.workspace_option, "옵션 가능 여부"), (self.workspace_watchlist, "관심종목")):
+            label.setWordWrap(True)
+            label.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
             page = QtWidgets.QWidget(); box = QtWidgets.QVBoxLayout(page); box.addWidget(label); box.addStretch(); self.workspace.addTab(page, title)
         self.layout().insertWidget(6, self.workspace)
         self.context_watchlist_rail = QtWidgets.QGroupBox("관심종목 · 최근 흐름")
@@ -8853,6 +8856,17 @@ class IndividualEquityPage(IndexPage):
         self.context_watchlist_remove = QtWidgets.QPushButton("제거")
         self.context_watchlist_up = QtWidgets.QPushButton("위로")
         self.context_watchlist_down = QtWidgets.QPushButton("아래로")
+        for button in (
+            self.context_watchlist_add,
+            self.context_watchlist_open,
+            self.context_watchlist_remove,
+            self.context_watchlist_up,
+            self.context_watchlist_down,
+        ):
+            button.setSizePolicy(
+                QtWidgets.QSizePolicy.Minimum,
+                QtWidgets.QSizePolicy.Fixed,
+            )
         rail_actions.addWidget(self.context_watchlist_add, 0, 0, 1, 2)
         rail_actions.addWidget(self.context_watchlist_open, 0, 2)
         rail_actions.addWidget(self.context_watchlist_remove, 1, 0)
@@ -9032,6 +9046,72 @@ class IndividualEquityPage(IndexPage):
         self._install_context_watchlist_sidebar()
         self._set_chart_workspace_visible(False)
 
+    @staticmethod
+    def _wrapped_label_height(label: QtWidgets.QLabel) -> int:
+        contents = label.contentsRect()
+        flags = QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop
+        if label.wordWrap():
+            flags |= QtCore.Qt.TextWordWrap
+        return label.fontMetrics().boundingRect(
+            QtCore.QRect(0, 0, max(contents.width(), 1), 10_000),
+            flags,
+            label.text(),
+        ).height()
+
+    def _schedule_selected_context_fit(self) -> None:
+        if self._selected_context_fit_pending:
+            return
+        self._selected_context_fit_pending = True
+        QtCore.QTimer.singleShot(0, self._fit_selected_context_layout)
+
+    def _fit_selected_context_layout(self) -> None:
+        """Protect identity/source/error copy and rail captions from squeezing."""
+        self._selected_context_fit_pending = False
+        if not self.isVisible():
+            return
+        context_labels = (
+            self.instrument_facts_identity,
+            self.instrument_facts_context,
+            self.instrument_facts_risk,
+            self.summary,
+            self.status,
+        )
+        for label in context_labels:
+            chrome_height = max(label.height() - label.contentsRect().height(), 0)
+            label.setMinimumHeight(
+                self._wrapped_label_height(label) + chrome_height
+            )
+
+        workspace_labels = (
+            self.workspace_info,
+            self.workspace_dividend,
+            self.workspace_option,
+            self.workspace_watchlist,
+        )
+        label_height = max(
+            self._wrapped_label_height(label) for label in workspace_labels
+        )
+        workspace_chrome = (
+            self.workspace.tabBar().sizeHint().height()
+            + 2 * self.style().pixelMetric(QtWidgets.QStyle.PM_LayoutTopMargin)
+        )
+        self.workspace.setMinimumHeight(label_height + workspace_chrome)
+
+        rail_buttons = (
+            self.context_watchlist_add,
+            self.context_watchlist_open,
+            self.context_watchlist_remove,
+            self.context_watchlist_up,
+            self.context_watchlist_down,
+        )
+        for button in rail_buttons:
+            button.setMinimumWidth(button.sizeHint().width())
+        rail_layout = self.context_watchlist_rail.layout()
+        rail_layout.activate()
+        self.context_watchlist_rail.setMinimumWidth(
+            max(230, rail_layout.minimumSize().width())
+        )
+
     def _render_instrument_facts(self, view: EquitySeriesView) -> None:
         facts: InstrumentFactsView = instrument_facts_view(view)
         self.instrument_facts_identity.setText(facts.identity_line)
@@ -9062,6 +9142,11 @@ class IndividualEquityPage(IndexPage):
 
         content = QtWidgets.QWidget()
         content.setObjectName("individualEquityChartContent")
+        content.setMinimumWidth(0)
+        content.setSizePolicy(
+            QtWidgets.QSizePolicy.Ignored,
+            QtWidgets.QSizePolicy.Preferred,
+        )
         content_layout = QtWidgets.QVBoxLayout(content)
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(root.spacing())
@@ -9545,6 +9630,7 @@ class IndividualEquityPage(IndexPage):
         self.status.setToolTip("")
         self.reload_button.setEnabled(False)
         self._sync_favorite_controls()
+        self._schedule_selected_context_fit()
 
     @QtCore.Slot(object)
     def render_series(self, view: EquitySeriesView) -> None:
@@ -9552,6 +9638,7 @@ class IndividualEquityPage(IndexPage):
             return
         self._set_chart_workspace_visible(True)
         self._render_instrument_facts(view)
+        self._schedule_selected_context_fit()
         preserved = (
             self._reload_preserving_accepted
             and self._series_view is not None
@@ -9742,6 +9829,16 @@ class IndividualEquityPage(IndexPage):
             self._clear_comparison(keep_toggle=True)
             self._comparison_toggled(True)
         self._show_latest_observation()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt override
+        super().resizeEvent(event)
+        if hasattr(self, "workspace"):
+            self._schedule_selected_context_fit()
+
+    def showEvent(self, event) -> None:  # noqa: N802 - Qt override
+        super().showEvent(event)
+        if hasattr(self, "workspace"):
+            self._schedule_selected_context_fit()
 
     def _show_observation(self, index: int) -> None:
         if self._session_mapping is None or self._frame.empty:
