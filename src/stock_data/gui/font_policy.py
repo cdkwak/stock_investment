@@ -46,6 +46,23 @@ def _font_for_family(family: str, point_size: float) -> QtGui.QFont:
     return font
 
 
+def explicit_point_font(
+    font: QtGui.QFont,
+    *,
+    fallback: QtGui.QFont | None = None,
+) -> QtGui.QFont:
+    """Return a detached QFont with an explicit, positive point size."""
+
+    effective_point_size = font.pointSizeF()
+    if effective_point_size <= 0 and fallback is not None:
+        effective_point_size = fallback.pointSizeF()
+    if effective_point_size <= 0:
+        raise ValueError("font must expose a positive point size")
+    result = QtGui.QFont(font)
+    result.setPointSizeF(effective_point_size)
+    return result
+
+
 def configure_application_font(
     app: QtWidgets.QApplication,
     *,
@@ -93,5 +110,6 @@ __all__ = [
     "FontPolicyResult",
     "KOREAN_GLYPH_PROBE",
     "configure_application_font",
+    "explicit_point_font",
     "font_supports_korean",
 ]

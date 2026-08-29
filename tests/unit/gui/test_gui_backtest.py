@@ -49,6 +49,7 @@ from stock_data.gui.backtest_scenario_service import (
 )
 from market_backtest.portfolio import KOSPI200_FROZEN_HOLDOUT_V1
 from stock_data.gui.health_service import HealthArtifactView, HealthDatasetRow
+from stock_data.gui.font_policy import explicit_point_font
 from stock_data.gui.main_window import (
     AccountPage, BacktestPage, CandlestickItem, DashboardPage, DataStatusPage,
     DetachedChartWindow, EquityChartWorker, GlobalSymbolSwitcher, IndividualEquityPage, IndexPage, MainWindow, WatchlistPage, _aggregate_ohlc,
@@ -9316,6 +9317,21 @@ def test_primary_chart_lower_panel_axes_fit_at_logical_1600x900():
         app.processEvents()
 
 
+def test_explicit_point_font_materializes_pixel_font_from_positive_fallback():
+    pixel_font = QtGui.QFont("Segoe UI")
+    pixel_font.setPixelSize(13)
+    fallback = QtGui.QFont("Segoe UI")
+    fallback.setPointSizeF(9.75)
+
+    result = explicit_point_font(pixel_font, fallback=fallback)
+
+    assert result.pointSizeF() == pytest.approx(9.75)
+    assert result.pixelSize() == -1
+    assert pixel_font.pixelSize() == 13
+    with pytest.raises(ValueError, match="positive point size"):
+        explicit_point_font(pixel_font)
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-native Qt diagnostic")
 def test_windows_full_page_navigation_uses_positive_fonts_without_qt_warning(
     tmp_path, monkeypatch,
@@ -9325,6 +9341,23 @@ def test_windows_full_page_navigation_uses_positive_fonts_without_qt_warning(
 
     def capture_message(_kind, _context, message):
         messages.append(message)
+
+    def assert_no_negative_qfont_warning(phase: str) -> None:
+        negative = [
+            message for message in messages
+            if "QFont::setPointSize" in message and "Point size <= 0" in message
+        ]
+        assert not negative, f"{phase}: {negative}"
+
+    def assert_positive_widget_fonts(root: QtWidgets.QWidget, phase: str) -> None:
+        for widget in (root, *root.findChildren(QtWidgets.QWidget)):
+            font = widget.font()
+            assert font.pointSizeF() > 0 or font.pixelSize() > 0, (
+                phase,
+                type(widget).__name__,
+                widget.objectName(),
+                font.toString(),
+            )
 
     previous_handler = QtCore.qInstallMessageHandler(capture_message)
     window = None
@@ -9338,9 +9371,12 @@ def test_windows_full_page_navigation_uses_positive_fonts_without_qt_warning(
         window.current_observation_reload_timer.stop()
         _drain_main_window_workers(app, window, timeout=30.0)
         window.account_page.render(_synthetic_dual_currency_account_portfolio())
+        assert_no_negative_qfont_warning("synthetic account render")
         window.resize(1600, 900)
         window.show()
         app.processEvents()
+        assert_no_negative_qfont_warning("initial show")
+        assert_positive_widget_fonts(window, "initial show")
 
         for index in range(window.tabs.count()):
             tab_bar = window.tabs.tabBar()
@@ -9350,6 +9386,10 @@ def test_windows_full_page_navigation_uses_positive_fonts_without_qt_warning(
                 pos=tab_bar.tabRect(index).center(),
             )
             app.processEvents()
+            assert_positive_widget_fonts(
+                window.tabs.widget(index), f"top-level page {index}"
+            )
+        assert_no_negative_qfont_warning("top-level navigation")
         account_index = window.tabs.indexOf(window.account_workspace_page)
         QtTest.QTest.mouseClick(
             window.tabs.tabBar(),
@@ -9358,6 +9398,8 @@ def test_windows_full_page_navigation_uses_positive_fonts_without_qt_warning(
         )
         source_selector = window.account_page.source_selector
         assert source_selector.font().pointSizeF() > 0
+        assert source_selector.view().font().pointSizeF() > 0
+        assert source_selector.view().viewport().font().pointSizeF() > 0
         for source_index in range(source_selector.count()):
             QtTest.QTest.mouseClick(
                 source_selector,
@@ -9369,6 +9411,8 @@ def test_windows_full_page_navigation_uses_positive_fonts_without_qt_warning(
                 QtTest.QTest.keyClick(source_selector, QtCore.Qt.Key_Down)
             QtTest.QTest.keyClick(source_selector, QtCore.Qt.Key_Return)
             app.processEvents()
+            assert_no_negative_qfont_warning(f"source {source_index} settled")
+        assert_no_negative_qfont_warning("account source navigation")
         for index in range(window.account_workspace_tabs.count()):
             tab_bar = window.account_workspace_tabs.tabBar()
             QtTest.QTest.mouseClick(
@@ -9377,6 +9421,11 @@ def test_windows_full_page_navigation_uses_positive_fonts_without_qt_warning(
                 pos=tab_bar.tabRect(index).center(),
             )
             app.processEvents()
+            assert_positive_widget_fonts(
+                window.account_workspace_tabs.widget(index),
+                f"account page {index}",
+            )
+        assert_no_negative_qfont_warning("nested account navigation")
 
         window.account_workspace_tabs.setCurrentWidget(window.account_page)
         app.processEvents()
@@ -9398,14 +9447,14 @@ def test_windows_full_page_navigation_uses_positive_fonts_without_qt_warning(
                         for slice_ in series.slices()
                     )
         assert window.grab().save(str(tmp_path / "windows-full-page-navigation.png"))
-        assert not any(
-            "QFont::setPointSize" in message and "Point size <= 0" in message
-            for message in messages
-        ), messages
+        assert_no_negative_qfont_warning("screenshot capture")
     finally:
         if window is not None:
             window.close()
             app.processEvents()
+            assert not any(
+                thread is not None for thread in window._managed_worker_threads()
+            )
         QtCore.qInstallMessageHandler(previous_handler)
 
 

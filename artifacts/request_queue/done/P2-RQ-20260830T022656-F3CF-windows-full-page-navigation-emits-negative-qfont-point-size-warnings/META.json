@@ -2,7 +2,7 @@
   "assigned_agent": "gui_lead",
   "assigned_role": "lead",
   "branch": null,
-  "completed_at": "2026-08-30T05:23:02+09:00",
+  "completed_at": "2026-08-30T07:03:30+09:00",
   "complexity": "standard",
   "created_at": "2026-08-30T02:26:56+09:00",
   "created_by": "gui_audit_lead_20260830",
@@ -33,7 +33,7 @@
   "slug": "windows-full-page-navigation-emits-negative-qfont-point-size-warnings",
   "state": "done",
   "title": "Windows full-page navigation emits negative QFont point-size warnings",
-  "updated_at": "2026-08-30T05:23:02+09:00",
+  "updated_at": "2026-08-30T07:03:30+09:00",
   "worker_profile": "strong",
   "worktree": null,
   "write_scope": [

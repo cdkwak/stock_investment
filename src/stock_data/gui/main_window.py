@@ -33,6 +33,7 @@ from stock_data.gui.account_snapshot_service import (
     build_account_portfolio_presentation,
     build_account_source_action_views,
 )
+from stock_data.gui.font_policy import explicit_point_font
 from stock_data.gui.google_sheet_account_import import load_appa_sheet_csv
 from stock_data.gui.manual_account_store import (
     LocalManualAccountStore,
@@ -2446,6 +2447,20 @@ def _scrub_detached_widget(root: QtWidgets.QWidget) -> None:
             widget.set_values([])
 
 
+class _PositivePointFontDelegate(QtWidgets.QStyledItemDelegate):
+    """Keep popup item style options point-sized before native style painting."""
+
+    def initStyleOption(
+        self,
+        option: QtWidgets.QStyleOptionViewItem,
+        index: QtCore.QModelIndex,
+    ) -> None:
+        super().initStyleOption(option, index)
+        parent = self.parent()
+        fallback = parent.font() if isinstance(parent, QtWidgets.QWidget) else None
+        option.font = explicit_point_font(option.font, fallback=fallback)
+
+
 class AccountOverviewPanel(QtWidgets.QFrame):
     """Privacy-safe account shell; it never invents or retains balance values."""
 
@@ -3223,6 +3238,9 @@ class AccountPage(QtWidgets.QScrollArea):
         source_label = QtWidgets.QLabel("표시 범위")
         source_label.setObjectName("compactTitle")
         self.source_selector = QtWidgets.QComboBox()
+        self.source_selector.setItemDelegate(
+            _PositivePointFontDelegate(self.source_selector)
+        )
         self.source_selector.setAccessibleName("식별정보 없는 계좌 표시 범위 선택")
         self.source_selector.setToolTip(
             "전체 통합 또는 검증된 개별 source를 명시적으로 선택합니다. "

@@ -1,7 +1,6 @@
-result: No-code duplicate/satisfaction: Done FC40 already eliminated the exact Windows negative QFont warning and current native traversal remains positive-font and warning-free.
-changed: none; F3CF implementation is intentionally satisfied by FC40 Done receipt and current HEAD evidence.
-verified: FC40 exact Done When/receipt match; current native QT_SCALE_FACTOR=1 focused checks 6/6, py_compile 3/3, F3CF OWNS diff empty, Doctor OK.; independent review by fresh_gui_reviewer: Fresh independent critical Reviewer task_b69099a6f956 PASS: pinned snapshot, manifest, FC40/F3CF contracts, empty OWNS diff, native Windows 6/6, py_compile 3/3 and Doctor all matched; no implementation required.
-completed_at: 2026-08-30T05:23:02+09:00
-review_generation: 1c4e5d5ec1a1bac22baf64f43653fd97
-snapshot_commit: 0e59cc8640d96dbf727d66f31866f8ec5c69fbe3
+result: Native Windows DPR1 Account source-popup traversal now keeps positive effective fonts and emits zero negative QFont point-size diagnostics.
+changed: Added explicit positive-point QFont materialization and applied it only to the Account source popup delegate; strengthened the owning navigation regression with phase, popup/view, chart component, screenshot, and worker-quiescence assertions.
+verified: Baseline reproduced 1 failed; focused native batch 8 passed; exact isolated test then passed in 3/3 fresh processes plus final 2-test pass; py_compile 3/3; diff --check and Queue Doctor OK; no provider calls or warning suppression.; independent review by fresh_gui_reviewer: Fresh independent read-only gpt-5.6-sol/high Reviewer task_f6e12a339ea4 PASS: exact hashes and three-path diff reconciled; delegate root fix has no suppression or semantic mutation; native exact 3/3, focused 8/8, final 2/2, py_compile 3/3, Doctor, layout/privacy/source-currency/quiescence/clean close all passed.
+completed_at: 2026-08-30T07:03:30+09:00
+review_generation: ad1de070cb97ed76ef1532c3462f2df1
 reviewed_by: fresh_gui_reviewer
