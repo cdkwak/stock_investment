@@ -105,6 +105,48 @@ def test_project_manager_heartbeat_renews_lease_with_generation_fence(tmp_path: 
         )
 
 
+def test_domain_lead_settles_to_idle_and_accepts_a_fresh_assignment(
+    tmp_path: Path,
+) -> None:
+    registry = RoleRegistry(tmp_path / "registry.sqlite3")
+    first = registry.claim(
+        identity(), observed_at=T0, lease_until=T0 + timedelta(minutes=10)
+    )
+
+    idle = registry.settle(
+        "lead_infra",
+        expected_generation=first.generation,
+        observed_at=T0 + timedelta(minutes=1),
+        lease_until=T0 + timedelta(minutes=31),
+    )
+    assigned = registry.assign(
+        "lead_infra",
+        expected_generation=idle.generation,
+        task_id="RQ-20260829T003930-0BD9",
+        dispatch_id="dispatch-next",
+        observed_at=T0 + timedelta(minutes=2),
+        lease_until=T0 + timedelta(minutes=32),
+    )
+
+    assert idle.state is RoleState.IDLE
+    assert idle.identity.active_task_id is None
+    assert idle.identity.active_dispatch_id is None
+    assert assigned.state is RoleState.ACTIVE
+    assert assigned.identity.codex_session_id == first.identity.codex_session_id
+    assert assigned.identity.active_task_id == "RQ-20260829T003930-0BD9"
+    assert assigned.identity.active_dispatch_id == "dispatch-next"
+
+    with pytest.raises(StaleRoleGeneration):
+        registry.assign(
+            "lead_infra",
+            expected_generation=idle.generation,
+            task_id="RQ-20260829T003946-70A9",
+            dispatch_id="dispatch-stale",
+            observed_at=T0 + timedelta(minutes=3),
+            lease_until=T0 + timedelta(minutes=33),
+        )
+
+
 def test_taskless_project_manager_terminal_loss_proposes_session_recovery(
     tmp_path: Path,
 ) -> None:

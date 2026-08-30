@@ -32,6 +32,66 @@ class DirectAgentBoundary(Protocol):
     def execute(self, request: Mapping[str, str]) -> Mapping[str, str]: ...
 
 
+@dataclass(frozen=True, slots=True)
+class ExecutionMetadata:
+    """Sanitized capability metadata bound to every execution receipt.
+
+    ``mutation_observed`` is deliberately tri-state.  Read-only and local fake
+    profiles can prove ``False``.  A workspace-write sandbox exposes the
+    capability, but without a scoped filesystem observer it must report
+    ``None`` rather than pretending a mutation did or did not occur.
+    """
+
+    profile_name: str
+    workspace_write_enabled: bool
+    mutation_observed: bool | None
+    orca_used: bool = False
+    profile_digest: str = ""
+
+    def __post_init__(self) -> None:
+        if _IDENTIFIER.fullmatch(self.profile_name) is None:
+            raise DirectRunnerError("execution profile name must be a bounded identifier")
+        if not isinstance(self.workspace_write_enabled, bool):
+            raise DirectRunnerError("workspace-write capability must be boolean")
+        if self.mutation_observed is not None and not isinstance(
+            self.mutation_observed, bool
+        ):
+            raise DirectRunnerError("mutation observation must be boolean or unknown")
+        if self.orca_used:
+            raise DirectRunnerError("Python PM execution metadata cannot claim Orca transport")
+        expected = _digest(
+            {
+                "profile_name": self.profile_name,
+                "workspace_write_enabled": self.workspace_write_enabled,
+                "mutation_observed": self.mutation_observed,
+                "orca_used": self.orca_used,
+            }
+        )
+        if self.profile_digest and self.profile_digest != expected:
+            raise DirectRunnerError("execution profile digest does not match its content")
+        object.__setattr__(self, "profile_digest", expected)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "profile_name": self.profile_name,
+            "profile_digest": self.profile_digest,
+            "workspace_write_enabled": self.workspace_write_enabled,
+            "mutation_observed": self.mutation_observed,
+            "orca_used": self.orca_used,
+        }
+
+
+def execution_metadata_for(boundary: object) -> ExecutionMetadata:
+    """Return explicit metadata or a conservative legacy-injected profile."""
+
+    metadata = getattr(boundary, "execution_metadata", None)
+    if metadata is None:
+        return ExecutionMetadata("legacy_injected_read_only", False, False)
+    if not isinstance(metadata, ExecutionMetadata):
+        raise DirectRunnerError("boundary execution metadata changed")
+    return metadata
+
+
 def _canonical(value: Mapping[str, object]) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
@@ -55,9 +115,25 @@ class RunnerReceipt:
     transport: str = "direct"
     orca_used: bool = False
     production_mutated: bool = False
+    execution_profile: str = ""
+    execution_profile_digest: str = ""
+    workspace_write_enabled: bool = False
+    mutation_observed: bool | None = False
     receipt_digest: str = ""
 
     def __post_init__(self) -> None:
+        if self.execution_profile_digest:
+            metadata = ExecutionMetadata(
+                self.execution_profile,
+                self.workspace_write_enabled,
+                self.mutation_observed,
+                self.orca_used,
+                self.execution_profile_digest,
+            )
+            if self.production_mutated is not (metadata.mutation_observed is True):
+                raise DirectRunnerError(
+                    "runner mutation claim does not match execution metadata"
+                )
         material = self.to_dict(include_digest=False)
         expected = _digest(material)
         if self.receipt_digest and self.receipt_digest != expected:
@@ -80,6 +156,15 @@ class RunnerReceipt:
             "orca_used": self.orca_used,
             "production_mutated": self.production_mutated,
         }
+        if self.execution_profile_digest:
+            value.update(
+                {
+                    "execution_profile": self.execution_profile,
+                    "execution_profile_digest": self.execution_profile_digest,
+                    "workspace_write_enabled": self.workspace_write_enabled,
+                    "mutation_observed": self.mutation_observed,
+                }
+            )
         if include_digest:
             value["receipt_digest"] = self.receipt_digest
         return value
@@ -89,6 +174,9 @@ class LocalFakeDirectBoundary:
     """Idempotent local fake used for replay, recovery, and disabled-Orca canaries."""
 
     def __init__(self) -> None:
+        self.execution_metadata = ExecutionMetadata(
+            "local_fake_read_only", False, False
+        )
         self._responses: dict[str, tuple[str, dict[str, str]]] = {}
         self._lock = RLock()
         self.calls = 0
@@ -130,6 +218,16 @@ class InjectedDirectRunner:
 
     def __init__(self, boundary: DirectAgentBoundary) -> None:
         self._boundary = boundary
+        self.execution_metadata = execution_metadata_for(boundary)
+        self._receipts: list[RunnerReceipt] = []
+        self._receipt_lock = RLock()
+
+    @property
+    def receipts(self) -> tuple[RunnerReceipt, ...]:
+        """Return immutable audit evidence for every boundary invocation."""
+
+        with self._receipt_lock:
+            return tuple(self._receipts)
 
     def run(
         self,
@@ -171,6 +269,7 @@ class InjectedDirectRunner:
             "role_key": role_key,
             "source_event_id": source_event_id,
             "task_id": task_id,
+            "execution_profile_digest": self.execution_metadata.profile_digest,
         }
         operation_id = "op-" + _digest(operation_material)
         request = {
@@ -190,7 +289,7 @@ class InjectedDirectRunner:
             raise DirectRunnerError("direct boundary returned an invalid status")
         if _IDENTIFIER.fullmatch(response["agent_id"]) is None:
             raise DirectRunnerError("direct boundary returned an invalid agent id")
-        return RunnerReceipt(
+        receipt = RunnerReceipt(
             operation_id=operation_id,
             action=action,
             task_id=task_id,
@@ -201,4 +300,13 @@ class InjectedDirectRunner:
             attempt=attempt,
             retry_of=retry_of,
             retry_provenance=retry_provenance,
+            orca_used=self.execution_metadata.orca_used,
+            production_mutated=self.execution_metadata.mutation_observed is True,
+            execution_profile=self.execution_metadata.profile_name,
+            execution_profile_digest=self.execution_metadata.profile_digest,
+            workspace_write_enabled=self.execution_metadata.workspace_write_enabled,
+            mutation_observed=self.execution_metadata.mutation_observed,
         )
+        with self._receipt_lock:
+            self._receipts.append(receipt)
+        return receipt

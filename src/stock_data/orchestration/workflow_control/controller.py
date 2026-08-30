@@ -25,8 +25,13 @@ from stock_data.orchestration.workflow_control.routing import (
     select_dependency_ready_leads,
 )
 from stock_data.orchestration.workflow_control.runner import (
+    ExecutionMetadata,
     InjectedDirectRunner,
     RunnerAction,
+)
+from stock_data.orchestration.workflow_control.session_runner import (
+    InjectedSessionRunner,
+    SessionAction,
 )
 from stock_data.orchestration.workflow_control.state import WorkflowStateStore
 from stock_data.orchestration.workflow_control.watchdog import RecoveryProposal
@@ -73,9 +78,26 @@ class PumpReceipt:
     stale_event_ids: tuple[str, ...]
     runner_receipt_digests: tuple[str, ...]
     production_mutated: bool = False
+    execution_profile: str = ""
+    execution_profile_digest: str = ""
+    workspace_write_enabled: bool = False
+    mutation_observed: bool | None = False
+    orca_used: bool = False
     receipt_digest: str = ""
 
     def __post_init__(self) -> None:
+        if self.execution_profile_digest:
+            metadata = ExecutionMetadata(
+                self.execution_profile,
+                self.workspace_write_enabled,
+                self.mutation_observed,
+                self.orca_used,
+                self.execution_profile_digest,
+            )
+            if self.production_mutated is not (metadata.mutation_observed is True):
+                raise WorkflowControllerError(
+                    "pump mutation claim does not match execution metadata"
+                )
         expected = _digest(self.to_dict(include_digest=False))
         if self.receipt_digest and self.receipt_digest != expected:
             raise WorkflowControllerError("pump receipt digest mismatch")
@@ -92,6 +114,16 @@ class PumpReceipt:
             "runner_receipt_digests": list(self.runner_receipt_digests),
             "production_mutated": self.production_mutated,
         }
+        if self.execution_profile_digest:
+            value.update(
+                {
+                    "execution_profile": self.execution_profile,
+                    "execution_profile_digest": self.execution_profile_digest,
+                    "workspace_write_enabled": self.workspace_write_enabled,
+                    "mutation_observed": self.mutation_observed,
+                    "orca_used": self.orca_used,
+                }
+            )
         if include_digest:
             value["receipt_digest"] = self.receipt_digest
         return value
@@ -107,6 +139,11 @@ class PumpReceipt:
             stale_event_ids=tuple(str(item) for item in value["stale_event_ids"]),  # type: ignore[union-attr]
             runner_receipt_digests=tuple(str(item) for item in value["runner_receipt_digests"]),  # type: ignore[union-attr]
             production_mutated=bool(value["production_mutated"]),
+            execution_profile=str(value.get("execution_profile", "")),
+            execution_profile_digest=str(value.get("execution_profile_digest", "")),
+            workspace_write_enabled=bool(value.get("workspace_write_enabled", False)),
+            mutation_observed=value.get("mutation_observed", False),  # type: ignore[arg-type]
+            orca_used=bool(value.get("orca_used", False)),
             receipt_digest=str(value["receipt_digest"]),
         )
 
@@ -121,6 +158,11 @@ class RecoveryReceipt:
     agent_process_live: bool
     runner_receipt_digests: tuple[str, ...]
     production_mutated: bool = False
+    execution_profile: str = ""
+    execution_profile_digest: str = ""
+    workspace_write_enabled: bool = False
+    mutation_observed: bool | None = False
+    orca_used: bool = False
 
 
 class WorkflowController:
@@ -133,6 +175,7 @@ class WorkflowController:
         receipt_path: Path,
         *,
         max_recovery_attempts: int = 3,
+        session_runner: InjectedSessionRunner | None = None,
     ) -> None:
         if not 1 <= max_recovery_attempts <= 10:
             raise WorkflowControllerError("recovery bound must be between one and ten")
@@ -141,6 +184,16 @@ class WorkflowController:
         self.receipt_path = Path(receipt_path)
         self.receipt_path.parent.mkdir(parents=True, exist_ok=True)
         self.max_recovery_attempts = max_recovery_attempts
+        self.session_runner = session_runner
+        self.execution_metadata = runner.execution_metadata
+        if (
+            session_runner is not None
+            and session_runner.execution_metadata.profile_digest
+            != self.execution_metadata.profile_digest
+        ):
+            raise WorkflowControllerError(
+                "direct and session runners must share one execution profile"
+            )
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
@@ -169,7 +222,10 @@ class WorkflowController:
         events: Iterable[WorkflowEvent],
     ) -> PumpReceipt:
         ordered = tuple(sorted(events, key=lambda item: item.sort_key))
-        input_material = {"events": [json.loads(canonical_event_json(item)) for item in ordered]}
+        input_material = {
+            "events": [json.loads(canonical_event_json(item)) for item in ordered],
+            "execution_profile_digest": self.execution_metadata.profile_digest,
+        }
         input_digest = _digest(input_material)
         accepted: list[str] = []
         duplicates: list[str] = []
@@ -306,6 +362,12 @@ class WorkflowController:
                     for event_id in accepted
                     if event_id in runner_digests
                 ),
+                production_mutated=self.execution_metadata.mutation_observed is True,
+                execution_profile=self.execution_metadata.profile_name,
+                execution_profile_digest=self.execution_metadata.profile_digest,
+                workspace_write_enabled=self.execution_metadata.workspace_write_enabled,
+                mutation_observed=self.execution_metadata.mutation_observed,
+                orca_used=self.execution_metadata.orca_used,
             )
             receipt_payload = _canonical(receipt.to_dict())
             connection.execute(
@@ -386,25 +448,31 @@ class WorkflowController:
         connected_terminal: bool,
         agent_process_live: bool,
     ) -> RecoveryReceipt:
-        if connected_terminal and agent_process_live:
-            return RecoveryReceipt(
+        if proposal.reason.value == "TRANSPORT_UNAVAILABLE":
+            return self._recovery_receipt(
+                "WAIT_FOR_DIRECT_HEALTH_PROBE", proposal.task_id, proposal.retry_attempt,
+                proposal.provenance, connected_terminal, agent_process_live, (),
+            )
+        if proposal.action == "WAIT_FOR_QUEUE_RECONCILIATION":
+            return self._recovery_receipt(
+                "WAIT_FOR_QUEUE_RECONCILIATION", proposal.task_id, None,
+                proposal.provenance, connected_terminal, agent_process_live, (),
+            )
+        force_recovery = proposal.reason.value in {
+            "INTERACTIVE_INPUT",
+            "STALE_DISPATCH",
+            "STALE_HEARTBEAT",
+        }
+        if connected_terminal and agent_process_live and not force_recovery:
+            return self._recovery_receipt(
                 "CONTINUE_CONNECTED_AGENT", proposal.task_id, proposal.retry_attempt,
                 proposal.provenance, connected_terminal, agent_process_live, (),
             )
         if not connected_terminal and agent_process_live:
-            return RecoveryReceipt(
+            return self._recovery_receipt(
                 "WAIT_FOR_VERIFIED_TERMINAL", proposal.task_id, proposal.retry_attempt,
                 proposal.provenance, connected_terminal, agent_process_live, (),
             )
-        if (
-            proposal.action != "SETTLE_THEN_RETRY_SAME_TASK"
-            or proposal.task_id is None
-            or proposal.retry_of_dispatch_id is None
-            or proposal.retry_attempt is None
-        ):
-            raise WorkflowControllerError("recovery is limited to an exact active Queue task")
-        if proposal.retry_attempt > self.max_recovery_attempts:
-            raise WorkflowControllerError("recovery attempt exceeds the bounded retry policy")
         provenance_material = {
             "action": proposal.action,
             "reason": proposal.reason.value,
@@ -412,11 +480,73 @@ class WorkflowController:
             "retry_of_dispatch_id": proposal.retry_of_dispatch_id,
             "role_generation": proposal.role_generation,
             "role_key": proposal.role_key,
+            "session_id": proposal.session_id,
             "state": RoleState.RECOVERY_REQUIRED.value,
             "task_id": proposal.task_id,
         }
         if proposal.provenance != _digest(provenance_material):
             raise WorkflowControllerError("recovery provenance does not match the exact attempt")
+        if proposal.action in {
+            "RESUME_ROLE_SESSION",
+            "INTERRUPT_THEN_RESUME_ROLE_SESSION",
+        }:
+            if proposal.task_id is not None or proposal.retry_of_dispatch_id is not None:
+                raise WorkflowControllerError("role-session recovery cannot own a Queue attempt")
+            if self.session_runner is None or proposal.session_id is None:
+                raise WorkflowControllerError("role-session recovery requires a direct session runner")
+            receipts = []
+            if proposal.action == "INTERRUPT_THEN_RESUME_ROLE_SESSION":
+                receipts.append(
+                    self.session_runner.run(
+                        SessionAction.INTERRUPT,
+                        role_key=proposal.role_key,
+                        role_generation=proposal.role_generation,
+                        session_id=proposal.session_id,
+                        provenance=proposal.provenance,
+                    ).receipt_digest
+                )
+            receipts.append(
+                self.session_runner.run(
+                    SessionAction.RESUME,
+                    role_key=proposal.role_key,
+                    role_generation=proposal.role_generation,
+                    session_id=proposal.session_id,
+                    provenance=proposal.provenance,
+                ).receipt_digest
+            )
+            action = (
+                "ROLE_SESSION_INTERRUPTED_AND_RESUMED"
+                if proposal.action == "INTERRUPT_THEN_RESUME_ROLE_SESSION"
+                else "ROLE_SESSION_RESUMED"
+            )
+            return self._recovery_receipt(
+                action, None, None, proposal.provenance,
+                connected_terminal, agent_process_live, tuple(receipts),
+            )
+        if proposal.action == "SETTLE_STALE_EXECUTION_RECEIPT":
+            if proposal.task_id is None or proposal.retry_of_dispatch_id is None:
+                raise WorkflowControllerError("stale settlement requires an exact Queue attempt")
+            settle = self.runner.run(
+                RunnerAction.SETTLE,
+                task_id=proposal.task_id,
+                role_key=proposal.role_key,
+                generation=generation.digest,
+                source_event_id=f"settle-{proposal.provenance[:24]}",
+            )
+            return self._recovery_receipt(
+                "STALE_EXECUTION_RECEIPT_SETTLED", proposal.task_id, None,
+                proposal.provenance, connected_terminal, agent_process_live,
+                (settle.receipt_digest,),
+            )
+        if (
+            proposal.action not in {"SETTLE_THEN_RETRY_SAME_TASK", "RETRY_REVIEW_ONLY"}
+            or proposal.task_id is None
+            or proposal.retry_of_dispatch_id is None
+            or proposal.retry_attempt is None
+        ):
+            raise WorkflowControllerError("recovery is limited to an exact active Queue task")
+        if proposal.retry_attempt > self.max_recovery_attempts:
+            raise WorkflowControllerError("recovery attempt exceeds the bounded retry policy")
         settle = self.runner.run(
             RunnerAction.SETTLE,
             task_id=proposal.task_id,
@@ -434,8 +564,60 @@ class WorkflowController:
             retry_of=proposal.retry_of_dispatch_id,
             retry_provenance=proposal.provenance,
         )
-        return RecoveryReceipt(
-            "SETTLED_AND_RETRIED_SAME_TASK", proposal.task_id, proposal.retry_attempt,
+        action = (
+            "REVIEW_RETRIED_WITHOUT_IMPLEMENTATION_RELAUNCH"
+            if proposal.action == "RETRY_REVIEW_ONLY"
+            else "SETTLED_AND_RETRIED_SAME_TASK"
+        )
+        return self._recovery_receipt(
+            action, proposal.task_id, proposal.retry_attempt,
             proposal.provenance, connected_terminal, agent_process_live,
             (settle.receipt_digest, resume.receipt_digest),
         )
+
+    def _recovery_receipt(
+        self,
+        action: str,
+        task_id: str | None,
+        retry_attempt: int | None,
+        retry_provenance: str | None,
+        connected_terminal: bool,
+        agent_process_live: bool,
+        runner_receipt_digests: tuple[str, ...],
+    ) -> RecoveryReceipt:
+        metadata = self.execution_metadata
+        return RecoveryReceipt(
+            action=action,
+            task_id=task_id,
+            retry_attempt=retry_attempt,
+            retry_provenance=retry_provenance,
+            connected_terminal=connected_terminal,
+            agent_process_live=agent_process_live,
+            runner_receipt_digests=runner_receipt_digests,
+            production_mutated=metadata.mutation_observed is True,
+            execution_profile=metadata.profile_name,
+            execution_profile_digest=metadata.profile_digest,
+            workspace_write_enabled=metadata.workspace_write_enabled,
+            mutation_observed=metadata.mutation_observed,
+            orca_used=metadata.orca_used,
+        )
+
+    def wake_role_session(
+        self,
+        *,
+        role_key: str,
+        role_generation: int,
+        session_id: str,
+        provenance: str,
+    ) -> str:
+        """Wake one exact reusable role for a sanitized material event."""
+
+        if self.session_runner is None:
+            raise WorkflowControllerError("role wakeup requires a direct session runner")
+        return self.session_runner.run(
+            SessionAction.RESUME,
+            role_key=role_key,
+            role_generation=role_generation,
+            session_id=session_id,
+            provenance=provenance,
+        ).receipt_digest

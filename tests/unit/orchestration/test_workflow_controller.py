@@ -281,6 +281,7 @@ def proposal(*, attempt: int = 1) -> RecoveryProposal:
         "retry_of_dispatch_id": "dispatch-a",
         "role_generation": 4,
         "role_key": "lead_infra",
+        "session_id": None,
         "state": RoleState.RECOVERY_REQUIRED.value,
         "task_id": TASK,
     }
@@ -300,7 +301,7 @@ def proposal(*, attempt: int = 1) -> RecoveryProposal:
     )
 
 
-def test_recovery_distinguishes_connected_agent_and_preserves_retry_provenance(
+def test_stale_dispatch_is_recovered_even_when_terminal_still_looks_connected(
     tmp_path: Path,
 ) -> None:
     pump, fake = controller(tmp_path)
@@ -315,8 +316,8 @@ def test_recovery_distinguishes_connected_agent_and_preserves_retry_provenance(
         proposal(), generation=GEN_A, connected_terminal=True, agent_process_live=False
     )
 
-    assert connected.action == "CONTINUE_CONNECTED_AGENT"
-    assert connected.runner_receipt_digests == ()
+    assert connected.action == "SETTLED_AND_RETRIED_SAME_TASK"
+    assert connected.runner_receipt_digests == recovered.runner_receipt_digests
     assert recovered.action == "SETTLED_AND_RETRIED_SAME_TASK"
     assert recovered.task_id == TASK
     assert recovered.retry_attempt == 1

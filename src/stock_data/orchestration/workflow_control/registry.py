@@ -37,6 +37,7 @@ class RoleRegistrySchemaError(RoleRegistryError):
 class RoleKind(StrEnum):
     PROJECT_MANAGER = "project_manager"
     DOMAIN_LEAD = "domain_lead"
+    WORKER = "worker"
 
 
 class RoleState(StrEnum):
@@ -229,6 +230,10 @@ class RoleRegistry:
         observed_at: datetime,
         lease_until: datetime,
     ) -> RoleRecord:
+        if identity.role_kind is RoleKind.WORKER:
+            raise RoleRegistryError(
+                "worker attempts are execution-scoped and are not durable reusable roles"
+            )
         heartbeat_text, lease_text = _validated_window(observed_at, lease_until)
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -307,6 +312,95 @@ class RoleRegistry:
             "heartbeat_at = ?, lease_until = ?, generation = generation + 1",
             (heartbeat_text, lease_text),
         )
+
+    def settle(
+        self,
+        role_key: str,
+        *,
+        expected_generation: int,
+        observed_at: datetime,
+        lease_until: datetime,
+    ) -> RoleRecord:
+        """Release one completed task while retaining the reusable role session."""
+
+        heartbeat_text, lease_text = _validated_window(observed_at, lease_until)
+        current = self.get(role_key)
+        if current.state is not RoleState.ACTIVE:
+            raise RoleRegistryError("only an active role can settle to idle")
+        if current.identity.active_task_id is None:
+            raise RoleRegistryError("taskless roles do not have a task to settle")
+        return self._cas_update(
+            role_key,
+            expected_generation,
+            "active_task_id = NULL, active_dispatch_id = NULL, state = ?, "
+            "heartbeat_at = ?, lease_until = ?, retry_of_dispatch_id = NULL, "
+            "retry_attempt = 0, retry_provenance = NULL, generation = generation + 1",
+            (RoleState.IDLE.value, heartbeat_text, lease_text),
+        )
+
+    def assign(
+        self,
+        role_key: str,
+        *,
+        expected_generation: int,
+        task_id: str,
+        dispatch_id: str,
+        observed_at: datetime,
+        lease_until: datetime,
+    ) -> RoleRecord:
+        """Assign a never-used task attempt to an existing idle role session."""
+
+        _require_match(task_id, _TASK_ID, "task id")
+        _require_match(dispatch_id, _IDENTIFIER, "dispatch id")
+        heartbeat_text, lease_text = _validated_window(observed_at, lease_until)
+        current = self.get(role_key)
+        if current.generation != expected_generation:
+            raise StaleRoleGeneration("role generation changed")
+        if current.state is not RoleState.IDLE:
+            raise RoleRegistryError("new task assignment requires an idle role")
+        if (
+            current.identity.active_task_id is not None
+            or current.identity.active_dispatch_id is not None
+        ):
+            raise RoleRegistryError("idle role retained an active Queue attempt")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            used = connection.execute(
+                "SELECT 1 FROM role_dispatch_history WHERE role_key = ? AND dispatch_id = ?",
+                (role_key, dispatch_id),
+            ).fetchone()
+            if used is not None:
+                connection.rollback()
+                raise RoleRegistryError("assignment requires a never-used dispatch identifier")
+            cursor = connection.execute(
+                """
+                UPDATE role_registry SET
+                    active_task_id = ?, active_dispatch_id = ?, state = ?,
+                    heartbeat_at = ?, lease_until = ?, retry_of_dispatch_id = NULL,
+                    retry_attempt = 0, retry_provenance = NULL,
+                    generation = generation + 1
+                WHERE role_key = ? AND generation = ? AND state = ?
+                  AND active_task_id IS NULL AND active_dispatch_id IS NULL
+                """,
+                (
+                    task_id, dispatch_id, RoleState.ACTIVE.value,
+                    heartbeat_text, lease_text, role_key, expected_generation,
+                    RoleState.IDLE.value,
+                ),
+            )
+            if cursor.rowcount != 1:
+                connection.rollback()
+                raise StaleRoleGeneration("role generation changed")
+            connection.execute(
+                """
+                INSERT INTO role_dispatch_history (
+                    role_key, task_id, dispatch_id, attempt, provenance
+                ) VALUES (?, ?, ?, 0, NULL)
+                """,
+                (role_key, task_id, dispatch_id),
+            )
+            connection.commit()
+        return self.get(role_key)
 
     def mark_recovery_required(
         self,

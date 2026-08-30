@@ -10,7 +10,7 @@ runbook, checkpoint, or retained evidence.
 | Field | Current value |
 |---|---|
 | Selected domain | `DATA_PRIMARY / PARALLEL_ENGINEERING_ACTIVE` |
-| Current phase | `CANONICAL_BASELINE_V1 / AUTONOMOUS_DATA_AND_READONLY_ACCOUNT_OPERATIONS / GUI_BACKTEST_FEATURE_ENGINEERING_ACTIVE / FINAL_HOLDOUT_SEALED / FINANCIAL_MUTATIONS_DISABLED` |
+| Current phase | `CANONICAL_BASELINE_V1 / PYTHON_PM_LOCAL_CONTROL_ACTIVE / AUTONOMOUS_DATA_AND_READONLY_ACCOUNT_OPERATIONS / GUI_BACKTEST_FEATURE_ENGINEERING_ACTIVE / FINAL_HOLDOUT_SEALED / FINANCIAL_MUTATIONS_DISABLED` |
 | Next domain | No phase handoff required for ordinary in-scope engineering |
 | Exact next action | Observe the next natural KR bundle v5 sequence at 09:10 and 20:30 after the source-width/publication-boundary recovery, require the 13-lane receipt plus 39/39 Health, and continue the separate BOK 17:10 three-batch finality observation |
 | Real external blockers | Exact future provider publication/session windows, unavailable secret/entitlement, rejected protected-resource escalation, or a user-only financial/legal/access action |
@@ -29,6 +29,12 @@ authority.
 - Data is the primary operational domain. Current dataset health, source
   semantics, publication/finality gates, account observations, and exact next
   operations live in [Data Status](../data/DATA_STATUS.md).
+- Python PM is the sole supported repository-local workflow lifecycle writer.
+  Its canonical state root is `data/runtime/python_pm`; `status`, read-only
+  `canary`, workspace-write `run`, and exact stale-generation `rollback` are
+  exposed through `scripts/maintenance/workflow_controller.py`. Orca is not a
+  production dependency or second writer. The current host is event-driven and
+  one-shot; an unattended Queue polling scheduler is a separate future scope.
 - Documentation uses the bounded [Documentation Router](../README.md). Current
   domain Status files contain only routing facts, blockers, support boundaries,
   and exact next actions; pre-compaction snapshots and terminal operation detail
@@ -142,6 +148,7 @@ authority.
 | Data operations | `AUTONOMOUS_PUBLIC_AND_ENV_AUTHENTICATED_API_OPERATIONS` | Use Landing-first capture, source contracts, validation, atomic writes, and prior-valid preservation |
 | Scheduler | `OPERATIONAL / DEGRADED_STRUCTURE` | Current tasks may run; consolidation is proposed only until code, receipts, and definition readback are updated together |
 | GUI | `AUTONOMOUS_READONLY_ENGINEERING` | Preserve typed freshness, numeric suppression, privacy, and source identity; keep provider transport and canonical promotion in Data |
+| Workflow control | `PYTHON_PM_ONLY / EVENT_DRIVEN` | Use the canonical controller CLI and read-only operations dashboard; never run an Orca and Python writer for the same lifecycle |
 | Account | Existing-credential read-only access authorized | Keep projections identifier-free; no account discovery in scheduled paths and no broker mutation |
 | Backtest / ML | `AUTONOMOUS_OFFLINE_ENGINEERING` | Keep the existing final holdout sealed and enforce PIT/leakage controls |
 | Semantics / PIT | `AUTONOMOUS_EVIDENCE_GATHERING` | Quarantine only unsupported claims and dependent promotion/use while continuing independent investigation |

@@ -1,9 +1,9 @@
-# Queue / Orca Agent Pipeline
+# Queue / Python Agent Pipeline
 
-updated_at: 2026-08-29
-status: reviewed offline Python operational authority; production activation and cutover disabled
+updated_at: 2026-08-30
+status: Python-PM-only repository lifecycle authority active; unattended Queue scheduler not installed
 
-This document records how Queue roles, Orca execution state, and Codex sessions
+This document records how Queue roles, Python execution state, optional Orca state, and Codex sessions
 are resumed without creating a new session or Run for every piece of work. It
 does not replace the canonical Queue protocol in `README.md`, the current model
 snapshot in `WORKFLOW.md`, or live state in `BOARD.md`.
@@ -19,27 +19,67 @@ snapshot in `WORKFLOW.md`, or live state in `BOARD.md`.
 - Reviewers remain independent from the implementation context for each
   immutable review generation.
 - Queue remains business authority. The Python workflow-control package owns
-  deterministic offline policy evaluation and lifecycle receipts; Orca is an
+  repository-local lifecycle execution and policy receipts; Orca is an
   optional supervised transport, not policy authority.
+- One live MAIN/PM controller generation is the only Queue mutation and
+  Dispatch-creation owner. Listeners and Watchdogs are read-only and wake that
+  owner with idempotent material-event receipts.
 
-```mermaid
-flowchart TD
-    User["User stream of ideas"] --> Main["MAIN / Goal intake"]
-    Main --> Queue["Canonical Queue"]
-    Queue --> PM["Durable Project Manager"]
-    PM --> LeadA["Domain Lead A"]
-    PM --> LeadB["Domain Lead B"]
-    LeadA --> WorkerA["Reusable Worker"]
-    LeadA --> ReviewerA["Fresh Reviewer"]
-    LeadB --> WorkerB["Reusable Worker"]
-    LeadB --> ReviewerB["Fresh Reviewer"]
-    WorkerA --> LeadA
-    ReviewerA --> LeadA
-    WorkerB --> LeadB
-    ReviewerB --> LeadB
-    LeadA -->|bounded digest| PM
-    LeadB -->|bounded digest| PM
+```text
+User -> conversation intake -> Project Goal
+                                  |
+                             Goal Planner
+                                  |
+                             Queue New
+                                  |
+                       single MAIN/PM triage
+                                  |
+                              Queue Ready
+                                  |
+                       durable Domain Lead claim
+                          /          |          \
+                       FAST       SINGLE      PARALLEL
+                         \           |          /
+                          Lead reconciliation
+                                  |
+                       immutable review generation
+                                  |
+                         fresh read-only Reviewer
+                            /                 \
+                     FIX -> Lead          PASS -> Done
+
+Python Supervisor = SQLite machine truth + JSONL events + Markdown projection
+Listener / Watchdog = observe -> one wake -> MAIN/PM; never Dispatch creation
+
+Orca -------------------------------- optional adapter / observer only
 ```
+
+Every managed node enters through the role bootstrap in `.agents/roles/README.md`:
+`AGENTS.md -> common role contract -> one role document -> exact Task packet`.
+The packet pins document digests and the Agent must acknowledge them before
+using role authority. This keeps a durable session reusable without assuming
+that an old conversation still carries the current rules.
+
+## Single conductor and wake ownership
+
+The durable PM role is the one conductor. Every Queue mutation, Lead creation,
+Worker creation and Reviewer creation must be attributable to its current
+controller generation. A Listener may prove a stale lease, completion,
+question, escalation, or material file/Queue transition and send one wake to
+that PM. It cannot answer by creating the missing agent itself.
+
+Creation is idempotent. Lead and Worker attempts key on Queue Task, role and
+attempt; Reviewer attempts additionally key on the immutable review generation.
+The controller checks live, settled and fenced history before launch. The first
+accepted attempt owns the work; a racing duplicate is recorded and fenced
+without a second Queue mutation or filesystem writer.
+
+Durable structured mail records the event, but an idle agent prompt may require
+one separate wake input. The same wake receipt must not be delivered through
+both PM and Listener paths. A transport outage or a visible spinner is never a
+reason to create a replacement; liveness requires current Task/Dispatch
+identity plus heartbeat, sanitized output progress, or an accepted lifecycle
+event.
 
 ## Identity and lifetime
 
@@ -58,8 +98,8 @@ receive a current Task/Dispatch lifecycle before supervised work continues.
 
 ## Python operational control plane
 
-The project-local Python controller is the candidate lifecycle authority. It
-can run with Orca disabled and has four deliberately separate boundaries:
+The project-local Python controller is the repository-local lifecycle authority. It
+can run with Orca disabled and has five deliberately separate boundaries:
 
 1. `RequestQueueStatusAdapter` reads the canonical manager's compact Queue
    snapshot. `WorkflowController.pump_queue_snapshot` combines that snapshot
@@ -77,7 +117,15 @@ can run with Orca disabled and has four deliberately separate boundaries:
    `transport=direct`, `orca_used=false`, and
    `production_mutated=false`. Orca may carry messages but is not required for
    the event pump or its disabled-Orca canary.
-4. `DiscoveryRegistrar` accepts a Worker or Reviewer finding validated by the
+4. `WorkflowSupervisor` combines the pure `RoleWatchdog` with injected direct
+   task and role-session runners. Bounded terminal previews are reduced in
+   memory to `INPUT_REQUIRED` or `UNKNOWN`; raw prompts, commands, and
+   transcripts are discarded. A connected terminal therefore cannot mask a
+   stale heartbeat, a failed Dispatch, or an interactive PowerShell parameter
+   prompt. PM sessions without a Queue Task use identifier-only
+   interrupt/resume receipts, while Queue attempts preserve exact Task and
+   retry provenance.
+5. `DiscoveryRegistrar` accepts a Worker or Reviewer finding validated by the
    routed Lead, or a Lead-origin finding self-validated by that same routed
    Lead, only at the current Lead generation. All paths require bounded
    reproducible evidence, a disjoint suspected scope, and duplicate handling.
@@ -97,18 +145,33 @@ all accepted direct action receipts settle. This intentionally serializes
 in-flight lifecycle effects so a newer REVIEW settlement cannot overtake an
 older unresolved ACTIVE launch even when the two events have different IDs.
 
-Watchdog recovery is bounded to three attempts by default. A connected live
-agent continues without a retry. An agent reported live behind an unverified
-terminal is left alone until terminal identity is proved. Only a dead attempt
-with exact Task, prior Dispatch, next attempt, and deterministic watchdog
-provenance may be settled and resumed; the retry preserves the same Queue Task
-and cannot silently substitute a new task or reused provenance.
+Watchdog recovery is bounded to three attempts by default. Connected/running is
+not sufficient health evidence: a fresh sanitized output timestamp can offset
+a delayed heartbeat, but stale heartbeat and stale output together are a
+recovery fact. A bounded PowerShell input prompt older than the prompt timeout
+is interrupted and the same role session is resumed idempotently. An agent
+reported live behind an unverified terminal is still left alone until terminal
+identity is proved.
 
-This candidate does not install a hook, approve a new command, activate a live
-scheduler, automatically promote a policy, or perform a production cutover.
-The existing independent-review, canary-disabled-by-default, and unconditional
-financial/access/secret/destructive authority refusals remain in force. A
-separately reviewed operation is required before any later cutover.
+Recovery is Queue-state aware. An `active` attempt may settle and retry the same
+Task, `review` retries only the independent review phase, and
+`ready|waiting|blocked|done` settles stale execution residue without relaunching
+implementation. Missing or unreadable Queue state is fail-closed as
+`WAIT_FOR_QUEUE_RECONCILIATION`; it never guesses which phase to restart. A
+transport outage is recorded as
+`WAIT_FOR_DIRECT_HEALTH_PROBE`; it never proves that every agent died and never
+causes a duplicate retry. Every mutating recovery requires exact Task or role
+identity, generation, prior Dispatch where applicable, and deterministic
+provenance. Replaying the same observation returns the same receipts without a
+second side effect.
+
+The supported production composition is the active repository-local lifecycle
+authority at `data/runtime/python_pm`. Its CLI exposes `status`, read-only
+`canary`, workspace-write `run`, and exact stale-generation `rollback`; it has
+no Orca or fake production fallback. This cutover does not install a hook,
+activate an unattended Queue polling scheduler, automatically promote policy,
+or broaden financial/access/secret/destructive authority. Those remain separate
+reviewed operations.
 
 ## Offline policy lifecycle
 
@@ -157,6 +220,11 @@ last_verified_at: <timestamp>
 state: active | idle | stopped | recovery_required
 ```
 
+The Orca fields above are compatibility locators for the optional Orca adapter,
+not health evidence and not control-plane authority. The direct role-session
+runner keys recovery by `role_key`, `codex_session_id`, registry generation and
+provenance, so a taskless PM can be recovered without inventing a Queue Task.
+
 Recommended stable role keys are `project_manager`, `lead_data`, `lead_gui`,
 `lead_backtest`, and other domain-specific Leads. Worker records may be pooled
 under their Lead. Reviewer records are receipts, not preferred resume targets.
@@ -191,31 +259,37 @@ flowchart TD
 
 ## Restart and crash recovery
 
-Recovery is reconciliation, not blanket recreation.
+Recovery is reconciliation, not blanket recreation. Python PM state is checked
+first; Orca is inspected only when an explicitly configured optional adapter
+was used for the affected attempt.
 
-1. Confirm the Orca runtime is ready and record its current runtime ID.
-2. List live terminals, Runs, Tasks, and Worker resources.
-3. Compare those facts with the durable role registry.
-4. Classify each saved role:
+1. Run the Python PM `status` command against the canonical repository root and
+   classify the writer as `idle`, `live`, `stale`, or `uncertain`.
+2. Compare the canonical SQLite/JSONL state, Queue snapshot, and sanitized
+   activity rows with the durable role registry.
+3. Classify each saved role:
    - `live`: expected agent process and terminal are both verified;
    - `shell_only`: terminal survived but Codex exited;
    - `terminal_missing`: Run/session history exists but the old handle is gone;
    - `stale_dispatch`: Orca reports active work but no matching agent process
      remains;
    - `settled`: completion exists and the resource is released or reusable.
-5. Resume the PM Codex session in the verified PM worktree and explicitly bind
-   the durable PM Run.
-6. Settle each stale Dispatch before creating a replacement attempt. Never
+4. Resume the exact Codex session only when its hashed identity, repository,
+   task, profile, and generation still match. An Orca Run binding is optional
+   compatibility metadata, not authority.
+5. Settle each stale attempt before creating a replacement attempt. Never
    infer completion from a vanished Codex process or a surviving shell.
-7. Resume the matching Lead session and attach a fresh Dispatch for unfinished
+6. Resume the matching Lead session and attach a fresh attempt for unfinished
    work. Preserve the existing Queue Task and checkpoint.
-8. Re-run required independent review from the exact current review generation.
-9. Update the registry only after Orca readback proves the new identities.
+7. Re-run required independent review from the exact current review generation.
+8. Update the registry only after Python PM receipts prove the new identities;
+   when an optional Orca adapter was involved, require its readback as additional
+   evidence rather than a second source of truth.
 
 Python lifecycle, wakeup, recovery, routing, discovery, and policy authority is
-the target control plane. Until a separately accepted cutover activates those
-operations, this policy lifecycle remains offline and Orca may continue as an
-optional transport without becoming a second source of policy truth.
+the active repository-local control plane. Orca may continue as an optional
+transport without becoming a second source of policy truth. Unattended scheduler
+activation remains a separate, explicitly reviewed operation.
 
 Typical recovery commands are intentionally shown with placeholders:
 
@@ -277,6 +351,11 @@ The PM should provide a bounded summary after unattended work:
   lane;
 - material workflow changes and the exact recovery performed;
 - decisions that truly exceed delegated authority.
+- Goal items with no Queue candidate, executable Goal items still stuck in New,
+  Done Queue receipts not reflected in current Goal/Status, and stale Goal facts;
+- duplicate wake, creation-race and fenced-attempt counts;
+- repeated-acceptance canary/preflight results and the current accepted cycle
+  count rather than merely the number of cycles executed.
 
 The digest reports operations; it does not replace Queue receipts, Status,
 contracts, or the append-only workflow changelog.

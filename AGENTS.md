@@ -234,6 +234,13 @@ Before ending an implementation or documentation task:
 
 - For queue-backed work, use `.agents/skills/request-queue/SKILL.md`, then read
   `artifacts/request_queue/BOARD.md`.
+- Before using Queue role authority, read
+  `.agents/roles/README.md` and exactly one matching role
+  document. Every managed packet pins `queue-role-v1` plus the common and role
+  document SHA-256 digests; the Agent records a matching `rules_ack` before
+  Queue mutation, Dispatch creation, implementation, review settlement or
+  lifecycle decisions. Missing or stale acknowledgement leaves the Agent
+  read-only until its owner sends one corrected packet.
 - Change queue state only with `scripts/request_queue.py`; queue protocol lives
   only in `artifacts/request_queue/README.md`.
 - Queue guidance never overrides the authority and permission rules above.

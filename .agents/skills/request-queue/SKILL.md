@@ -9,6 +9,13 @@ Read `artifacts/request_queue/README.md` completely; it alone defines states,
 ordering, task records, and manager commands. Read `BOARD.md` next. Neither file
 overrides repository authority, permissions, or the user's scope.
 
+Before using a Queue role, read `.agents/roles/README.md` and
+exactly one matching role document. A managed launch or resume must pin the
+`queue-role-v1` common/role document digests, and the receiving Agent must record
+the matching `rules_ack` before it mutates Queue state, Dispatches, code, review
+settlement or lifecycle. A mismatch leaves the Agent read-only and is returned
+to its owning Lead or PM for one corrected idempotent packet.
+
 ## Operate
 
 Use `scripts/request_queue.py` for every state or metadata change. Run `doctor`

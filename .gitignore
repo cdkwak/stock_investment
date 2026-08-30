@@ -4,6 +4,8 @@ __pycache__/
 .pytest_cache/
 .pytest_*/
 .tmp/
+.unlazy/
+/GATES.md
 .tmp_pytest_*/
 .tmp_pycache_*/
 .worktrees/

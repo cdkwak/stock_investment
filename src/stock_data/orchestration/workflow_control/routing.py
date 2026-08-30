@@ -139,6 +139,7 @@ class QueueWorkItem:
     writer_lane: str = "shared"
     worker_profile: str = "balanced"
     reviewer_profile: str = "strong"
+    review_snapshot_pinned: bool = False
 
     def __post_init__(self) -> None:
         if _TASK_ID.fullmatch(self.task_id) is None:
@@ -149,6 +150,8 @@ class QueueWorkItem:
             raise RoutingError(f"invalid priority for {self.task_id}")
         if self.writer_lane not in _WRITER_LANES:
             raise RoutingError(f"invalid writer lane for {self.task_id}")
+        if not isinstance(self.review_snapshot_pinned, bool):
+            raise RoutingError(f"invalid review snapshot flag for {self.task_id}")
         if any(_TASK_ID.fullmatch(dependency) is None for dependency in self.depends_on):
             raise RoutingError(f"invalid dependency for {self.task_id}")
         for path in self.write_scope:
@@ -239,7 +242,10 @@ def select_dependency_ready_leads(
         key=lambda item: item.task_id,
     ))
     review_reservations = tuple(sorted(
-        (item for item in projected if item.state == "review"),
+        (
+            item for item in projected
+            if item.state == "review" and not item.review_snapshot_pinned
+        ),
         key=lambda item: item.task_id,
     ))
     capacity = max(0, min(MAX_LEADS, writer_limit) - len(active))

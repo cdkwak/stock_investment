@@ -17,6 +17,8 @@ and Waiting tasks are not runnable Lead buffer.
 ## Route
 
 1. Read `AGENTS.md` and apply its temporary-workspace and authority rules.
+   Read `.agents/roles/README.md` and `.agents/roles/PLANNER.md`, then record the matching
+   `queue-role-v1` acknowledgement for a managed planning pass.
 2. Read `docs/project/PROJECT_GOAL.md`.
    - If its status is `AWAITING_USER_DEFINITION`, the Goal is blank, or its
      meaning is ambiguous, stop without changing the queue and report that the

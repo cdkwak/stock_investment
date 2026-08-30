@@ -13,8 +13,8 @@ and `HANDOFF.md`, then follow the normal repository authority route.
 
 Use [WORKFLOW.md](WORKFLOW.md) for the concise current operating-model snapshot
 and [WORKFLOW_CHANGELOG.md](WORKFLOW_CHANGELOG.md) for the append-only record of
-material workflow changes. Use [PIPELINE.md](PIPELINE.md) for durable Orca role,
-session-reuse, and restart-reconciliation guidance. This README remains the
+material workflow changes. Use [PIPELINE.md](PIPELINE.md) for the Python control
+plane, durable role/session reuse, and optional Orca reconciliation guidance. This README remains the
 canonical protocol and `BOARD.md` remains the generated current-state view.
 
 Do not normally scan Done, Review, Blocked, old conversations, scheduler
@@ -55,14 +55,20 @@ Deleted legacy requests are not restored. Done contains only this new batch.
 
 ## Roles and writer mode
 
+- Exactly one live MAIN/PM controller generation is the Queue mutation and
+  Dispatch-creation owner. A Listener or Watchdog may read state, detect a
+  material event, and issue one idempotent wake to that owner; it must not
+  create a competing Lead, Worker, Reviewer, claim, or lifecycle transition.
+  A duplicate wake is a zero-effect receipt, not a second execution path.
 - MAIN COORDINATOR accepts unstructured user requests and managed discovery
   proposals, assigns `domain` and `lead_owner`, manages global
   priority/dependencies and cross-domain conflicts, and escalates only true
   user/external gates. It does not manually reproduce every finding, normally
   dispatch workers, or review domain-local changes.
 - A Domain Lead reads only its routed work with `status --lead-owner <lead>`,
-  claims a package with `--role lead`, decomposes it, manages Orca workers and
-  an independent reviewer, and submits the accepted result. Queue files are the
+  claims a package with `--role lead`, decomposes it, manages directly launched
+  workers and an independent reviewer, and submits the accepted result. Orca
+  may be used as an optional transport, but is not required. Queue files are the
   Lead's external memory, so a replacement Lead session resumes by reading the
   same routed worklist and HANDOFF rather than reconstructing chat history.
 - A worker implements or reproduces only the scope sent by its Lead. Workers
@@ -98,15 +104,47 @@ Deleted legacy requests are not restored. Done contains only this new batch.
 - Multiple read-only investigations may run in parallel without consuming a
   writer slot.
 
+### Adaptive execution topology
+
+Choose the smallest topology that can satisfy Done When:
+
+| Mode | Use when | Execution path |
+|---|---|---|
+| `FAST` | deterministic, low-risk, single-scope work | Lead implements directly, runs focused checks, and uses the normal no-review flow unless policy requires review |
+| `SINGLE` | one coherent implementation scope or one consequential writer | one Lead with at most one Worker, followed by a fresh Reviewer when required |
+| `PARALLEL` | at least two dependency-ready, pairwise-disjoint scopes with no shared resource lock | one Lead coordinates multiple scoped Workers; each returned scope is reconciled before integration and review |
+
+Do not create a Worker merely to preserve hierarchy, and do not create
+multiple Leads or Workers for a sequential task. MAIN records the selected
+mode during triage; the Lead may safely collapse `SINGLE` to direct Lead work,
+but may expand to `PARALLEL` only after proving disjoint ownership and resource
+locks.
+
+### Role bootstrap and acknowledgement
+
+Every Queue-backed Agent follows `.agents/roles/README.md` and exactly one matching role
+document. Managed launch and resume packets pin `queue-role-v1`, the common-role
+document digest and the selected role-document digest. The Agent records the
+matching `rules_ack` before using role authority. Missing, stale or mismatched
+acknowledgement permits read-only diagnosis only and must not be repaired by
+creating a parallel Agent.
+
+The packet and acknowledgement are part of Task/Dispatch provenance. Reviewer
+packets additionally bind the immutable review generation. A ruleset update
+applies to later packet generations and never silently changes the contract of
+an already-pinned immutable review.
+
 ### Role permissions and escalation
 
 - MAIN owns global Queue intake, triage, routing, priority, dependencies and
   cross-domain integration. It does not take over ordinary domain debugging.
-- A Domain Lead owns decomposition, model profile selection, Orca worker and
+- A Domain Lead owns decomposition, model profile selection, worker and
   reviewer lifecycle, in-scope rework, and accepted discovery intake for its
   routed packages.
 - Workers may edit and test only their exact dispatched scope. Reviewers are
   read-only by default and return `PASS`, `FIX`, or a finding to the Lead.
+  Workers never select or instruct their Reviewer, and Reviewers never assign
+  rework directly to a Worker.
 - Goal Planners and Watchdogs are read-mostly: the Planner may only create New
   candidates, while the Watchdog may only observe, wake and notify the routed
   Lead or MAIN. Neither may move Queue lifecycle state.
@@ -125,18 +163,19 @@ Queue metadata mutations remain globally serialized by `.queue-mutation.lock`;
 contending commands wait briefly and then fail closed rather than mutating in
 parallel.
 Do not let two agents edit overlapping files or hold the same resource lock.
-Production writers may use an Orca-managed current or child worktree with exact
+Production writers may use the current worktree or a managed child worktree with exact
 non-overlapping write scopes. Only the routed Lead uses the canonical manager
 in the main worktree. Child worktrees may inspect their supplied task packet,
 but must not run a worktree-local queue manager or mutate the central Queue.
 The Lead collects worker and reviewer results before Submit.
 
-A task in `review` reserves its exact normalized `write_scope`. A later claim
-whose production scope overlaps that reservation fails before either task is
-mutated, although Review tasks do not consume an Active writer lane or the
-three-writer limit. `review-pass` and `review-fail` release the reservation by
-moving the submitted generation out of Review. Disjoint claims remain governed
-by the normal lane and resource-lock rules.
+A legacy task in `review` reserves its exact normalized `write_scope`. A Submit
+that includes `--snapshot-commit <full-HEAD>` instead pins the reviewed candidate
+to a clean, immutable Git commit and releases the live write reservation; a
+later writer may continue while the Reviewer reads only that commit. Review
+acceptance must repeat the identical commit and current `review_generation`.
+Review tasks consume no Active writer lane. Unpinned legacy reviews keep their
+reservation until `review-pass` or `review-fail` for migration safety.
 
 ## Task identity and files
 
@@ -158,6 +197,9 @@ Each task directory contains:
 - `BLOCKED.md`: three-line external gate only while Blocked.
 - `WAITING.md`: bounded reason, resume condition, next check and waiting start;
   present only while Waiting.
+- `REVIEW.md`: immutable review generation and HANDOFF digest, plus an optional
+  full `snapshot_commit`. A pinned commit is the reviewed candidate identity and
+  allows later disjoint or overlapping writers to proceed without invalidating it.
 - `ORCA_STATE.json`: optional Orca Run/Task link. New operation treats it as a
   locator, not as Queue lifecycle authority. Existing v1 dispatch fields remain
   readable for compatibility but are not required for Queue completion. It
@@ -183,9 +225,9 @@ and a contained path as overlapping.
 `priority` is urgency, not difficulty. Triage records `complexity` separately
 as `small`, `standard`, `complex`, or `critical`; `risk` is `low`, `medium`,
 `high`, or `critical`. The Queue derives provider-independent Worker and
-Reviewer profiles and the Lead maps them to current Orca launch preferences:
+Reviewer profiles and the Lead maps them to direct-runner launch preferences:
 
-| Profile | Current Orca model / effort | Intended work |
+| Profile | Current model / effort | Intended work |
 |---|---|---|
 | `fast` | `gpt-5.6-luna / medium` | small, deterministic, low-risk work |
 | `balanced` | `gpt-5.6-terra / medium` | ordinary single-domain work |
@@ -195,7 +237,7 @@ Reviewer profiles and the Lead maps them to current Orca launch preferences:
 The Worker uses the maximum tier implied by complexity and risk. Required
 independent review uses one tier stronger, capped at `critical`, and always a
 fresh session. These are launch profiles rather than durable provider
-contracts; update the mapping when Orca model availability changes without
+contracts; update the adapter mapping when model availability changes without
 rewriting historical tasks.
 
 ## States and transitions
@@ -264,9 +306,9 @@ python scripts/request_queue.py claim <TASK_ID> --owner <lead> --role lead --dom
 python scripts/request_queue.py checkpoint <TASK_ID> --owner <lead> --expected-generation <generation> ...
 python scripts/request_queue.py release <TASK_ID> --owner <lead> --expected-generation <generation> --reason <reason> --next <action>
 python scripts/request_queue.py orca-bind <TASK_ID> --owner <lead> --expected-generation <generation> --run-id <run> --orca-task-id <task> --next-action <action>
-python scripts/request_queue.py submit <TASK_ID> --owner <lead> --expected-generation <generation> ...
-python scripts/request_queue.py review-pass <TASK_ID> --reviewer <agent> --review-generation <token> --decision-basis <basis>
-python scripts/request_queue.py review-fail <TASK_ID> --reviewer <agent> --review-generation <token> --decision-basis <basis> --next <action>
+python scripts/request_queue.py submit <TASK_ID> --owner <lead> --expected-generation <generation> --review --reviewer <agent> --snapshot-commit <full-HEAD> ...
+python scripts/request_queue.py review-pass <TASK_ID> --reviewer <agent> --review-generation <token> --snapshot-commit <same-full-HEAD> --decision-basis <basis>
+python scripts/request_queue.py review-fail <TASK_ID> --reviewer <agent> --review-generation <token> --snapshot-commit <same-full-HEAD> --decision-basis <basis> --next <action>
 python scripts/request_queue.py reopen <TASK_ID> --reason <evidence> --next <action>
 python scripts/request_queue.py block <TASK_ID> ...
 python scripts/request_queue.py unblock <TASK_ID> --next <action>
@@ -333,32 +375,32 @@ dependencies/cycles, Review/Blocked/Done fields, and BOARD digest. Only
 `doctor --fix-board` may safely regenerate the derived board; it does not move or
 rewrite tasks.
 
-## Orca execution and Watchdog
+## Python execution, event wakeup, and optional Orca transport
 
-Queue and Orca do not duplicate authority:
+The Python control plane is the repository-local workflow authority:
 
 - Queue owns the work request: identity, priority, domain/Lead routing,
   dependencies, write reservations, review policy, current HANDOFF and business
   lifecycle.
-- Orca owns execution: Lead/worker/reviewer conversations, Dispatch attempts,
-  terminal/process state and wakeups. Queue Submit does not require a mirrored
-  Orca Dispatch status.
+- Python owns accepted lifecycle events, idempotent direct runner receipts,
+  durable role generations, leases, heartbeat recovery, and material-event
+  wakeups. Queue Submit does not require a mirrored Orca Dispatch status.
 - `status --lead-owner` exposes the derived Worker and Reviewer model/effort
-  plan. The Lead supplies those values to `orca orchestration worker-start`
-  when launching fresh agents; a model launch failure is ordinary Lead-owned
-  recovery, not a user escalation.
+  plan. The Lead supplies those values to the selected direct adapter when
+  launching fresh agents; a model launch failure is ordinary Lead-owned recovery.
 - `orca-bind` stores only the Orca Run/Task locator needed to reopen execution
   context. The older `orca-reconcile` command remains a compatibility telemetry
   path; normal Lead operation does not depend on it and its phase is not a
   Queue completion or review gate.
-- A Python Watchdog reads Active Queue routing plus live Orca state, then wakes
-  the routed Lead or alerts MAIN when work is stalled. It does not edit Queue
-  files, move lifecycle directories, infer completion from a vanished terminal,
-  or become another source of truth.
-- Before `release`, `wait`, or `block`, the Lead stops or settles workers in
-  Orca. The Queue manager removes the stale Orca link while moving the package;
-  it does not mirror every worker transition to prove that settlement.
-- `REVIEW.md` binds the submitted Queue generation and HANDOFF snapshot. The
+- The Python Watchdog reads Active Queue routing plus the injected direct health
+  boundary. It wakes only on `worker_done`, question, escalation, material Queue
+  transition, or a proved stale lease. It does not require a Stop hook, poll a
+  terminal every minute, or treat a spinner as health evidence.
+- Orca can still carry supervised messages and expose terminal telemetry. Its
+  IDs are compatibility locators only and it never becomes required for claim,
+  wakeup, review, completion, or recovery.
+- `REVIEW.md` binds the submitted Queue generation, HANDOFF snapshot, and when
+  supplied the exact immutable Git commit. The
   Domain Reviewer checks the supplied candidate; MAIN receives only important
   cross-domain or architectural escalations.
 
@@ -418,8 +460,36 @@ user-triggered Goal update may run one bounded planning pass with
 `--explicit-user-trigger`; explicit user intake and task-derived defects always
 remain allowed.
 
+For a task that requires independent review, the authority path is fixed:
+
+```text
+Worker -> Lead reconciliation -> immutable generation -> fresh Reviewer
+Reviewer FIX -> Lead -> bounded Worker/Lead rework -> new generation
+Reviewer PASS -> Lead/MAIN -> scoped commit and Done receipt
+Reviewer finding outside scope -> Lead evidence check -> Queue New candidate
+```
+
+The same defect family may receive at most two ordinary `FIX` generations.
+Before a third implementation retry, the Lead must stop patching symptoms,
+restate the root cause and acceptance oracle, and ask MAIN to re-plan topology
+or scope. This remains an internal project decision unless the next action is a
+true user-only gate.
+
 Before Submit, re-read Done When, inspect the scoped diff, run the exact focused
-test and the smallest useful regression, and update HANDOFF. A Done receipt is:
+test and the smallest useful regression, and update HANDOFF. Expensive repeated
+acceptance follows this order:
+
+1. reproduce the failure or establish a positive control;
+2. run the decisive platform/contract preflight that could invalidate the run;
+3. run focused owning tests;
+4. run one complete canary cycle;
+5. run the requested repeated cycles;
+6. repeat the decisive preflight and reconcile every retained receipt.
+
+A late decisive failure invalidates the repeated-cycle acceptance count. Reopen
+the same Queue identity, preserve the failed evidence, fix and review it, then
+restart the count at cycle 01; never create a duplicate defect or pretend the
+earlier cycles remain accepted. A Done receipt is:
 
 ```text
 result:
@@ -431,8 +501,14 @@ completed_at:
 Never store long reasoning, complete diffs, full logs, or conversation history
 in the queue.
 
-Each reviewed Submit creates a new `review_generation` in `REVIEW.md`. The
-independent reviewer must inspect that exact generation; stale generations are
-rejected without mutation. Use `reopen` only when newer concrete evidence proves
+Each reviewed Submit creates a new `review_generation` in `REVIEW.md`. Prefer a
+clean full-HEAD `--snapshot-commit`; the independent reviewer must inspect that
+exact commit and repeat it when deciding. Stale generations or substituted
+commits are rejected without mutation. Use `reopen` only when newer concrete evidence proves
 a Done receipt invalid. It removes the stale receipt, records the reason, and
 returns the task to Ready for a fresh claim and review generation.
+
+On PASS, `RESULT.md` retains `review_generation`, `snapshot_commit` (when
+pinned), and `reviewed_by` after the transient `REVIEW.md` is removed. This
+keeps the Done receipt independently auditable instead of discarding the
+identity of the reviewed candidate.

@@ -28,6 +28,7 @@ def item(
     scope: tuple[str, ...] = (),
     locks: tuple[str, ...] = (),
     writer_lane: str = "data",
+    review_snapshot_pinned: bool = False,
 ) -> QueueWorkItem:
     return QueueWorkItem(
         task_id=f"RQ-20260829T0100{suffix}-ABCD",
@@ -38,6 +39,7 @@ def item(
         write_scope=scope or (f"src/{suffix}.py",),
         resource_locks=locks,
         writer_lane=writer_lane,
+        review_snapshot_pinned=review_snapshot_pinned,
     )
 
 
@@ -177,6 +179,20 @@ def test_shared_writer_lane_is_exclusive_but_review_only_reserves_exact_scope() 
     review_shared = item("34", state="review", writer_lane="shared")
     allowed = item("35", writer_lane="backtest")
     assert select_dependency_ready_leads((review_shared, allowed)).selected == (allowed,)
+
+
+def test_commit_pinned_review_snapshot_does_not_reserve_writer_scope() -> None:
+    review = item(
+        "36",
+        state="review",
+        scope=("src/reusable.py",),
+        review_snapshot_pinned=True,
+    )
+    later = item("37", scope=("src/reusable.py",))
+
+    plan = select_dependency_ready_leads((review, later))
+
+    assert plan.selected == (later,)
 
 
 def test_conflict_reasons_are_permutation_invariant_and_limit_requires_integer() -> None:

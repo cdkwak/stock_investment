@@ -76,13 +76,19 @@ class FakeAgentSimulator:
         self._terminals.discard(terminal_handle)
 
     def observe(self, *, observed_at: datetime) -> tuple[RecoveryProposal, ...]:
+        records = self.registry.records()
         snapshot = OrcaObservation(
             observed_at=observed_at,
             runtime_id=self.runtime_id,
             terminal_handles=frozenset(self._terminals),
             dispatches=tuple(self._dispatches.values()),
         )
-        return self.watchdog.inspect(self.registry.records(), snapshot)
+        queue_states = {
+            record.identity.active_task_id: "active"
+            for record in records
+            if record.identity.active_task_id is not None
+        }
+        return self.watchdog.inspect(records, snapshot, queue_states=queue_states)
 
     def recover(
         self,

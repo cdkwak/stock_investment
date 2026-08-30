@@ -1151,6 +1151,35 @@ def test_goal_discovery_uses_assigned_runnable_buffer_and_explicit_goal_bypass(
     assert queue.main(user_args) == 0
 
 
+def test_replace_with_retry_retries_only_transient_windows_file_locks(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.txt"
+    destination = tmp_path / "destination.txt"
+    source.write_text("durable", encoding="utf-8")
+    original_replace = queue.os.replace
+    attempts = 0
+
+    def transient_replace(first: object, second: object) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            error = PermissionError("brief Windows file lock")
+            error.winerror = 5
+            raise error
+        original_replace(first, second)
+
+    monkeypatch.setattr(queue.os, "name", "nt")
+    monkeypatch.setattr(queue.os, "replace", transient_replace)
+    monkeypatch.setattr(queue.time, "sleep", lambda _seconds: None)
+
+    queue._replace_with_retry(source, destination)
+
+    assert attempts == 2
+    assert destination.read_text(encoding="utf-8") == "durable"
+
+
 def test_discovery_records_managed_intake_and_reporter_roles(tmp_path: Path) -> None:
     root = tmp_path / "queue"
     queue.main(["--root", str(root), "init"])
@@ -1381,6 +1410,75 @@ def test_review_scope_reserves_overlap_but_not_disjoint_lane_until_pass(
         "--root", str(root), "claim", overlap_id, "--owner", "later-gui",
         "--next", "reservation released",
     ]) == 0
+    assert queue.doctor(root) == []
+
+
+def test_commit_pinned_review_snapshot_releases_scope_without_losing_identity(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repository"
+    root = repository / "artifacts" / "request_queue"
+    source = repository / "src" / "component.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("VALUE = 1\n", encoding="utf-8")
+    for command in (
+        ("init",),
+        ("config", "user.email", "queue-test@example.invalid"),
+        ("config", "user.name", "Queue Test"),
+        ("add", "src/component.py"),
+        ("commit", "-m", "candidate snapshot"),
+    ):
+        subprocess.run(
+            ("git", "-C", str(repository), *command),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    snapshot_commit = subprocess.run(
+        ("git", "-C", str(repository), "rev-parse", "HEAD"),
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    queue.main(["--root", str(root), "init"])
+    reviewed_id = _discover(root, "review:commit-snapshot")
+    _triage(root, reviewed_id, review=True, write_scope="src/component.py")
+    assert queue.main([
+        "--root", str(root), "claim", reviewed_id,
+        "--owner", "snapshot-author", "--next", "submit pinned candidate",
+    ]) == 0
+    assert queue.main([
+        "--root", str(root), "submit", reviewed_id,
+        "--owner", "snapshot-author", "--result", "implemented",
+        "--changed", "src/component.py", "--verified", "tests passed",
+        "--snapshot-commit", snapshot_commit,
+    ]) == 0
+
+    overlap_id = _discover(root, "review:commit-snapshot-overlap")
+    _triage(root, overlap_id, write_scope="src/component.py")
+    assert queue.main([
+        "--root", str(root), "claim", overlap_id,
+        "--owner", "later-author", "--next", "continue from newer writer",
+    ]) == 0
+
+    generation = _review_generation(root)
+    assert queue.main([
+        "--root", str(root), "review-pass", reviewed_id,
+        "--reviewer", "sol", "--review-generation", generation,
+        "--snapshot-commit", "0" * len(snapshot_commit),
+        "--decision-basis", "wrong candidate",
+    ]) == 2
+    assert queue.main([
+        "--root", str(root), "review-pass", reviewed_id,
+        "--reviewer", "sol", "--review-generation", generation,
+        "--snapshot-commit", snapshot_commit,
+        "--decision-basis", "exact commit snapshot accepted",
+    ]) == 0
+    done = next((root / "done").iterdir())
+    result = (done / "RESULT.md").read_text(encoding="utf-8")
+    assert f"review_generation: {generation}\n" in result
+    assert f"snapshot_commit: {snapshot_commit}\n" in result
+    assert "reviewed_by: sol\n" in result
     assert queue.doctor(root) == []
 
 

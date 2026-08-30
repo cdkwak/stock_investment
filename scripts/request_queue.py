@@ -274,6 +274,24 @@ def mutation_lock(root: Path) -> Iterable[None]:
             pass
 
 
+def _replace_with_retry(source: Path, destination: Path) -> None:
+    """Preserve atomic replacement while tolerating brief Windows file locks."""
+    deadline = time.monotonic() + 1.0
+    delay = 0.01
+    while True:
+        try:
+            os.replace(source, destination)
+            return
+        except PermissionError as error:
+            transient_windows_lock = (
+                os.name == "nt" and getattr(error, "winerror", None) in {5, 32}
+            )
+            if not transient_windows_lock or time.monotonic() >= deadline:
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, 0.1)
+
+
 def _atomic_text(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
@@ -282,7 +300,7 @@ def _atomic_text(path: Path, content: str) -> None:
             stream.write(content)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, path)
+        _replace_with_retry(temporary, path)
     finally:
         try:
             temporary.unlink()
@@ -302,7 +320,7 @@ def _atomic_bytes(path: Path, content: bytes) -> None:
             stream.write(content)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, path)
+        _replace_with_retry(temporary, path)
     finally:
         try:
             temporary.unlink()
@@ -641,6 +659,64 @@ def _handoff_snapshot_digest(task: Path) -> str:
     return hashlib.sha256(body).hexdigest()
 
 
+def _review_snapshot_commit(
+    root: Path,
+    meta: dict[str, object],
+    requested: str,
+) -> str:
+    """Pin a reviewed candidate to the clean scoped state at exact HEAD."""
+
+    if not isinstance(requested, str) or re.fullmatch(
+        r"[0-9a-f]{40}|[0-9a-f]{64}", requested,
+    ) is None:
+        raise QueueError("review snapshot commit must be a full lowercase object id")
+    repository = root.parent.parent.resolve()
+    try:
+        top = Path(_git(repository, "rev-parse", "--show-toplevel")).resolve()
+        if top != repository:
+            raise QueueError("queue root is not under the expected Git repository")
+        resolved = _git(repository, "rev-parse", "--verify", f"{requested}^{{commit}}")
+        head = _git(repository, "rev-parse", "HEAD")
+        scope = _validate_scope(meta.get("write_scope") or [])
+        status = _git(
+            repository,
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+            "--",
+            *scope,
+        )
+    except QueueError:
+        raise
+    except (OSError, ValueError, subprocess.CalledProcessError) as error:
+        raise QueueError(f"cannot verify review snapshot commit: {error}") from error
+    if requested != resolved or requested != head:
+        raise QueueError("review snapshot must name the exact current HEAD commit")
+    if status:
+        raise QueueError("review snapshot scope is dirty; commit the candidate first")
+    return resolved
+
+
+def _verify_review_snapshot_argument(
+    root: Path,
+    review: dict[str, str],
+    supplied: str | None,
+) -> None:
+    expected = review.get("snapshot_commit")
+    if expected:
+        if supplied is None or not secrets.compare_digest(expected, supplied):
+            raise QueueError("review snapshot commit differs from the submitted candidate")
+        repository = root.parent.parent.resolve()
+        try:
+            resolved = _git(repository, "rev-parse", "--verify", f"{expected}^{{commit}}")
+        except (OSError, subprocess.CalledProcessError) as error:
+            raise QueueError(f"review snapshot commit is unavailable: {error}") from error
+        if not secrets.compare_digest(expected, resolved):
+            raise QueueError("review snapshot commit no longer resolves exactly")
+    elif supplied is not None:
+        raise QueueError("legacy review generation has no commit snapshot")
+
+
 def iter_tasks(root: Path) -> Iterable[tuple[str, Path]]:
     for state in STATE_PARTS:
         base = state_path(root, state)
@@ -835,7 +911,7 @@ def _move(root: Path, state: str, task: Path, meta: dict[str, object]) -> Path:
     destination = state_path(root, state) / task.name
     if destination.exists():
         raise QueueError(f"destination already exists: {destination}")
-    os.replace(task, destination)
+    _replace_with_retry(task, destination)
     meta["state"] = state
     meta["updated_at"] = _stamp()
     _atomic_json(destination / "META.json", meta)
@@ -1107,7 +1183,7 @@ def command_discover(args: argparse.Namespace, root: Path) -> None:
             "tests": args.reproduce, "risks": "untriaged",
             "new_discoveries": "none",
         }))
-        os.replace(temporary, destination)
+        _replace_with_retry(temporary, destination)
     finally:
         if temporary.is_dir():
             for name in REQUIRED_TASK_FILES:
@@ -1154,7 +1230,7 @@ def command_triage(args: argparse.Namespace, root: Path) -> None:
     if renamed != task:
         if renamed.exists():
             raise QueueError(f"triaged task name exists: {renamed}")
-        os.replace(task, renamed)
+        _replace_with_retry(task, renamed)
         task = renamed
     _move(root, "ready", task, meta)
     print(meta["id"])
@@ -1290,6 +1366,11 @@ def command_claim(args: argparse.Namespace, root: Path) -> None:
         for state, review_path, review_meta in all_tasks:
             if state != "review":
                 continue
+            review_fields = _read_fields(
+                review_path / "REVIEW.md", ("snapshot_commit",),
+            )
+            if review_fields.get("snapshot_commit"):
+                continue
             review_raw_scope = review_meta.get("write_scope")
             if not isinstance(review_raw_scope, list):
                 raise QueueError(
@@ -1330,7 +1411,7 @@ def command_claim(args: argparse.Namespace, root: Path) -> None:
         destination = state_path(root, "active") / task.name
         if destination.exists():
             raise QueueError(f"active destination exists: {destination}")
-        os.replace(task, destination)
+        _replace_with_retry(task, destination)
         now = _now()
         if args.domain is not None:
             meta["domain"] = args.domain
@@ -1605,16 +1686,34 @@ def command_checkpoint(args: argparse.Namespace, root: Path) -> None:
     print(meta["id"])
 
 
-def _result(task: Path, result: str, changed: str, verified: str, completed_at: str) -> None:
-    _atomic_text(task / "RESULT.md", (
+def _result(
+    task: Path,
+    result: str,
+    changed: str,
+    verified: str,
+    completed_at: str,
+    *,
+    review_generation: str | None = None,
+    snapshot_commit: str | None = None,
+    reviewed_by: str | None = None,
+) -> None:
+    body = (
         f"result: {_clean(result)}\nchanged: {_clean(changed)}\n"
         f"verified: {_clean(verified)}\ncompleted_at: {completed_at}\n"
-    ))
+    )
+    if review_generation is not None:
+        body += f"review_generation: {review_generation}\n"
+    if snapshot_commit is not None:
+        body += f"snapshot_commit: {snapshot_commit}\n"
+    if reviewed_by is not None:
+        body += f"reviewed_by: {_clean(reviewed_by)}\n"
+    _atomic_text(task / "RESULT.md", body)
 
 
 def _review(
     task: Path, result: str, changed: str, verified: str, *,
     review_generation: str, submitted_at: str, handoff_sha256: str,
+    snapshot_commit: str | None = None,
 ) -> None:
     body = (
         f"result: {_clean(result)}\nchanged: {_clean(changed)}\n"
@@ -1623,6 +1722,8 @@ def _review(
         f"handoff_sha256: {handoff_sha256}\n"
         f"submitted_at: {submitted_at}\n"
     )
+    if snapshot_commit is not None:
+        body += f"snapshot_commit: {snapshot_commit}\n"
     _atomic_text(task / "REVIEW.md", body)
 
 
@@ -1648,9 +1749,16 @@ def command_submit(args: argparse.Namespace, root: Path) -> None:
         raise QueueError("review submission requires a reviewer")
     if needs_review and reviewer == meta.get("assigned_agent"):
         raise QueueError("reviewer must differ from the implementing agent")
+    if not needs_review and args.snapshot_commit is not None:
+        raise QueueError("snapshot commit is valid only for reviewed submission")
     orca_state = _load_orca_state(task)
     now = _now()
     if needs_review:
+        snapshot_commit = (
+            None
+            if args.snapshot_commit is None
+            else _review_snapshot_commit(root, meta, args.snapshot_commit)
+        )
         review_generation = secrets.token_hex(16)
         handoff = _read_handoff(task)
         handoff.update({"updated_at": _stamp(now), "phase": "review", "next": "Independent review"})
@@ -1659,6 +1767,7 @@ def command_submit(args: argparse.Namespace, root: Path) -> None:
             task, args.result, args.changed, args.verified,
             review_generation=review_generation, submitted_at=_stamp(now),
             handoff_sha256=_handoff_snapshot_digest(task),
+            snapshot_commit=snapshot_commit,
         )
         meta["reviewer"] = reviewer
         meta["review_required"] = True
@@ -1688,7 +1797,7 @@ def command_review_pass(args: argparse.Namespace, root: Path) -> None:
         raise QueueError("reviewer must differ from the implementing agent")
     review_keys = (
         "result", "changed", "verified", "review_generation",
-        "handoff_sha256", "submitted_at",
+        "handoff_sha256", "submitted_at", "snapshot_commit",
     )
     review = _read_fields(task / "REVIEW.md", review_keys)
     required_review_keys = review_keys[:6]
@@ -1705,6 +1814,7 @@ def command_review_pass(args: argparse.Namespace, root: Path) -> None:
         review["handoff_sha256"], _handoff_snapshot_digest(task),
     ):
         raise QueueError("review HANDOFF differs from the submitted snapshot")
+    _verify_review_snapshot_argument(root, review, args.snapshot_commit)
     decision_basis = _clean(args.decision_basis)
     if not decision_basis:
         raise QueueError("review decision basis cannot be empty")
@@ -1714,7 +1824,16 @@ def command_review_pass(args: argparse.Namespace, root: Path) -> None:
         f"{review['verified']}; independent review by {args.reviewer}: "
         f"{decision_basis}"
     )
-    _result(task, review["result"], review["changed"], verified, completed_at)
+    _result(
+        task,
+        review["result"],
+        review["changed"],
+        verified,
+        completed_at,
+        review_generation=review["review_generation"],
+        snapshot_commit=review.get("snapshot_commit") or None,
+        reviewed_by=args.reviewer,
+    )
     (task / "REVIEW.md").unlink()
     try:
         (task / ORCA_STATE_NAME).unlink()
@@ -1733,7 +1852,7 @@ def command_review_fail(args: argparse.Namespace, root: Path) -> None:
     if meta.get("reviewer") and meta.get("reviewer") != args.reviewer:
         raise QueueError(f"reviewer differs: {meta.get('reviewer')}")
     review = _read_fields(
-        task / "REVIEW.md", ("review_generation", "handoff_sha256"),
+        task / "REVIEW.md", ("review_generation", "handoff_sha256", "snapshot_commit"),
     )
     missing = [key for key in ("review_generation", "handoff_sha256") if not review.get(key)]
     if missing:
@@ -1748,6 +1867,7 @@ def command_review_fail(args: argparse.Namespace, root: Path) -> None:
         review["handoff_sha256"], _handoff_snapshot_digest(task),
     ):
         raise QueueError("review HANDOFF differs from the submitted snapshot")
+    _verify_review_snapshot_argument(root, review, args.snapshot_commit)
     decision_basis = _clean(args.decision_basis)
     if not decision_basis:
         raise QueueError("review decision basis cannot be empty")
@@ -1780,7 +1900,7 @@ def command_review_recover(args: argparse.Namespace, root: Path) -> None:
     if args.reviewer == meta.get("assigned_agent"):
         raise QueueError("reviewer must differ from the implementing agent")
     review = _read_fields(
-        task / "REVIEW.md", ("review_generation", "handoff_sha256"),
+        task / "REVIEW.md", ("review_generation", "handoff_sha256", "snapshot_commit"),
     )
     if not review.get("review_generation"):
         raise QueueError("review receipt has no generation")
@@ -1788,11 +1908,21 @@ def command_review_recover(args: argparse.Namespace, root: Path) -> None:
         review["review_generation"], args.review_generation,
     ):
         raise QueueError("review generation differs from the current submission")
+    commit_snapshot_matches = not bool(review.get("snapshot_commit"))
+    if review.get("snapshot_commit"):
+        try:
+            _verify_review_snapshot_argument(root, review, args.snapshot_commit)
+            commit_snapshot_matches = True
+        except QueueError as error:
+            if args.snapshot_commit != review.get("snapshot_commit"):
+                raise error
+    elif args.snapshot_commit is not None:
+        raise QueueError("legacy review generation has no commit snapshot")
     snapshot_matches = False
     digest = review.get("handoff_sha256", "")
     if re.fullmatch(r"[0-9a-f]{64}", digest):
         try:
-            snapshot_matches = secrets.compare_digest(
+            snapshot_matches = commit_snapshot_matches and secrets.compare_digest(
                 digest, _handoff_snapshot_digest(task),
             )
         except QueueError:
@@ -2588,7 +2718,11 @@ def doctor(root: Path, *, ignore_mutation_lock: bool = False) -> list[str]:
         if missing_handoff:
             issues.append(f"missing HANDOFF fields {missing_handoff}: {task}")
         if state == "review" and task_scope:
-            review_reservations.append((task, task_scope))
+            review_locator = _read_fields(
+                task / "REVIEW.md", ("snapshot_commit",),
+            )
+            if not review_locator.get("snapshot_commit"):
+                review_reservations.append((task, task_scope))
         if state == "active":
             owner = str(meta.get("owner") or "")
             if not owner or not meta.get("assigned_role") or not meta.get("assigned_agent"):
@@ -2639,7 +2773,7 @@ def doctor(root: Path, *, ignore_mutation_lock: bool = False) -> list[str]:
                 issues.append(f"reviewer missing: {task}")
             review_keys = (
                 "result", "changed", "verified", "review_generation",
-                "handoff_sha256", "submitted_at",
+                "handoff_sha256", "submitted_at", "snapshot_commit",
             )
             review = _read_fields(task / "REVIEW.md", review_keys)
             for key in review_keys[:6]:
@@ -2661,6 +2795,11 @@ def doctor(root: Path, *, ignore_mutation_lock: bool = False) -> list[str]:
                         issues.append(f"review HANDOFF digest mismatch: {task}")
             if review.get("submitted_at") and _aware(review["submitted_at"]) is None:
                 issues.append(f"review submitted_at invalid: {task}")
+            snapshot_commit = review.get("snapshot_commit", "")
+            if snapshot_commit and re.fullmatch(
+                r"[0-9a-f]{40}|[0-9a-f]{64}", snapshot_commit,
+            ) is None:
+                issues.append(f"review snapshot commit invalid: {task}")
             if (task / "RESULT.md").exists() or meta.get("completed_at") is not None:
                 issues.append(f"review task is already marked complete: {task}")
         elif state == "waiting":
@@ -2859,23 +2998,27 @@ def build_parser() -> argparse.ArgumentParser:
     submit.add_argument("--verified", required=True)
     submit.add_argument("--review", action="store_true")
     submit.add_argument("--reviewer")
+    submit.add_argument("--snapshot-commit")
     review_pass = commands.add_parser("review-pass")
     review_pass.add_argument("task")
     review_pass.add_argument("--reviewer", required=True)
     review_pass.add_argument("--review-generation", required=True)
     review_pass.add_argument("--decision-basis", required=True)
+    review_pass.add_argument("--snapshot-commit")
     review_fail = commands.add_parser("review-fail")
     review_fail.add_argument("task")
     review_fail.add_argument("--reviewer", required=True)
     review_fail.add_argument("--review-generation", required=True)
     review_fail.add_argument("--decision-basis", required=True)
     review_fail.add_argument("--next", required=True)
+    review_fail.add_argument("--snapshot-commit")
     review_recover = commands.add_parser("review-recover")
     review_recover.add_argument("task")
     review_recover.add_argument("--reviewer", required=True)
     review_recover.add_argument("--review-generation", required=True)
     review_recover.add_argument("--decision-basis", required=True)
     review_recover.add_argument("--next", required=True)
+    review_recover.add_argument("--snapshot-commit")
     reopen = commands.add_parser("reopen")
     reopen.add_argument("task")
     reopen.add_argument("--reason", required=True)
