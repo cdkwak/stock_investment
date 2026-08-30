@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -16,6 +17,7 @@ from stock_data.orchestration.workflow_control.codex_boundary import (
     CodexBoundaryUnsupportedActionError,
     CodexBoundaryUncertainOperationError,
     CodexCliBoundary,
+    background_creationflags,
 )
 from stock_data.orchestration.workflow_control.runner import (
     InjectedDirectRunner,
@@ -141,9 +143,19 @@ def test_direct_boundary_launch_resume_and_settle_use_codex_argv(tmp_path: Path)
     assert launch_argv[launch_argv.index("--sandbox") + 1] == "read-only"
     assert launch_kwargs["shell"] is False
     assert launch_kwargs["stdin"] is subprocess.DEVNULL
+    if os.name == "nt":
+        assert int(launch_kwargs["creationflags"]) & subprocess.CREATE_NO_WINDOW
     assert factory.calls[1][0][:5] == ["codex", "exec", "resume", SESSION_ID, "--json"]
     assert factory.calls[2][0][:5] == ["codex", "exec", "resume", SESSION_ID, "--json"]
     assert all("orca" not in part.casefold() for argv, _ in factory.calls for part in argv)
+
+
+def test_windows_background_flags_include_no_console() -> None:
+    if os.name == "nt":
+        assert background_creationflags() & subprocess.CREATE_NO_WINDOW
+        assert background_creationflags() & subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        assert background_creationflags() == 0
 
 
 def test_workspace_write_launch_uses_reviewed_mode_without_conflicting_sandbox(

@@ -12,7 +12,7 @@ from pathlib import Path
 from stock_data.orchestration.workflow_control.contracts import parse_utc, utc_text
 
 
-REGISTRY_SCHEMA_VERSION = 1
+REGISTRY_SCHEMA_VERSION = 2
 _ROLE_KEY = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/\\-]{0,254}$")
 _TASK_ID = re.compile(r"^RQ-\d{8}T\d{6}-[A-Z0-9]{4}$")
@@ -38,6 +38,7 @@ class RoleKind(StrEnum):
     PROJECT_MANAGER = "project_manager"
     DOMAIN_LEAD = "domain_lead"
     WORKER = "worker"
+    REVIEWER = "reviewer"
 
 
 class RoleState(StrEnum):
@@ -58,6 +59,7 @@ class RoleIdentity:
     runtime_id: str
     active_task_id: str | None = None
     active_dispatch_id: str | None = None
+    parent_role_key: str | None = None
 
     def __post_init__(self) -> None:
         _require_match(self.role_key, _ROLE_KEY, "role key")
@@ -71,6 +73,10 @@ class RoleIdentity:
             _require_match(self.active_task_id, _TASK_ID, "active task id")
         if self.active_dispatch_id is not None:
             _require_match(self.active_dispatch_id, _IDENTIFIER, "active dispatch id")
+        if self.parent_role_key is not None:
+            _require_match(self.parent_role_key, _ROLE_KEY, "parent role key")
+            if self.parent_role_key == self.role_key:
+                raise RoleRegistryError("a role cannot parent itself")
         if (self.active_task_id is None) != (self.active_dispatch_id is None):
             raise RoleRegistryError("active task and dispatch identifiers must be paired")
 
@@ -85,6 +91,7 @@ class RoleRecord:
     retry_of_dispatch_id: str | None = None
     retry_attempt: int = 0
     retry_provenance: str | None = None
+    last_message_id: str | None = None
 
 
 def _require_match(value: object, pattern: re.Pattern[str], label: str) -> str:
@@ -114,16 +121,19 @@ class RoleRegistry:
 
     def _initialize(self) -> None:
         with self._connect() as connection:
+            connection.execute("PRAGMA foreign_keys = OFF")
             connection.execute("BEGIN IMMEDIATE")
             version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, REGISTRY_SCHEMA_VERSION):
+            if version not in (0, 1, REGISTRY_SCHEMA_VERSION):
                 connection.rollback()
                 raise RoleRegistryError("unsupported role registry schema")
+            if version == 1:
+                self._migrate_v1(connection)
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS role_registry (
                     role_key TEXT PRIMARY KEY,
-                    role_kind TEXT NOT NULL CHECK(role_kind IN ('project_manager', 'domain_lead')),
+                    role_kind TEXT NOT NULL CHECK(role_kind IN ('project_manager', 'domain_lead', 'worker', 'reviewer')),
                     codex_session_id TEXT NOT NULL,
                     orca_run_id TEXT NOT NULL,
                     worktree_id TEXT NOT NULL,
@@ -138,6 +148,8 @@ class RoleRegistry:
                     retry_of_dispatch_id TEXT,
                     retry_attempt INTEGER NOT NULL DEFAULT 0 CHECK(retry_attempt >= 0),
                     retry_provenance TEXT,
+                    parent_role_key TEXT,
+                    last_message_id TEXT,
                     CHECK((active_task_id IS NULL) = (active_dispatch_id IS NULL))
                 )
                 """
@@ -158,6 +170,104 @@ class RoleRegistry:
             self._validate_schema(connection)
             connection.execute(f"PRAGMA user_version = {REGISTRY_SCHEMA_VERSION}")
             connection.commit()
+            connection.execute("PRAGMA foreign_keys = ON")
+
+    @staticmethod
+    def _migrate_v1(connection: sqlite3.Connection) -> None:
+        """Upgrade the exact identifier-only v1 registry without rebinding rows."""
+
+        RoleRegistry._validate_v1_schema(connection)
+        connection.execute("ALTER TABLE role_dispatch_history RENAME TO role_dispatch_history_v1")
+        connection.execute("ALTER TABLE role_registry RENAME TO role_registry_v1")
+        connection.execute(
+            """
+            CREATE TABLE role_registry (
+                role_key TEXT PRIMARY KEY,
+                role_kind TEXT NOT NULL CHECK(role_kind IN ('project_manager', 'domain_lead', 'worker', 'reviewer')),
+                codex_session_id TEXT NOT NULL,
+                orca_run_id TEXT NOT NULL,
+                worktree_id TEXT NOT NULL,
+                terminal_handle TEXT,
+                runtime_id TEXT NOT NULL,
+                active_task_id TEXT,
+                active_dispatch_id TEXT,
+                state TEXT NOT NULL CHECK(state IN ('active', 'idle', 'stopped', 'recovery_required')),
+                generation INTEGER NOT NULL CHECK(generation >= 1),
+                heartbeat_at TEXT NOT NULL,
+                lease_until TEXT NOT NULL,
+                retry_of_dispatch_id TEXT,
+                retry_attempt INTEGER NOT NULL DEFAULT 0 CHECK(retry_attempt >= 0),
+                retry_provenance TEXT,
+                parent_role_key TEXT,
+                last_message_id TEXT,
+                CHECK((active_task_id IS NULL) = (active_dispatch_id IS NULL))
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO role_registry(
+                role_key, role_kind, codex_session_id, orca_run_id, worktree_id,
+                terminal_handle, runtime_id, active_task_id, active_dispatch_id,
+                state, generation, heartbeat_at, lease_until, retry_of_dispatch_id,
+                retry_attempt, retry_provenance, parent_role_key, last_message_id
+            )
+            SELECT role_key, role_kind, codex_session_id, orca_run_id, worktree_id,
+                   terminal_handle, runtime_id, active_task_id, active_dispatch_id,
+                   state, generation, heartbeat_at, lease_until, retry_of_dispatch_id,
+                   retry_attempt, retry_provenance, NULL, NULL
+            FROM role_registry_v1
+            """
+        )
+        project_managers = connection.execute(
+            "SELECT role_key FROM role_registry WHERE role_kind = ? ORDER BY role_key",
+            (RoleKind.PROJECT_MANAGER.value,),
+        ).fetchall()
+        if len(project_managers) == 1:
+            connection.execute(
+                "UPDATE role_registry SET parent_role_key = ? WHERE role_kind = ?",
+                (
+                    str(project_managers[0]["role_key"]),
+                    RoleKind.DOMAIN_LEAD.value,
+                ),
+            )
+        connection.execute(
+            """
+            CREATE TABLE role_dispatch_history (
+                role_key TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                dispatch_id TEXT NOT NULL,
+                attempt INTEGER NOT NULL CHECK(attempt >= 0),
+                provenance TEXT,
+                PRIMARY KEY(role_key, dispatch_id),
+                FOREIGN KEY(role_key) REFERENCES role_registry(role_key)
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO role_dispatch_history SELECT * FROM role_dispatch_history_v1"
+        )
+        connection.execute("DROP TABLE role_dispatch_history_v1")
+        connection.execute("DROP TABLE role_registry_v1")
+
+    @staticmethod
+    def _validate_v1_schema(connection: sqlite3.Connection) -> None:
+        expected_columns = (
+            "role_key", "role_kind", "codex_session_id", "orca_run_id",
+            "worktree_id", "terminal_handle", "runtime_id", "active_task_id",
+            "active_dispatch_id", "state", "generation", "heartbeat_at",
+            "lease_until", "retry_of_dispatch_id", "retry_attempt", "retry_provenance",
+        )
+        actual = tuple(
+            str(row[1]) for row in connection.execute("PRAGMA table_info(role_registry)")
+        )
+        history = tuple(
+            str(row[1]) for row in connection.execute("PRAGMA table_info(role_dispatch_history)")
+        )
+        if actual != expected_columns or history != (
+            "role_key", "task_id", "dispatch_id", "attempt", "provenance",
+        ):
+            raise RoleRegistrySchemaError("role registry v1 schema shape is incompatible")
 
     @staticmethod
     def _validate_schema(connection: sqlite3.Connection) -> None:
@@ -178,6 +288,8 @@ class RoleRegistry:
             ("retry_of_dispatch_id", "TEXT", 0, None, 0),
             ("retry_attempt", "INTEGER", 1, "0", 0),
             ("retry_provenance", "TEXT", 0, None, 0),
+            ("parent_role_key", "TEXT", 0, None, 0),
+            ("last_message_id", "TEXT", 0, None, 0),
         )
         actual = tuple(
             (row[1], row[2], row[3], row[4], row[5])
@@ -188,7 +300,7 @@ class RoleRegistry:
         ).fetchone()
         normalized_sql = "" if schema_row is None else "".join(schema_row[0].lower().split())
         required_checks = (
-            "check(role_kindin('project_manager','domain_lead'))",
+            "check(role_kindin('project_manager','domain_lead','worker','reviewer'))",
             "check(statein('active','idle','stopped','recovery_required'))",
             "check(generation>=1)",
             "check(retry_attempt>=0)",
@@ -230,13 +342,35 @@ class RoleRegistry:
         observed_at: datetime,
         lease_until: datetime,
     ) -> RoleRecord:
-        if identity.role_kind is RoleKind.WORKER:
-            raise RoleRegistryError(
-                "worker attempts are execution-scoped and are not durable reusable roles"
-            )
         heartbeat_text, lease_text = _validated_window(observed_at, lease_until)
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
+            if identity.parent_role_key is not None:
+                parent = connection.execute(
+                    "SELECT role_kind FROM role_registry WHERE role_key = ?",
+                    (identity.parent_role_key,),
+                ).fetchone()
+                if parent is None:
+                    connection.rollback()
+                    raise RoleRegistryError("parent role is not registered")
+                expected_parent = (
+                    RoleKind.PROJECT_MANAGER.value
+                    if identity.role_kind is RoleKind.DOMAIN_LEAD
+                    else RoleKind.DOMAIN_LEAD.value
+                    if identity.role_kind in {RoleKind.WORKER, RoleKind.REVIEWER}
+                    else None
+                )
+                if expected_parent is None or parent["role_kind"] != expected_parent:
+                    connection.rollback()
+                    raise RoleRegistryError("role parent kind violates the PM hierarchy")
+            elif identity.role_kind is RoleKind.PROJECT_MANAGER:
+                other_pm = connection.execute(
+                    "SELECT role_key FROM role_registry WHERE role_kind = ? AND role_key != ?",
+                    (RoleKind.PROJECT_MANAGER.value, identity.role_key),
+                ).fetchone()
+                if other_pm is not None:
+                    connection.rollback()
+                    raise RoleClaimConflict("only one durable project manager may be registered")
             row = connection.execute(
                 "SELECT * FROM role_registry WHERE role_key = ?", (identity.role_key,)
             ).fetchone()
@@ -252,8 +386,9 @@ class RoleRegistry:
                 INSERT INTO role_registry (
                     role_key, role_kind, codex_session_id, orca_run_id, worktree_id,
                     terminal_handle, runtime_id, active_task_id, active_dispatch_id,
-                    state, generation, heartbeat_at, lease_until, retry_attempt
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, 0)
+                    state, generation, heartbeat_at, lease_until, retry_attempt,
+                    parent_role_key, last_message_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, 0, ?, NULL)
                 """,
                 (
                     identity.role_key, identity.role_kind.value,
@@ -261,7 +396,7 @@ class RoleRegistry:
                     identity.worktree_id, identity.terminal_handle,
                     identity.runtime_id, identity.active_task_id,
                     identity.active_dispatch_id, RoleState.ACTIVE.value,
-                    heartbeat_text, lease_text,
+                    heartbeat_text, lease_text, identity.parent_role_key,
                 ),
             )
             if identity.active_task_id is not None and identity.active_dispatch_id is not None:
@@ -509,6 +644,67 @@ class RoleRegistry:
             connection.commit()
         return self.get(role_key)
 
+    def acknowledge_message(
+        self,
+        role_key: str,
+        *,
+        expected_generation: int,
+        message_id: str,
+        observed_at: datetime,
+        lease_until: datetime,
+    ) -> RoleRecord:
+        """Advance one role mailbox cursor exactly once under a generation fence."""
+
+        _require_match(message_id, _IDENTIFIER, "message id")
+        heartbeat_text, lease_text = _validated_window(observed_at, lease_until)
+        current = self.get(role_key)
+        if current.last_message_id == message_id:
+            return current
+        if current.generation != expected_generation:
+            raise StaleRoleGeneration("role generation changed")
+        try:
+            return self._cas_update(
+                role_key,
+                expected_generation,
+                "last_message_id = ?, heartbeat_at = ?, lease_until = ?, "
+                "generation = generation + 1",
+                (message_id, heartbeat_text, lease_text),
+            )
+        except StaleRoleGeneration:
+            replayed = self.get(role_key)
+            if replayed.last_message_id == message_id:
+                return replayed
+            raise
+
+    def hierarchy(self, root_role_key: str = "project_manager") -> tuple[RoleRecord, ...]:
+        """Return a deterministic parent-before-child durable session hierarchy."""
+
+        records = {item.identity.role_key: item for item in self.records()}
+        if root_role_key not in records:
+            raise RoleRegistryError("hierarchy root is not registered")
+        ordered: list[RoleRecord] = []
+        visiting: set[str] = set()
+        visited: set[str] = set()
+
+        def visit(role_key: str) -> None:
+            if role_key in visiting:
+                raise RoleRegistryError("role hierarchy contains a cycle")
+            if role_key in visited:
+                return
+            visiting.add(role_key)
+            ordered.append(records[role_key])
+            children = sorted(
+                key for key, value in records.items()
+                if value.identity.parent_role_key == role_key
+            )
+            for child in children:
+                visit(child)
+            visiting.remove(role_key)
+            visited.add(role_key)
+
+        visit(root_role_key)
+        return tuple(ordered)
+
     def _cas_update(
         self,
         role_key: str,
@@ -552,6 +748,7 @@ def _record_from_row(row: sqlite3.Row) -> RoleRecord:
             runtime_id=row["runtime_id"],
             active_task_id=row["active_task_id"],
             active_dispatch_id=row["active_dispatch_id"],
+            parent_role_key=row["parent_role_key"],
         ),
         state=RoleState(row["state"]),
         generation=row["generation"],
@@ -560,4 +757,5 @@ def _record_from_row(row: sqlite3.Row) -> RoleRecord:
         retry_of_dispatch_id=row["retry_of_dispatch_id"],
         retry_attempt=row["retry_attempt"],
         retry_provenance=row["retry_provenance"],
+        last_message_id=row["last_message_id"],
     )

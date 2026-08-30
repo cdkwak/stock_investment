@@ -11,7 +11,12 @@ from stock_data.orchestration.workflow_control.routing import (
     BoundaryRequest,
     ExecutionBoundary,
     QueueWorkItem,
+    RoleAction,
     RoutingError,
+    TaskContract,
+    WorkerAssignment,
+    WorkflowRole,
+    require_role_authority,
     role_profiles,
     route_execution_boundary,
     select_dependency_ready_leads,
@@ -80,10 +85,46 @@ def test_boundary_routing_is_explanatory_and_fails_closed() -> None:
 
     assert sandbox.boundary is ExecutionBoundary.SANDBOX
     assert "deterministic local read-only" in sandbox.reason
-    assert host.boundary is ExecutionBoundary.HOST
-    assert "Orca IPC" in host.reason and "resource" in host.reason
+    assert host.boundary is ExecutionBoundary.DENIED
+    assert "sole control plane" in host.reason
     assert denied.boundary is ExecutionBoundary.DENIED
     assert "cannot authorize mutations" in denied.reason
+
+
+def test_role_authority_and_task_contract_enforce_disjoint_preassigned_fanout() -> None:
+    contract = TaskContract(
+        task_id="RQ-20260829T010030-ABCD",
+        queue_generation="generation-a",
+        pm_role_key="project_manager",
+        lead_role_key="lead_data",
+        reviewer_role_key="reviewer_data",
+        write_scope=("src/data", "tests/data"),
+        worker_assignments=(
+            WorkerAssignment("worker_source", ("src/data/source.py",)),
+            WorkerAssignment("worker_tests", ("tests/data/test_source.py",)),
+        ),
+    )
+
+    assert len(contract.contract_digest) == 64
+    require_role_authority(WorkflowRole.PROJECT_MANAGER, RoleAction.ASSIGN_LEAD)
+    require_role_authority(WorkflowRole.LEAD, RoleAction.DISPATCH_WORKER)
+    require_role_authority(WorkflowRole.WORKER, RoleAction.SUBMIT_CANDIDATE)
+    require_role_authority(WorkflowRole.REVIEWER, RoleAction.REVIEW_PASS)
+    with pytest.raises(RoutingError, match="cannot perform"):
+        require_role_authority(WorkflowRole.WORKER, RoleAction.STRUCTURAL_DECISION)
+    with pytest.raises(RoutingError, match="overlap"):
+        TaskContract(
+            task_id=contract.task_id,
+            queue_generation="generation-b",
+            pm_role_key=contract.pm_role_key,
+            lead_role_key=contract.lead_role_key,
+            reviewer_role_key=contract.reviewer_role_key,
+            write_scope=("src",),
+            worker_assignments=(
+                WorkerAssignment("worker_left", ("src/shared",)),
+                WorkerAssignment("worker_right", ("src/shared/child.py",)),
+            ),
+        )
 
 
 def test_selection_honors_priority_dependencies_and_three_lead_capacity() -> None:

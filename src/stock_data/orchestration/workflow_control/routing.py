@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+import hashlib
+import json
 from pathlib import PurePosixPath
 import re
 from typing import Iterable, Mapping
@@ -18,6 +20,8 @@ MAX_LEADS = 3
 _TASK_ID = re.compile(r"^RQ-\d{8}T\d{6}-[A-Z0-9]{4}$")
 _QUEUE_STATES = {"new", "waiting", "ready", "active", "review", "blocked", "done"}
 _WRITER_LANES = {"gui", "data", "backtest", "shared"}
+_ROLE_KEY = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
+_GENERATION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 
 
 class RoutingError(ValueError):
@@ -29,6 +33,47 @@ class WorkflowRole(StrEnum):
     LEAD = "lead"
     WORKER = "worker"
     REVIEWER = "reviewer"
+
+
+class RoleAction(StrEnum):
+    """State intents; actual Queue mutation remains outside this router."""
+
+    STRUCTURAL_DECISION = "structural_decision"
+    ASSIGN_LEAD = "assign_lead"
+    REPLAN = "replan"
+    PROGRESS_CHECKPOINT = "progress_checkpoint"
+    DISPATCH_WORKER = "dispatch_worker"
+    REQUEST_REVIEW = "request_review"
+    COMPOSE_PASS = "compose_pass"
+    SUBMIT_CANDIDATE = "submit_candidate"
+    REVIEW_FIX = "review_fix"
+    REVIEW_PASS = "review_pass"
+
+
+_ROLE_ACTIONS: Mapping[WorkflowRole, frozenset[RoleAction]] = {
+    WorkflowRole.PROJECT_MANAGER: frozenset(
+        {RoleAction.STRUCTURAL_DECISION, RoleAction.ASSIGN_LEAD, RoleAction.REPLAN}
+    ),
+    WorkflowRole.LEAD: frozenset(
+        {
+            RoleAction.PROGRESS_CHECKPOINT,
+            RoleAction.DISPATCH_WORKER,
+            RoleAction.REQUEST_REVIEW,
+            RoleAction.COMPOSE_PASS,
+        }
+    ),
+    WorkflowRole.WORKER: frozenset({RoleAction.SUBMIT_CANDIDATE}),
+    WorkflowRole.REVIEWER: frozenset({RoleAction.REVIEW_FIX, RoleAction.REVIEW_PASS}),
+}
+
+
+def require_role_authority(role: WorkflowRole, action: RoleAction) -> None:
+    """Reject cross-role state mutation before any durable write is attempted."""
+
+    if not isinstance(role, WorkflowRole) or not isinstance(action, RoleAction):
+        raise RoutingError("role authority requires typed role and action")
+    if action not in _ROLE_ACTIONS[role]:
+        raise RoutingError(f"{role.value} cannot perform {action.value}")
 
 
 class ExecutionBoundary(StrEnum):
@@ -112,9 +157,12 @@ def route_execution_boundary(request: BoundaryRequest) -> BoundaryDecision:
             ExecutionBoundary.DENIED,
             "denied: routing cannot request or elevate privileges",
         )
-    host_reasons = []
     if request.requires_orca_ipc:
-        host_reasons.append("Orca IPC is host-bound")
+        return BoundaryDecision(
+            ExecutionBoundary.DENIED,
+            "denied: Python is the sole control plane and Orca IPC has no runtime route",
+        )
+    host_reasons = []
     if request.requires_external_network:
         host_reasons.append("external network access is host-bound")
     if request.requires_host_resource:
@@ -165,6 +213,124 @@ class QueueWorkItem:
                 or parsed.as_posix() != path
             ):
                 raise RoutingError(f"non-canonical write scope for {self.task_id}")
+
+
+def _canonical_path(path: str, *, task_id: str) -> str:
+    if not isinstance(path, str):
+        raise RoutingError(f"non-canonical write scope for {task_id}")
+    parsed = PurePosixPath(path)
+    if (
+        not path
+        or parsed.parts == (".",)
+        or "\\" in path
+        or parsed.is_absolute()
+        or ".." in parsed.parts
+        or parsed.as_posix() != path
+    ):
+        raise RoutingError(f"non-canonical write scope for {task_id}")
+    return path
+
+
+@dataclass(frozen=True, slots=True)
+class WorkerAssignment:
+    worker_role_key: str
+    write_scope: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.worker_role_key, str) or _ROLE_KEY.fullmatch(self.worker_role_key) is None:
+            raise RoutingError("worker role key is invalid")
+        if not isinstance(self.write_scope, tuple) or not self.write_scope:
+            raise RoutingError("worker assignment requires a non-empty write scope")
+        normalized = tuple(_canonical_path(path, task_id=self.worker_role_key) for path in self.write_scope)
+        if len(normalized) != len(set(normalized)):
+            raise RoutingError("worker assignment repeats a write scope")
+
+
+@dataclass(frozen=True, slots=True)
+class TaskContract:
+    """Immutable PM-to-Lead contract with a preassigned independent Reviewer."""
+
+    task_id: str
+    queue_generation: str
+    pm_role_key: str
+    lead_role_key: str
+    reviewer_role_key: str
+    write_scope: tuple[str, ...]
+    worker_assignments: tuple[WorkerAssignment, ...]
+    worker_profile: str = "balanced"
+    reviewer_profile: str = "strong"
+    contract_digest: str = ""
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.task_id, str) or _TASK_ID.fullmatch(self.task_id) is None:
+            raise RoutingError("task contract id is invalid")
+        if not isinstance(self.queue_generation, str) or _GENERATION.fullmatch(self.queue_generation) is None:
+            raise RoutingError("task contract generation is invalid")
+        for value, label in (
+            (self.pm_role_key, "PM"),
+            (self.lead_role_key, "Lead"),
+            (self.reviewer_role_key, "Reviewer"),
+        ):
+            if not isinstance(value, str) or _ROLE_KEY.fullmatch(value) is None:
+                raise RoutingError(f"task contract {label} role is invalid")
+        if len({self.pm_role_key, self.lead_role_key, self.reviewer_role_key}) != 3:
+            raise RoutingError("PM, Lead, and Reviewer identities must be distinct")
+        if not isinstance(self.write_scope, tuple) or not self.write_scope:
+            raise RoutingError("task contract requires a non-empty write scope")
+        scope = tuple(_canonical_path(path, task_id=self.task_id) for path in self.write_scope)
+        if len(scope) != len(set(scope)):
+            raise RoutingError("task contract repeats a write scope")
+        if not isinstance(self.worker_assignments, tuple) or any(
+            not isinstance(item, WorkerAssignment) for item in self.worker_assignments
+        ):
+            raise RoutingError("task contract Worker assignments are invalid")
+        workers = tuple(item.worker_role_key for item in self.worker_assignments)
+        if len(workers) != len(set(workers)):
+            raise RoutingError("task contract repeats a Worker identity")
+        if self.reviewer_role_key in workers or self.lead_role_key in workers:
+            raise RoutingError("Reviewer and Lead cannot also be Workers")
+        assigned_paths: list[tuple[str, str]] = []
+        for assignment in self.worker_assignments:
+            for path in assignment.write_scope:
+                if not any(_paths_overlap(path, allowed) for allowed in scope):
+                    raise RoutingError("worker assignment escapes the task contract scope")
+                for prior_worker, prior_path in assigned_paths:
+                    if _paths_overlap(path, prior_path):
+                        raise RoutingError(
+                            f"worker scopes overlap between {prior_worker} and "
+                            f"{assignment.worker_role_key}"
+                        )
+                assigned_paths.append((assignment.worker_role_key, path))
+        if self.worker_profile not in _QUEUE_PROFILES:
+            raise RoutingError("task contract worker profile is invalid")
+        if self.reviewer_profile not in _QUEUE_PROFILES:
+            raise RoutingError("task contract reviewer profile is invalid")
+        expected = hashlib.sha256(
+            json.dumps(
+                {
+                    "task_id": self.task_id,
+                    "queue_generation": self.queue_generation,
+                    "pm_role_key": self.pm_role_key,
+                    "lead_role_key": self.lead_role_key,
+                    "reviewer_role_key": self.reviewer_role_key,
+                    "write_scope": list(self.write_scope),
+                    "worker_assignments": [
+                        {
+                            "worker_role_key": item.worker_role_key,
+                            "write_scope": list(item.write_scope),
+                        }
+                        for item in self.worker_assignments
+                    ],
+                    "worker_profile": self.worker_profile,
+                    "reviewer_profile": self.reviewer_profile,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        if self.contract_digest and self.contract_digest != expected:
+            raise RoutingError("task contract digest does not match its content")
+        object.__setattr__(self, "contract_digest", expected)
 
 
 @dataclass(frozen=True, slots=True)

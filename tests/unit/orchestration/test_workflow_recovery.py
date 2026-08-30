@@ -372,3 +372,52 @@ def test_post_commit_replay_rebuilds_fake_terminal_and_dispatch_readback(
 
     assert replayed == committed
     assert simulator.observe(observed_at=T0 + timedelta(minutes=3)) == ()
+
+
+def test_v1_registry_migrates_without_losing_existing_session_or_dispatch(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "registry-v1.sqlite3"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "CREATE TABLE role_registry("
+            "role_key TEXT PRIMARY KEY, role_kind TEXT NOT NULL CHECK(role_kind IN ('project_manager', 'domain_lead')), "
+            "codex_session_id TEXT NOT NULL, orca_run_id TEXT NOT NULL, worktree_id TEXT NOT NULL, "
+            "terminal_handle TEXT, runtime_id TEXT NOT NULL, active_task_id TEXT, active_dispatch_id TEXT, "
+            "state TEXT NOT NULL CHECK(state IN ('active', 'idle', 'stopped', 'recovery_required')), "
+            "generation INTEGER NOT NULL CHECK(generation >= 1), heartbeat_at TEXT NOT NULL, lease_until TEXT NOT NULL, "
+            "retry_of_dispatch_id TEXT, retry_attempt INTEGER NOT NULL DEFAULT 0 CHECK(retry_attempt >= 0), "
+            "retry_provenance TEXT, CHECK((active_task_id IS NULL) = (active_dispatch_id IS NULL)))"
+        )
+        connection.execute(
+            "CREATE TABLE role_dispatch_history("
+            "role_key TEXT NOT NULL, task_id TEXT NOT NULL, dispatch_id TEXT NOT NULL, "
+            "attempt INTEGER NOT NULL CHECK(attempt >= 0), provenance TEXT, "
+            "PRIMARY KEY(role_key, dispatch_id), FOREIGN KEY(role_key) REFERENCES role_registry(role_key))"
+        )
+        connection.execute(
+            "INSERT INTO role_registry VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                "lead_infra", "domain_lead", "session-a", "python-control",
+                "repo::C:/workspace", "term-a", "runtime-a", TASK, "dispatch-a",
+                "active", 1, T0.isoformat().replace("+00:00", "Z"),
+                (T0 + timedelta(minutes=10)).isoformat().replace("+00:00", "Z"),
+                None, 0, None,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO role_dispatch_history VALUES (?,?,?,?,?)",
+            ("lead_infra", TASK, "dispatch-a", 0, None),
+        )
+        connection.execute("PRAGMA user_version = 1")
+
+    registry = RoleRegistry(database)
+    migrated = registry.get("lead_infra")
+    assert migrated.identity.codex_session_id == "session-a"
+    assert migrated.identity.parent_role_key is None
+    assert migrated.last_message_id is None
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert connection.execute(
+            "SELECT dispatch_id FROM role_dispatch_history"
+        ).fetchone()[0] == "dispatch-a"

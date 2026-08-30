@@ -162,6 +162,16 @@ class _OutputBudget:
 ProcessFactory = Callable[..., subprocess.Popen[bytes]]
 
 
+def background_creationflags() -> int:
+    """Return no-console Windows flags for every background Codex wake/launch."""
+
+    if os.name != "nt":
+        return 0
+    return int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)) | int(
+        getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    )
+
+
 def _canonical(value: Mapping[str, object]) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
@@ -794,11 +804,7 @@ class CodexCliBoundary:
         return session_id
 
     def _run_process(self, argv: list[str]) -> _ProcessResult:
-        creationflags = (
-            getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-            if os.name == "nt"
-            else 0
-        )
+        creationflags = background_creationflags()
         process = self._process_factory(
             list(argv),
             cwd=str(self.cwd),

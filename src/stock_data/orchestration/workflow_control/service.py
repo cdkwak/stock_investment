@@ -20,12 +20,19 @@ from typing import BinaryIO, Callable, Iterable, Mapping
 
 from stock_data.orchestration.workflow_control.controller import (
     ControlGeneration,
+    HierarchyResumeReceipt,
+    MailboxAcknowledgement,
+    MailboxEnvelope,
     PumpReceipt,
+    ReviewDecision,
+    ReviewLoopReceipt,
     WorkflowController,
 )
 from stock_data.orchestration.workflow_control.codex_boundary import CodexCliBoundary
 from stock_data.orchestration.workflow_control.events import canonical_event_json
 from stock_data.orchestration.workflow_control.contracts import WorkflowEvent, utc_text
+from stock_data.orchestration.workflow_control.registry import RoleIdentity, RoleRecord
+from stock_data.orchestration.workflow_control.routing import TaskContract
 from stock_data.orchestration.workflow_control.runner import (
     ExecutionMetadata,
     RunnerAction,
@@ -926,6 +933,147 @@ class WorkflowControllerService:
 
     def run(self, events: Iterable[WorkflowEvent]) -> ServiceReceipt:
         return self._execute(ServiceMode.RUN, events)
+
+    def _require_started(self) -> ControlGeneration:
+        if self._generation is None:
+            raise ControllerServiceError("writer service must be started before hierarchy work")
+        return self._generation
+
+    def register_role_session(
+        self,
+        identity: RoleIdentity,
+        *,
+        observed_at: datetime,
+        lease_until: datetime,
+    ) -> RoleRecord:
+        self._require_started()
+        return self.controller.register_role_session(
+            identity, observed_at=observed_at, lease_until=lease_until
+        )
+
+    def resume_session_hierarchy(
+        self, root_role_key: str = "project_manager"
+    ) -> HierarchyResumeReceipt:
+        self._require_started()
+        return self.controller.resume_session_hierarchy(root_role_key)
+
+    def deliver_pm_message(
+        self, *, receipt_key: str, intent_key: str, message: str
+    ) -> str:
+        """ListenerGateway sink; one live Python writer owns durable delivery."""
+
+        self._require_started()
+        return self.controller.deliver_pm_message(
+            receipt_key=receipt_key, intent_key=intent_key, message=message
+        )
+
+    def mailbox(
+        self, recipient_role_key: str, *, pending_only: bool = False
+    ) -> tuple[MailboxEnvelope, ...]:
+        self._require_started()
+        return self.controller.mailbox(recipient_role_key, pending_only=pending_only)
+
+    def acknowledge_mailbox(
+        self,
+        message_id: str,
+        *,
+        recipient_role_key: str,
+        expected_generation: int,
+        acknowledgement_ref: str,
+        observed_at: datetime | None = None,
+    ) -> MailboxAcknowledgement:
+        self._require_started()
+        return self.controller.acknowledge_mailbox(
+            message_id,
+            recipient_role_key=recipient_role_key,
+            expected_generation=expected_generation,
+            acknowledgement_ref=acknowledgement_ref,
+            observed_at=observed_at,
+        )
+
+    def dispatch_task_contract(
+        self, contract: TaskContract, *, pm_generation: int
+    ) -> MailboxEnvelope:
+        self._require_started()
+        return self.controller.dispatch_task_contract(
+            contract, pm_generation=pm_generation
+        )
+
+    def dispatch_workers(
+        self,
+        *,
+        task_id: str,
+        queue_generation: str,
+        lead_role_key: str,
+        lead_generation: int,
+    ) -> tuple[MailboxEnvelope, ...]:
+        self._require_started()
+        return self.controller.dispatch_workers(
+            task_id=task_id,
+            queue_generation=queue_generation,
+            lead_role_key=lead_role_key,
+            lead_generation=lead_generation,
+        )
+
+    def record_lead_checkpoint(
+        self,
+        *,
+        task_id: str,
+        queue_generation: str,
+        lead_role_key: str,
+        lead_generation: int,
+        checkpoint_digest: str,
+    ) -> str:
+        self._require_started()
+        return self.controller.record_lead_checkpoint(
+            task_id=task_id,
+            queue_generation=queue_generation,
+            lead_role_key=lead_role_key,
+            lead_generation=lead_generation,
+            checkpoint_digest=checkpoint_digest,
+        )
+
+    def submit_worker_candidate(
+        self,
+        *,
+        task_id: str,
+        queue_generation: str,
+        worker_role_key: str,
+        worker_generation: int,
+        candidate_digest: str,
+    ) -> tuple[MailboxEnvelope, MailboxEnvelope]:
+        self._require_started()
+        return self.controller.submit_worker_candidate(
+            task_id=task_id,
+            queue_generation=queue_generation,
+            worker_role_key=worker_role_key,
+            worker_generation=worker_generation,
+            candidate_digest=candidate_digest,
+        )
+
+    def review_worker_candidate(
+        self,
+        *,
+        task_id: str,
+        queue_generation: str,
+        worker_role_key: str,
+        reviewer_role_key: str,
+        reviewer_generation: int,
+        candidate_digest: str,
+        decision: ReviewDecision,
+        reason_code: str,
+    ) -> ReviewLoopReceipt:
+        self._require_started()
+        return self.controller.review_worker_candidate(
+            task_id=task_id,
+            queue_generation=queue_generation,
+            worker_role_key=worker_role_key,
+            reviewer_role_key=reviewer_role_key,
+            reviewer_generation=reviewer_generation,
+            candidate_digest=candidate_digest,
+            decision=decision,
+            reason_code=reason_code,
+        )
 
     def _execute(self, mode: ServiceMode, events: Iterable[WorkflowEvent]) -> ServiceReceipt:
         if self._generation is None:

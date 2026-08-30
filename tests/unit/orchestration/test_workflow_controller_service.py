@@ -19,6 +19,11 @@ from stock_data.orchestration.workflow_control.runner import (
     LocalFakeDirectBoundary,
     RunnerAction,
 )
+from stock_data.orchestration.workflow_control.registry import RoleIdentity, RoleKind
+from stock_data.orchestration.workflow_control.session_runner import (
+    InjectedSessionRunner,
+    LocalFakeSessionBoundary,
+)
 from stock_data.orchestration.workflow_control.service import (
     ControllerServiceError, OperationActivity, WorkflowControllerService, WriterLeaseConflict,
 )
@@ -404,3 +409,60 @@ def test_legacy_service_database_migrates_profile_columns(tmp_path: Path) -> Non
     assert "execution_profile_digest" in operation_columns
     assert "execution_profile_digest" in receipt_columns
     assert {"generation_sequence", "generation_digest"} <= activity_columns
+
+
+def test_service_restart_resumes_stored_pm_lead_worker_reviewer_sessions(
+    tmp_path: Path,
+) -> None:
+    sessions = LocalFakeSessionBoundary()
+
+    def build(owner: str) -> WorkflowControllerService:
+        direct = LocalFakeDirectBoundary()
+        controller = WorkflowController(
+            WorkflowStateStore(tmp_path / "hierarchy-state.sqlite3", tmp_path / "hierarchy-events.jsonl"),
+            InjectedDirectRunner(direct),
+            tmp_path / "hierarchy-controller.sqlite3",
+            session_runner=InjectedSessionRunner(sessions),
+        )
+        return WorkflowControllerService(
+            controller, tmp_path / "hierarchy-service", owner_id=owner
+        )
+
+    first = build("pm-hierarchy-a")
+    first.start()
+    identities = (
+        RoleIdentity(
+            "project_manager", RoleKind.PROJECT_MANAGER, "session-pm",
+            "python-control", "repo::C:/workspace", "term-pm", "runtime-a",
+        ),
+        RoleIdentity(
+            "lead_data", RoleKind.DOMAIN_LEAD, "session-lead",
+            "python-control", "repo::C:/workspace", "term-lead", "runtime-a",
+            parent_role_key="project_manager",
+        ),
+        RoleIdentity(
+            "worker_data", RoleKind.WORKER, "session-worker",
+            "python-control", "repo::C:/workspace", "term-worker", "runtime-a",
+            parent_role_key="lead_data",
+        ),
+        RoleIdentity(
+            "reviewer_data", RoleKind.REVIEWER, "session-reviewer",
+            "python-control", "repo::C:/workspace", "term-reviewer", "runtime-a",
+            parent_role_key="lead_data",
+        ),
+    )
+    for identity in identities:
+        first.register_role_session(
+            identity, observed_at=T0, lease_until=T0 + timedelta(hours=1)
+        )
+    original = first.resume_session_hierarchy()
+    first.close()
+
+    restarted = build("pm-hierarchy-b")
+    restarted.start()
+    replay = restarted.resume_session_hierarchy()
+
+    assert replay.role_keys == original.role_keys
+    assert replay.session_ids == original.session_ids
+    assert sessions.calls == 4
+    restarted.close()
