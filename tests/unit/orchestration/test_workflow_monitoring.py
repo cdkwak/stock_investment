@@ -323,3 +323,22 @@ def test_read_only_sources_are_not_modified(tmp_path):
     before = {p: p.read_bytes() for p in (workflow, role, events)}
     MonitoringSnapshotAdapter(workflow_db=workflow, role_db=role, event_log=events, queue_adapter=FakeQueue(now)).snapshot(observed_at=now)
     assert before == {p: p.read_bytes() for p in (workflow, role, events)}
+
+
+def test_snapshot_adds_safe_human_defaults_without_inventing_execution_roles(tmp_path):
+    now = datetime(2026, 8, 30, tzinfo=timezone.utc)
+    workflow, role, events = _sources(tmp_path, now)
+    snapshot = MonitoringSnapshotAdapter(
+        workflow_db=workflow, role_db=role, event_log=events,
+        queue_adapter=FakeQueue(now),
+    ).snapshot(observed_at=now)
+    assert snapshot.pm_current_decision
+    assert snapshot.pm_next_action
+    assert snapshot.goal_summary
+    assert snapshot.queue_action
+    assert snapshot.proposal_state
+    assert all(task.human_title and task.summary for task in snapshot.tasks)
+    assert all(task.fix_count >= 0 for task in snapshot.tasks)
+    assert all(event.human_message for event in snapshot.events)
+    # Display enrichment reads existing state only; no absent worker is made up.
+    assert not snapshot.workers

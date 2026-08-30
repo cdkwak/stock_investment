@@ -1,9 +1,4 @@
-"""Read-only PySide6 operations dashboard for the Python workflow controller.
-
-The widget intentionally receives only :class:`MonitoringSnapshot` values.  It
-does not know how to claim Queue work, dispatch an agent, or change controller
-state; the sole interactive control requests a fresh read-only snapshot.
-"""
+"""A Korean, read-only operations overview for the Python PM projection."""
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -19,7 +14,6 @@ from stock_data.orchestration.workflow_control.monitoring import (
     MonitoringSnapshot,
     MonitoringSnapshotAdapter,
     MonitoringWarning,
-    RoleView,
     TaskView,
 )
 
@@ -28,49 +22,34 @@ class SnapshotReader(Protocol):
     def snapshot(self) -> MonitoringSnapshot: ...
 
 
-_STATE_META: dict[str, tuple[str, str, str]] = {
-    "active": ("●", "작업 중", "active"),
-    "working": ("●", "작업 중", "active"),
-    "idle": ("○", "대기", "neutral"),
-    "reviewing": ("◇", "검토 중", "warning"),
-    "ready": ("▶", "준비", "neutral"),
-    "review": ("◇", "검토", "warning"),
-    "stalled": ("!", "중단 확인 필요", "warning"),
-    "stopped": ("■", "종료", "neutral"),
-    "blocked": ("!", "차단", "error"),
-    "failed": ("!", "실패", "error"),
-    "stale": ("!", "오래됨", "warning"),
-    "unknown": ("?", "알 수 없음", "unknown"),
-}
-
-_WARNING_TONE = {"error": "error", "warning": "warning"}
-_EVENT_KIND_LABELS = {
-    "TASK_TRANSITION": "작업 상태 전환",
-    "REVIEW_RESULT": "검토 결과",
-    "REWORK_REQUESTED": "재작업 요청",
-    "ESCALATION": "에스컬레이션",
-    "SESSION_STARTED": "세션 시작",
-    "QUEUE_SNAPSHOT": "Queue 스냅샷",
-}
-_EVENT_SOURCE_LABELS = {"PM": "PM", "WORKER": "Worker", "REVIEWER": "Reviewer", "LEAD": "Lead", "QUEUE": "Queue", "SYSTEM": "시스템"}
 _DEFAULT_REFRESH_INTERVAL_MS = 5_000
 _MAX_REFRESH_INTERVAL_MS = 60 * 60 * 1_000
+_STATE_META = {
+    "active": ("●", "진행 중", "active"), "working": ("●", "진행 중", "active"),
+    "review": ("◇", "검토 중", "review"), "reviewing": ("◇", "검토 중", "review"),
+    "ready": ("▶", "시작 대기", "neutral"), "idle": ("○", "대기", "neutral"),
+    "blocked": ("!", "해결 필요", "error"), "failed": ("!", "해결 필요", "error"),
+    "stalled": ("!", "확인 필요", "review"), "stale": ("!", "갱신 필요", "review"),
+    "stopped": ("■", "완료", "neutral"), "done": ("■", "완료", "neutral"),
+    "unknown": ("?", "확인 필요", "unknown"),
+}
+_DOMAIN_TITLES = {
+    "gui": "화면 개선 작업", "data": "데이터 확인 작업", "research": "조사 작업",
+    "backtest": "검증 작업",
+}
 
 
 def _state_meta(value: str | None) -> tuple[str, str, str]:
-    return _STATE_META.get(str(value or "unknown").lower(), ("?", str(value or "알 수 없음"), "unknown"))
+    return _STATE_META.get(str(value or "unknown").casefold(), _STATE_META["unknown"])
 
 
 def _format_time(value: datetime | None) -> str:
-    if value is None:
-        return "확인되지 않음"
-    local = value.astimezone()
-    return local.strftime("%H:%M:%S")
+    return value.astimezone().strftime("%H:%M") if value else "확인되지 않음"
 
 
 def _age_text(value: datetime | None, now: datetime) -> str:
     if value is None:
-        return "기준 시각 없음"
+        return "확인되지 않음"
     seconds = max(0, int((now - value).total_seconds()))
     if seconds < 60:
         return f"{seconds}초 전"
@@ -79,18 +58,10 @@ def _age_text(value: datetime | None, now: datetime) -> str:
     return f"{seconds // 3600}시간 전"
 
 
-def _queue_count(snapshot: MonitoringSnapshot, state: str) -> int:
-    return snapshot.queue.count(state) if snapshot.queue is not None else 0
-
-
-def _role_label(role: RoleView) -> str:
-    return {"project_manager": "PM", "domain_lead": "Lead", "worker": "Worker", "reviewer": "Reviewer"}.get(role.role_kind, role.role_kind)
-
-
 class StateBadge(QtWidgets.QLabel):
-    """Colour is decorative only: the icon and Korean status text are visible."""
+    """A state always carries icon, Korean text, and semantic colour."""
 
-    def __init__(self, state: str | None, parent: QtWidgets.QWidget | None = None) -> None:
+    def __init__(self, state: str | None = "unknown", parent: QtWidgets.QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("stateBadge")
         self.setAlignment(QtCore.Qt.AlignCenter)
@@ -105,85 +76,72 @@ class StateBadge(QtWidgets.QLabel):
         self.style().polish(self)
 
 
+class CopyListWidget(QtWidgets.QListWidget):
+    """Selectable recent activity, with the familiar Ctrl+C copy behaviour."""
+
+    def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
+        if event.matches(QtGui.QKeySequence.Copy):
+            selected = [item.text() for item in self.selectedItems()]
+            if selected:
+                QtWidgets.QApplication.clipboard().setText("\n".join(selected))
+                event.accept()
+                return
+        super().keyPressEvent(event)
+
+
 class RoleCard(QtWidgets.QFrame):
-    def __init__(self, role: RoleView, *, workers: int, reviewers: int, now: datetime, parent: QtWidgets.QWidget | None = None) -> None:
+    """A compact factual task card (kept under its former public name)."""
+
+    def __init__(self, task: TaskView, *, workers: int, reviewers: int, now: datetime, parent: QtWidgets.QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setObjectName("leadCard")
+        self.setObjectName("taskCard")
         self.setFrameShape(QtWidgets.QFrame.StyledPanel)
-        self.setMinimumWidth(0)
         self.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
-        self.role_key = role.role_key
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(14, 12, 14, 12)
-        layout.setSpacing(7)
+        layout.setSpacing(6)
         top = QtWidgets.QHBoxLayout()
-        self.title = QtWidgets.QLabel(f"{_role_label(role)} · {role.role_key}")
+        self.title = QtWidgets.QLabel(task.human_title or _DOMAIN_TITLES.get(str(task.domain or "").casefold(), "현재 작업"))
         self.title.setObjectName("cardTitle")
-        self.title.setMinimumWidth(0)
-        self.title.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
-        self.badge = StateBadge(role.state)
+        self.title.setWordWrap(True)
+        self.badge = StateBadge(task.state)
         top.addWidget(self.title, 1)
         top.addWidget(self.badge)
         layout.addLayout(top)
-        task = role.active_task_id or "진행 중인 작업 없음"
-        self.task = QtWidgets.QLabel(f"작업: {task}")
-        self.task.setObjectName("cardTask")
-        self.task.setWordWrap(True)
-        self.task.setMinimumWidth(0)
-        self.task.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
-        self.task.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
-        layout.addWidget(self.task)
-        membership = (
-            "Queue 검토 담당"
-            if role.role_kind == "reviewer"
-            else f"Worker {workers}명 · Reviewer {reviewers}명"
-        )
-        self.counts = QtWidgets.QLabel(membership)
+        self.summary = QtWidgets.QLabel(task.summary or "작업 내용을 확인하고 있습니다.")
+        self.summary.setObjectName("cardSummary")
+        self.summary.setWordWrap(True)
+        self.summary.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+        layout.addWidget(self.summary)
+        self.lead = QtWidgets.QLabel("담당 리드: 배정됨" if task.lead or task.owner else "담당 리드: 배정 확인 중")
+        self.lead.setObjectName("cardMeta")
+        layout.addWidget(self.lead)
+        self.counts = QtWidgets.QLabel(f"작업자 {workers}명 ↔ 검토자 {reviewers}명")
         self.counts.setObjectName("cardMeta")
-        self.counts.setMinimumWidth(0)
-        self.counts.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
         layout.addWidget(self.counts)
-        fresh_icon = "●" if role.fresh else "!"
-        freshness = "정상" if role.fresh else "오래됨"
-        self.freshness = QtWidgets.QLabel(f"{fresh_icon} 활동 {_age_text(role.heartbeat_at, now)} · {freshness}")
-        self.freshness.setObjectName("cardMeta")
-        self.freshness.setMinimumWidth(0)
-        self.freshness.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
-        layout.addWidget(self.freshness)
-        self.setAccessibleName(f"{self.title.text()}, {self.badge.text()}, {self.task.text()}, {self.counts.text()}, {self.freshness.text()}")
+        self.activity = QtWidgets.QLabel(f"수정 요청 {max(0, task.fix_count)}회 · 마지막 활동 {_age_text(task.last_activity or task.updated_at, now)}")
+        self.activity.setObjectName("cardMeta")
+        layout.addWidget(self.activity)
+        self.setAccessibleName(f"{self.title.text()}, {self.badge.text()}, {self.summary.text()}, {self.lead.text()}, {self.counts.text()}, {self.activity.text()}")
 
 
 class OperationsDashboard(QtWidgets.QMainWindow):
-    """A self-contained, read-only view over ``MonitoringSnapshot``."""
+    """Read-only presentation; the only action asks for a fresh snapshot."""
 
-    def __init__(
-        self,
-        snapshot_provider: Callable[[], MonitoringSnapshot] | SnapshotReader | None = None,
-        *,
-        repository_root: Path | None = None,
-        refresh_interval_ms: int | None = _DEFAULT_REFRESH_INTERVAL_MS,
-        parent: QtWidgets.QWidget | None = None,
-    ) -> None:
+    def __init__(self, snapshot_provider: Callable[[], MonitoringSnapshot] | SnapshotReader | None = None, *, repository_root: Path | None = None, refresh_interval_ms: int | None = _DEFAULT_REFRESH_INTERVAL_MS, parent: QtWidgets.QWidget | None = None) -> None:
         super().__init__(parent)
-        root = Path(repository_root or Path.cwd())
-        if snapshot_provider is None:
-            snapshot_provider = MonitoringSnapshotAdapter(root)
-        self._provider = snapshot_provider
-        self._snapshot: MonitoringSnapshot | None = None
-        self._lead_cards: list[RoleCard] = []
-        self._refresh_in_progress = False
-        if refresh_interval_ms is not None and (
-            isinstance(refresh_interval_ms, bool)
-            or refresh_interval_ms <= 0
-            or refresh_interval_ms > _MAX_REFRESH_INTERVAL_MS
-        ):
+        if refresh_interval_ms is not None and (isinstance(refresh_interval_ms, bool) or not 0 < refresh_interval_ms <= _MAX_REFRESH_INTERVAL_MS):
             raise ValueError("refresh_interval_ms must be between 1 and 3600000, or None")
-        self.setWindowTitle("Python PM 관제 화면")
-        self.setMinimumSize(960, 600)
+        self._provider = snapshot_provider or MonitoringSnapshotAdapter(Path(repository_root or Path.cwd()))
+        self._snapshot: MonitoringSnapshot | None = None
+        self._task_cards: list[RoleCard] = []
+        self._lead_cards = self._task_cards
+        self._refresh_in_progress = False
+        self.setWindowTitle("프로젝트 작업 현황")
+        self.setMinimumSize(640, 520)
         self.resize(1280, 720)
         self._build_ui()
         self._refresh_timer = QtCore.QTimer(self)
-        self._refresh_timer.setSingleShot(False)
         self._refresh_timer.setTimerType(QtCore.Qt.CoarseTimer)
         self._refresh_timer.timeout.connect(self.refresh_snapshot)
         if refresh_interval_ms is not None:
@@ -195,407 +153,243 @@ class OperationsDashboard(QtWidgets.QMainWindow):
         return self._snapshot
 
     def _build_ui(self) -> None:
-        central = QtWidgets.QWidget()
-        central.setObjectName("dashboardRoot")
+        central = QtWidgets.QWidget(objectName="dashboardRoot")
         self.setCentralWidget(central)
         outer = QtWidgets.QVBoxLayout(central)
-        outer.setContentsMargins(18, 16, 18, 16)
-        outer.setSpacing(12)
-
+        outer.setContentsMargins(20, 16, 20, 16)
+        outer.setSpacing(10)
         header = QtWidgets.QHBoxLayout()
-        heading = QtWidgets.QVBoxLayout()
-        title = QtWidgets.QLabel("Python PM 관제")
-        title.setObjectName("pageTitle")
-        subtitle = QtWidgets.QLabel("읽기 전용 · Python PM 정식 실행 상태와 Queue를 하나의 스냅샷으로 표시합니다")
-        subtitle.setObjectName("pageSubtitle")
-        heading.addWidget(title)
-        heading.addWidget(subtitle)
-        header.addLayout(heading, 1)
-        self.refresh_button = QtWidgets.QPushButton("새로 고침")
-        self.refresh_button.setObjectName("refreshButton")
-        self.refresh_button.setMinimumHeight(36)
-        self.refresh_button.setToolTip("상태를 읽기 전용으로 다시 불러옵니다")
+        copy = QtWidgets.QVBoxLayout()
+        self.page_title = QtWidgets.QLabel("프로젝트 작업 현황", objectName="pageTitle")
+        self.page_subtitle = QtWidgets.QLabel("PM이 작업을 나누고 검토하는 현재 흐름입니다", objectName="pageSubtitle")
+        copy.addWidget(self.page_title); copy.addWidget(self.page_subtitle)
+        header.addLayout(copy, 1)
+        status = QtWidgets.QVBoxLayout()
+        self.refresh_status = QtWidgets.QLabel("정보 갱신 상태 · 5초마다 자동 확인", objectName="refreshStatus")
+        self.last_refreshed = QtWidgets.QLabel("마지막 갱신 확인 중", objectName="lastRefreshed")
+        status.addWidget(self.refresh_status, alignment=QtCore.Qt.AlignRight); status.addWidget(self.last_refreshed, alignment=QtCore.Qt.AlignRight)
+        header.addLayout(status)
+        self.refresh_button = QtWidgets.QPushButton("정보 다시 확인", objectName="refreshButton")
+        self.refresh_button.setMinimumHeight(40)
+        self.refresh_button.setAccessibleName("정보 갱신 상태를 읽기 전용으로 다시 확인")
         self.refresh_button.clicked.connect(self.refresh_snapshot)
         header.addWidget(self.refresh_button)
         outer.addLayout(header)
-
-        self.scroll = QtWidgets.QScrollArea()
-        self.scroll.setObjectName("dashboardScroll")
-        self.scroll.setWidgetResizable(True)
-        self.scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
-        self.content = QtWidgets.QWidget()
-        self.content.setObjectName("dashboardContent")
-        self.content_layout = QtWidgets.QVBoxLayout(self.content)
-        self.content_layout.setContentsMargins(0, 0, 0, 0)
-        self.content_layout.setSpacing(12)
-        self.scroll.setWidget(self.content)
-        outer.addWidget(self.scroll, 1)
-
-        self.pm_card = QtWidgets.QFrame()
-        self.pm_card.setObjectName("pmCard")
-        pm_layout = QtWidgets.QVBoxLayout(self.pm_card)
-        pm_layout.setContentsMargins(16, 14, 16, 14)
-        pm_layout.setSpacing(7)
+        self.scroll = QtWidgets.QScrollArea(objectName="dashboardScroll")
+        self.scroll.setWidgetResizable(True); self.scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.content = QtWidgets.QWidget(objectName="dashboardContent")
+        self.content_layout = QtWidgets.QGridLayout(self.content)
+        self.content_layout.setContentsMargins(0, 0, 0, 0); self.content_layout.setHorizontalSpacing(10); self.content_layout.setVerticalSpacing(7)
+        self.scroll.setWidget(self.content); outer.addWidget(self.scroll, 1)
+        self.pm_card = QtWidgets.QFrame(objectName="pmCard")
+        self.pm_card.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Maximum)
+        self.pm_card.setMaximumHeight(160)
+        pm = QtWidgets.QVBoxLayout(self.pm_card); pm.setContentsMargins(16, 13, 16, 13); pm.setSpacing(5)
         pm_top = QtWidgets.QHBoxLayout()
-        self.pm_heading = QtWidgets.QLabel("PM")
-        self.pm_heading.setObjectName("pmHeading")
-        self.pm_badge = StateBadge("unknown")
-        pm_top.addWidget(self.pm_heading, 1)
-        pm_top.addWidget(self.pm_badge)
-        pm_layout.addLayout(pm_top)
-        self.pm_activity = QtWidgets.QLabel("상태를 불러오는 중입니다")
-        self.pm_activity.setObjectName("pmActivity")
-        self.pm_activity.setWordWrap(True)
-        pm_layout.addWidget(self.pm_activity)
-        self.pm_freshness = QtWidgets.QLabel("기준 시각 확인 중")
-        self.pm_freshness.setObjectName("cardMeta")
-        pm_layout.addWidget(self.pm_freshness)
-        self.content_layout.addWidget(self.pm_card)
-
-        self.warning_box = QtWidgets.QFrame()
-        self.warning_box.setObjectName("warningBox")
-        self.warning_layout = QtWidgets.QVBoxLayout(self.warning_box)
-        self.warning_layout.setContentsMargins(14, 10, 14, 10)
-        self.warning_layout.setSpacing(5)
-        self.content_layout.addWidget(self.warning_box)
-
-        self.lead_section = QtWidgets.QWidget()
-        lead_outer = QtWidgets.QVBoxLayout(self.lead_section)
-        lead_outer.setContentsMargins(0, 0, 0, 0)
-        lead_outer.setSpacing(7)
-        lead_title = QtWidgets.QLabel("Lead 및 Reviewer 실행 상태")
-        lead_title.setObjectName("sectionTitle")
-        lead_outer.addWidget(lead_title)
-        self.lead_grid_host = QtWidgets.QWidget()
-        self.lead_grid_host.installEventFilter(self)
-        self.lead_grid = QtWidgets.QGridLayout(self.lead_grid_host)
-        self.lead_grid.setContentsMargins(0, 0, 0, 0)
-        self.lead_grid.setHorizontalSpacing(10)
-        self.lead_grid.setVerticalSpacing(10)
-        lead_outer.addWidget(self.lead_grid_host)
-        self.content_layout.addWidget(self.lead_section)
-
-        lower = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
-        lower.setObjectName("dashboardLower")
-        lower.setMinimumWidth(0)
-        lower.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
-        lower.setChildrenCollapsible(False)
-        self.event_panel = self._make_panel("최근 이벤트")
-        self.event_list = QtWidgets.QListWidget()
-        self.event_list.setObjectName("eventList")
-        self.event_list.setAlternatingRowColors(True)
-        self.event_list.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
-        self.event_list.setFocusPolicy(QtCore.Qt.NoFocus)
-        self.event_list.setWordWrap(True)
-        self.event_list.setTextElideMode(QtCore.Qt.ElideNone)
-        self.event_list.setResizeMode(QtWidgets.QListView.Adjust)
-        self.event_list.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        self.event_list.setMinimumWidth(0)
-        self.event_list.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
-        self.event_panel.layout().addWidget(self.event_list)  # type: ignore[union-attr]
-        self.event_panel.setMinimumWidth(0)
-        self.event_panel.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
-        lower.addWidget(self.event_panel)
-        self.queue_panel = self._make_panel("Queue 및 소스 신선도")
-        self.queue_text = QtWidgets.QLabel()
-        self.queue_text.setObjectName("queueText")
-        self.queue_text.setWordWrap(True)
-        self.queue_text.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
-        self.queue_text.setMinimumWidth(0)
-        self.queue_text.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
+        self.pm_heading = QtWidgets.QLabel("작업 관리자(PM)", objectName="pmHeading")
+        self.pm_badge = StateBadge(); pm_top.addWidget(self.pm_heading, 1); pm_top.addWidget(self.pm_badge); pm.addLayout(pm_top)
+        self.pm_decision = QtWidgets.QLabel("현재 판단: 상태를 읽고 있습니다.", objectName="pmDecision")
+        self.pm_assignment = QtWidgets.QLabel("맡긴 일: 확인 중", objectName="pmAssignment")
+        self.pm_next = QtWidgets.QLabel("다음 확인: 작업 목록을 확인합니다.", objectName="pmNext")
+        for label in (self.pm_decision, self.pm_assignment, self.pm_next):
+            label.setWordWrap(True); label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse); pm.addWidget(label)
+        self.pm_activity = self.pm_assignment; self.pm_freshness = self.last_refreshed
+        self.flow_panel = QtWidgets.QFrame(objectName="flowPanel")
+        flow = QtWidgets.QHBoxLayout(self.flow_panel); flow.setContentsMargins(14, 9, 14, 9)
+        self.flow_text = QtWidgets.QLabel("요청 → 목표 정리 → 작업 목록 → 작업 관리자 → 담당 리드 → 작업자 ↔ 검토자 → 담당 리드 → 작업 관리자", objectName="flowText"); self.flow_text.setWordWrap(True); flow.addWidget(self.flow_text)
+        self.flow_panel.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Maximum)
+        self.flow_panel.setMaximumHeight(50)
+        self.task_panel = self._make_panel("진행·검토·확인 필요 작업"); self.lead_section = self.task_panel
+        self.lead_grid_host = QtWidgets.QWidget(); self.lead_grid = QtWidgets.QGridLayout(self.lead_grid_host)
+        self.lead_grid.setContentsMargins(0, 0, 0, 0); self.lead_grid.setHorizontalSpacing(8); self.lead_grid.setVerticalSpacing(8)
+        self.task_panel.layout().addWidget(self.lead_grid_host)  # type: ignore[union-attr]
+        self.queue_panel = self._make_panel("작업 목록 요약 · 현재 소유권")
+        self.queue_text = QtWidgets.QLabel(objectName="queueText"); self.queue_text.setWordWrap(True); self.queue_text.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
         self.queue_panel.layout().addWidget(self.queue_text)  # type: ignore[union-attr]
-        self.queue_panel.setMinimumWidth(0)
-        self.queue_panel.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
-        lower.addWidget(self.queue_panel)
-        lower.setStretchFactor(0, 3)
-        lower.setStretchFactor(1, 2)
-        self.content_layout.addWidget(lower)
-        self.content_layout.addStretch(1)
-
-        self.setStyleSheet(_DASHBOARD_QSS)
-        self.setTabOrder(self.refresh_button, self.scroll)
+        self.event_panel = self._make_panel("최근 활동")
+        self.event_list = CopyListWidget(objectName="eventList")
+        self.event_list.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection); self.event_list.setWordWrap(True); self.event_list.setTextElideMode(QtCore.Qt.ElideNone); self.event_list.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.event_list.setMaximumHeight(80)
+        self.event_list.setAccessibleName("최근 활동 목록. 방향키로 선택하고 Control C로 복사")
+        self.event_panel.layout().addWidget(self.event_list)  # type: ignore[union-attr]
+        self.event_panel.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Maximum)
+        self.event_panel.setMaximumHeight(150)
+        self.warning_box = QtWidgets.QFrame(objectName="warningBox")
+        self.warning_box.setMaximumHeight(54)
+        warning = QtWidgets.QVBoxLayout(self.warning_box); warning.setContentsMargins(14, 9, 14, 9)
+        top = QtWidgets.QHBoxLayout(); self.warning_summary = QtWidgets.QLabel(objectName="warningSummary"); self.warning_summary.setWordWrap(True)
+        self.warning_toggle = QtWidgets.QToolButton(text="자세히 보기", objectName="warningToggle"); self.warning_toggle.setCheckable(True); self.warning_toggle.setAccessibleName("경고 상세 내용 펼치기 또는 접기"); self.warning_toggle.toggled.connect(self._toggle_warning_details)
+        top.addWidget(self.warning_summary, 1); top.addWidget(self.warning_toggle); warning.addLayout(top)
+        self.warning_details = QtWidgets.QWidget(); self.warning_layout = QtWidgets.QVBoxLayout(self.warning_details); self.warning_layout.setContentsMargins(0, 2, 0, 0); self.warning_layout.setSpacing(4); warning.addWidget(self.warning_details)
+        self._reflow_content(); self.setStyleSheet(_DASHBOARD_QSS)
+        self.setTabOrder(self.refresh_button, self.warning_toggle); self.setTabOrder(self.warning_toggle, self.event_list)
 
     @staticmethod
     def _make_panel(title: str) -> QtWidgets.QFrame:
-        panel = QtWidgets.QFrame()
-        panel.setObjectName("panel")
-        layout = QtWidgets.QVBoxLayout(panel)
-        layout.setContentsMargins(14, 12, 14, 12)
-        layout.setSpacing(8)
-        label = QtWidgets.QLabel(title)
-        label.setObjectName("sectionTitle")
-        layout.addWidget(label)
-        return panel
+        panel = QtWidgets.QFrame(objectName="panel"); layout = QtWidgets.QVBoxLayout(panel); layout.setContentsMargins(14, 12, 14, 12); layout.setSpacing(8)
+        layout.addWidget(QtWidgets.QLabel(title, objectName="sectionTitle")); return panel
 
     def _read_snapshot(self) -> MonitoringSnapshot:
-        provider = self._provider
-        if callable(provider):
-            return provider()
-        return provider.snapshot()
+        return self._provider() if callable(self._provider) else self._provider.snapshot()
 
     @QtCore.Slot()
     def refresh_snapshot(self) -> None:
-        if self._refresh_in_progress:
-            return
-        self._refresh_in_progress = True
-        self.refresh_button.setEnabled(False)
-        self.refresh_button.setText("읽는 중…")
+        if self._refresh_in_progress: return
+        self._refresh_in_progress = True; self.refresh_button.setEnabled(False)
         try:
-            try:
-                snapshot = self._read_snapshot()
-            except Exception as error:  # provider failure becomes a visible, non-mutating state
-                now = datetime.now(timezone.utc)
-                snapshot = MonitoringSnapshot(
-                    observed_at=now,
-                    warnings=(MonitoringWarning("SNAPSHOT_UNREADABLE", f"상태 스냅샷을 읽지 못했습니다: {type(error).__name__}", "error"),),
-                )
+            try: snapshot = self._read_snapshot()
+            except Exception as error:
+                snapshot = MonitoringSnapshot(datetime.now(timezone.utc), warnings=(MonitoringWarning("SNAPSHOT_UNREADABLE", "정보를 읽지 못했습니다.", "error", "정보를 다시 확인하세요.", f"원인: {type(error).__name__}"),))
             self.render_snapshot(snapshot)
-            self.refresh_button.setAccessibleDescription(f"마지막 읽기 {_format_time(snapshot.observed_at)}")
         finally:
-            self.refresh_button.setText("새로 고침")
-            self.refresh_button.setEnabled(True)
-            self._refresh_in_progress = False
+            self.refresh_button.setEnabled(True); self._refresh_in_progress = False
 
     def render_snapshot(self, snapshot: MonitoringSnapshot) -> None:
-        self._snapshot = snapshot
-        now = snapshot.observed_at
-        # The adapter normally returns one PM, but direct read-only snapshots
-        # can contain audit data.  Never let tuple insertion order choose the
-        # writer shown to an operator: prefer a live PM, then the newest real
-        # generation and heartbeat deterministically.
-        pm = max(
-            snapshot.pm,
-            key=lambda role: (
-                role.active,
-                role.generation,
-                role.heartbeat_at or datetime.min.replace(tzinfo=timezone.utc),
-                role.role_key,
-            ),
-            default=None,
-        )
-        if pm is None:
-            self.pm_heading.setText("PM · 연결 정보 없음")
-            self.pm_badge.set_state("unknown")
-            self.pm_activity.setText("? 활성 PM 정보를 찾지 못했습니다. 역할 소스와 서비스 상태를 확인하세요.")
-            self.pm_freshness.setText(f"기준 시각 {_format_time(now)} · PM 활동 시간 없음")
+        self._snapshot = snapshot; now = snapshot.observed_at
+        self.last_refreshed.setText(f"마지막 갱신 {_format_time(now)} · {_age_text(now, now)}")
+        pm = max(snapshot.pm, key=lambda role: (role.active, role.generation, role.heartbeat_at or datetime.min.replace(tzinfo=timezone.utc)), default=None)
+        self.pm_badge.set_state(pm.state if pm else "unknown")
+        assigned = self._display_tasks(snapshot)
+        self.pm_decision.setText(f"현재 판단: {snapshot.pm_current_decision or ('진행 중인 내용을 확인하고 있습니다.' if assigned else '다음으로 맡길 일을 정리하고 있습니다.')}")
+        self.pm_assignment.setText(f"맡긴 일: {assigned[0].human_title if assigned else '현재 진행 중인 작업 없음'}")
+        self.pm_next.setText(f"다음 확인: {snapshot.pm_next_action or '최근 활동과 작업 목록을 다시 확인합니다.'}")
+        self.pm_card.setAccessibleName("작업 관리자 PM. " + " ".join((self.pm_badge.text(), self.pm_decision.text(), self.pm_assignment.text(), self.pm_next.text())))
+        self._render_tasks(assigned, snapshot); self._render_queue(snapshot); self._render_events(snapshot.events); self._render_warnings(snapshot.warnings); self._reflow_content()
+
+    def _display_tasks(self, snapshot: MonitoringSnapshot) -> list[TaskView]:
+        current = [task for task in snapshot.tasks if task.state in {"active", "review", "blocked", "failed"}]
+        if not current: current = list(snapshot.tasks[:1])
+        return sorted(current, key=lambda task: ({"blocked": 0, "failed": 0, "review": 1, "active": 2}.get(task.state, 3), task.task_id))[:3]
+
+    def _render_tasks(self, tasks: list[TaskView], snapshot: MonitoringSnapshot) -> None:
+        while self.lead_grid.count():
+            item = self.lead_grid.takeAt(0)
+            if item.widget(): item.widget().deleteLater()
+        if not tasks: tasks = [TaskView("", "unknown", human_title="현재 확인할 작업 없음", summary="작업 목록이 비어 있거나 아직 확인되지 않았습니다.")]
+        self._task_cards = []; self._lead_cards = self._task_cards
+        for task in tasks:
+            workers = sum(worker.active and worker.active_task_id == task.task_id for worker in snapshot.workers)
+            reviewers = sum(reviewer.active and reviewer.active_task_id == task.task_id for reviewer in snapshot.reviewers)
+            self._task_cards.append(RoleCard(task, workers=workers, reviewers=reviewers, now=snapshot.observed_at))
+        self._reflow_task_cards()
+
+    def _reflow_task_cards(self) -> None:
+        if not self._task_cards: return
+        while self.lead_grid.count(): self.lead_grid.takeAt(0)
+        width = max(1, self.width()); desired = 3 if width >= 1280 else 2 if width >= 680 else 1
+        columns = min(desired, len(self._task_cards))
+        for index, card in enumerate(self._task_cards): self.lead_grid.addWidget(card, index // columns, index % columns)
+        for index in range(columns): self.lead_grid.setColumnStretch(index, 1)
+
+    def _render_queue(self, snapshot: MonitoringSnapshot) -> None:
+        queue = snapshot.queue
+        if queue is None: text = "작업 목록을 확인하지 못했습니다. 다음 갱신 때 다시 확인합니다."
         else:
-            self.pm_heading.setText(f"PM · {pm.role_key}")
-            self.pm_badge.set_state(pm.state)
-            task = pm.active_task_id or "현재 배정된 작업 없음"
-            source = "Queue 기준" if pm.role_key == "canonical-queue-pm" else f"writer 세대 {pm.generation}"
-            heartbeat_label = "Queue 갱신" if pm.role_key == "canonical-queue-pm" else "heartbeat"
-            self.pm_activity.setText(f"{_state_meta(pm.state)[0]} {task} · {source}")
-            self.pm_freshness.setText(
-                f"활동 {_age_text(pm.heartbeat_at, now)} · {heartbeat_label} {_format_time(pm.heartbeat_at)}"
-            )
-        self.pm_card.setAccessibleName(f"{self.pm_heading.text()}, {self.pm_badge.text()}, {self.pm_activity.text()}, {self.pm_freshness.text()}")
-        self._render_warnings(snapshot.warnings)
-        self._render_leads(snapshot)
-        self._render_events(snapshot.events)
-        self._render_queue(snapshot)
+            counts = " · ".join((f"시작 대기 {queue.count('ready')}", f"진행 중 {queue.count('active')}", f"검토 중 {queue.count('review')}", f"해결 필요 {queue.count('blocked')}", f"완료 {queue.count('done')}"))
+            ownership = "현재 소유권: 담당 리드 확인 중"
+            if queue.current_tasks:
+                ownership = "현재 소유권: 담당 리드 배정됨" + (" · 검토자 배정됨" if any(item.reviewer for item in queue.current_tasks) else "")
+            text = f"{snapshot.goal_summary or '내 요청을 목표로 정리하고 있습니다.'}\n{snapshot.queue_action or '작업 목록을 확인 중'} · {snapshot.proposal_state or '확인 중'}\n{counts}\n{ownership}"
+        self.queue_text.setText(text); self.queue_panel.setAccessibleName("작업 목록 요약. " + text.replace("\n", " "))
+
+    def _render_events(self, events: tuple[EventView, ...]) -> None:
+        self.event_list.clear(); rows = sorted(events, key=lambda item: item.occurred_at, reverse=True)
+        if not rows: self.event_list.addItem("? 최근 활동을 아직 확인하지 못했습니다."); return
+        for event in rows:
+            item = QtWidgets.QListWidgetItem(f"{_format_time(event.occurred_at)}  {event.human_message or '최근 활동을 확인했습니다.'}")
+            item.setToolTip(f"발생 시각: {event.occurred_at.isoformat()}"); self.event_list.addItem(item)
 
     def _render_warnings(self, warnings: tuple[MonitoringWarning, ...]) -> None:
         while self.warning_layout.count():
             item = self.warning_layout.takeAt(0)
-            if item.widget() is not None:
-                item.widget().deleteLater()
+            if item.widget(): item.widget().deleteLater()
         self.warning_box.setVisible(bool(warnings))
+        if not warnings: return
+        first = warnings[0]; title = first.human_title or first.message; suffix = f" 외 {len(warnings) - 1}건" if len(warnings) > 1 else ""
+        self.warning_summary.setText(f"! 확인할 내용 {len(warnings)}건 · {title}{suffix}")
         for warning in warnings:
-            tone = _WARNING_TONE.get(warning.severity, "warning")
-            icon = "!" if tone in {"error", "warning"} else "?"
-            label = QtWidgets.QLabel(f"{icon} {warning.message}")
-            label.setObjectName("warningText")
-            label.setProperty("tone", tone)
-            label.setWordWrap(True)
-            label.setAccessibleName(f"경고 {warning.code}: {warning.message}")
-            self.warning_layout.addWidget(label)
+            action = warning.operator_action or "정보를 다시 확인하세요."
+            label = QtWidgets.QLabel(f"! {warning.human_title or warning.message} · {action}", objectName="warningText"); label.setWordWrap(True); label.setAccessibleName(f"경고: {warning.human_title or warning.message}. 안내: {action}"); self.warning_layout.addWidget(label)
+        self._toggle_warning_details(self.warning_toggle.isChecked())
 
-    def _render_leads(self, snapshot: MonitoringSnapshot) -> None:
-        while self.lead_grid.count():
-            item = self.lead_grid.takeAt(0)
-            if item.widget() is not None:
-                item.widget().deleteLater()
-        roles = [*snapshot.leads, *snapshot.reviewers]
-        if not roles:
-            source_unknown = any(
-                warning.code in {"EXECUTION_SOURCE_MISSING", "EXECUTION_SOURCE_UNREADABLE"}
-                for warning in snapshot.warnings
-            )
-            newest_pm = max(snapshot.pm, key=lambda item: item.generation, default=None)
-            roles = [RoleView(
-                "상태 확인 불가" if source_unknown else "활성 Lead 없음",
-                "domain_lead",
-                "unknown" if source_unknown else "idle",
-                newest_pm.generation if newest_pm is not None else 0,
-                newest_pm.heartbeat_at if newest_pm is not None else None,
-                None,
-                None,
-                not source_unknown,
-                False,
-            )]
-        self._lead_cards = []
-        for role in roles:
-            # An execution role is shown only under the Lead responsible for
-            # the same active Queue task.  Idle Leads and unassigned roles are
-            # deliberately not inferred into ownership counts.
-            task_id = role.active_task_id
-            workers = sum(
-                1 for worker in snapshot.workers
-                if worker.active and task_id is not None and worker.active_task_id == task_id
-            )
-            reviewers = sum(
-                1 for reviewer in snapshot.reviewers
-                if reviewer.active and task_id is not None and reviewer.active_task_id == task_id
-            )
-            self._lead_cards.append(
-                RoleCard(role, workers=workers, reviewers=reviewers, now=snapshot.observed_at)
-            )
-        self._reflow_lead_cards()
+    def _toggle_warning_details(self, expanded: bool) -> None:
+        self.warning_details.setVisible(expanded)
+        self.warning_box.setMaximumHeight(QtWidgets.QWIDGETSIZE_MAX if expanded else 54)
+        self.warning_toggle.setText("접기" if expanded else "자세히 보기")
+        self.warning_toggle.setAccessibleName("경고 상세 내용 접기" if expanded else "경고 상세 내용 펼치기")
 
-    def _reflow_lead_cards(self) -> None:
-        if not self._lead_cards:
-            return
-        width = max(1, self.lead_grid_host.width())
-        columns = 3 if width >= 1080 else 2 if width >= 700 else 1
-        while self.lead_grid.count():
-            self.lead_grid.takeAt(0)
-        for index, card in enumerate(self._lead_cards):
-            self.lead_grid.addWidget(card, index // columns, index % columns)
-        for column in range(columns):
-            self.lead_grid.setColumnStretch(column, 1)
-
-    def _render_events(self, events: tuple[EventView, ...]) -> None:
-        self.event_list.clear()
-        if not events:
-            item = QtWidgets.QListWidgetItem("? 이벤트 기록이 없습니다.")
-            item.setToolTip("이벤트 소스가 비어 있거나 확인되지 않았습니다.")
-            self.event_list.addItem(item)
-            return
-        for event in sorted(events, key=lambda row: row.occurred_at, reverse=True):
-            task = event.task_id or "작업 없음"
-            reason = f" · {event.reason_code}" if event.reason_code else ""
-            source = _EVENT_SOURCE_LABELS.get(event.source, event.source)
-            kind = _EVENT_KIND_LABELS.get(event.kind, event.kind)
-            text = f"{_format_time(event.occurred_at)}  {source}  {kind}  {task}{reason}"
-            item = QtWidgets.QListWidgetItem(text)
-            item.setToolTip(f"발생 시각: {event.occurred_at.isoformat()}\nActor: {event.source}\n작업: {task}")
-            self.event_list.addItem(item)
-
-    def _render_queue(self, snapshot: MonitoringSnapshot) -> None:
-        queue = snapshot.queue
-        if queue is None:
-            queue_text = "? Queue 상태를 확인할 수 없습니다.\nQueue 소스를 다시 읽어야 합니다."
+    def _reflow_content(self) -> None:
+        while self.content_layout.count(): self.content_layout.takeAt(0)
+        # ``content`` is not resized until after the first show event.  The
+        # viewport/window width is therefore the reliable responsive input.
+        width = max(1, self.scroll.viewport().width(), self.width() - 40)
+        wide = width >= 1160
+        # A single active card must not absorb an entire high-resolution
+        # viewport.  Narrow layouts still grow naturally for wrapped cards.
+        compact_maximum = 220 if wide else 16_777_215
+        self.task_panel.setMaximumHeight(compact_maximum)
+        self.queue_panel.setMaximumHeight(compact_maximum)
+        self.content_layout.addWidget(self.pm_card, 0, 0, 1, 3); self.content_layout.addWidget(self.flow_panel, 1, 0, 1, 3)
+        if wide:
+            self.content_layout.addWidget(self.task_panel, 2, 0, 1, 2); self.content_layout.addWidget(self.queue_panel, 2, 2); self.content_layout.addWidget(self.event_panel, 3, 0, 1, 3); self.content_layout.addWidget(self.warning_box, 4, 0, 1, 3)
+        elif width >= 760:
+            self.content_layout.addWidget(self.task_panel, 2, 0, 1, 2); self.content_layout.addWidget(self.queue_panel, 3, 0); self.content_layout.addWidget(self.event_panel, 3, 1); self.content_layout.addWidget(self.warning_box, 4, 0, 1, 2)
         else:
-            queue_text = " · ".join(
-                f"{label} {queue.count(key)}" for key, label in (("ready", "Ready"), ("active", "Active"), ("review", "Review"), ("blocked", "Blocked"), ("done", "Done"))
-            )
-            queue_text += f"\n활성 작업: {', '.join(queue.active_task_ids) if queue.active_task_ids else '없음'}"
-            if queue.current_tasks:
-                current_lines = []
-                for task in queue.current_tasks:
-                    owner = task.lead_owner
-                    reviewer = f" · Reviewer {task.reviewer}" if task.reviewer else ""
-                    current_lines.append(
-                        f"{task.task_id} · {task.state} · Lead {owner}{reviewer} · 갱신 {_format_time(task.updated_at)}"
-                    )
-                queue_text += "\n현재 소유권:\n" + "\n".join(current_lines)
-            queue_text += f"\n압축 보관: {queue.compacted_count}"
-        fresh_lines = []
-        for source, moment in snapshot.source_freshness.items():
-            mark = "●" if moment is not None else "?"
-            fresh_lines.append(f"{mark} {source}: {_format_time(moment)} · {_age_text(moment, snapshot.observed_at)}")
-        if not fresh_lines:
-            fresh_lines.append("? 소스 신선도 정보 없음")
-        self.queue_text.setText(queue_text + "\n\n" + "\n".join(fresh_lines))
-        self.queue_panel.setAccessibleName(self.queue_text.text().replace("\n", " · "))
+            for row, widget in enumerate((self.task_panel, self.queue_panel, self.event_panel, self.warning_box), 2): self.content_layout.addWidget(widget, row, 0, 1, 3)
+        for column in range(3): self.content_layout.setColumnStretch(column, 1)
+        self._reflow_task_cards()
 
     def resizeEvent(self, event: QtGui.QResizeEvent) -> None:
-        super().resizeEvent(event)
-        self._reflow_lead_cards()
-
-    def eventFilter(self, watched: QtCore.QObject, event: QtCore.QEvent) -> bool:
-        if watched is self.lead_grid_host and event.type() == QtCore.QEvent.Resize:
-            self._reflow_lead_cards()
-        return super().eventFilter(watched, event)
+        super().resizeEvent(event); self._reflow_content()
 
     def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
-        if event.key() == QtCore.Qt.Key_Escape:
-            self.close()
-            event.accept()
-            return
+        if event.key() == QtCore.Qt.Key_Escape: self.close(); event.accept(); return
         super().keyPressEvent(event)
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
-        """Stop polling before child widgets and providers are released."""
-        if hasattr(self, "_refresh_timer"):
-            self._refresh_timer.stop()
-        super().closeEvent(event)
+        self._refresh_timer.stop(); super().closeEvent(event)
 
 
-def render_dashboard_png(
-    snapshot: MonitoringSnapshot,
-    path: Path,
-    *,
-    size: tuple[int, int] = (1280, 720),
-) -> Path:
-    """Render a deterministic offscreen evidence image for automated/manual QA."""
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    configure_application_font(app)
-    window = OperationsDashboard(lambda: snapshot)
-    window.resize(*size)
-    window.show()
-    app.processEvents()
-    target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    image = window.grab().toImage()
-    if not image.save(str(target), "PNG"):
-        raise RuntimeError(f"could not save dashboard screenshot: {target}")
-    window.close()
-    window.deleteLater()
-    app.processEvents()
-    return target
-
-
-def main() -> int:
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    configure_application_font(app)
-    window = OperationsDashboard(repository_root=Path.cwd())
-    window.show()
-    return app.exec()
+def render_dashboard_png(snapshot: MonitoringSnapshot, path: Path, *, size: tuple[int, int] = (1280, 720)) -> Path:
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([]); configure_application_font(app)
+    window = OperationsDashboard(lambda: snapshot, refresh_interval_ms=None); window.resize(*size); window.show(); app.processEvents()
+    target = Path(path); target.parent.mkdir(parents=True, exist_ok=True)
+    if not window.grab().save(str(target), "PNG"): raise RuntimeError(f"could not save dashboard screenshot: {target}")
+    window.close(); window.deleteLater(); app.processEvents(); return target
 
 
 _DASHBOARD_QSS = """
-QWidget#dashboardRoot, QWidget#dashboardContent { background:#f4f7fb; color:#132238; font-size:10pt; }
-QFrame#pmCard, QFrame#panel, QFrame#leadCard { background:#ffffff; border:1px solid #d7e0eb; border-radius:10px; }
-QFrame#pmCard { border:2px solid #8db2d7; background:#f9fcff; }
-QFrame#warningBox { background:#fff8e8; border:1px solid #e8c56d; border-radius:8px; }
-QLabel#pageTitle { color:#10233d; font-size:20pt; font-weight:800; }
-QLabel#pageSubtitle, QLabel#cardMeta { color:#5e7188; font-size:9.5pt; }
-QLabel#pmHeading { color:#17375e; font-size:14pt; font-weight:800; }
-QLabel#pmActivity { color:#203a57; font-size:12pt; font-weight:650; }
-QLabel#sectionTitle { color:#17375e; font-size:12pt; font-weight:750; }
-QLabel#cardTitle { color:#31506f; font-size:11pt; font-weight:750; }
-QLabel#cardTask { color:#203a57; font-size:10.5pt; font-weight:650; }
-QLabel#stateBadge { border-radius:7px; padding:3px 7px; font-size:9.5pt; font-weight:750; }
-QLabel#stateBadge[tone="active"] { background:#e7f5ee; color:#176b49; }
-QLabel#stateBadge[tone="neutral"] { background:#edf3f8; color:#42617f; }
-QLabel#stateBadge[tone="warning"] { background:#fff3d6; color:#8a5b12; }
-QLabel#stateBadge[tone="error"] { background:#fbeceb; color:#a33f38; }
-QLabel#stateBadge[tone="unknown"] { background:#f0f2f5; color:#5e6876; }
-QLabel#warningText { font-size:10pt; font-weight:650; }
-QLabel#warningText[tone="warning"] { color:#805b16; }
-QLabel#warningText[tone="error"] { color:#9c322d; }
-QPushButton#refreshButton { background:#ffffff; border:1px solid #7da5ce; border-radius:6px; padding:7px 12px; color:#174f88; font-weight:700; }
-QPushButton#refreshButton:hover { background:#edf4fb; }
-QPushButton#refreshButton:focus { border:2px solid #2f6fb2; outline:0; }
-QListWidget#eventList { background:#ffffff; border:1px solid #d7e0eb; border-radius:6px; alternate-background-color:#f7f9fc; padding:3px; }
-QListWidget#eventList::item { padding:7px 5px; border-bottom:1px solid #edf1f6; }
+QWidget#dashboardRoot, QWidget#dashboardContent { background:#111315; color:#F2F4F7; font-size:16px; }
+QFrame#pmCard, QFrame#panel, QFrame#taskCard { background:#191C20; border:1px solid #30363D; border-radius:10px; }
+QFrame#pmCard { border:1px solid #F59E0B; background:#24201A; }
+QFrame#flowPanel { background:#22262B; border-radius:8px; color:#F2F4F7; }
+QFrame#warningBox { background:#24201A; border:1px solid #F59E0B; border-radius:8px; }
+QLabel#pageTitle { color:#F2F4F7; font-size:28px; font-weight:700; }
+QLabel#pageSubtitle, QLabel#refreshStatus { color:#B7BDC7; font-size:16px; }
+QLabel#lastRefreshed, QLabel#cardMeta, QLabel#cardSummary { color:#B7BDC7; font-size:14px; }
+QLabel#pmHeading { color:#F2F4F7; font-size:21px; font-weight:650; }
+QLabel#pmDecision, QLabel#pmAssignment, QLabel#pmNext { color:#F2F4F7; font-size:16px; }
+QLabel#sectionTitle { color:#F2F4F7; font-size:21px; font-weight:650; }
+QLabel#cardTitle { color:#F2F4F7; font-size:16px; font-weight:650; }
+QLabel#flowText, QLabel#queueText, QLabel#warningSummary { color:#F2F4F7; font-size:16px; }
+QLabel#stateBadge { border-radius:7px; padding:4px 8px; font-size:14px; font-weight:650; }
+QLabel#stateBadge[tone="active"] { background:#153D2A; color:#85E6AD; }
+QLabel#stateBadge[tone="review"] { background:#4A3315; color:#FFB454; }
+QLabel#stateBadge[tone="error"] { background:#4A2023; color:#FF9C9C; }
+QLabel#stateBadge[tone="neutral"], QLabel#stateBadge[tone="unknown"] { background:#2B3138; color:#B7BDC7; }
+QLabel#warningText { color:#FFCC7A; font-size:14px; }
+QPushButton#refreshButton, QToolButton#warningToggle { background:#22262B; color:#F2F4F7; border:1px solid #F59E0B; border-radius:6px; padding:7px 12px; font-weight:650; }
+QPushButton#refreshButton:hover, QToolButton#warningToggle:hover { background:#3A2B18; }
+QPushButton#refreshButton:focus, QToolButton#warningToggle:focus, QListWidget#eventList:focus { outline:0; border:2px solid #FFB454; }
+QListWidget#eventList { background:#191C20; color:#F2F4F7; border:1px solid #30363D; border-radius:6px; padding:3px; font-size:16px; }
+QListWidget#eventList::item { padding:7px 5px; border-bottom:1px solid #30363D; }
+QListWidget#eventList::item:selected { background:#3A2B18; color:#F2F4F7; }
 QScrollArea#dashboardScroll { border:0; background:transparent; }
 """
 
-
 __all__ = ["OperationsDashboard", "RoleCard", "StateBadge", "render_dashboard_png"]
 
-
 if __name__ == "__main__":
-    raise SystemExit(main())
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([]); configure_application_font(app)
+    window = OperationsDashboard(repository_root=Path.cwd()); window.show(); raise SystemExit(app.exec())

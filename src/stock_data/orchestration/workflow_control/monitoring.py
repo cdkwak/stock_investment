@@ -7,7 +7,7 @@ an explicit, read-only compatibility input, but is never a default authority.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import json
 import hashlib
@@ -28,6 +28,8 @@ class MonitoringWarning:
     code: str
     message: str
     severity: str = "warning"
+    human_title: str | None = None
+    operator_action: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +55,13 @@ class TaskView:
     summary: str | None = None
     owner: str | None = None
     reviewer: str | None = None
+    # These display fields are deliberately optional: old SQLite and Queue
+    # projections have no prose title, while the GUI must never invent a
+    # worker or expose an opaque task ID as the primary label.
+    human_title: str | None = None
+    lead: str | None = None
+    fix_count: int = 0
+    last_activity: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +72,7 @@ class EventView:
     source: str
     task_id: str | None = None
     reason_code: str | None = None
+    human_message: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +87,11 @@ class MonitoringSnapshot:
     events: tuple[EventView, ...] = ()
     warnings: tuple[MonitoringWarning, ...] = ()
     source_freshness: Mapping[str, datetime | None] = MappingProxyType({})
+    pm_current_decision: str | None = None
+    pm_next_action: str | None = None
+    goal_summary: str | None = None
+    queue_action: str | None = None
+    proposal_state: str | None = None
 
     @property
     def task_summaries(self) -> tuple[TaskView, ...]:
@@ -205,6 +220,8 @@ class MonitoringSnapshotAdapter:
             if len(exclusive_leads) > 1:
                 warnings.append(MonitoringWarning("OWNERSHIP_CONFLICT", f"{task_id} 소유자가 중복되었습니다.", "error"))
         events = self._read_events(warnings)
+        tasks = self._enrich_task_display(tasks, events)
+        events = self._enrich_event_display(events)
         freshness_data = {
             "queue": queue.observed_at if queue else None,
             "execution": max((r.heartbeat_at for r in execution_roles if r.heartbeat_at), default=None),
@@ -213,8 +230,84 @@ class MonitoringSnapshotAdapter:
         if self.role_db is not None:
             freshness_data["legacy_roles"] = max((r.heartbeat_at for r in roles if r.heartbeat_at), default=None)
         freshness = MappingProxyType(freshness_data)
-        return MonitoringSnapshot(now, pm, leads, workers, reviewers, queue, tasks, events,
-                                  tuple(warnings), freshness)
+        active_task = next(
+            (task for task in tasks if task.state in {"active", "review"}),
+            None,
+        )
+        pm_decision = (
+            "검토 요청을 확인하고 있습니다."
+            if active_task is not None and active_task.state == "review"
+            else "진행 중인 작업의 상태를 확인하고 있습니다."
+            if active_task is not None
+            else "다음으로 맡길 일을 정리하고 있습니다."
+        )
+        queue_action = (
+            "작업 목록에 반영됨" if active_task is not None
+            else "시작 대기 작업을 확인 중"
+        )
+        return MonitoringSnapshot(
+            now, pm, leads, workers, reviewers, queue, tasks, events,
+            tuple(warnings), freshness,
+            pm_current_decision=pm_decision,
+            pm_next_action="작업 목록과 최근 활동을 다시 확인합니다.",
+            goal_summary="내 요청을 실행 가능한 작업으로 정리하는 중입니다.",
+            queue_action=queue_action,
+            proposal_state="확인 중",
+        )
+
+    @staticmethod
+    def _enrich_task_display(
+        tasks: tuple[TaskView, ...], events: tuple[EventView, ...],
+    ) -> tuple[TaskView, ...]:
+        """Add conservative, human-facing display defaults without writes."""
+        domain_names = {
+            "gui": "화면 개선 작업", "data": "데이터 확인 작업",
+            "research": "조사 작업", "backtest": "검증 작업",
+        }
+        event_by_task: dict[str, list[EventView]] = {}
+        for event in events:
+            if event.task_id:
+                event_by_task.setdefault(event.task_id, []).append(event)
+        result: list[TaskView] = []
+        for task in tasks:
+            task_events = event_by_task.get(task.task_id, [])
+            rework = sum(event.kind == "REWORK_REQUESTED" for event in task_events)
+            last_activity = max(
+                (event.occurred_at for event in task_events),
+                default=task.updated_at,
+            )
+            title = task.human_title or domain_names.get(
+                str(task.domain or "").casefold(), "현재 작업",
+            )
+            summary = task.summary or "작업 내용을 확인하고 있습니다."
+            result.append(replace(
+                task,
+                human_title=title,
+                summary=summary,
+                lead=task.lead or task.owner,
+                fix_count=max(0, task.fix_count, rework),
+                last_activity=task.last_activity or last_activity,
+            ))
+        return tuple(result)
+
+    @staticmethod
+    def _enrich_event_display(
+        events: tuple[EventView, ...],
+    ) -> tuple[EventView, ...]:
+        messages = {
+            "TASK_TRANSITION": "작업 상태가 바뀌었습니다.",
+            "REVIEW_RESULT": "검토 결과가 도착했습니다.",
+            "REWORK_REQUESTED": "수정 요청이 전달되었습니다.",
+            "ESCALATION": "확인이 필요한 내용이 올라왔습니다.",
+            "SESSION_STARTED": "작업 확인을 시작했습니다.",
+            "QUEUE_SNAPSHOT": "작업 목록을 다시 확인했습니다.",
+        }
+        return tuple(replace(
+            event,
+            human_message=event.human_message or messages.get(
+                event.kind, "최근 활동을 확인했습니다.",
+            ),
+        ) for event in events)
 
     def _project_queue_roles(
         self, queue: QueueSnapshot,

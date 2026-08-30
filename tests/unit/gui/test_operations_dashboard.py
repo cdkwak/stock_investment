@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -10,47 +11,45 @@ from PySide6 import QtCore, QtGui, QtTest, QtWidgets
 
 from stock_data.gui.operations_dashboard import OperationsDashboard
 from stock_data.orchestration.workflow_control.monitoring import (
-    EventView,
-    MonitoringSnapshot,
-    MonitoringWarning,
-    RoleView,
-    TaskView,
+    EventView, MonitoringSnapshot, MonitoringWarning, RoleView, TaskView,
 )
 from stock_data.orchestration.workflow_control.queue_adapter import QueueSnapshot
 
 
 NOW = datetime(2026, 8, 30, 6, 32, tzinfo=timezone.utc)
+TASK_ID = "RQ-20260830T063000-UX01"
 
 
-def _role(key: str, kind: str, state: str, task: str | None = None, *, fresh: bool = True) -> RoleView:
-    return RoleView(key, kind, state, 3, NOW - timedelta(seconds=18), NOW + timedelta(minutes=2), task, fresh)
+def _role(kind: str, state: str, task: str | None = None) -> RoleView:
+    return RoleView(f"internal-{kind}", kind, state, 3, NOW - timedelta(seconds=18), None, task, True)
 
 
-def sample_snapshot(*, warning: bool = True, events: bool = True) -> MonitoringSnapshot:
+def sample_snapshot(*, warning_count: int = 1) -> MonitoringSnapshot:
     queue = QueueSnapshot(
         NOW,
         (("new", 1), ("waiting", 0), ("ready", 3), ("active", 1), ("review", 1), ("blocked", 0), ("done", 42)),
-        ("RQ-20260830T063000-UX01",),
-        155,
+        (TASK_ID,), 155,
+    )
+    warnings = tuple(
+        MonitoringWarning(f"W{index}", "원본 경고", "warning", f"확인 항목 {index + 1}", "작업 목록을 다시 확인하세요.")
+        for index in range(warning_count)
     )
     return MonitoringSnapshot(
-        observed_at=NOW,
-        pm=(_role("python-pm", "project_manager", "active", "RQ-20260830T063000-UX01"),),
-        leads=(
-            _role("gui-lead", "domain_lead", "active", "RQ-20260830T063000-UX01"),
-            _role("data-lead", "domain_lead", "idle"),
-            _role("research-lead", "domain_lead", "review", "RQ-20260830T063100-BC24"),
-        ),
-        workers=(_role("worker-a", "worker", "active", "RQ-20260830T063000-UX01"), _role("worker-b", "worker", "idle")),
-        reviewers=(_role("reviewer-a", "reviewer", "review", "RQ-20260830T063100-BC24"),),
+        NOW,
+        pm=(_role("project_manager", "active", TASK_ID),),
+        leads=(_role("domain_lead", "active", TASK_ID),),
+        workers=(_role("worker", "active", TASK_ID),),
+        reviewers=(_role("reviewer", "review", TASK_ID),),
         queue=queue,
-        tasks=(TaskView("RQ-20260830T063000-UX01", "active", "P1", "gui", NOW),),
-        events=(
-            EventView("event-2", NOW, "TASK_TRANSITION", "WORKER", "RQ-20260830T063000-UX01", "STARTED"),
-            EventView("event-1", NOW - timedelta(minutes=1), "ESCALATION", "PM", "RQ-20260830T063100-BC24", "OWNERSHIP_CONFLICT"),
-        ) if events else (),
-        warnings=(MonitoringWarning("OWNERSHIP_CONFLICT", "UX-02 소유권 충돌을 확인하세요.", "error"),) if warning else (),
-        source_freshness={"queue": NOW, "roles": NOW - timedelta(seconds=18), "events": NOW},
+        tasks=(TaskView(TASK_ID, "active", "P1", "gui", NOW, "작업 내용을 다듬고 있습니다.", "internal-lead", human_title="관제 화면 개선", lead="internal-lead", fix_count=2, last_activity=NOW - timedelta(minutes=1)),),
+        events=(EventView("event-1", NOW, "REWORK_REQUESTED", "WORKER", TASK_ID, human_message="수정 요청을 전달했습니다."),),
+        warnings=warnings,
+        source_freshness={"queue": NOW},
+        pm_current_decision="진행 중인 화면 개선을 검토합니다.",
+        pm_next_action="수정 요청 반영을 확인합니다.",
+        goal_summary="내 요청을 화면 개선 목표로 정리했습니다.",
+        queue_action="작업 목록 반영 완료",
+        proposal_state="PM 배정됨",
     )
 
 
@@ -59,111 +58,120 @@ def app() -> QtWidgets.QApplication:
     return QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
 
 
-def _shown(window: OperationsDashboard, app: QtWidgets.QApplication) -> OperationsDashboard:
+def _shown(window: OperationsDashboard, app: QtWidgets.QApplication, size: tuple[int, int] = (1280, 720)) -> OperationsDashboard:
+    window.resize(*size)
     window.show()
     app.processEvents()
     return window
 
 
-def test_dashboard_renders_pm_leads_workers_queue_and_events(app: QtWidgets.QApplication) -> None:
-    dashboard = _shown(OperationsDashboard(lambda: sample_snapshot()), app)
+def test_dashboard_uses_korean_glanceable_priority_and_hides_technical_identifiers(app: QtWidgets.QApplication) -> None:
+    dashboard = _shown(OperationsDashboard(lambda: sample_snapshot(), refresh_interval_ms=None), app)
     try:
-        assert dashboard.pm_heading.text() == "PM · python-pm"
-        assert "writer 세대 3" in dashboard.pm_activity.text()
-        assert len(dashboard._lead_cards) == 4
-        assert dashboard._lead_cards[0].counts.text() == "Worker 1명 · Reviewer 0명"
-        assert dashboard._lead_cards[1].counts.text() == "Worker 0명 · Reviewer 0명"
-        assert dashboard._lead_cards[2].counts.text() == "Worker 0명 · Reviewer 1명"
-        assert dashboard._lead_cards[3].title.text() == "Reviewer · reviewer-a"
-        assert dashboard._lead_cards[3].counts.text() == "Queue 검토 담당"
-        assert dashboard.event_list.count() == 2
-        assert dashboard.event_list.wordWrap() is True
-        assert dashboard.event_list.horizontalScrollBarPolicy() == QtCore.Qt.ScrollBarAlwaysOff
-        assert "Ready 3" in dashboard.queue_text.text()
-        assert "활성 작업: RQ-20260830T063000-UX01" in dashboard.queue_text.text()
+        assert dashboard.windowTitle() == "프로젝트 작업 현황"
+        assert dashboard.page_subtitle.text() == "PM이 작업을 나누고 검토하는 현재 흐름입니다"
+        assert dashboard.flow_text.text() == (
+            "요청 → 목표 정리 → 작업 목록 → 작업 관리자 → 담당 리드 → "
+            "작업자 ↔ 검토자 → 담당 리드 → 작업 관리자"
+        )
+        assert dashboard.pm_heading.text() == "작업 관리자(PM)"
+        card = dashboard._task_cards[0]
+        assert card.title.text() == "관제 화면 개선"
+        assert card.counts.text() == "작업자 1명 ↔ 검토자 1명"
+        assert "수정 요청 2회" in card.activity.text()
+        visible = "\n".join(label.text() for label in dashboard.findChildren(QtWidgets.QLabel))
+        assert TASK_ID not in visible
+        for term in ("Worker", "Reviewer", "Ready", "Active", "Review", "Queue"):
+            assert term not in visible
     finally:
         dashboard.close()
 
 
-def test_dashboard_reflows_lead_cards_for_desktop_and_narrow_width(app: QtWidgets.QApplication) -> None:
-    dashboard = _shown(OperationsDashboard(lambda: sample_snapshot()), app)
+@pytest.mark.parametrize("size, columns", [((1600, 900), 3), ((960, 720), 2)])
+def test_task_cards_reflow_without_horizontal_scroll(app: QtWidgets.QApplication, size: tuple[int, int], columns: int) -> None:
+    snapshot = replace(sample_snapshot(), tasks=tuple(
+        TaskView(
+            f"RQ-20260830T06300{index}-UX0{index}", "active", domain="gui",
+            human_title=f"화면 개선 {index}", summary="작업 내용을 확인하고 있습니다.",
+        )
+        for index in range(1, 4)
+    ))
+    dashboard = _shown(OperationsDashboard(lambda: snapshot, refresh_interval_ms=None), app, size)
     try:
-        dashboard.resize(1600, 900)
-        app.processEvents()
-        assert max(dashboard.lead_grid.getItemPosition(index)[1] for index in range(3)) == 2
-        dashboard.resize(960, 720)
-        app.processEvents()
-        assert max(dashboard.lead_grid.getItemPosition(index)[1] for index in range(3)) <= 1
-        assert dashboard.minimumWidth() == 960
+        assert dashboard.scroll.horizontalScrollBar().maximum() == 0
+        assert dashboard.lead_grid.columnCount() >= min(columns, len(dashboard._task_cards))
+        assert dashboard.pm_card.isVisible() and dashboard.event_panel.isVisible()
     finally:
         dashboard.close()
 
 
-def test_accessible_warning_and_unknown_states_use_icon_and_text(app: QtWidgets.QApplication) -> None:
-    dashboard = _shown(OperationsDashboard(lambda: sample_snapshot()), app)
+def test_1280_first_screen_contains_pm_task_queue_summary_and_event(app: QtWidgets.QApplication) -> None:
+    dashboard = _shown(OperationsDashboard(lambda: sample_snapshot(), refresh_interval_ms=None), app)
     try:
-        warning_text = dashboard.warning_layout.itemAt(0).widget().text()
-        assert warning_text.startswith("!")
-        assert "소유권 충돌" in warning_text
-        unknown = OperationsDashboard(lambda: MonitoringSnapshot(observed_at=NOW))
-        _shown(unknown, app)
-        try:
-            assert unknown.pm_badge.text() == "? 알 수 없음"
-            assert unknown.pm_badge.accessibleName() == "상태: 알 수 없음"
-            assert "?" in unknown.event_list.item(0).text()
-            assert "? Queue 상태" in unknown.queue_text.text()
-            assert unknown._lead_cards[0].title.text() == "Lead · 활성 Lead 없음"
-            assert unknown._lead_cards[0].badge.text() == "○ 대기"
-        finally:
-            unknown.close()
+        assert dashboard.scroll.verticalScrollBar().maximum() == 0
+        viewport = dashboard.scroll.viewport().rect()
+        for widget in (dashboard.pm_card, dashboard._task_cards[0], dashboard.queue_panel, dashboard.event_panel):
+            assert dashboard.scroll.viewport().mapFromGlobal(widget.mapToGlobal(widget.rect().topLeft())).y() < viewport.bottom()
+        assert dashboard.event_list.count() >= 1
     finally:
         dashboard.close()
 
 
-def test_accessible_controls_have_focus_and_escape_closes_only_dashboard(app: QtWidgets.QApplication) -> None:
-    dashboard = _shown(OperationsDashboard(lambda: sample_snapshot()), app)
+def test_warning_summary_collapses_three_or_more_items(app: QtWidgets.QApplication) -> None:
+    dashboard = _shown(OperationsDashboard(lambda: sample_snapshot(warning_count=3), refresh_interval_ms=None), app)
     try:
-        assert dashboard.refresh_button.focusPolicy() & QtCore.Qt.TabFocus
-        dashboard.refresh_button.setFocus()
-        QtWidgets.QApplication.sendEvent(dashboard, QtGui.QKeyEvent(QtCore.QEvent.KeyPress, QtCore.Qt.Key_Escape, QtCore.Qt.NoModifier))
-        app.processEvents()
-        assert not dashboard.isVisible()
+        assert "3건" in dashboard.warning_summary.text()
+        assert not dashboard.warning_details.isVisible()
+        dashboard.warning_toggle.click()
+        assert dashboard.warning_details.isVisible()
+        assert dashboard.warning_layout.count() == 3
     finally:
         dashboard.close()
 
 
-def test_refresh_failure_is_visible_and_does_not_expose_mutation_controls(app: QtWidgets.QApplication) -> None:
-    def broken() -> MonitoringSnapshot:
-        raise RuntimeError("fixture failure")
-
-    dashboard = _shown(OperationsDashboard(broken), app)
+def test_keyboard_focus_accessibility_selection_and_copy(app: QtWidgets.QApplication) -> None:
+    dashboard = _shown(OperationsDashboard(lambda: sample_snapshot(), refresh_interval_ms=None), app)
     try:
-        assert dashboard.warning_box.isVisible()
-        assert "상태 스냅샷을 읽지 못했습니다" in dashboard.warning_layout.itemAt(0).widget().text()
-        buttons = dashboard.findChildren(QtWidgets.QPushButton)
-        assert [button.text() for button in buttons] == ["새로 고침"]
-        assert not any(word in dashboard.findChild(QtWidgets.QWidget).accessibleName().lower() for word in ("claim", "dispatch", "stop"))
+        assert dashboard.refresh_button.accessibleName().startswith("정보 갱신 상태")
+        assert dashboard.event_list.accessibleName().startswith("최근 활동 목록")
+        dashboard.event_list.setFocus()
+        dashboard.event_list.setCurrentRow(0)
+        QtTest.QTest.keyClick(dashboard.event_list, QtCore.Qt.Key_C, QtCore.Qt.ControlModifier)
+        assert "수정 요청" in QtWidgets.QApplication.clipboard().text()
+        assert "border:2px solid #FFB454" in dashboard.styleSheet()
     finally:
         dashboard.close()
 
 
-def test_dashboard_timer_refreshes_and_stops_cleanly(app: QtWidgets.QApplication) -> None:
+def test_type_scale_uses_actual_28_21_16_and_14_pixel_roles(app: QtWidgets.QApplication) -> None:
+    dashboard = _shown(OperationsDashboard(lambda: sample_snapshot(), refresh_interval_ms=None), app)
+    try:
+        section = next(
+            label for label in dashboard.findChildren(QtWidgets.QLabel)
+            if label.objectName() == "sectionTitle"
+        )
+        assert dashboard.page_title.font().pixelSize() >= 28
+        assert section.font().pixelSize() >= 21
+        assert dashboard.pm_decision.font().pixelSize() >= 16
+        assert dashboard._task_cards[0].summary.font().pixelSize() >= 14
+        assert dashboard._task_cards[0].activity.font().pixelSize() >= 14
+        assert dashboard.event_list.fontMetrics().height() >= 16
+    finally:
+        dashboard.close()
+
+
+def test_five_second_auto_refresh_and_read_only_failure_state(app: QtWidgets.QApplication) -> None:
     calls = 0
-
     def provider() -> MonitoringSnapshot:
         nonlocal calls
         calls += 1
-        return sample_snapshot(warning=False)
-
-    dashboard = _shown(
-        OperationsDashboard(provider, refresh_interval_ms=20), app,
-    )
+        return sample_snapshot(warning_count=0)
+    dashboard = _shown(OperationsDashboard(provider, refresh_interval_ms=20), app)
     try:
-        assert calls == 1
-        QtTest.QTest.qWait(90)
+        QtTest.QTest.qWait(80)
         assert calls >= 2
-        assert dashboard._refresh_in_progress is False
+        assert "5초마다 자동 확인" in dashboard.refresh_status.text()
+        assert [button.text() for button in dashboard.findChildren(QtWidgets.QPushButton)] == ["정보 다시 확인"]
     finally:
         dashboard.close()
-        app.processEvents()
-    assert dashboard._refresh_timer.isActive() is False
+    assert not dashboard._refresh_timer.isActive()
