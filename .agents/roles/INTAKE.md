@@ -3,9 +3,14 @@
 Read `AGENTS.md`, `.agents/roles/README.md`, and the current
 `docs/project/PROJECT_GOAL.md` change boundary.
 
-- Resume the stable Listener identity and its last accepted checkpoint before
-  accepting a message from a new or reopened chat. Continue the recorded
-  predecessor chain; never invent a second intake path for the same intent.
+- Resume the stable Listener identity and its last accepted SQLite checkpoint
+  before accepting a message from a new or reopened chat. Continue the recorded
+  predecessor chain and resolve direct PM delivery to the current stored PM
+  session; never invent a second intake path for the same intent.
+- Treat checkpoint identity, cursor and update time as one journal-bound record;
+  every Listener has exactly one current pointer to the unique tip of one
+  unbranched explicit predecessor chain. Missing, rewound, orphaned, duplicate
+  or disconnected pointers/events fail restart closed.
 - Capture only explicit user intent, constraints, priorities and corrections.
 - Declare exactly one bounded route per meaning: `goal_change` for an explicit
   Goal edit, `direct_pm` for a generation-bound operational PM message, or

@@ -20,6 +20,7 @@ from typing import Any, Mapping, Protocol, Sequence
 
 _SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 _RECIPIENT_PATTERN = re.compile(r"[a-z][a-z0-9_.-]{0,63}")
+_SESSION_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}")
 _QUEUE_ID_PATTERN = re.compile(r"RQ-\d{8}T\d{6}-[A-Z0-9]{4}")
 _JOURNAL_VERSION = 1
 
@@ -53,7 +54,7 @@ _ROUTE_FIELDS: dict[RouteKind, str] = {
 }
 
 _DIRECT_PM_OPTIONAL_FIELDS = frozenset(
-    {"generation", "message_type", "queue_id", "recipient"}
+    {"generation", "message_type", "queue_id", "recipient", "session_id"}
 )
 _MAILBOX_MESSAGE_TYPES = frozenset({"direct_message", "operational_wake", "user_intent"})
 _PM_RECIPIENT = "project_manager"
@@ -153,9 +154,9 @@ class ListenerRoute:
                     "direct_pm payload contains unsupported or missing fields"
                 )
             extended = fields - {required}
-            if extended and not {"recipient", "generation"} <= fields:
+            if extended and not {"recipient", "session_id", "generation"} <= fields:
                 raise ListenerValidationError(
-                    "explicit direct_pm routing requires recipient and generation"
+                    "explicit direct_pm routing requires recipient, session_id and generation"
                 )
             if "recipient" in canonical:
                 recipient = _required_text(canonical["recipient"], "recipient")
@@ -171,6 +172,11 @@ class ListenerRoute:
                 or canonical["generation"] < 1
             ):
                 raise ListenerValidationError("generation must be a positive integer")
+            if "session_id" in canonical and (
+                not isinstance(canonical["session_id"], str)
+                or _SESSION_ID_PATTERN.fullmatch(canonical["session_id"]) is None
+            ):
+                raise ListenerValidationError("session_id is malformed")
             if "queue_id" in canonical:
                 queue_id = canonical["queue_id"]
                 if queue_id is not None and (
@@ -248,6 +254,30 @@ class PMMutationAuthority:
 
 
 @dataclass(frozen=True, slots=True)
+class PMMailboxIdentity:
+    """Current durable PM mailbox owner resolved from the role registry."""
+
+    recipient: str
+    session_id: str
+    generation: int
+
+    def __post_init__(self) -> None:
+        if self.recipient != _PM_RECIPIENT:
+            raise ListenerValidationError("PM mailbox identity recipient is invalid")
+        if (
+            not isinstance(self.session_id, str)
+            or _SESSION_ID_PATTERN.fullmatch(self.session_id) is None
+        ):
+            raise ListenerValidationError("PM mailbox identity session_id is malformed")
+        if (
+            not isinstance(self.generation, int)
+            or isinstance(self.generation, bool)
+            or self.generation < 1
+        ):
+            raise ListenerValidationError("PM mailbox identity generation is invalid")
+
+
+@dataclass(frozen=True, slots=True)
 class DeliveryReceipt:
     receipt_key: str
     action_key: str
@@ -277,6 +307,7 @@ class MailboxEnvelope:
     parent_id: str
     sender: str
     recipient: str
+    session_id: str
     message_type: str
     queue_id: str | None
     generation: int
@@ -298,6 +329,11 @@ class MailboxEnvelope:
             raise ListenerValidationError(
                 "mailbox recipient must be the durable project_manager role"
             )
+        if (
+            not isinstance(self.session_id, str)
+            or _SESSION_ID_PATTERN.fullmatch(self.session_id) is None
+        ):
+            raise ListenerValidationError("mailbox session_id is malformed")
         if self.message_type not in _MAILBOX_MESSAGE_TYPES:
             raise ListenerValidationError("message_type is not supported")
         if self.queue_id is not None and (
@@ -334,6 +370,10 @@ class PMMailboxSink(Protocol):
 
 class EnvelopeMailboxSink(Protocol):
     def deliver_mailbox_envelope(self, envelope: MailboxEnvelope) -> str: ...
+
+
+class PMMailboxIdentityResolver(Protocol):
+    def resolve_pm_mailbox_identity(self) -> PMMailboxIdentity: ...
 
 
 class NewCandidateSink(Protocol):
@@ -508,6 +548,7 @@ def _checkpoint_event(intent: ListenerIntent) -> Mapping[str, Any]:
         "event_type": "checkpoint",
         "intent_key": intent.intent_key,
         "listener_id": intent.listener_id,
+        "received_at": intent.received_at,
         "version": _JOURNAL_VERSION,
     }
 
@@ -550,11 +591,23 @@ class ListenerGateway:
     def __init__(
         self, database_path: str | Path, journal_path: str | Path, *,
         sinks: ListenerSinks, pm_authority: PMMutationAuthority | None = None,
+        pm_identity_resolver: PMMailboxIdentityResolver | None = None,
+        expected_pm_identity: PMMailboxIdentity | None = None,
+        allow_legacy_direct_pm: bool = False,
     ) -> None:
+        if pm_identity_resolver is not None and expected_pm_identity is not None:
+            raise ListenerValidationError(
+                "provide pm_identity_resolver or expected_pm_identity, not both"
+            )
+        if not isinstance(allow_legacy_direct_pm, bool):
+            raise ListenerValidationError("allow_legacy_direct_pm must be boolean")
         self._journal_path = Path(journal_path)
         self._journal_path.parent.mkdir(parents=True, exist_ok=True)
         self._sinks = sinks
         self._pm_authority = pm_authority
+        self._pm_identity_resolver = pm_identity_resolver
+        self._expected_pm_identity = expected_pm_identity
+        self._allow_legacy_direct_pm = allow_legacy_direct_pm
         self._connection = _initialize_listener_store(database_path)
         try:
             self._validate_state_and_journal()
@@ -647,7 +700,8 @@ class ListenerGateway:
                 (intent.conversation_id, intent.checkpoint_cursor, intent.intent_key,
                  intent.received_at, intent.listener_id),
             )
-        _queue_event(self._connection, _checkpoint_event(intent))
+        if inserted:
+            _queue_event(self._connection, _checkpoint_event(intent))
 
     def _record_action_and_receipts(self, action: _ListenerAction) -> None:
         _record_action(self._connection, action)
@@ -694,17 +748,46 @@ class ListenerGateway:
                 continue
             assert self._sinks.pm_mailbox is not None
             if "recipient" in route.payload:
+                self._validate_current_pm_identity(route.payload)
                 method = getattr(self._sinks.pm_mailbox, "deliver_mailbox_envelope", None)
                 if not callable(method):
                     raise ListenerValidationError(
                         "generation-bound direct_pm routing requires an envelope sink"
                     )
             else:
+                if not self._allow_legacy_direct_pm:
+                    raise ListenerValidationError(
+                        "legacy direct_pm routing is disabled; use an explicit PM envelope"
+                    )
                 method = getattr(self._sinks.pm_mailbox, "deliver_pm_message", None)
                 if not callable(method):
                     raise ListenerValidationError(
                         "legacy direct_pm routing requires a legacy sink"
                     )
+
+    def _resolve_pm_identity(self) -> PMMailboxIdentity:
+        identity = self._expected_pm_identity
+        if self._pm_identity_resolver is not None:
+            identity = self._pm_identity_resolver.resolve_pm_mailbox_identity()
+        if not isinstance(identity, PMMailboxIdentity):
+            raise ListenerValidationError(
+                "generation-bound direct_pm routing requires current PM identity"
+            )
+        return identity
+
+    def _validate_current_pm_identity(self, payload: Mapping[str, Any]) -> PMMailboxIdentity:
+        current = self._resolve_pm_identity()
+        supplied = (
+            payload.get("recipient"),
+            payload.get("session_id"),
+            payload.get("generation"),
+        )
+        expected = (current.recipient, current.session_id, current.generation)
+        if supplied != expected:
+            raise ListenerValidationError(
+                "direct_pm recipient, session_id or generation is stale"
+            )
+        return current
 
     def _deliver_action_keys(self, action_keys: Sequence[str]) -> None:
         for action_key in action_keys:
@@ -783,11 +866,13 @@ class ListenerGateway:
                         "generation-bound direct_pm routing requires an envelope sink"
                     )
                 body = payload["message"]
+                current_identity = self._validate_current_pm_identity(payload)
                 envelope = MailboxEnvelope(
                     message_id=receipt_key,
                     parent_id=intent_key,
                     sender=row["listener_id"],
                     recipient=payload.get("recipient", _PM_RECIPIENT),
+                    session_id=current_identity.session_id,
                     message_type=payload.get("message_type", "direct_message"),
                     queue_id=payload.get("queue_id"),
                     generation=payload.get("generation", 1),
@@ -798,6 +883,10 @@ class ListenerGateway:
                 )
                 return envelope_delivery(envelope)
             legacy_delivery = getattr(self._sinks.pm_mailbox, "deliver_pm_message", None)
+            if not self._allow_legacy_direct_pm:
+                raise ListenerValidationError(
+                    "legacy direct_pm routing is disabled; use an explicit PM envelope"
+                )
             if not callable(legacy_delivery):
                 raise ListenerValidationError("legacy direct_pm routing requires a legacy sink")
             return legacy_delivery(
@@ -849,6 +938,18 @@ class ListenerGateway:
         return events
 
     def _validate_state_and_journal(self) -> None:
+        if self._connection.in_transaction:
+            self._validate_state_and_journal_snapshot()
+            return
+        self._connection.execute("BEGIN IMMEDIATE")
+        try:
+            self._validate_state_and_journal_snapshot()
+            self._connection.commit()
+        except BaseException:
+            self._connection.rollback()
+            raise
+
+    def _validate_state_and_journal_snapshot(self) -> None:
         journal = self._read_journal()
         db_events = {
             row["event_id"]: (row["event_json"], row["exported"])
@@ -879,42 +980,264 @@ class ListenerGateway:
         }
         if accepted != accepted_events:
             raise ListenerStateConflict("receipt state conflicts with durable journal state")
-        checkpoint_events = {
-            value["intent_key"]: value
-            for event_json, _ in db_events.values()
-            for value in (json.loads(event_json),)
-            if value.get("event_type") == "checkpoint"
-        }
+        checkpoint_events: dict[str, Mapping[str, Any]] = {}
+        for event_json, _exported in db_events.values():
+            value = json.loads(event_json)
+            if value.get("event_type") != "checkpoint":
+                continue
+            intent_key = value.get("intent_key")
+            if not isinstance(intent_key, str) or intent_key in checkpoint_events:
+                raise ListenerStateConflict(
+                    "each intent must have exactly one checkpoint event"
+                )
+            checkpoint_events[intent_key] = value
         intent_keys = {
             row["intent_key"]
             for row in self._connection.execute("SELECT intent_key FROM listener_intents")
         }
         if set(checkpoint_events) != intent_keys:
             raise ListenerStateConflict("intent lacks exactly one durable checkpoint event")
-        for row in self._connection.execute(
-            "SELECT listener_id, conversation_id, checkpoint_cursor, last_intent_key "
+        receipt_events: dict[tuple[str, str], list[Mapping[str, Any]]] = {}
+        for event_json, _exported in db_events.values():
+            value = json.loads(event_json)
+            event_type = value.get("event_type")
+            if event_type == "receipt_state":
+                receipt_events.setdefault(
+                    (value.get("receipt_key"), value.get("status")), []
+                ).append(value)
+            elif event_type != "checkpoint":
+                raise ListenerStateConflict("journal contains an unknown event type")
+        checkpoint_rows = self._connection.execute(
+            "SELECT listener_id, conversation_id, checkpoint_cursor, last_intent_key, "
+            "updated_at "
             "FROM listener_checkpoints"
+        ).fetchall()
+        intent_listener_ids = {
+            row["listener_id"]
+            for row in self._connection.execute(
+                "SELECT DISTINCT listener_id FROM listener_intents"
+            )
+        }
+        pointer_listener_ids = [row["listener_id"] for row in checkpoint_rows]
+        if (
+            len(pointer_listener_ids) != len(set(pointer_listener_ids))
+            or set(pointer_listener_ids) != intent_listener_ids
         ):
+            raise ListenerStateConflict(
+                "listener checkpoint pointers are not a bijection with listener intents"
+            )
+        if len({row["last_intent_key"] for row in checkpoint_rows}) != len(
+            checkpoint_rows
+        ):
+            raise ListenerStateConflict("listener checkpoint pointers are duplicated")
+        for row in checkpoint_rows:
             event = checkpoint_events.get(row["last_intent_key"])
             if event is None or (
                 event.get("listener_id"),
                 event.get("conversation_id"),
                 event.get("checkpoint_cursor"),
+                event.get("received_at"),
             ) != (
                 row["listener_id"],
                 row["conversation_id"],
                 row["checkpoint_cursor"],
+                row["updated_at"],
             ):
                 raise ListenerStateConflict("current checkpoint conflicts with durable journal")
-        for row in self._connection.execute("SELECT intent_key, canonical_json FROM listener_intents"):
-            if _sha256_text(f"listener-intent/v1\n{row['canonical_json']}") != row["intent_key"]:
+        self._validate_canonical_rows(
+            checkpoint_events, receipt_events, checkpoint_rows
+        )
+
+    def _validate_canonical_rows(
+        self,
+        checkpoint_events: Mapping[str, Mapping[str, Any]],
+        receipt_events: Mapping[
+            tuple[str, str], Sequence[Mapping[str, Any]]
+        ],
+        checkpoint_rows: Sequence[sqlite3.Row],
+    ) -> None:
+        if self._connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
+            raise ListenerStateConflict("listener store has a foreign-key violation")
+        intents: dict[str, ListenerIntent] = {}
+        for row in self._connection.execute("SELECT * FROM listener_intents"):
+            try:
+                canonical = json.loads(row["canonical_json"])
+                if not isinstance(canonical, dict):
+                    raise ListenerValidationError("intent canonical JSON is not an object")
+                intent = ListenerIntent(
+                    listener_id=row["listener_id"],
+                    conversation_id=row["conversation_id"],
+                    checkpoint_cursor=row["checkpoint_cursor"],
+                    user_text=row["user_text"],
+                    received_at=row["received_at"],
+                    previous_intent_key=canonical.get("previous_intent_key"),
+                )
+            except (json.JSONDecodeError, ListenerValidationError) as error:
+                raise ListenerStateConflict("persisted intent row is malformed") from error
+            if row["canonical_json"] != intent.canonical_json:
+                raise ListenerDigestCollision(
+                    "intent columns differ from canonical content"
+                )
+            if intent.intent_key != row["intent_key"]:
                 raise ListenerDigestCollision("persisted intent digest mismatch")
-        for row in self._connection.execute("SELECT action_key, canonical_json FROM listener_actions"):
-            if _sha256_text(f"listener-action/v1\n{row['canonical_json']}") != row["action_key"]:
+            event = checkpoint_events.get(intent.intent_key)
+            if event is None:
+                raise ListenerStateConflict("intent lacks a durable checkpoint event")
+            event_body = dict(event)
+            event_body.pop("event_id", None)
+            if event_body != _checkpoint_event(intent):
+                raise ListenerStateConflict(
+                    "intent columns differ from canonical checkpoint event"
+                )
+            intents[intent.intent_key] = intent
+
+        checkpoints = {row["listener_id"]: row for row in checkpoint_rows}
+        intents_by_listener: dict[str, list[ListenerIntent]] = {}
+        seen_cursors: set[tuple[str, str, str]] = set()
+        for intent in intents.values():
+            cursor_identity = (
+                intent.listener_id,
+                intent.conversation_id,
+                intent.checkpoint_cursor,
+            )
+            if cursor_identity in seen_cursors:
+                raise ListenerStateConflict(
+                    "listener conversation repeats a checkpoint cursor"
+                )
+            seen_cursors.add(cursor_identity)
+            intents_by_listener.setdefault(intent.listener_id, []).append(intent)
+        for listener_id, listener_intents in intents_by_listener.items():
+            by_key = {intent.intent_key: intent for intent in listener_intents}
+            roots = [
+                intent for intent in listener_intents
+                if intent.previous_intent_key is None
+            ]
+            if len(roots) != 1:
+                raise ListenerStateConflict(
+                    "listener predecessor chain must have exactly one root"
+                )
+            children: dict[str, list[str]] = {}
+            for intent in listener_intents:
+                predecessor_key = intent.previous_intent_key
+                if predecessor_key is None:
+                    continue
+                predecessor = intents.get(predecessor_key)
+                if predecessor is None or predecessor.listener_id != listener_id:
+                    raise ListenerStateConflict(
+                        "listener predecessor chain is missing or crosses listeners"
+                    )
+                children.setdefault(predecessor_key, []).append(intent.intent_key)
+            if any(len(values) != 1 for values in children.values()):
+                raise ListenerStateConflict("listener predecessor chain branches")
+            visited: set[str] = set()
+            current = roots[0].intent_key
+            while True:
+                if current in visited:
+                    raise ListenerStateConflict("listener predecessor chain cycles")
+                visited.add(current)
+                successors = children.get(current, [])
+                if not successors:
+                    break
+                current = successors[0]
+            if visited != set(by_key):
+                raise ListenerStateConflict("listener predecessor chain is disconnected")
+            checkpoint = checkpoints.get(listener_id)
+            if checkpoint is None or checkpoint["last_intent_key"] != current:
+                raise ListenerStateConflict(
+                    "listener checkpoint pointer is not the unique chain head"
+                )
+
+        actions: dict[str, _ListenerAction] = {}
+        routes: dict[str, ListenerRoute] = {}
+        for row in self._connection.execute("SELECT * FROM listener_actions"):
+            intent = intents.get(row["intent_key"])
+            if intent is None:
+                raise ListenerStateConflict("action references an unknown intent")
+            try:
+                payload = json.loads(row["payload_json"])
+                route = ListenerRoute(RouteKind(row["route_kind"]), payload)
+                action = _ListenerAction(row["intent_key"], route, row["created_at"])
+                canonical = json.loads(row["canonical_json"])
+            except (json.JSONDecodeError, ValueError, ListenerValidationError) as error:
+                raise ListenerStateConflict("persisted action row is malformed") from error
+            if row["payload_json"] != route.canonical_payload_json:
+                raise ListenerStateConflict("action payload_json is not canonical")
+            if row["canonical_json"] != action.canonical_json:
+                raise ListenerStateConflict("action columns differ from canonical content")
+            if action.action_key != row["action_key"]:
                 raise ListenerDigestCollision("persisted action digest mismatch")
-        for row in self._connection.execute("SELECT receipt_key, action_key, sink FROM listener_delivery_receipts"):
+            if action.created_at != intent.received_at:
+                raise ListenerStateConflict("action creation time differs from its intent")
+            actions[action.action_key] = action
+            routes[action.action_key] = route
+
+        receipts_by_action: dict[str, list[sqlite3.Row]] = {}
+        for row in self._connection.execute(
+            "SELECT * FROM listener_delivery_receipts ORDER BY action_key, step"
+        ):
+            action = actions.get(row["action_key"])
+            if action is None:
+                raise ListenerStateConflict("receipt references an unknown action")
             if _receipt_key(row["action_key"], row["sink"]) != row["receipt_key"]:
                 raise ListenerDigestCollision("persisted receipt digest mismatch")
+            if row["recorded_at"] != action.created_at:
+                raise ListenerStateConflict("receipt time differs from its action")
+            if (row["status"] == "accepted") != bool(row["acceptance_ref"]):
+                raise ListenerStateConflict("receipt acceptance state is inconsistent")
+            expected_events = [
+                _receipt_event(
+                    receipt_key=row["receipt_key"],
+                    action_key=row["action_key"],
+                    route_kind=action.route.kind.value,
+                    sink=row["sink"],
+                    status="pending",
+                )
+            ]
+            if row["status"] == "accepted":
+                expected_events.append(
+                    _receipt_event(
+                        receipt_key=row["receipt_key"],
+                        action_key=row["action_key"],
+                        route_kind=action.route.kind.value,
+                        sink=row["sink"],
+                        status="accepted",
+                        acceptance_ref=row["acceptance_ref"],
+                    )
+                )
+            for expected in expected_events:
+                events = receipt_events.get(
+                    (row["receipt_key"], expected["status"]), ()
+                )
+                bodies = []
+                for event in events:
+                    body = dict(event)
+                    body.pop("event_id", None)
+                    bodies.append(body)
+                if bodies != [expected]:
+                    raise ListenerStateConflict(
+                        "receipt row differs from its canonical journal event"
+                    )
+            receipts_by_action.setdefault(row["action_key"], []).append(row)
+        known_receipt_keys = {
+            row["receipt_key"]
+            for rows in receipts_by_action.values()
+            for row in rows
+        }
+        if any(key not in known_receipt_keys for key, _status in receipt_events):
+            raise ListenerStateConflict("journal references an unknown receipt")
+        for action_key, route in routes.items():
+            expected_sinks = (
+                ("project_goal_receipt", "goal_to_new")
+                if route.kind is RouteKind.GOAL_CHANGE
+                else ("pm_mailbox",)
+                if route.kind is RouteKind.DIRECT_PM
+                else ("bounded_new",)
+            )
+            actual = receipts_by_action.get(action_key, [])
+            if [(row["sink"], row["step"]) for row in actual] != [
+                (sink, step) for step, sink in enumerate(expected_sinks)
+            ]:
+                raise ListenerStateConflict("action receipts differ from canonical route")
 
     def _flush_journal(self) -> None:
         self._connection.execute("BEGIN IMMEDIATE")

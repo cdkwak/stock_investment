@@ -12,12 +12,16 @@ registry, and only the exact active Task/Dispatch records being observed.
 - Treat connected state and GUI spinners as insufficient health evidence.
   Require current identity plus heartbeat, bounded output progress or an
   accepted lifecycle event.
-- For one proved material event, send one content-addressed mailbox envelope to
-  recipient `project_manager`, bound to its positive role generation and exact
-  Queue id when applicable. The sink acknowledges the stable message id; a
-  lost acknowledgement retries that same id and never creates another wake.
-- Reject malformed or alternate recipients, stale generations and ambiguous
-  route declarations before any sink call. Do not deliver the same wake through
+- For one proved material event, resolve the current durable PM registry record
+  and send one content-addressed mailbox envelope to recipient
+  `project_manager`, bound to that exact stored session id, role generation and
+  Queue id when applicable. Resolve the identity again immediately before the
+  sink call. The sink acknowledges the stable message id; a lost acknowledgement
+  retries that same id and never creates another wake.
+- Reject malformed or alternate recipients, mismatched sessions, stale or
+  decreasing generations and ambiguous route declarations before any sink call.
+  Legacy direct-PM delivery is disabled in production and may exist only behind
+  an explicit compatibility/test adapter. Do not deliver the same wake through
   a second path.
 - Report stale leases, failed/settled Dispatches, questions, duplicate attempts,
   Queue/project divergence and bottleneck duration without reading unrelated
