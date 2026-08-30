@@ -7,7 +7,7 @@ retained under `docs/archive/gui/status_history/`.
 
 ## Current phase
 
-`AUTONOMOUS_GUI_ENGINEERING_ACTIVE / PYTHON_PM_MONITORING_ACTIVE / DASHBOARD_CURRENT_STAGE_AND_COLD_BOUND_VALIDATED / OTHER_COVERAGE_INCOMPLETE`
+`AUTONOMOUS_GUI_ENGINEERING_ACTIVE / PYTHON_PM_PERSISTENT_MONITORING_VALIDATED / DASHBOARD_CURRENT_STAGE_AND_COLD_BOUND_VALIDATED / OTHER_COVERAGE_INCOMPLETE`
 
 GUI and application-service work may proceed in parallel with Data and
 Backtest. Presentation remains local and read-only; provider transport,
@@ -28,7 +28,7 @@ canonical promotion, and scheduler execution remain Data-owned.
 | Accounts | Toss and KB views are read-only and sanitized. The [P5 account-detail todo](ACCOUNT_DETAIL_TODO.md) records implemented scope and remaining gates. Verified holding fields include average/current price, correctly scaled provider returns, ordinary/after-cost/daily P/L and source-time detail. Per-source cards show allowlisted refresh outcome and eligibility. The user-requested [identifier-free account-scale history](../data/operations/ACCOUNT_VALUE_HISTORY_LOCAL.md) records KB exact total assets and distinctly labelled Toss components by source/currency; it explicitly does not treat deposits, withdrawals or trading-driven scale changes as returns. Unsupported cash, realized P/L and cross-currency totals remain absent. Toss and KB scheduled read-only refreshes are Data-owned; no direct identifier enters GUI state or documentation. |
 | Backtest | GUI consumes validated typed local result bundles and contains no Feature, Model, strategy, fill, risk, or accounting logic. |
 | Release readiness | GUI page, worker-quiescence, Health, and user-data-isolation checks pass. Focused recovery checks now accept all 39 managed Health rows after Yahoo, Toss-account, FRED, KRX breadth, index-fundamental, and short-investor recovery. The retained full release receipt predates the last recoveries, so rerun the full provider-free gate before making a new release decision. |
-| Python PM operations | The standalone Korean operations dashboard reads the canonical `data/runtime/python_pm` SQLite/JSONL projection and shows PM, Lead, Worker, Reviewer, Queue, warning, freshness, and recent-event state. It is read-only and has no Queue, broker, provider, or lifecycle mutation action. |
+| Python PM operations | The standalone Korean dark operations dashboard reads the canonical `data/runtime/python_pm` SQLite/JSONL/Queue projection and shows only observed PM, Lead, Worker, Reviewer, task, warning, freshness, and recent-event state. It is read-only; the sole button refreshes the snapshot and there is no Queue, agent, broker, provider, filesystem, or lifecycle mutation action. The fresh-temp-root E2E is `tests/integration/pipelines/test_persistent_agent_control_plane.py`; GUI coverage is `tests/integration/gui/test_operations_dashboard_smoke.py` and `tests/unit/gui/test_operations_dashboard.py`. Visually reviewed temporary evidence is `C:\Users\k4545\Desktop\stock_investment_rev1\.tmp\agents\dark-operations-gui\operations-1280x720.png` and `C:\Users\k4545\Desktop\stock_investment_rev1\.tmp\agents\dark-operations-gui\operations-1600x900.png` (validation evidence, not committed artifacts). |
 
 ## Owning contracts and maps
 
@@ -108,6 +108,11 @@ GUI documents.
 - Ordinary layout/document routing changes use focused automated checks.
 - Provider-free unit/service tests and an offscreen render are required for
   visible GUI behavior changes. Live API calls do not belong in GUI tests.
+- The persistent control-plane acceptance run is
+  `tests/integration/pipelines/test_persistent_agent_control_plane.py` (1 passed
+  on 2026-08-31). It constructs real SQLite/JSONL state, projects the exact
+  stored role/task/event sets, renders a 1280x720 dark Korean dashboard, and
+  verifies that the only push button is `정보 다시 확인`.
 - Release-readiness evidence proves only its enumerated managed surfaces. It
   now covers the exact Toss account due outcome and all enabled Data task
   definitions, but not BOK due outcomes, Issue State, Telegram, or legacy KB.

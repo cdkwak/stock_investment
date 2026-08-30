@@ -1,7 +1,7 @@
 # Queue Role Bootstrap Contract
 
 ruleset_version: queue-role-v1
-updated_at: 2026-08-30
+updated_at: 2026-08-31
 
 Every Queue-backed Agent reads only the smallest authoritative bundle needed
 for its role. The fixed order is:
@@ -54,13 +54,29 @@ review generation already in progress.
 
 ## Shared rules
 
-- MAIN/PM is the one Queue mutation and Dispatch-creation conductor.
-- A Lead owns one claimed scope and receives all Worker and Reviewer reports.
-- A Worker never chooses a Reviewer, changes Queue state or expands scope.
-- A Reviewer never directs a Worker or mutates Queue state.
+- Listener persists user intent and may update only the Goal/inbox-intent
+  boundary. The Goal–Queue Reconciler emits proposals only; it never mutates
+  Queue state.
+- MAIN/PM is the sole Queue structure, lifecycle, and Dispatch-creation
+  authority. It seals the exact immutable `TaskContract` and may route several
+  pairwise-disjoint Leads.
+- A Lead owns one claimed scope, checkpoints integration, fans out several
+  pairwise-disjoint Workers, and preassigns each independent Reviewer. The Lead
+  stays visibly informed on every review round.
+- A Worker never chooses a Reviewer, changes Queue state or expands scope. It
+  submits only a scoped immutable candidate through the typed mailbox to the
+  preassigned Reviewer.
+- A Reviewer reads the pinned candidate generation, not Worker chat or
+  self-assessment. It returns typed `FIX` directly to that same Worker for at
+  most two ordinary rounds while copying visibility to the Lead; `PASS` goes to
+  the Lead.
+- A third `FIX` is not another patch. It emits `REPLAN_REQUIRED` to both Lead
+  and PM. The Lead integrates only `PASS`, checkpoints the result and informs
+  PM; PM alone performs final Queue lifecycle changes.
 - Planner and task-derived findings create `New` candidates only; MAIN triages.
-- Listener/Watchdog is read-only and may issue one idempotent wake for one
-  material event. It never creates a replacement Agent or execution path.
+- Listener/Watchdog is read-only outside Goal/inbox intent and may issue one
+  idempotent generation/session-bound wake for one material event. It never
+  creates a replacement Agent or execution path.
 - Creation keys are Queue ID, role, attempt and, for review, immutable review
   generation. The first accepted attempt wins; racing duplicates are fenced.
 - Ordinary repository failures remain inside the Lead lane. Escalate only the
@@ -73,7 +89,7 @@ review generation already in progress.
 | Conversation intake | `INTAKE.md` | no | explicit Goal delta |
 | Goal Planner | `PLANNER.md` | New discovery only | deduplicated candidate |
 | MAIN/PM | `PM.md` | yes | triage, route and digest |
-| Domain Lead | `LEAD.md` | owned lifecycle only | integrated generation |
-| Worker | `WORKER.md` | no | scoped change and evidence |
-| Reviewer | `REVIEWER.md` | no | independent PASS/FIX report |
+| Domain Lead | `LEAD.md` | no structural/final Queue mutation | integrated generation and PM checkpoint |
+| Worker | `WORKER.md` | no | scoped candidate to preassigned Reviewer |
+| Reviewer | `REVIEWER.md` | no | typed independent PASS/FIX decision |
 | Listener/Watchdog | `LISTENER.md` | no | evidence-bound wake or digest |

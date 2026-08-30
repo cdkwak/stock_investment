@@ -13,8 +13,8 @@ and `HANDOFF.md`, then follow the normal repository authority route.
 
 Use [WORKFLOW.md](WORKFLOW.md) for the concise current operating-model snapshot
 and [WORKFLOW_CHANGELOG.md](WORKFLOW_CHANGELOG.md) for the append-only record of
-material workflow changes. Use [PIPELINE.md](PIPELINE.md) for the Python control
-plane, durable role/session reuse, and optional Orca reconciliation guidance. This README remains the
+material workflow changes. Use [PIPELINE.md](PIPELINE.md) for the Python-only
+control plane and durable Codex role/session reuse. This README remains the
 canonical protocol and `BOARD.md` remains the generated current-state view.
 
 Do not normally scan Done, Review, Blocked, old conversations, scheduler
@@ -55,22 +55,22 @@ Deleted legacy requests are not restored. Done contains only this new batch.
 
 ## Roles and writer mode
 
-- Exactly one live MAIN/PM controller generation is the Queue mutation and
-  Dispatch-creation owner. A Listener or Watchdog may read state, detect a
-  material event, and issue one idempotent wake to that owner; it must not
-  create a competing Lead, Worker, Reviewer, claim, or lifecycle transition.
-  A duplicate wake is a zero-effect receipt, not a second execution path.
+- Exactly one live MAIN/PM controller generation is the Queue structure,
+  lifecycle and Dispatch-creation owner. A Listener may persist Goal/inbox
+  intent, detect a material event, and issue one idempotent
+  generation/session-bound wake to that owner; it must not create a competing
+  Lead, Worker, Reviewer, claim, or lifecycle transition. A duplicate wake is
+  a zero-effect receipt, not a second execution path.
 - MAIN COORDINATOR accepts unstructured user requests and managed discovery
   proposals, assigns `domain` and `lead_owner`, manages global
   priority/dependencies and cross-domain conflicts, and escalates only true
   user/external gates. It does not manually reproduce every finding, normally
   dispatch workers, or review domain-local changes.
 - A Domain Lead reads only its routed work with `status --lead-owner <lead>`,
-  claims a package with `--role lead`, decomposes it, manages directly launched
-  workers and an independent reviewer, and submits the accepted result. Orca
-  may be used as an optional transport, but is not required. Queue files are the
-  Lead's external memory, so a replacement Lead session resumes by reading the
-  same routed worklist and HANDOFF rather than reconstructing chat history.
+  decomposes the immutable `TaskContract`, preassigns independent Reviewers,
+  fans out pairwise-disjoint Workers, integrates `PASS`, and checkpoints the
+  accepted result to PM. The stored Codex session resumes after chat/process
+  restart; no replacement is inferred from missing console state.
 - A worker implements or reproduces only the scope sent by its Lead. Workers
   and reviewers do not scan or mutate the global Queue and never receive a
   Queue claim token.
@@ -78,10 +78,11 @@ Deleted legacy requests are not restored. Done contains only this new batch.
   as the sole writer. Domain-local review stays with the Domain Lead; MAIN sees
   only cross-domain interfaces, architecture, schema/contracts, breaking or
   destructive changes.
-- Worker and Reviewer findings travel to their Domain Lead. The Lead either
-  returns an in-scope defect for rework or registers a disjoint, evidenced
-  candidate in `inbox/new` with `--intake-role lead` and the original
-  `--reported-by-role`. A finding is not executable until Coordinator triage.
+- Worker and Reviewer out-of-scope findings travel to their Domain Lead. The
+  in-scope review loop is typed and direct: Worker candidate to its preassigned
+  Reviewer; ordinary `FIX` back to that same Worker with Lead visibility;
+  `PASS` to Lead; third `FIX` as `REPLAN_REQUIRED` to Lead and PM. A disjoint
+  finding is not executable until PM triage.
 - A Goal Planner may read the user-owned Goal plus current Status and create
   only deduplicated `inbox/new` candidates with `--intake-role goal_planner`.
   It cannot edit the Goal, triage, route, claim, execute, review, or update
@@ -89,12 +90,10 @@ Deleted legacy requests are not restored. Done contains only this new batch.
 - A non-Lead production worker may own at most one Active task. A Lead may
   supervise up to `lead_wip_limit: 3` Active work packages, still subject to the
   global writer limit, exact scope reservations and resource locks.
-- A routed Lead may resume its own Active packages without a session-local
-  token: it reads the current `generation` from `status --lead-owner` and sends
-  that value as `--expected-generation`. The Queue manager serializes mutations
-  and accepts only the current generation, so a stale duplicate Lead cannot
-  overwrite newer Queue state. Non-Lead direct claims retain the one-time
-  `claim_token` safeguard.
+- A routed Lead resumes its stored Codex session and exact Active contract at
+  the current generation. The Queue manager serializes PM mutations; Lead,
+  Worker and Reviewer generations fence their own typed checkpoint, candidate
+  and review operations. No lower role overwrites Queue state.
 - `writer_limit: 3`: up to three non-shared production writers may be Active
   when their exact write scopes and resource locks are pairwise disjoint,
   including multiple writers in the same domain lane.
@@ -136,15 +135,18 @@ an already-pinned immutable review.
 
 ### Role permissions and escalation
 
-- MAIN owns global Queue intake, triage, routing, priority, dependencies and
-  cross-domain integration. It does not take over ordinary domain debugging.
-- A Domain Lead owns decomposition, model profile selection, worker and
-  reviewer lifecycle, in-scope rework, and accepted discovery intake for its
+- MAIN/PM owns global Queue intake, triage, structure, routing, priority,
+  dependencies and final lifecycle. It does not take over ordinary domain
+  debugging.
+- A Domain Lead owns decomposition, Reviewer preassignment, disjoint Worker
+  fan-out, integration, checkpoints and accepted discovery intake for its
   routed packages.
-- Workers may edit and test only their exact dispatched scope. Reviewers are
-  read-only by default and return `PASS`, `FIX`, or a finding to the Lead.
-  Workers never select or instruct their Reviewer, and Reviewers never assign
-  rework directly to a Worker.
+- Workers may edit and test only their exact dispatched scope and submit an
+  immutable candidate only to the Reviewer preassigned in `TaskContract`.
+  Reviewers are read-only and decide only the pinned candidate. Ordinary
+  `FIX` is delivered directly to the same Worker for at most two rounds with
+  Lead visibility; `PASS` goes to Lead. A third `FIX` stops patching and emits
+  `REPLAN_REQUIRED` to Lead+PM. Neither role mutates Queue state.
 - Goal Planners and Watchdogs are read-mostly: the Planner may only create New
   candidates, while the Watchdog may only observe, wake and notify the routed
   Lead or MAIN. Neither may move Queue lifecycle state.
@@ -200,10 +202,9 @@ Each task directory contains:
 - `REVIEW.md`: immutable review generation and HANDOFF digest, plus an optional
   full `snapshot_commit`. A pinned commit is the reviewed candidate identity and
   allows later disjoint or overlapping writers to proceed without invalidating it.
-- `ORCA_STATE.json`: optional Orca Run/Task link. New operation treats it as a
-  locator, not as Queue lifecycle authority. Existing v1 dispatch fields remain
-  readable for compatibility but are not required for Queue completion. It
-  never contains transcripts, prompts, terminal handles or heartbeat logs.
+- `ORCA_STATE.json`: denied legacy migration/history locator only. Existing v1
+  fields remain readable for exact migration, but new operation never writes,
+  executes, resumes or treats them as health/Queue authority.
 
 Queue v2 keeps the existing stable directory name
 `P0|P1|P2-RQ-...-slug`. Domain routing lives in `META.json` as `domain` and
@@ -305,7 +306,7 @@ python scripts/request_queue.py resume-waiting <TASK_ID> --decision-basis <basis
 python scripts/request_queue.py claim <TASK_ID> --owner <lead> --role lead --domain data --next <action>
 python scripts/request_queue.py checkpoint <TASK_ID> --owner <lead> --expected-generation <generation> ...
 python scripts/request_queue.py release <TASK_ID> --owner <lead> --expected-generation <generation> --reason <reason> --next <action>
-python scripts/request_queue.py orca-bind <TASK_ID> --owner <lead> --expected-generation <generation> --run-id <run> --orca-task-id <task> --next-action <action>
+# denied legacy migration/history only: deprecated orca-bind is not a runtime operation
 python scripts/request_queue.py submit <TASK_ID> --owner <lead> --expected-generation <generation> --review --reviewer <agent> --snapshot-commit <full-HEAD> ...
 python scripts/request_queue.py review-pass <TASK_ID> --reviewer <agent> --review-generation <token> --snapshot-commit <same-full-HEAD> --decision-basis <basis>
 python scripts/request_queue.py review-fail <TASK_ID> --reviewer <agent> --review-generation <token> --snapshot-commit <same-full-HEAD> --decision-basis <basis> --next <action>
@@ -375,30 +376,36 @@ dependencies/cycles, Review/Blocked/Done fields, and BOARD digest. Only
 `doctor --fix-board` may safely regenerate the derived board; it does not move or
 rewrite tasks.
 
-## Python execution, event wakeup, and optional Orca transport
+## Python-only execution, event wakeup, and durable sessions
 
 The Python control plane is the repository-local workflow authority:
 
 - Queue owns the work request: identity, priority, domain/Lead routing,
   dependencies, write reservations, review policy, current HANDOFF and business
-  lifecycle.
+  lifecycle. PM alone performs structural and final lifecycle mutations.
 - Python owns accepted lifecycle events, idempotent direct runner receipts,
   durable role generations, leases, heartbeat recovery, and material-event
-  wakeups. Queue Submit does not require a mirrored Orca Dispatch status.
+  generation/session-bound wakeups. Queue Submit requires no console or
+  secondary transport status.
+- Typed mailbox state preserves immutable ACK settlements. A PM lifecycle
+  rotation supersedes and redelivers an unacknowledged Lead checkpoint exactly
+  once to the current generation/session, while an acknowledged checkpoint
+  cannot be revived as pending. Completed wake receipts are integrity-bound to
+  their outbox lifecycle and fail closed on tampering.
 - `status --lead-owner` exposes the derived Worker and Reviewer model/effort
   plan. The Lead supplies those values to the selected direct adapter when
   launching fresh agents; a model launch failure is ordinary Lead-owned recovery.
-- `orca-bind` stores only the Orca Run/Task locator needed to reopen execution
-  context. The older `orca-reconcile` command remains a compatibility telemetry
-  path; normal Lead operation does not depend on it and its phase is not a
-  Queue completion or review gate.
+- The deprecated `orca-bind` and `orca-reconcile` fields are denied legacy
+  migration/history only. They may preserve inert old receipt locators but
+  cannot reopen execution, report health, wake a role, authorize recovery, or
+  act as fallback.
 - The Python Watchdog reads Active Queue routing plus the injected direct health
   boundary. It wakes only on `worker_done`, question, escalation, material Queue
   transition, or a proved stale lease. It does not require a Stop hook, poll a
   terminal every minute, or treat a spinner as health evidence.
-- Orca can still carry supervised messages and expose terminal telemetry. Its
-  IDs are compatibility locators only and it never becomes required for claim,
-  wakeup, review, completion, or recovery.
+- Orca is denied legacy migration/history only; new Python runtime paths never
+  call it and every direct execution/session receipt records
+  `orca_used=false`.
 - `REVIEW.md` binds the submitted Queue generation, HANDOFF snapshot, and when
   supplied the exact immutable Git commit. The
   Domain Reviewer checks the supplied candidate; MAIN receives only important
@@ -443,8 +450,8 @@ does not decide priority, routing, model, or execution. The Lead validates the
 evidence and registers only a disjoint candidate in `inbox/new`, preserving the
 original reporter role. MAIN then performs global deduplication, priority,
 dependencies, write reservations, domain/Lead routing, complexity/risk and
-review policy before `new -> ready`. Urgent findings use Orca escalation to the
-Lead, but only MAIN may promote them into executable Queue work.
+review policy before `new -> ready`. Urgent findings use the same typed Python
+mailbox to the Lead; only PM may promote them into executable Queue work.
 
 Fingerprint equality is only the first duplicate check. Before triage and again
 before claim, compare the task's Done When and exact write scope with Done
@@ -463,17 +470,19 @@ remain allowed.
 For a task that requires independent review, the authority path is fixed:
 
 ```text
-Worker -> Lead reconciliation -> immutable generation -> fresh Reviewer
-Reviewer FIX -> Lead -> bounded Worker/Lead rework -> new generation
-Reviewer PASS -> Lead/MAIN -> scoped commit and Done receipt
+Lead preassigns Reviewer -> Worker immutable candidate -> Reviewer + wake
+Reviewer FIX -> same Worker + Lead visibility (ordinary rounds 1 and 2)
+third FIX -> REPLAN_REQUIRED to Lead + PM; no patch request
+fresh Queue/TaskContract generation -> Reviewer PASS -> Lead integration
+Lead checkpoint -> PM -> scoped commit and PM-only Done receipt
 Reviewer finding outside scope -> Lead evidence check -> Queue New candidate
 ```
 
-The same defect family may receive at most two ordinary `FIX` generations.
-Before a third implementation retry, the Lead must stop patching symptoms,
-restate the root cause and acceptance oracle, and ask MAIN to re-plan topology
-or scope. This remains an internal project decision unless the next action is a
-true user-only gate.
+The same defect family may receive at most two ordinary `FIX` rounds directly
+between the preassigned Reviewer and same Worker. The third `FIX` is a stop:
+the controller informs Lead and PM, the Lead restates root cause/oracle/scope,
+and PM decides a fresh Queue/contract generation. This remains an internal
+project decision unless the next action is a true user-only gate.
 
 Before Submit, re-read Done When, inspect the scoped diff, run the exact focused
 test and the smallest useful regression, and update HANDOFF. Expensive repeated

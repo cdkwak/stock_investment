@@ -1,155 +1,147 @@
 # Request Queue Workflow
 
-updated_at: 2026-08-30
-snapshot: Queue v2.4 + role bootstrap v1
+updated_at: 2026-08-31
+snapshot: Queue v2.4 + persistent Python control plane
 
-This is the concise current operating-model snapshot. The canonical protocol is
-[README.md](README.md), and the generated live state is [BOARD.md](BOARD.md).
-Material changes to this snapshot are recorded in
-[WORKFLOW_CHANGELOG.md](WORKFLOW_CHANGELOG.md). Python execution, durable role
-reuse, and optional Orca reconciliation are defined in [PIPELINE.md](PIPELINE.md).
+This is the concise current operating model. The canonical Queue protocol is
+[README.md](README.md), live generated state is [BOARD.md](BOARD.md), and the
+persistent runtime contract is [PIPELINE.md](PIPELINE.md).
 
-## Authority split
-
-- The current user instruction, Project Status, domain Status, contracts, and
-  runbooks define what work is authorized and what facts are accepted.
-- Queue owns request identity, priority, dependencies, domain and Lead routing,
-  exact write reservations, review policy, checkpoint, and business lifecycle.
-- The Python workflow-control package owns repository-local execution policy,
-  accepted event order, role generations, leases, event-driven wakeup, bounded
-  recovery, deterministic replay, and content-addressed lifecycle receipts.
-- Orca may transport supervised conversations, Dispatch attempts, questions,
-  escalations, and `worker_done` delivery. It is optional transport and does
-  not confer policy or production authority.
-- One live MAIN/PM controller generation owns Queue mutations and Dispatch
-  creation. Listeners and Watchdogs are read-only observers that may issue one
-  idempotent wake; they never become a second coordinator.
-- Queue Submit does not require a mirrored Orca Dispatch status. `ORCA_STATE.json`
-  is a bounded locator; legacy reconciliation remains compatibility telemetry.
-
-## Role flow
-
-Every managed role first reads `.agents/roles/README.md` plus its one role document and
-records a digest-matching `queue-role-v1` acknowledgement. Until then it is
-read-only and cannot use Queue or lifecycle authority.
-
-1. The conversation intake agent records explicit user intent in the Project
-   Goal and its change history; it does not implement or dispatch the work.
-2. A Goal Planner compares changed Goal sections with current Status, Queue and
-   accepted project evidence, then creates only evidenced, deduplicated New
-   candidates.
-3. MAIN/PM is the single mutation owner. It triages New, records priority,
-   dependencies, exact scope, risk, review policy and topology, then moves only
-   executable work to Ready.
-4. MAIN/PM reads Ready and routes it to one durable Domain Lead. A Listener or
-   Watchdog may detect and wake this owner but cannot create another execution
-   path.
-5. The Lead claims Ready into Active and chooses the smallest valid topology:
-   `FAST`, `SINGLE`, or `PARALLEL`.
-6. A Worker, when needed, edits and tests only its dispatched scope and reports
-   files, checks, findings and remaining risk to the Lead.
-7. The Lead reconciles the report with the actual scoped diff and acceptance
-   boundary, then freezes an immutable review generation.
-8. A fresh read-only Reviewer returns `PASS`, `FIX`, or a bounded finding to the
-   Lead. The Reviewer does not direct a Worker or mutate Queue state.
-9. `FIX` returns through the Lead for bounded rework and a new generation;
-   `PASS` permits the scoped commit and Done receipt. Out-of-scope findings are
-   proposed as New and require MAIN triage.
-10. PM releases or safely reuses settled sessions and records bottlenecks,
-    retries, current owner and the Goal-to-project reconciliation in the digest.
-
-## Lifecycle
+## Authority and durable flow
 
 ```text
-managed intake -> New -> MAIN triage/route -> Ready -> Lead claim -> Active
-Active -> Done                         (focused, low-risk acceptance)
-Active -> Review -> Done               (independent review required)
-Active -> Ready                         (safe release for later work)
-New|Ready -> Waiting -> Ready           (dependency, capacity, or timed gate)
-Active -> Blocked -> Ready              (true external or user-only gate)
+User chat
+  -> Listener (durable Goal/inbox intent only)
+  -> Goal–Queue Reconciler (proposal only)
+  -> PM typed mailbox
+  -> PM Queue decision + immutable TaskContract
+  -> one of several disjoint Leads
+  -> several disjoint Workers, each with a Lead-preassigned Reviewer
+  -> Worker candidate -> Reviewer + idempotent Reviewer wake
+  -> Reviewer FIX -> same Worker (ordinary rounds 1 and 2; Lead visible)
+  -> third FIX -> REPLAN_REQUIRED to Lead + PM
+  -> Reviewer PASS -> Lead integration/checkpoint -> PM
+  -> PM-only Queue final lifecycle transition
 ```
 
-Waiting, Review, and Done do not consume an Active writer lane. A commit-pinned
-Review releases its live write reservation while remaining bound to the exact
-immutable candidate; unpinned legacy Review retains the reservation. A shared lane is exclusive; other lanes allow
-up to three pairwise-disjoint writers subject to exact scope and resource-lock
-checks. Lead mutations use the current Queue generation, and non-Lead claims use
-the one-time raw claim capability, so stale writers fail closed.
+- Listener is the durable user entry point. It may persist the explicit Goal
+  receipt and inbox intent and send one typed, generation/session-bound PM
+  envelope. It never changes Queue structure or creates agents.
+- `GoalQueueReconciler` compares an explicit Goal revision with a complete
+  Queue snapshot and emits only `CREATE`, `AMEND`, `REPLAN`,
+  `INVALIDATE_REVIEW`, `REOPEN`, `LINK`, or `NOOP` proposals. A proposal is not
+  a Queue mutation; PM revalidates the current generation before deciding it.
+- PM alone owns Queue structure, `new -> ready -> active -> review -> done`
+  lifecycle changes, Lead routing and final settlement. Every exact
+  `TaskContract` is immutable for its Queue generation.
+- PM may route multiple pairwise-disjoint Leads. Each Lead may fan out multiple
+  pairwise-disjoint Workers and preassigns each independent Reviewer before
+  candidate work begins. Each Worker-to-Reviewer pair is sealed in the
+  immutable TaskContract generation, and different Worker pairs have distinct
+  Reviewer Codex sessions.
+- Worker owns only its declared candidate scope. Reviewer owns only `PASS` or
+  `FIX` for the pinned candidate generation. Lead owns fan-out, visibility,
+  checkpoints and integration. No lower role mutates Queue state.
 
-## Policy proposal lifecycle
+## Review loop
+
+Review independence is content-based and identity-based. Reviewer reads the
+immutable candidate digest, exact contract and accepted verification evidence;
+it does not read Worker chat, private scratch state or self-assessment.
+
+1. Worker freezes a candidate and sends it directly to the preassigned
+   Reviewer. Candidate submission atomically records the Reviewer envelope and
+   linked Lead visibility. The Worker then calls the public, message-bound
+   Reviewer wake for the stored Codex session before reporting routing
+   complete.
+2. Reviewer `FIX` goes directly to that same Worker. The Lead receives linked
+   visibility and may checkpoint. The Worker may submit a new immutable
+   candidate for ordinary rounds one and two.
+3. A third `FIX` is not a patch request. The controller records
+   `REPLAN_REQUIRED` for both Lead and PM and fences further candidate work in
+   that generation.
+4. PM may seal a fresh Queue/contract generation after re-planning. Reviewer
+   `PASS` goes to the Lead; the Lead integrates, records an idempotent
+   checkpoint and informs PM. PM alone changes final Queue lifecycle.
+
+Workers never select or replace Reviewers. Reviewers never edit code, choose a
+Worker, alter Queue state, or reuse a prior decision after candidate bytes or
+generation change.
+
+## Persistence, replay and restart
+
+- SQLite is current machine state for workflow facts, role/session identity,
+  hierarchy contracts, mailboxes, acknowledgements, review receipts and
+  control generations.
+- Sanitized JSONL is append-only event evidence. It contains allowlisted
+  workflow facts and digests, never prompts, transcripts, credentials, direct
+  account identifiers or arbitrary payloads.
+- Markdown holds human contracts, decisions, current handoffs and Queue
+  receipts. It is not a competing runtime database.
+- Every role stores its Codex session ID. A new chat or Python process resumes
+  the same PM, then its Leads, Workers and Reviewers, when role key, parent,
+  task, session and generation still match.
+- Mailbox IDs, ACK references, candidate/review receipts, wakes and checkpoints
+  are content-addressed. Exact replay returns the same result; a rebound body,
+  recipient, session, generation, candidate or ACK fails closed.
+- Lead checkpoint delivery is bound to the exact PM role lifecycle. PM
+  generation/session rotation supersedes the older pending delivery and
+  redelivers exactly once to the current PM. The durable ACK settlement remains
+  authoritative if a mailbox row is lost, so an acknowledged checkpoint cannot
+  reappear as pending.
+- Completed wake outbox rows carry an integrity digest over role, generation,
+  session, message, provenance, state and direct-runner receipt. A forged wake
+  receipt fails closed instead of becoming a replay result.
+- A generation fence covers PM, Lead, Worker and Reviewer actions. Duplicate
+  wake, delivery, ACK or restart replay does not create another session,
+  message, task or transition.
+
+## Lifecycle and topology
 
 ```text
-accepted workflow-event snapshot -> versioned proposal -> offline replay
--> immutable independent review -> explicitly enabled bounded canary
--> promotion or rollback decision receipt -> separate authorized cutover
+New -> Ready -> Active -> Review -> Done
+                 |          |
+                 +-> Ready <-+   safe release/replan only by PM
+New|Ready -> Waiting -> Ready
+Active -> Blocked -> Ready       true external or user-only gate
 ```
 
-- Proposal generations are content digests bound to an accepted snapshot
-  generation, canonical event digest, event IDs, and acceptance-receipt digest.
-- Replay is order-independent, offline, and deterministic. Stale generations
-  and event substitution fail before a receipt is issued.
-- The Reviewer identity must differ from the implementation identity. Any
-  proposal change creates a new generation and invalidates prior review.
-- Canary criteria are bounded and disabled by default. Disabled, incomplete,
-  over-bound, or failure-limit canaries return explicit refusal receipts.
-- Promotion and rollback are explicit, content-addressed decisions with
-  `production_mutated=false`; neither automatically changes current policy,
-  Queue state, a scheduler, or an external system.
-- Authority evaluation allows local replay/proposal work, requires review plus
-  standing authority for account reads and lifecycle actions, and always
-  refuses broker/order, transfer/withdrawal, financial mutation,
-  access-control, secret, paid-service, and destructive-migration actions.
-  Unknown and unreviewed standing-authority actions fail closed.
+`FAST` is direct Lead work for deterministic low-risk scope. `SINGLE` uses one
+coherent Worker scope. `PARALLEL` requires at least two pairwise-disjoint Worker
+scopes; overlap collapses to `SINGLE`. PM may keep up to three pairwise-disjoint
+Lead lanes. Waiting, Review and Done do not consume an Active writer lane.
 
-The repository-local control plane is accepted for explicit and canary-driven
-operation. An unattended live scheduler, broker/account integration, and any
-external production cutover remain disabled and require their own accepted operation.
+Lead and PM actions use the exact current Queue and role generations. Stale
+sessions, substituted Reviewers, overlapping Worker scopes and changed
+`TaskContract` bytes fail before a durable side effect.
 
-## Lead execution loop
+## Python-only runtime
 
-1. Read `status --lead-owner <lead>` and the exact `TASK.md` / `HANDOFF.md`.
-2. Claim or resume with the current generation and preserve the task's scope,
-   locks, invariants, Done When, and Verify boundary.
-3. Reuse the durable Python role/session identity. Add an Orca locator only when
-   optional supervised transport needs durable reopening context.
-4. Launch a scoped Worker through the injected direct boundary with the printed model and effort profile, then
-   handle ordinary implementation, test, provider, and tooling failures inside
-   the Lead lane.
-5. Re-read Done When, inspect only the scoped diff, run focused tests plus the
-   smallest useful regression and Queue Doctor, and update the current HANDOFF.
-6. If review is required, pin a clean full-HEAD commit and submit that exact
-   generation to a fresh independent Reviewer; later writers need not wait on it.
-7. Submit only after accepted evidence is complete. Escalate only the exact
-   unavailable external entitlement, protected-resource action, user Goal/risk
-   choice, or prohibited financial/legal mutation that no safe work can avoid.
+The supported runtime is Python only. It uses the repository-local workflow
+controller, injected direct Codex boundary, durable session runner and the
+canonical Queue manager. There is no console-dependent scheduler path and no
+transport fallback.
 
-## Topology, review, and expensive acceptance
+Orca appears only in denied legacy migration/history: historical locator fields
+may be retained as inert identifiers while old receipts are migrated or read,
+but they are never executed, queried for liveness, used for wake/recovery, or
+accepted as fallback authority. New runtime receipts require
+`transport=direct` and `orca_used=false`.
 
-- `FAST`: the Lead handles deterministic low-risk work directly. Do not create
-  a Worker or Reviewer unless the task policy requires one.
-- `SINGLE`: one coherent writer scope uses one Lead and at most one Worker.
-- `PARALLEL`: use multiple Workers only for at least two pairwise-disjoint
-  dependency-ready scopes. Shared locks or sequential dependencies collapse the
-  task back to `SINGLE`.
-- Dispatch creation is idempotent by Queue Task, role, attempt and, for review,
-  review generation. Before creating anything, reconcile live and historical
-  attempts; the first accepted attempt wins and later races are fenced.
-- Reviewer `FIX` always returns to the Lead. After two ordinary FIX generations,
-  MAIN and the Lead must re-plan root cause, oracle or scope before another
-  implementation attempt.
-- A costly repeated acceptance run starts only after the decisive preflight,
-  focused checks and one complete canary pass. The same decisive preflight runs
-  again after the repeated cycles; a failure invalidates the count and reopens
-  the same Queue item.
+The standalone Korean dark operations dashboard is a read-only Qt projection
+of the same SQLite/JSONL/Queue facts. It shows PM, Leads, Workers, Reviewers,
+Queue counts, freshness, warnings and recent events without inventing roles or
+tasks. Its only button refreshes the projection; it has no Queue, lifecycle,
+provider, broker or filesystem mutation control.
 
-## Discovery and launch policy
+## Discovery and escalation
 
-- Discovery records the managed intake role and the original reporter role.
-- Unsolicited Goal planning pauses for a live P0, six dependency-ready tasks
-  already routed to Leads across Ready/Active/Review, or six untriaged New
-  discoveries. A direct user Goal sync may always run one bounded explicit pass.
-- Priority expresses urgency. Complexity and risk derive provider-independent
-  Worker and Reviewer profiles; `status --lead-owner` prints the current
-  model/effort mapping used by the selected direct adapter.
-- Older tasks may omit v2.1 provenance/profile fields. Safe defaults and derived
-  views preserve migration compatibility without rewriting historical receipts.
+Task-derived findings remain two-stage. Worker or Reviewer reports bounded
+evidence to the Lead; Lead validates a disjoint New candidate; PM performs
+global deduplication and triage. No discovery is executable until PM moves it
+to Ready.
+
+Ordinary repository failures remain within the Lead lane. Escalate only an
+unavailable external entitlement, rejected protected-resource action, required
+user Goal/risk choice, or prohibited financial/legal mutation for which no safe
+independent work remains.
