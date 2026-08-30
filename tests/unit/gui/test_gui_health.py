@@ -5,6 +5,11 @@ import os
 from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+if os.name == "nt":
+    os.environ.setdefault(
+        "QT_QPA_FONTDIR",
+        os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts"),
+    )
 
 import pytest
 from PySide6 import QtCore, QtWidgets
@@ -15,7 +20,7 @@ from stock_data.gui.health_service import (
     HealthDatasetRow,
     summarize_health_artifact,
 )
-from stock_data.gui.main_window import DataStatusPage
+from stock_data.gui.main_window import DataStatusPage, IndicatorControlPanel
 from stock_data.gui.refresh_status import project_refresh_status
 from stock_data.orchestration.daily_operations import (
     AutomationPolicy, DATASET_UNIVERSE, DataGrain, UniverseOperationalStatus,
@@ -542,3 +547,59 @@ def test_data_status_summary_cards_fit_complete_wrapped_text_at_1600x900(tmp_pat
     assert "확인 대상 80" in page.boundary.body.text()
     page.close()
     app.processEvents()
+
+
+@pytest.mark.parametrize("width", (1700, 1270, 1060, 900, 840))
+def test_dashboard_indicator_controls_reflow_without_clipping_or_lost_focus(
+    width,
+):
+    qt_messages = []
+    previous_handler = QtCore.qInstallMessageHandler(
+        lambda message_type, _context, message: qt_messages.append(
+            (message_type, message)
+        )
+    )
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    panel = IndicatorControlPanel(allows_lower_panels=True)
+    try:
+        panel.resize(width, 200)
+        panel.show()
+        app.processEvents()
+        panel_controls = tuple(panel._control_widgets)
+        panel_rects = [
+            QtCore.QRect(widget.mapTo(panel, QtCore.QPoint()), widget.size())
+            for widget in panel_controls
+        ]
+        assert all(widget.isVisible() for widget in panel_controls)
+        assert all(panel.rect().contains(rect) for rect in panel_rects)
+        assert all(
+            widget.width() >= widget.sizeHint().width()
+            for widget in panel_controls
+        )
+        for index, left in enumerate(panel_rects):
+            assert all(not left.intersects(right) for right in panel_rects[index + 1:])
+
+        interactive = tuple(
+            widget for widget in panel_controls
+            if isinstance(
+                widget,
+                (QtWidgets.QCheckBox, QtWidgets.QComboBox, QtWidgets.QPushButton),
+            )
+        )
+        assert all(widget.focusPolicy() & QtCore.Qt.TabFocus for widget in interactive)
+        assert all(widget.accessibleName().strip() for widget in interactive)
+        focus_order = []
+        cursor = interactive[0]
+        for _ in range(512):
+            if cursor in interactive and cursor not in focus_order:
+                focus_order.append(cursor)
+            cursor = cursor.nextInFocusChain()
+            if cursor is interactive[0]:
+                break
+        assert tuple(focus_order) == interactive
+    finally:
+        panel.close()
+        panel.deleteLater()
+        app.processEvents()
+        QtCore.qInstallMessageHandler(previous_handler)
+    assert not qt_messages
