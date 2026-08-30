@@ -9,6 +9,7 @@ from stock_data.orchestration.workflow_control.cycle import (
     OperationalCycleCanary,
 )
 from stock_data.orchestration.workflow_control.runner import RunnerAction
+from stock_data.orchestration.workflow_control.session_runner import SessionAction
 
 
 T0 = datetime(2026, 8, 29, 0, 0, tzinfo=UTC)
@@ -32,6 +33,10 @@ def test_ten_orca_free_full_cycles_cover_normal_and_recovery_paths(
     )
 
     canary = OperationalCycleCanary(tmp_path / "control-plane", started_at=T0)
+    initial_pm = canary.registry.get("project_manager")
+    assert canary.controller.role_registry is canary.registry
+    assert initial_pm.generation == 1
+    assert initial_pm.identity.codex_session_id == "direct-pm-session"
     receipts = [
         canary.run(index, scenario)
         for index, scenario in enumerate(scenarios, start=1)
@@ -63,6 +68,22 @@ def test_ten_orca_free_full_cycles_cover_normal_and_recovery_paths(
     assert lead.identity.codex_session_id == "direct-lead-session"
     assert lead.identity.active_task_id is None
     assert lead.identity.active_dispatch_id is None
+
+    pm = canary.registry.get("project_manager")
+    assert pm.generation == 1 + len(scenarios)
+    pm_wakes = tuple(
+        item
+        for item in canary.session_runner.receipts
+        if item.role_key == "project_manager"
+    )
+    assert len(pm_wakes) == 1
+    assert pm_wakes[0].action is SessionAction.RESUME
+    assert pm_wakes[0].session_id == initial_pm.identity.codex_session_id
+    assert pm_wakes[0].role_generation == 2 + scenarios.index(
+        CycleScenario.QUESTION_WAKEUP
+    )
+    assert canary.session_boundary.calls == 1
+    assert canary.session_boundary.actions == [SessionAction.RESUME.value]
 
     worker_retry_receipts = tuple(
         item for item in canary.runner.receipts if item.role_key == "worker_infra"

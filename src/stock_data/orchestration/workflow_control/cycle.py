@@ -208,6 +208,7 @@ class OperationalCycleCanary:
             self.runner,
             self.root / "controller.sqlite3",
             session_runner=self.session_runner,
+            role_registry=self.registry,
         )
         self.supervisor = WorkflowSupervisor(
             RoleWatchdog(heartbeat_timeout=timedelta(minutes=5)),

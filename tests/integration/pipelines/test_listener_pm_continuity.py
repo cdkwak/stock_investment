@@ -14,6 +14,9 @@ from stock_data.orchestration.workflow_control.listener_gateway import (
     ListenerRoute,
     ListenerSinks,
     ListenerStateConflict,
+    ListenerValidationError,
+    MailboxEnvelope,
+    PMMailboxIdentity,
     PMMutationAuthority,
     RouteKind,
 )
@@ -22,9 +25,13 @@ from stock_data.orchestration.workflow_control.listener_gateway import (
 class ReceiptDeduplicatingControlPlane:
     """Local sink fake that models idempotency at the PM-owned boundary."""
 
-    def __init__(self) -> None:
+    def __init__(self, pm_identity: PMMailboxIdentity | None = None) -> None:
         self.observed: list[tuple[str, str]] = []
         self.accepted: dict[str, str] = {}
+        self.envelopes: list[MailboxEnvelope] = []
+        self.pm_identity = pm_identity or PMMailboxIdentity(
+            "project_manager", "pm-session-7", 7
+        )
         self.raise_after_accepting_pm = True
 
     def _accept(self, kind: str, receipt_key: str) -> str:
@@ -43,10 +50,12 @@ class ReceiptDeduplicatingControlPlane:
     ) -> str:
         return self._accept("goal_receipt", receipt_key)
 
-    def deliver_pm_message(
-        self, *, receipt_key: str, intent_key: str, message: str
-    ) -> str:
-        return self._accept("pm", receipt_key)
+    def resolve_pm_mailbox_identity(self) -> PMMailboxIdentity:
+        return self.pm_identity
+
+    def deliver_mailbox_envelope(self, envelope: MailboxEnvelope) -> str:
+        self.envelopes.append(envelope)
+        return self._accept("pm", envelope.message_id)
 
     def accept_new_candidate(
         self,
@@ -75,6 +84,7 @@ def _gateway(root: Path, fake: ReceiptDeduplicatingControlPlane) -> ListenerGate
         root / "listener.jsonl",
         sinks=ListenerSinks(fake, fake, fake),
         pm_authority=PMMutationAuthority("python_pm", True),
+        pm_identity_resolver=fake,
     )
 
 
@@ -88,10 +98,24 @@ def _intent(received_at: str = "2026-08-31T01:00:00Z") -> ListenerIntent:
     )
 
 
-def _routes() -> list[ListenerRoute]:
+def _routes(
+    identity: PMMailboxIdentity | None = None,
+) -> list[ListenerRoute]:
+    pm_identity = identity or PMMailboxIdentity(
+        "project_manager", "pm-session-7", 7
+    )
     return [
         ListenerRoute(RouteKind.GOAL_CHANGE, {"goal_text": "지속 가능한 목표"}),
-        ListenerRoute(RouteKind.DIRECT_PM, {"message": "실행 상태 전달"}),
+        ListenerRoute(
+            RouteKind.DIRECT_PM,
+            {
+                "generation": pm_identity.generation,
+                "message": "실행 상태 전달",
+                "message_type": "user_intent",
+                "recipient": pm_identity.recipient,
+                "session_id": pm_identity.session_id,
+            },
+        ),
         ListenerRoute(RouteKind.BOUNDED_NEW, {"summary": "경계가 있는 새 관찰"}),
     ]
 
@@ -132,6 +156,12 @@ def test_fresh_session_resumes_pending_and_delivers_each_receipt_once() -> None:
             "new:bounded_new",
         ]
         assert len({key for _kind, key in fake.observed}) == 4
+        assert len(fake.envelopes) == 2
+        assert fake.envelopes[0] == fake.envelopes[1]
+        assert fake.envelopes[0].recipient == "project_manager"
+        assert fake.envelopes[0].session_id == "pm-session-7"
+        assert fake.envelopes[0].generation == 7
+        assert not hasattr(fake, "deliver_pm_message")
 
         with _gateway(root, fake) as later_session:
             assert later_session.resume_pending() == ()
@@ -152,3 +182,18 @@ def test_fresh_session_resumes_pending_and_delivers_each_receipt_once() -> None:
         with pytest.raises(ListenerStateConflict):
             _gateway(root, clean_fake)
         assert clean_fake.observed == []
+
+
+def test_stale_pm_identity_is_refused_before_delivery() -> None:
+    with _workspace() as root:
+        current = PMMailboxIdentity("project_manager", "pm-session-8", 8)
+        stale = PMMailboxIdentity("project_manager", "pm-session-7", 7)
+        fake = ReceiptDeduplicatingControlPlane(current)
+        fake.raise_after_accepting_pm = False
+
+        with _gateway(root, fake) as gateway:
+            with pytest.raises(ListenerValidationError, match="stale"):
+                gateway.intake(_intent(), _routes(stale))
+
+        assert fake.observed == []
+        assert fake.envelopes == []
