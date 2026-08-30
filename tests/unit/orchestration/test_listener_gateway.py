@@ -13,6 +13,7 @@ from stock_data.orchestration.workflow_control.listener_gateway import (
     ListenerGateway,
     ListenerDigestCollision,
     ListenerIntent,
+    MailboxEnvelope,
     ListenerRoute,
     ListenerSinks,
     ListenerStateConflict,
@@ -29,6 +30,7 @@ class FakeControlPlane:
         self.accepted: dict[str, str] = {}
         self.fail_after_accept = fail_after_accept or set()
         self.failed: set[str] = set()
+        self.envelopes: list[MailboxEnvelope] = []
 
     def _accept(self, kind: str, receipt_key: str) -> str:
         acceptance = self.accepted.get(receipt_key)
@@ -50,6 +52,10 @@ class FakeControlPlane:
         self, *, receipt_key: str, intent_key: str, message: str
     ) -> str:
         return self._accept("pm", receipt_key)
+
+    def deliver_mailbox_envelope(self, envelope: MailboxEnvelope) -> str:
+        self.envelopes.append(envelope)
+        return self._accept("pm", envelope.message_id)
 
     def accept_new_candidate(
         self,
@@ -232,6 +238,35 @@ def test_goal_and_new_require_explicit_pm_authority_before_sink_calls() -> None:
         [{"kind": "direct_pm", "payload": {"message": " "}}],
         [{"kind": "bounded_new", "payload": {"summary": "x", "message": "y"}}],
         [{"kind": "goal_change", "payload": ["not", "an", "object"]}],
+        [
+            {
+                "kind": "direct_pm",
+                "payload": {"message": "x", "recipient": "Project Manager", "generation": 1},
+            }
+        ],
+        [
+            {
+                "kind": "direct_pm",
+                "payload": {"message": "x", "recipient": "project_manager"},
+            }
+        ],
+        [
+            {
+                "kind": "direct_pm",
+                "payload": {"message": "x", "recipient": "worker", "generation": 1},
+            }
+        ],
+        [
+            {
+                "kind": "direct_pm",
+                "payload": {
+                    "generation": 1,
+                    "message": "x",
+                    "message_type": [],
+                    "recipient": "project_manager",
+                },
+            }
+        ],
         [],
     ],
 )
@@ -300,3 +335,40 @@ def test_digest_and_journal_state_conflicts_fail_closed() -> None:
         with pytest.raises(ListenerStateConflict):
             _gateway(root, fresh_fake)
         assert fresh_fake.events == []
+
+
+def test_generation_bound_mailbox_envelope_survives_lost_ack_and_restart() -> None:
+    with _workspace("listener-envelope-restart") as root:
+        fake = FakeControlPlane(fail_after_accept={"pm"})
+        route = ListenerRoute(
+            RouteKind.DIRECT_PM,
+            {
+                "generation": 7,
+                "message": "현재 PM 세션을 깨워 주세요",
+                "message_type": "operational_wake",
+                "queue_id": "RQ-20260831T010203-A1B2",
+                "recipient": "project_manager",
+            },
+        )
+        with _gateway(root, fake) as gateway:
+            with pytest.raises(RuntimeError, match="lost pm acknowledgement"):
+                gateway.intake(_intent(), [route])
+        assert len(fake.accepted) == 1
+
+        with _gateway(root, fake) as resumed:
+            receipts = resumed.resume_pending()
+            assert len(receipts) == 1
+            assert receipts[0].deliveries[0].status == "accepted"
+            assert resumed.resume_pending() == ()
+
+        assert [kind for kind, _key in fake.events] == ["pm"]
+        assert len(fake.envelopes) == 2
+        first, retry = fake.envelopes
+        assert retry == first
+        assert first.recipient == "project_manager"
+        assert first.generation == 7
+        assert first.queue_id == "RQ-20260831T010203-A1B2"
+        assert first.message_type == "operational_wake"
+        assert first.delivery_status == "pending"
+        assert first.body_digest not in first.body
+        assert first.message_id == receipts[0].deliveries[0].receipt_key

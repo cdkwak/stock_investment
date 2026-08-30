@@ -19,6 +19,8 @@ from typing import Any, Mapping, Protocol, Sequence
 
 
 _SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
+_RECIPIENT_PATTERN = re.compile(r"[a-z][a-z0-9_.-]{0,63}")
+_QUEUE_ID_PATTERN = re.compile(r"RQ-\d{8}T\d{6}-[A-Z0-9]{4}")
 _JOURNAL_VERSION = 1
 
 
@@ -49,6 +51,12 @@ _ROUTE_FIELDS: dict[RouteKind, str] = {
     RouteKind.DIRECT_PM: "message",
     RouteKind.BOUNDED_NEW: "summary",
 }
+
+_DIRECT_PM_OPTIONAL_FIELDS = frozenset(
+    {"generation", "message_type", "queue_id", "recipient"}
+)
+_MAILBOX_MESSAGE_TYPES = frozenset({"direct_message", "operational_wake", "user_intent"})
+_PM_RECIPIENT = "project_manager"
 
 
 def _required_text(value: object, field_name: str) -> str:
@@ -133,10 +141,51 @@ class ListenerRoute:
             raise ListenerValidationError("route kind must be a RouteKind")
         canonical = json.loads(_canonical_json(self.payload))
         required = _ROUTE_FIELDS[self.kind]
-        if set(canonical) != {required}:
+        fields = set(canonical)
+        if self.kind is not RouteKind.DIRECT_PM and fields != {required}:
             raise ListenerValidationError(
                 f"{self.kind.value} payload must contain only {required}"
             )
+        if self.kind is RouteKind.DIRECT_PM:
+            allowed = {required, *_DIRECT_PM_OPTIONAL_FIELDS}
+            if required not in fields or not fields <= allowed:
+                raise ListenerValidationError(
+                    "direct_pm payload contains unsupported or missing fields"
+                )
+            extended = fields - {required}
+            if extended and not {"recipient", "generation"} <= fields:
+                raise ListenerValidationError(
+                    "explicit direct_pm routing requires recipient and generation"
+                )
+            if "recipient" in canonical:
+                recipient = _required_text(canonical["recipient"], "recipient")
+                if _RECIPIENT_PATTERN.fullmatch(recipient) is None:
+                    raise ListenerValidationError("recipient is malformed")
+                if recipient != _PM_RECIPIENT:
+                    raise ListenerValidationError(
+                        "direct_pm recipient must be the durable project_manager role"
+                    )
+            if "generation" in canonical and (
+                not isinstance(canonical["generation"], int)
+                or isinstance(canonical["generation"], bool)
+                or canonical["generation"] < 1
+            ):
+                raise ListenerValidationError("generation must be a positive integer")
+            if "queue_id" in canonical:
+                queue_id = canonical["queue_id"]
+                if queue_id is not None and (
+                    not isinstance(queue_id, str)
+                    or _QUEUE_ID_PATTERN.fullmatch(queue_id) is None
+                ):
+                    raise ListenerValidationError("queue_id must be null or an exact Queue id")
+            if (
+                "message_type" in canonical
+                and (
+                    not isinstance(canonical["message_type"], str)
+                    or canonical["message_type"] not in _MAILBOX_MESSAGE_TYPES
+                )
+            ):
+                raise ListenerValidationError("message_type is not supported")
         _required_text(canonical[required], required)
 
     @classmethod
@@ -220,6 +269,57 @@ class ActionReceipt:
     deliveries: tuple[DeliveryReceipt, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class MailboxEnvelope:
+    """One immutable, generation-bound delivery to the durable PM mailbox."""
+
+    message_id: str
+    parent_id: str
+    sender: str
+    recipient: str
+    message_type: str
+    queue_id: str | None
+    generation: int
+    body_digest: str
+    body: str
+    creation_time: str
+    delivery_status: str
+
+    def __post_init__(self) -> None:
+        _validate_digest(self.message_id, "message_id")
+        _validate_digest(self.parent_id, "parent_id")
+        _required_text(self.sender, "sender")
+        if (
+            not isinstance(self.recipient, str)
+            or _RECIPIENT_PATTERN.fullmatch(self.recipient) is None
+        ):
+            raise ListenerValidationError("recipient is malformed")
+        if self.recipient != _PM_RECIPIENT:
+            raise ListenerValidationError(
+                "mailbox recipient must be the durable project_manager role"
+            )
+        if self.message_type not in _MAILBOX_MESSAGE_TYPES:
+            raise ListenerValidationError("message_type is not supported")
+        if self.queue_id is not None and (
+            not isinstance(self.queue_id, str)
+            or _QUEUE_ID_PATTERN.fullmatch(self.queue_id) is None
+        ):
+            raise ListenerValidationError("queue_id must be null or an exact Queue id")
+        if (
+            not isinstance(self.generation, int)
+            or isinstance(self.generation, bool)
+            or self.generation < 1
+        ):
+            raise ListenerValidationError("generation must be a positive integer")
+        _validate_digest(self.body_digest, "body_digest")
+        body = _required_text(self.body, "body")
+        if _sha256_text(body) != self.body_digest:
+            raise ListenerValidationError("body digest does not match mailbox body")
+        _required_text(self.creation_time, "creation_time")
+        if self.delivery_status not in {"pending", "accepted"}:
+            raise ListenerValidationError("mailbox delivery_status is invalid")
+
+
 class GoalReceiptSink(Protocol):
     def accept_project_goal_receipt(
         self, *, receipt_key: str, intent_key: str, goal_text: str
@@ -230,6 +330,10 @@ class PMMailboxSink(Protocol):
     def deliver_pm_message(
         self, *, receipt_key: str, intent_key: str, message: str
     ) -> str: ...
+
+
+class EnvelopeMailboxSink(Protocol):
+    def deliver_mailbox_envelope(self, envelope: MailboxEnvelope) -> str: ...
 
 
 class NewCandidateSink(Protocol):
@@ -246,7 +350,7 @@ class NewCandidateSink(Protocol):
 @dataclass(frozen=True, slots=True)
 class ListenerSinks:
     goal_receipts: GoalReceiptSink | None = None
-    pm_mailbox: PMMailboxSink | None = None
+    pm_mailbox: PMMailboxSink | EnvelopeMailboxSink | None = None
     new_candidates: NewCandidateSink | None = None
 
 
@@ -476,6 +580,7 @@ class ListenerGateway:
             raise ListenerValidationError("intent must be a ListenerIntent")
         routes = _parse_routes(route_declarations)
         self._validate_delivery_capabilities({route.kind for route in routes})
+        self._validate_route_sink_shapes(routes)
         actions = tuple(_ListenerAction(intent.intent_key, route, intent.received_at) for route in routes)
 
         self._connection.execute("BEGIN IMMEDIATE")
@@ -583,6 +688,24 @@ class ListenerGateway:
         if RouteKind.BOUNDED_NEW in kinds and self._sinks.new_candidates is None:
             raise ListenerValidationError("bounded-new route requires a New sink")
 
+    def _validate_route_sink_shapes(self, routes: Sequence[ListenerRoute]) -> None:
+        for route in routes:
+            if route.kind is not RouteKind.DIRECT_PM:
+                continue
+            assert self._sinks.pm_mailbox is not None
+            if "recipient" in route.payload:
+                method = getattr(self._sinks.pm_mailbox, "deliver_mailbox_envelope", None)
+                if not callable(method):
+                    raise ListenerValidationError(
+                        "generation-bound direct_pm routing requires an envelope sink"
+                    )
+            else:
+                method = getattr(self._sinks.pm_mailbox, "deliver_pm_message", None)
+                if not callable(method):
+                    raise ListenerValidationError(
+                        "legacy direct_pm routing requires a legacy sink"
+                    )
+
     def _deliver_action_keys(self, action_keys: Sequence[str]) -> None:
         for action_key in action_keys:
             rows = self._connection.execute(
@@ -597,8 +720,10 @@ class ListenerGateway:
         try:
             self._validate_state_and_journal()
             row = self._connection.execute(
-                "SELECT r.*, a.intent_key, a.route_kind, a.payload_json "
+                "SELECT r.*, a.intent_key, a.route_kind, a.payload_json, "
+                "i.listener_id, i.received_at "
                 "FROM listener_delivery_receipts r JOIN listener_actions a USING (action_key) "
+                "JOIN listener_intents i USING (intent_key) "
                 "WHERE r.receipt_key = ?", (receipt_key,),
             ).fetchone()
             if row is None:
@@ -649,7 +774,33 @@ class ListenerGateway:
                 source_route=row["route_kind"])
         if sink == "pm_mailbox":
             assert self._sinks.pm_mailbox is not None
-            return self._sinks.pm_mailbox.deliver_pm_message(
+            envelope_delivery = getattr(
+                self._sinks.pm_mailbox, "deliver_mailbox_envelope", None
+            )
+            if "recipient" in payload:
+                if not callable(envelope_delivery):
+                    raise ListenerValidationError(
+                        "generation-bound direct_pm routing requires an envelope sink"
+                    )
+                body = payload["message"]
+                envelope = MailboxEnvelope(
+                    message_id=receipt_key,
+                    parent_id=intent_key,
+                    sender=row["listener_id"],
+                    recipient=payload.get("recipient", _PM_RECIPIENT),
+                    message_type=payload.get("message_type", "direct_message"),
+                    queue_id=payload.get("queue_id"),
+                    generation=payload.get("generation", 1),
+                    body_digest=_sha256_text(body),
+                    body=body,
+                    creation_time=row["received_at"],
+                    delivery_status="pending",
+                )
+                return envelope_delivery(envelope)
+            legacy_delivery = getattr(self._sinks.pm_mailbox, "deliver_pm_message", None)
+            if not callable(legacy_delivery):
+                raise ListenerValidationError("legacy direct_pm routing requires a legacy sink")
+            return legacy_delivery(
                 receipt_key=receipt_key, intent_key=intent_key, message=payload["message"])
         raise ListenerStateConflict(f"unknown persisted sink: {sink}")
 
