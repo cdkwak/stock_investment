@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 import re
 import sqlite3
-from typing import Iterable, Mapping
+from typing import Callable, Iterable, Mapping, TypeVar
 
 from stock_data.orchestration.workflow_control.contracts import (
     EventKind,
@@ -37,6 +37,7 @@ from stock_data.orchestration.workflow_control.routing import (
     TaskContract,
     WorkflowRole,
     require_role_authority,
+    require_unique_role_sessions,
     select_dependency_ready_leads,
 )
 from stock_data.orchestration.workflow_control.runner import (
@@ -56,6 +57,7 @@ _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _ROLE_KEY = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 _TASK_ID = re.compile(r"^RQ-\d{8}T\d{6}-[A-Z0-9]{4}$")
+_GuardedResult = TypeVar("_GuardedResult")
 
 
 class WorkflowControllerError(RuntimeError):
@@ -85,6 +87,9 @@ class MailboxStatus(StrEnum):
 
 class MailboxMessageType(StrEnum):
     OPERATIONAL_PM = "operational_pm"
+    DIRECT_MESSAGE = "direct_message"
+    OPERATIONAL_WAKE = "operational_wake"
+    USER_INTENT = "user_intent"
     TASK_CONTRACT = "task_contract"
     WORKER_ASSIGNMENT = "worker_assignment"
     CANDIDATE = "candidate"
@@ -226,6 +231,7 @@ class MailboxEnvelope:
     task_id: str | None
     queue_generation: str | None
     recipient_generation: int
+    recipient_session_id: str
     body_digest: str
     body: Mapping[str, object]
     created_at: datetime
@@ -247,6 +253,8 @@ class MailboxEnvelope:
             raise WorkflowControllerError("mailbox Queue generation is invalid")
         if not isinstance(self.recipient_generation, int) or self.recipient_generation < 1:
             raise WorkflowControllerError("recipient generation must be positive")
+        if _IDENTIFIER.fullmatch(self.recipient_session_id) is None:
+            raise WorkflowControllerError("recipient session id is invalid")
         if _DIGEST.fullmatch(self.body_digest) is None:
             raise WorkflowControllerError("mailbox body digest must be SHA-256")
         if not isinstance(self.message_type, MailboxMessageType):
@@ -389,7 +397,8 @@ class WorkflowController:
                 "recipient_role_key TEXT NOT NULL, message_type TEXT NOT NULL, task_id TEXT, "
                 "queue_generation TEXT, recipient_generation INTEGER NOT NULL, body_digest TEXT NOT NULL, "
                 "body_json TEXT NOT NULL, created_at TEXT NOT NULL, delivery_status TEXT NOT NULL, "
-                "acknowledgement_ref TEXT, acknowledged_at TEXT, ack_recipient_generation INTEGER)"
+                "acknowledgement_ref TEXT, acknowledged_at TEXT, ack_recipient_generation INTEGER, "
+                "recipient_session_id TEXT, envelope_digest TEXT)"
             )
             mailbox_columns = {
                 str(row[1])
@@ -398,6 +407,32 @@ class WorkflowController:
             if "ack_recipient_generation" not in mailbox_columns:
                 connection.execute(
                     "ALTER TABLE role_mailbox ADD COLUMN ack_recipient_generation INTEGER"
+                )
+            if "recipient_session_id" not in mailbox_columns:
+                connection.execute(
+                    "ALTER TABLE role_mailbox ADD COLUMN recipient_session_id TEXT"
+                )
+            if "envelope_digest" not in mailbox_columns:
+                connection.execute(
+                    "ALTER TABLE role_mailbox ADD COLUMN envelope_digest TEXT"
+                )
+            for row in connection.execute(
+                "SELECT * FROM role_mailbox WHERE recipient_session_id IS NULL "
+                "OR envelope_digest IS NULL"
+            ).fetchall():
+                session_id = row["recipient_session_id"]
+                if session_id is None:
+                    session_id = self.role_registry.get(
+                        str(row["recipient_role_key"])
+                    ).identity.codex_session_id
+                    connection.execute(
+                        "UPDATE role_mailbox SET recipient_session_id = ? WHERE message_id = ?",
+                        (session_id, row["message_id"]),
+                    )
+                material = self._envelope_material(row, str(session_id))
+                connection.execute(
+                    "UPDATE role_mailbox SET envelope_digest = ? WHERE message_id = ?",
+                    (_digest(material), row["message_id"]),
                 )
             connection.execute(
                 "CREATE TABLE IF NOT EXISTS review_receipt("
@@ -680,8 +715,125 @@ class WorkflowController:
             require_role_authority(self._workflow_role(record.identity.role_kind), action)
         return record
 
-    def _enqueue_mailbox(
+    def _run_generation_bound(
         self,
+        preflight: RoleRecord,
+        *,
+        action: RoleAction,
+        expected_kind: RoleKind,
+        operation: Callable[[], _GuardedResult],
+    ) -> _GuardedResult:
+        """Run one controller mutation while lifecycle CAS is serialized."""
+
+        with self.role_registry.generation_guard(
+            preflight.identity.role_key,
+            expected_generation=preflight.generation,
+            expected_session_id=preflight.identity.codex_session_id,
+        ) as guarded:
+            if guarded.state not in {RoleState.ACTIVE, RoleState.IDLE}:
+                raise RoleRegistryError("role is not available for mailbox work")
+            if guarded.identity.role_kind is not expected_kind:
+                raise RoleRegistryError("role kind does not match the requested operation")
+            require_role_authority(self._workflow_role(guarded.identity.role_kind), action)
+            return operation()
+
+    @staticmethod
+    def _envelope_material(
+        row: sqlite3.Row | Mapping[str, object],
+        recipient_session_id: str | None = None,
+    ) -> dict[str, object]:
+        return {
+            "body_digest": row["body_digest"],
+            "body_json": row["body_json"],
+            "created_at": row["created_at"],
+            "message_id": row["message_id"],
+            "message_type": row["message_type"],
+            "parent_message_id": row["parent_message_id"],
+            "queue_generation": row["queue_generation"],
+            "recipient_generation": row["recipient_generation"],
+            "recipient_role_key": row["recipient_role_key"],
+            "recipient_session_id": (
+                recipient_session_id
+                if recipient_session_id is not None
+                else row["recipient_session_id"]
+            ),
+            "sender_role_key": row["sender_role_key"],
+            "task_id": row["task_id"],
+        }
+
+    @staticmethod
+    def _internal_message_id(row: sqlite3.Row | Mapping[str, object]) -> str:
+        return "msg-" + _digest(
+            {
+                "body_digest": row["body_digest"],
+                "message_type": row["message_type"],
+                "parent_message_id": row["parent_message_id"],
+                "queue_generation": row["queue_generation"],
+                "recipient_role_key": row["recipient_role_key"],
+                "sender_role_key": row["sender_role_key"],
+                "task_id": row["task_id"],
+            }
+        )
+
+    @staticmethod
+    def _listener_message_ids(
+        *,
+        parent_id: str,
+        body: str,
+        recipient: str,
+        session_id: str,
+        generation: int,
+        message_type: str,
+        queue_id: str | None,
+    ) -> frozenset[str]:
+        def canonical_json(value: Mapping[str, object]) -> str:
+            return json.dumps(
+                value,
+                ensure_ascii=False,
+                allow_nan=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+
+        base: dict[str, object] = {
+            "generation": generation,
+            "message": body,
+            "recipient": recipient,
+            "session_id": session_id,
+        }
+        message_type_options = (False, True) if message_type == "direct_message" else (True,)
+        queue_options = (False, True) if queue_id is None else (True,)
+        ids: set[str] = set()
+        for include_message_type in message_type_options:
+            for include_queue in queue_options:
+                payload = dict(base)
+                if include_message_type:
+                    payload["message_type"] = message_type
+                if include_queue:
+                    payload["queue_id"] = queue_id
+                action = canonical_json(
+                    {
+                        "intent_key": parent_id,
+                        "payload": payload,
+                        "route_kind": "direct_pm",
+                    }
+                )
+                action_id = hashlib.sha256(
+                    f"listener-action/v1\n{action}".encode("utf-8")
+                ).hexdigest()
+                identity = canonical_json(
+                    {"action_key": action_id, "sink": "pm_mailbox"}
+                )
+                ids.add(
+                    hashlib.sha256(
+                        f"listener-delivery/v1\n{identity}".encode("utf-8")
+                    ).hexdigest()
+                )
+        return frozenset(ids)
+
+    def _insert_mailbox_in_transaction(
+        self,
+        connection: sqlite3.Connection,
         *,
         sender_role_key: str,
         recipient_role_key: str,
@@ -691,6 +843,8 @@ class WorkflowController:
         task_id: str | None = None,
         queue_generation: str | None = None,
         parent_message_id: str | None = None,
+        message_id_override: str | None = None,
+        created_at_override: datetime | None = None,
     ) -> MailboxEnvelope:
         recipient = self._require_role(recipient_role_key, recipient_generation)
         if task_id is not None and _TASK_ID.fullmatch(task_id) is None:
@@ -708,7 +862,7 @@ class WorkflowController:
         if len(body_json.encode("utf-8")) > 65_536:
             raise WorkflowControllerError("mailbox body exceeds the bounded limit")
         body_digest = hashlib.sha256(body_json.encode("utf-8")).hexdigest()
-        message_material = {
+        identity: dict[str, object] = {
             "body_digest": body_digest,
             "message_type": message_type.value,
             "parent_message_id": parent_message_id,
@@ -717,47 +871,124 @@ class WorkflowController:
             "sender_role_key": sender_role_key,
             "task_id": task_id,
         }
-        message_id = "msg-" + _digest(message_material)
-        with self._connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute(
-                "SELECT * FROM role_mailbox WHERE message_id = ?", (message_id,)
-            ).fetchone()
-            if row is None:
-                created_at = datetime.now(UTC)
-                connection.execute(
-                    "INSERT INTO role_mailbox(message_id, parent_message_id, sender_role_key, "
-                    "recipient_role_key, message_type, task_id, queue_generation, recipient_generation, "
-                    "body_digest, body_json, created_at, delivery_status) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        message_id, parent_message_id, sender_role_key, recipient_role_key,
-                        message_type.value, task_id, queue_generation, recipient.generation,
-                        body_digest, body_json, utc_text(created_at), MailboxStatus.PENDING.value,
-                    ),
-                )
-                row = connection.execute(
-                    "SELECT * FROM role_mailbox WHERE message_id = ?", (message_id,)
-                ).fetchone()
-            elif (
-                row["body_digest"] != body_digest
-                or row["recipient_role_key"] != recipient_role_key
-                or row["sender_role_key"] != sender_role_key
-                or row["message_type"] != message_type.value
-                or row["task_id"] != task_id
-                or row["queue_generation"] != queue_generation
-                or row["parent_message_id"] != parent_message_id
+        message_id = message_id_override or ("msg-" + _digest(identity))
+        if _IDENTIFIER.fullmatch(message_id) is None:
+            raise WorkflowControllerError("mailbox message id is invalid")
+        row = connection.execute(
+            "SELECT * FROM role_mailbox WHERE message_id = ?", (message_id,)
+        ).fetchone()
+        if row is not None:
+            envelope = self._mailbox_from_row(row)
+            if (
+                envelope.body_digest != body_digest
+                or envelope.recipient_role_key != recipient_role_key
+                or envelope.recipient_generation != recipient.generation
+                or envelope.recipient_session_id != recipient.identity.codex_session_id
+                or envelope.sender_role_key != sender_role_key
+                or envelope.message_type is not message_type
+                or envelope.task_id != task_id
+                or envelope.queue_generation != queue_generation
+                or envelope.parent_message_id != parent_message_id
             ):
-                connection.rollback()
                 raise MailboxConflict("mailbox message id was rebound")
-            connection.commit()
+            return envelope
+        created_at = created_at_override or datetime.now(UTC)
+        values: dict[str, object] = {
+            **identity,
+            "body_json": body_json,
+            "created_at": utc_text(created_at),
+            "message_id": message_id,
+            "recipient_generation": recipient.generation,
+            "recipient_session_id": recipient.identity.codex_session_id,
+        }
+        envelope_digest = _digest(self._envelope_material(values))
+        connection.execute(
+            "INSERT INTO role_mailbox(message_id, parent_message_id, sender_role_key, "
+            "recipient_role_key, message_type, task_id, queue_generation, recipient_generation, "
+            "recipient_session_id, body_digest, body_json, created_at, delivery_status, "
+            "envelope_digest) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                message_id, parent_message_id, sender_role_key, recipient_role_key,
+                message_type.value, task_id, queue_generation, recipient.generation,
+                recipient.identity.codex_session_id, body_digest, body_json,
+                utc_text(created_at), MailboxStatus.PENDING.value, envelope_digest,
+            ),
+        )
+        row = connection.execute(
+            "SELECT * FROM role_mailbox WHERE message_id = ?", (message_id,)
+        ).fetchone()
         assert row is not None
         return self._mailbox_from_row(row)
 
+    def _enqueue_mailbox(
+        self,
+        *,
+        sender_role_key: str,
+        recipient_role_key: str,
+        recipient_generation: int,
+        message_type: MailboxMessageType,
+        body: Mapping[str, object],
+        task_id: str | None = None,
+        queue_generation: str | None = None,
+        parent_message_id: str | None = None,
+        message_id_override: str | None = None,
+        created_at_override: datetime | None = None,
+    ) -> MailboxEnvelope:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            envelope = self._insert_mailbox_in_transaction(
+                connection,
+                sender_role_key=sender_role_key,
+                recipient_role_key=recipient_role_key,
+                recipient_generation=recipient_generation,
+                message_type=message_type,
+                body=body,
+                task_id=task_id,
+                queue_generation=queue_generation,
+                parent_message_id=parent_message_id,
+                message_id_override=message_id_override,
+                created_at_override=created_at_override,
+            )
+            connection.commit()
+        return envelope
+
     @staticmethod
     def _mailbox_from_row(row: sqlite3.Row) -> MailboxEnvelope:
+        body_json = str(row["body_json"])
+        body_digest = hashlib.sha256(body_json.encode("utf-8")).hexdigest()
+        if body_digest != row["body_digest"]:
+            raise MailboxConflict("mailbox body integrity check failed")
+        expected_envelope = _digest(WorkflowController._envelope_material(row))
+        if row["envelope_digest"] != expected_envelope:
+            raise MailboxConflict("mailbox envelope integrity check failed")
+        message_id = str(row["message_id"])
+        body = json.loads(body_json)
+        if message_id.startswith("msg-"):
+            if message_id != WorkflowController._internal_message_id(row):
+                raise MailboxConflict("mailbox message id was rebound")
+        elif str(row["message_type"]) in {
+            MailboxMessageType.DIRECT_MESSAGE.value,
+            MailboxMessageType.OPERATIONAL_WAKE.value,
+            MailboxMessageType.USER_INTENT.value,
+        }:
+            raw_body = body.get("message") if isinstance(body, dict) else None
+            listener_digest = body.get("listener_body_digest") if isinstance(body, dict) else None
+            if (
+                not isinstance(raw_body, str)
+                or hashlib.sha256(raw_body.encode("utf-8")).hexdigest() != listener_digest
+                or message_id not in WorkflowController._listener_message_ids(
+                    parent_id=str(row["parent_message_id"]),
+                    body=raw_body,
+                    recipient=str(row["recipient_role_key"]),
+                    session_id=str(row["recipient_session_id"]),
+                    generation=int(row["recipient_generation"]),
+                    message_type=str(row["message_type"]),
+                    queue_id=row["task_id"],
+                )
+            ):
+                raise MailboxConflict("Listener mailbox message id was rebound")
         return MailboxEnvelope(
-            message_id=str(row["message_id"]),
+            message_id=message_id,
             parent_message_id=row["parent_message_id"],
             sender_role_key=str(row["sender_role_key"]),
             recipient_role_key=str(row["recipient_role_key"]),
@@ -765,8 +996,9 @@ class WorkflowController:
             task_id=row["task_id"],
             queue_generation=row["queue_generation"],
             recipient_generation=int(row["recipient_generation"]),
+            recipient_session_id=str(row["recipient_session_id"]),
             body_digest=str(row["body_digest"]),
-            body=json.loads(str(row["body_json"])),
+            body=body,
             created_at=parse_utc(str(row["created_at"])),
             delivery_status=MailboxStatus(str(row["delivery_status"])),
         )
@@ -884,6 +1116,93 @@ class WorkflowController:
         )
         return envelope.message_id
 
+    def deliver_listener_mailbox_envelope(self, envelope: object) -> str:
+        """Persist ListenerGateway's typed, generation-bound PM envelope."""
+
+        required = (
+            "message_id", "parent_id", "sender", "recipient", "session_id",
+            "message_type", "queue_id", "generation", "body_digest", "body",
+            "creation_time", "delivery_status",
+        )
+        if any(not hasattr(envelope, field) for field in required):
+            raise WorkflowControllerError("Listener mailbox envelope is not typed")
+        message_id = str(getattr(envelope, "message_id"))
+        parent_id = str(getattr(envelope, "parent_id"))
+        sender = str(getattr(envelope, "sender"))
+        recipient_key = str(getattr(envelope, "recipient"))
+        session_id = str(getattr(envelope, "session_id"))
+        generation = getattr(envelope, "generation")
+        raw_body = getattr(envelope, "body")
+        body_digest = str(getattr(envelope, "body_digest"))
+        if (
+            _DIGEST.fullmatch(message_id) is None
+            or _DIGEST.fullmatch(parent_id) is None
+            or recipient_key != "project_manager"
+            or not isinstance(generation, int)
+            or isinstance(generation, bool)
+            or generation < 1
+            or not isinstance(raw_body, str)
+            or not raw_body.strip()
+            or hashlib.sha256(raw_body.encode("utf-8")).hexdigest() != body_digest
+            or getattr(envelope, "delivery_status") != "pending"
+        ):
+            raise WorkflowControllerError("Listener mailbox envelope is invalid")
+        try:
+            message_type = MailboxMessageType(str(getattr(envelope, "message_type")))
+        except ValueError as error:
+            raise WorkflowControllerError("Listener mailbox type is unsupported") from error
+        if message_type not in {
+            MailboxMessageType.DIRECT_MESSAGE,
+            MailboxMessageType.OPERATIONAL_WAKE,
+            MailboxMessageType.USER_INTENT,
+        }:
+            raise WorkflowControllerError("Listener mailbox type is unsupported")
+        queue_id = getattr(envelope, "queue_id")
+        if message_id not in self._listener_message_ids(
+            parent_id=parent_id,
+            body=raw_body,
+            recipient=recipient_key,
+            session_id=session_id,
+            generation=generation,
+            message_type=message_type.value,
+            queue_id=queue_id,
+        ):
+            raise WorkflowControllerError("Listener mailbox message id is not canonical")
+        created_at = parse_utc(str(getattr(envelope, "creation_time")))
+        with self._connect() as connection:
+            existing = connection.execute(
+                "SELECT * FROM role_mailbox WHERE message_id = ?", (message_id,)
+            ).fetchone()
+        if existing is not None:
+            persisted = self._mailbox_from_row(existing)
+            if (
+                persisted.parent_message_id != parent_id
+                or persisted.sender_role_key != sender
+                or persisted.recipient_role_key != recipient_key
+                or persisted.recipient_session_id != session_id
+                or persisted.recipient_generation != generation
+                or persisted.message_type is not message_type
+                or persisted.task_id != queue_id
+                or persisted.body.get("message") != raw_body
+                or persisted.created_at != created_at
+            ):
+                raise MailboxConflict("Listener mailbox message id was rebound")
+            return persisted.message_id
+        current = self._require_role(recipient_key, generation)
+        if current.identity.codex_session_id != session_id:
+            raise StaleRoleGeneration("Listener mailbox session changed")
+        return self._enqueue_mailbox(
+            sender_role_key=sender,
+            recipient_role_key=recipient_key,
+            recipient_generation=generation,
+            message_type=message_type,
+            body={"listener_body_digest": body_digest, "message": raw_body},
+            task_id=queue_id,
+            parent_message_id=parent_id,
+            message_id_override=message_id,
+            created_at_override=created_at,
+        ).message_id
+
     @staticmethod
     def _contract_payload(contract: TaskContract) -> dict[str, object]:
         return {
@@ -911,6 +1230,29 @@ class WorkflowController:
         *,
         pm_generation: int,
     ) -> MailboxEnvelope:
+        """Generation-bind the PM contract mutation through durable settlement."""
+
+        pm = self._require_role(
+            contract.pm_role_key,
+            pm_generation,
+            action=RoleAction.ASSIGN_LEAD,
+            expected_kind=RoleKind.PROJECT_MANAGER,
+        )
+        return self._run_generation_bound(
+            pm,
+            action=RoleAction.ASSIGN_LEAD,
+            expected_kind=RoleKind.PROJECT_MANAGER,
+            operation=lambda: self._dispatch_task_contract_unlocked(
+                contract, pm_generation=pm_generation
+            ),
+        )
+
+    def _dispatch_task_contract_unlocked(
+        self,
+        contract: TaskContract,
+        *,
+        pm_generation: int,
+    ) -> MailboxEnvelope:
         """Persist and deliver an immutable PM-owned task contract to one Lead."""
 
         pm = self._require_role(
@@ -929,12 +1271,25 @@ class WorkflowController:
             raise RoleRegistryError("task contract Lead is outside the PM hierarchy")
         if reviewer.identity.parent_role_key != lead.identity.role_key:
             raise RoleRegistryError("task contract Reviewer is outside the Lead hierarchy")
+        session_ids = {
+            lead.identity.role_key: lead.identity.codex_session_id,
+            reviewer.identity.role_key: reviewer.identity.codex_session_id,
+        }
         for assignment in contract.worker_assignments:
             worker = self.role_registry.get(assignment.worker_role_key)
             if worker.identity.role_kind is not RoleKind.WORKER:
                 raise RoleRegistryError("task contract Worker identity is not a Worker")
             if worker.identity.parent_role_key != lead.identity.role_key:
                 raise RoleRegistryError("task contract Worker is outside the Lead hierarchy")
+            session_ids[worker.identity.role_key] = worker.identity.codex_session_id
+        require_unique_role_sessions(
+            lead_role_key=lead.identity.role_key,
+            reviewer_role_key=reviewer.identity.role_key,
+            worker_role_keys=tuple(
+                assignment.worker_role_key for assignment in contract.worker_assignments
+            ),
+            session_ids=session_ids,
+        )
         payload = self._contract_payload(contract)
         payload_json = _canonical(payload)
         with self._connect() as connection:
@@ -1006,16 +1361,18 @@ class WorkflowController:
                         _canonical({"write_scope": list(assignment.write_scope)}),
                     ),
                 )
+            envelope = self._insert_mailbox_in_transaction(
+                connection,
+                sender_role_key=contract.pm_role_key,
+                recipient_role_key=contract.lead_role_key,
+                recipient_generation=lead.generation,
+                message_type=MailboxMessageType.TASK_CONTRACT,
+                body={"contract_digest": contract.contract_digest},
+                task_id=contract.task_id,
+                queue_generation=contract.queue_generation,
+            )
             connection.commit()
-        return self._enqueue_mailbox(
-            sender_role_key=contract.pm_role_key,
-            recipient_role_key=contract.lead_role_key,
-            recipient_generation=lead.generation,
-            message_type=MailboxMessageType.TASK_CONTRACT,
-            body={"contract_digest": contract.contract_digest},
-            task_id=contract.task_id,
-            queue_generation=contract.queue_generation,
-        )
+        return envelope
 
     def _current_task(self, task_id: str, queue_generation: str) -> sqlite3.Row:
         with self._connect() as connection:
@@ -1036,6 +1393,34 @@ class WorkflowController:
         lead_role_key: str,
         lead_generation: int,
     ) -> tuple[MailboxEnvelope, ...]:
+        """Generation-bind Lead fan-out through every durable side effect."""
+
+        lead = self._require_role(
+            lead_role_key,
+            lead_generation,
+            action=RoleAction.DISPATCH_WORKER,
+            expected_kind=RoleKind.DOMAIN_LEAD,
+        )
+        return self._run_generation_bound(
+            lead,
+            action=RoleAction.DISPATCH_WORKER,
+            expected_kind=RoleKind.DOMAIN_LEAD,
+            operation=lambda: self._dispatch_workers_unlocked(
+                task_id=task_id,
+                queue_generation=queue_generation,
+                lead_role_key=lead_role_key,
+                lead_generation=lead_generation,
+            ),
+        )
+
+    def _dispatch_workers_unlocked(
+        self,
+        *,
+        task_id: str,
+        queue_generation: str,
+        lead_role_key: str,
+        lead_generation: int,
+    ) -> tuple[MailboxEnvelope, ...]:
         """Lead fan-out is deterministic and inherits the contract's disjoint scopes."""
 
         lead = self._require_role(
@@ -1044,40 +1429,89 @@ class WorkflowController:
             action=RoleAction.DISPATCH_WORKER,
             expected_kind=RoleKind.DOMAIN_LEAD,
         )
-        task = self._current_task(task_id, queue_generation)
-        if task["lead_role_key"] != lead_role_key:
-            raise RoleRegistryError("Lead does not own this task contract")
-        if task["state"] == "replan_required":
-            raise ReviewLoopError("task requires PM replan before Worker dispatch")
         with self._connect() as connection:
-            assignments = connection.execute(
-                "SELECT worker_role_key, write_scope_json FROM worker_assignment "
-                "WHERE task_id = ? AND queue_generation = ? ORDER BY worker_role_key",
-                (task_id, queue_generation),
-            ).fetchall()
-        messages = []
-        for assignment in assignments:
-            worker = self.role_registry.get(str(assignment["worker_role_key"]))
-            messages.append(
-                self._enqueue_mailbox(
-                    sender_role_key=lead.identity.role_key,
-                    recipient_role_key=worker.identity.role_key,
-                    recipient_generation=worker.generation,
-                    message_type=MailboxMessageType.WORKER_ASSIGNMENT,
-                    body=json.loads(str(assignment["write_scope_json"])),
-                    task_id=task_id,
-                    queue_generation=queue_generation,
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                task = connection.execute(
+                    "SELECT * FROM hierarchy_task WHERE task_id = ?", (task_id,)
+                ).fetchone()
+                if task is None:
+                    raise ReviewLoopError("task contract is not registered")
+                if task["queue_generation"] != queue_generation:
+                    raise StaleQueueGeneration("Queue task generation is stale")
+                if task["lead_role_key"] != lead_role_key:
+                    raise RoleRegistryError("Lead does not own this task contract")
+                if task["state"] == "replan_required":
+                    raise ReviewLoopError("task requires PM replan before Worker dispatch")
+                assignments = connection.execute(
+                    "SELECT worker_role_key, write_scope_json FROM worker_assignment "
+                    "WHERE task_id = ? AND queue_generation = ? ORDER BY worker_role_key",
+                    (task_id, queue_generation),
+                ).fetchall()
+                recipients = tuple(
+                    (
+                        assignment,
+                        self.role_registry.get(str(assignment["worker_role_key"])),
+                    )
+                    for assignment in assignments
                 )
-            )
-        with self._connect() as connection:
-            connection.execute(
-                "UPDATE hierarchy_task SET state = 'working' WHERE task_id = ? "
-                "AND queue_generation = ? AND state = 'assigned'",
-                (task_id, queue_generation),
-            )
+                for _assignment, worker in recipients:
+                    self._require_role(worker.identity.role_key, worker.generation)
+                messages = [
+                    self._insert_mailbox_in_transaction(
+                        connection,
+                        sender_role_key=lead.identity.role_key,
+                        recipient_role_key=worker.identity.role_key,
+                        recipient_generation=worker.generation,
+                        message_type=MailboxMessageType.WORKER_ASSIGNMENT,
+                        body=json.loads(str(assignment["write_scope_json"])),
+                        task_id=task_id,
+                        queue_generation=queue_generation,
+                    )
+                    for assignment, worker in recipients
+                ]
+                connection.execute(
+                    "UPDATE hierarchy_task SET state = 'working' WHERE task_id = ? "
+                    "AND queue_generation = ? AND state = 'assigned'",
+                    (task_id, queue_generation),
+                )
+                connection.commit()
+            except BaseException:
+                connection.rollback()
+                raise
         return tuple(messages)
 
     def record_lead_checkpoint(
+        self,
+        *,
+        task_id: str,
+        queue_generation: str,
+        lead_role_key: str,
+        lead_generation: int,
+        checkpoint_digest: str,
+    ) -> str:
+        """Generation-bind a Lead checkpoint through its durable insert."""
+
+        lead = self._require_role(
+            lead_role_key,
+            lead_generation,
+            action=RoleAction.PROGRESS_CHECKPOINT,
+            expected_kind=RoleKind.DOMAIN_LEAD,
+        )
+        return self._run_generation_bound(
+            lead,
+            action=RoleAction.PROGRESS_CHECKPOINT,
+            expected_kind=RoleKind.DOMAIN_LEAD,
+            operation=lambda: self._record_lead_checkpoint_unlocked(
+                task_id=task_id,
+                queue_generation=queue_generation,
+                lead_role_key=lead_role_key,
+                lead_generation=lead_generation,
+                checkpoint_digest=checkpoint_digest,
+            ),
+        )
+
+    def _record_lead_checkpoint_unlocked(
         self,
         *,
         task_id: str,
@@ -1096,9 +1530,6 @@ class WorkflowController:
         )
         if _DIGEST.fullmatch(checkpoint_digest) is None:
             raise WorkflowControllerError("checkpoint digest must be SHA-256")
-        task = self._current_task(task_id, queue_generation)
-        if task["lead_role_key"] != lead_role_key:
-            raise RoleRegistryError("Lead does not own this task checkpoint")
         checkpoint_id = "checkpoint-" + _digest(
             {
                 "checkpoint_digest": checkpoint_digest,
@@ -1108,23 +1539,69 @@ class WorkflowController:
             }
         )
         with self._connect() as connection:
-            connection.execute(
-                "INSERT OR IGNORE INTO lead_checkpoint(checkpoint_id, task_id, queue_generation, "
-                "lead_role_key, checkpoint_digest, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (
-                    checkpoint_id, task_id, queue_generation, lead_role_key,
-                    checkpoint_digest, utc_text(datetime.now(UTC)),
-                ),
-            )
-            row = connection.execute(
-                "SELECT checkpoint_digest FROM lead_checkpoint WHERE checkpoint_id = ?",
-                (checkpoint_id,),
-            ).fetchone()
-        if row is None or row["checkpoint_digest"] != checkpoint_digest:
-            raise MailboxConflict("Lead checkpoint id was rebound")
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                task = connection.execute(
+                    "SELECT * FROM hierarchy_task WHERE task_id = ?", (task_id,)
+                ).fetchone()
+                if task is None:
+                    raise ReviewLoopError("task contract is not registered")
+                if task["queue_generation"] != queue_generation:
+                    raise StaleQueueGeneration("Queue task generation is stale")
+                if task["lead_role_key"] != lead_role_key:
+                    raise RoleRegistryError("Lead does not own this task checkpoint")
+                connection.execute(
+                    "INSERT OR IGNORE INTO lead_checkpoint(checkpoint_id, task_id, "
+                    "queue_generation, lead_role_key, checkpoint_digest, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        checkpoint_id, task_id, queue_generation, lead_role_key,
+                        checkpoint_digest, utc_text(datetime.now(UTC)),
+                    ),
+                )
+                row = connection.execute(
+                    "SELECT checkpoint_digest FROM lead_checkpoint WHERE checkpoint_id = ?",
+                    (checkpoint_id,),
+                ).fetchone()
+                if row is None or row["checkpoint_digest"] != checkpoint_digest:
+                    raise MailboxConflict("Lead checkpoint id was rebound")
+                connection.commit()
+            except BaseException:
+                connection.rollback()
+                raise
         return checkpoint_id
 
     def submit_worker_candidate(
+        self,
+        *,
+        task_id: str,
+        queue_generation: str,
+        worker_role_key: str,
+        worker_generation: int,
+        candidate_digest: str,
+    ) -> tuple[MailboxEnvelope, MailboxEnvelope]:
+        """Generation-bind Worker submission through candidate delivery."""
+
+        worker = self._require_role(
+            worker_role_key,
+            worker_generation,
+            action=RoleAction.SUBMIT_CANDIDATE,
+            expected_kind=RoleKind.WORKER,
+        )
+        return self._run_generation_bound(
+            worker,
+            action=RoleAction.SUBMIT_CANDIDATE,
+            expected_kind=RoleKind.WORKER,
+            operation=lambda: self._submit_worker_candidate_unlocked(
+                task_id=task_id,
+                queue_generation=queue_generation,
+                worker_role_key=worker_role_key,
+                worker_generation=worker_generation,
+                candidate_digest=candidate_digest,
+            ),
+        )
+
+    def _submit_worker_candidate_unlocked(
         self,
         *,
         task_id: str,
@@ -1143,58 +1620,118 @@ class WorkflowController:
         )
         if _DIGEST.fullmatch(candidate_digest) is None:
             raise ReviewLoopError("candidate digest must be SHA-256")
-        task = self._current_task(task_id, queue_generation)
-        if task["state"] == "replan_required":
-            raise ReviewLoopError("third FIX requires Lead/PM replan")
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            assignment = connection.execute(
-                "SELECT candidate_digest, candidate_state FROM worker_assignment "
-                "WHERE task_id = ? AND queue_generation = ? AND worker_role_key = ?",
-                (task_id, queue_generation, worker_role_key),
-            ).fetchone()
-            if assignment is None:
-                connection.rollback()
-                raise RoleRegistryError("Worker is outside the task fan-out")
-            if assignment["candidate_state"] == "pending_review":
-                if assignment["candidate_digest"] != candidate_digest:
-                    connection.rollback()
-                    raise ReviewLoopError("a frozen candidate is already awaiting review")
-            elif assignment["candidate_state"] == "passed":
-                connection.rollback()
-                raise ReviewLoopError("a passed candidate cannot be replaced")
-            else:
-                connection.execute(
-                    "UPDATE worker_assignment SET candidate_digest = ?, candidate_state = 'pending_review' "
+            try:
+                task = connection.execute(
+                    "SELECT * FROM hierarchy_task WHERE task_id = ?", (task_id,)
+                ).fetchone()
+                if task is None:
+                    raise ReviewLoopError("task contract is not registered")
+                if task["queue_generation"] != queue_generation:
+                    raise StaleQueueGeneration("Queue task generation is stale")
+                if task["state"] == "replan_required":
+                    raise ReviewLoopError("third FIX requires Lead/PM replan")
+                assignment = connection.execute(
+                    "SELECT candidate_digest, candidate_state FROM worker_assignment "
                     "WHERE task_id = ? AND queue_generation = ? AND worker_role_key = ?",
-                    (candidate_digest, task_id, queue_generation, worker_role_key),
+                    (task_id, queue_generation, worker_role_key),
+                ).fetchone()
+                if assignment is None:
+                    raise RoleRegistryError("Worker is outside the task fan-out")
+                if assignment["candidate_state"] == "pending_review":
+                    if assignment["candidate_digest"] != candidate_digest:
+                        raise ReviewLoopError("a frozen candidate is already awaiting review")
+                elif assignment["candidate_state"] == "passed":
+                    raise ReviewLoopError("a passed candidate cannot be replaced")
+                else:
+                    connection.execute(
+                        "UPDATE worker_assignment SET candidate_digest = ?, "
+                        "candidate_state = 'pending_review' WHERE task_id = ? "
+                        "AND queue_generation = ? AND worker_role_key = ?",
+                        (candidate_digest, task_id, queue_generation, worker_role_key),
+                    )
+                reviewer = self.role_registry.get(str(task["reviewer_role_key"]))
+                lead = self.role_registry.get(str(task["lead_role_key"]))
+                self._require_role(reviewer.identity.role_key, reviewer.generation)
+                self._require_role(lead.identity.role_key, lead.generation)
+                body = {
+                    "candidate_digest": candidate_digest,
+                    "worker_role_key": worker.identity.role_key,
+                }
+                review = self._insert_mailbox_in_transaction(
+                    connection,
+                    sender_role_key=worker.identity.role_key,
+                    recipient_role_key=reviewer.identity.role_key,
+                    recipient_generation=reviewer.generation,
+                    message_type=MailboxMessageType.CANDIDATE,
+                    body=body,
+                    task_id=task_id,
+                    queue_generation=queue_generation,
                 )
-            connection.commit()
-        reviewer = self.role_registry.get(str(task["reviewer_role_key"]))
-        lead = self.role_registry.get(str(task["lead_role_key"]))
-        body = {"candidate_digest": candidate_digest, "worker_role_key": worker.identity.role_key}
-        review = self._enqueue_mailbox(
-            sender_role_key=worker.identity.role_key,
-            recipient_role_key=reviewer.identity.role_key,
-            recipient_generation=reviewer.generation,
-            message_type=MailboxMessageType.CANDIDATE,
-            body=body,
-            task_id=task_id,
-            queue_generation=queue_generation,
-        )
-        visible = self._enqueue_mailbox(
-            sender_role_key=worker.identity.role_key,
-            recipient_role_key=lead.identity.role_key,
-            recipient_generation=lead.generation,
-            message_type=MailboxMessageType.REVIEW_VISIBILITY,
-            body=body,
-            task_id=task_id,
-            queue_generation=queue_generation,
-            parent_message_id=review.message_id,
-        )
+                visible = self._insert_mailbox_in_transaction(
+                    connection,
+                    sender_role_key=worker.identity.role_key,
+                    recipient_role_key=lead.identity.role_key,
+                    recipient_generation=lead.generation,
+                    message_type=MailboxMessageType.REVIEW_VISIBILITY,
+                    body=body,
+                    task_id=task_id,
+                    queue_generation=queue_generation,
+                    parent_message_id=review.message_id,
+                )
+                connection.commit()
+            except BaseException:
+                connection.rollback()
+                raise
         return review, visible
 
     def review_worker_candidate(
+        self,
+        *,
+        task_id: str,
+        queue_generation: str,
+        worker_role_key: str,
+        reviewer_role_key: str,
+        reviewer_generation: int,
+        candidate_digest: str,
+        decision: ReviewDecision,
+        reason_code: str,
+    ) -> ReviewLoopReceipt:
+        """Generation-bind Reviewer settlement through its atomic controller CAS."""
+
+        action = (
+            RoleAction.REVIEW_PASS
+            if decision is ReviewDecision.PASS
+            else RoleAction.REVIEW_FIX
+            if decision is ReviewDecision.FIX
+            else None
+        )
+        if action is None:
+            raise ReviewLoopError("review decision must use ReviewDecision")
+        reviewer = self._require_role(
+            reviewer_role_key,
+            reviewer_generation,
+            action=action,
+            expected_kind=RoleKind.REVIEWER,
+        )
+        return self._run_generation_bound(
+            reviewer,
+            action=action,
+            expected_kind=RoleKind.REVIEWER,
+            operation=lambda: self._review_worker_candidate_unlocked(
+                task_id=task_id,
+                queue_generation=queue_generation,
+                worker_role_key=worker_role_key,
+                reviewer_role_key=reviewer_role_key,
+                reviewer_generation=reviewer_generation,
+                candidate_digest=candidate_digest,
+                decision=decision,
+                reason_code=reason_code,
+            ),
+        )
+
+    def _review_worker_candidate_unlocked(
         self,
         *,
         task_id: str,
@@ -1227,9 +1764,6 @@ class WorkflowController:
             raise ReviewLoopError("candidate digest must be SHA-256")
         if _IDENTIFIER.fullmatch(reason_code) is None:
             raise ReviewLoopError("review reason code must be symbolic")
-        task = self._current_task(task_id, queue_generation)
-        if task["reviewer_role_key"] != reviewer_role_key:
-            raise RoleRegistryError("review decision did not come from the preassigned Reviewer")
         operation_id = "review-" + _digest(
             {
                 "candidate_digest": candidate_digest,
@@ -1243,156 +1777,157 @@ class WorkflowController:
             }
         )
         with self._connect() as connection:
-            cached = connection.execute(
-                "SELECT payload FROM review_receipt WHERE operation_id = ?", (operation_id,)
-            ).fetchone()
-        if cached is not None:
-            value = json.loads(str(cached["payload"]))
-            return ReviewLoopReceipt(
-                task_id=value["task_id"],
-                queue_generation=value["queue_generation"],
-                worker_role_key=value["worker_role_key"],
-                reviewer_role_key=value["reviewer_role_key"],
-                decision=ReviewDecision(value["decision"]),
-                fix_count=int(value["fix_count"]),
-                state=value["state"],
-                message_ids=tuple(value["message_ids"]),
-                receipt_digest=value["receipt_digest"],
-            )
-        if task["state"] == "replan_required":
-            raise ReviewLoopError("third FIX already requires Lead/PM replan")
-        with self._connect() as connection:
-            assignment = connection.execute(
-                "SELECT candidate_digest, candidate_state FROM worker_assignment "
-                "WHERE task_id = ? AND queue_generation = ? AND worker_role_key = ?",
-                (task_id, queue_generation, worker_role_key),
-            ).fetchone()
-        if assignment is None:
-            raise RoleRegistryError("reviewed Worker is outside the task fan-out")
-        if (
-            assignment["candidate_state"] != "pending_review"
-            or assignment["candidate_digest"] != candidate_digest
-        ):
-            raise ReviewLoopError("review decision targets a stale candidate")
-        lead = self.role_registry.get(str(task["lead_role_key"]))
-        pm = self.role_registry.get(str(task["pm_role_key"]))
-        current_fix_count = int(task["fix_count"])
-        message_ids: list[str] = []
-        body = {
-            "candidate_digest": candidate_digest,
-            "reason_code": reason_code,
-            "worker_role_key": worker_role_key,
-        }
-        if decision is ReviewDecision.PASS:
-            message_ids.append(
-                self._enqueue_mailbox(
-                    sender_role_key=reviewer.identity.role_key,
-                    recipient_role_key=lead.identity.role_key,
-                    recipient_generation=lead.generation,
-                    message_type=MailboxMessageType.PASS,
-                    body=body,
-                    task_id=task_id,
-                    queue_generation=queue_generation,
-                ).message_id
-            )
-            state = "passed_to_lead"
-            next_candidate_state = "passed"
-            fix_count = current_fix_count
-        else:
-            fix_count = current_fix_count + 1
-            if fix_count >= 3:
-                state = "replan_required"
-                next_candidate_state = "replan_required"
-                for recipient in (lead, pm):
-                    message_ids.append(
-                        self._enqueue_mailbox(
-                            sender_role_key=reviewer.identity.role_key,
-                            recipient_role_key=recipient.identity.role_key,
-                            recipient_generation=recipient.generation,
-                            message_type=MailboxMessageType.REPLAN_REQUIRED,
-                            body=body | {"fix_count": fix_count},
-                            task_id=task_id,
-                            queue_generation=queue_generation,
-                        ).message_id
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                cached = connection.execute(
+                    "SELECT payload FROM review_receipt WHERE operation_id = ?",
+                    (operation_id,),
+                ).fetchone()
+                if cached is not None:
+                    value = json.loads(str(cached["payload"]))
+                    receipt = ReviewLoopReceipt(
+                        task_id=value["task_id"],
+                        queue_generation=value["queue_generation"],
+                        worker_role_key=value["worker_role_key"],
+                        reviewer_role_key=value["reviewer_role_key"],
+                        decision=ReviewDecision(value["decision"]),
+                        fix_count=int(value["fix_count"]),
+                        state=value["state"],
+                        message_ids=tuple(value["message_ids"]),
+                        receipt_digest=value["receipt_digest"],
                     )
-            else:
-                state = "fix_returned"
-                next_candidate_state = "fix_requested"
+                    connection.commit()
+                    return receipt
+                task = connection.execute(
+                    "SELECT * FROM hierarchy_task WHERE task_id = ?", (task_id,)
+                ).fetchone()
+                if task is None:
+                    raise ReviewLoopError("task contract is not registered")
+                if task["queue_generation"] != queue_generation:
+                    raise StaleQueueGeneration("Queue task generation is stale")
+                if task["reviewer_role_key"] != reviewer_role_key:
+                    raise RoleRegistryError(
+                        "review decision did not come from the preassigned Reviewer"
+                    )
+                if task["state"] == "replan_required":
+                    raise ReviewLoopError("third FIX already requires Lead/PM replan")
+                assignment = connection.execute(
+                    "SELECT candidate_digest, candidate_state FROM worker_assignment "
+                    "WHERE task_id = ? AND queue_generation = ? AND worker_role_key = ?",
+                    (task_id, queue_generation, worker_role_key),
+                ).fetchone()
+                if assignment is None:
+                    raise RoleRegistryError("reviewed Worker is outside the task fan-out")
+                if (
+                    assignment["candidate_state"] != "pending_review"
+                    or assignment["candidate_digest"] != candidate_digest
+                ):
+                    raise ReviewLoopError("review decision targets a stale candidate")
+                lead = self.role_registry.get(str(task["lead_role_key"]))
+                pm = self.role_registry.get(str(task["pm_role_key"]))
                 worker = self.role_registry.get(worker_role_key)
-                fix_message = self._enqueue_mailbox(
-                    sender_role_key=reviewer.identity.role_key,
-                    recipient_role_key=worker.identity.role_key,
-                    recipient_generation=worker.generation,
-                    message_type=MailboxMessageType.FIX,
-                    body=body | {"fix_count": fix_count},
-                    task_id=task_id,
-                    queue_generation=queue_generation,
-                )
-                message_ids.append(fix_message.message_id)
-                message_ids.append(
-                    self._enqueue_mailbox(
+                current_fix_count = int(task["fix_count"])
+                message_ids: list[str] = []
+                body = {
+                    "candidate_digest": candidate_digest,
+                    "reason_code": reason_code,
+                    "worker_role_key": worker_role_key,
+                }
+
+                def insert(recipient: RoleRecord, kind: MailboxMessageType, payload: Mapping[str, object], parent: str | None = None) -> MailboxEnvelope:
+                    return self._insert_mailbox_in_transaction(
+                        connection,
                         sender_role_key=reviewer.identity.role_key,
-                        recipient_role_key=lead.identity.role_key,
-                        recipient_generation=lead.generation,
-                        message_type=MailboxMessageType.REVIEW_VISIBILITY,
-                        body=body | {"fix_count": fix_count},
+                        recipient_role_key=recipient.identity.role_key,
+                        recipient_generation=recipient.generation,
+                        message_type=kind,
+                        body=payload,
                         task_id=task_id,
                         queue_generation=queue_generation,
-                        parent_message_id=fix_message.message_id,
-                    ).message_id
+                        parent_message_id=parent,
+                    )
+
+                if decision is ReviewDecision.PASS:
+                    message_ids.append(insert(lead, MailboxMessageType.PASS, body).message_id)
+                    state, next_candidate_state = "passed_to_lead", "passed"
+                    fix_count = current_fix_count
+                else:
+                    fix_count = current_fix_count + 1
+                    fix_body = body | {"fix_count": fix_count}
+                    if fix_count >= 3:
+                        state, next_candidate_state = "replan_required", "replan_required"
+                        for recipient in (lead, pm):
+                            message_ids.append(
+                                insert(
+                                    recipient,
+                                    MailboxMessageType.REPLAN_REQUIRED,
+                                    fix_body,
+                                ).message_id
+                            )
+                    else:
+                        state, next_candidate_state = "fix_returned", "fix_requested"
+                        fix_message = insert(worker, MailboxMessageType.FIX, fix_body)
+                        message_ids.append(fix_message.message_id)
+                        message_ids.append(
+                            insert(
+                                lead,
+                                MailboxMessageType.REVIEW_VISIBILITY,
+                                fix_body,
+                                fix_message.message_id,
+                            ).message_id
+                        )
+                receipt = ReviewLoopReceipt(
+                    task_id=task_id,
+                    queue_generation=queue_generation,
+                    worker_role_key=worker_role_key,
+                    reviewer_role_key=reviewer_role_key,
+                    decision=decision,
+                    fix_count=fix_count,
+                    state=state,
+                    message_ids=tuple(message_ids),
                 )
-        receipt = ReviewLoopReceipt(
-            task_id=task_id,
-            queue_generation=queue_generation,
-            worker_role_key=worker_role_key,
-            reviewer_role_key=reviewer_role_key,
-            decision=decision,
-            fix_count=fix_count,
-            state=state,
-            message_ids=tuple(message_ids),
-        )
-        receipt_payload = _canonical(
-            {
-                "task_id": receipt.task_id,
-                "queue_generation": receipt.queue_generation,
-                "worker_role_key": receipt.worker_role_key,
-                "reviewer_role_key": receipt.reviewer_role_key,
-                "decision": receipt.decision.value,
-                "fix_count": receipt.fix_count,
-                "state": receipt.state,
-                "message_ids": list(receipt.message_ids),
-                "receipt_digest": receipt.receipt_digest,
-            }
-        )
-        with self._connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            changed = connection.execute(
-                "UPDATE worker_assignment SET candidate_state = ? WHERE task_id = ? "
-                "AND queue_generation = ? AND worker_role_key = ? "
-                "AND candidate_digest = ? AND candidate_state = 'pending_review'",
-                (
-                    next_candidate_state, task_id, queue_generation,
-                    worker_role_key, candidate_digest,
-                ),
-            ).rowcount
-            if changed != 1:
+                receipt_payload = _canonical(
+                    {
+                        "task_id": receipt.task_id,
+                        "queue_generation": receipt.queue_generation,
+                        "worker_role_key": receipt.worker_role_key,
+                        "reviewer_role_key": receipt.reviewer_role_key,
+                        "decision": receipt.decision.value,
+                        "fix_count": receipt.fix_count,
+                        "state": receipt.state,
+                        "message_ids": list(receipt.message_ids),
+                        "receipt_digest": receipt.receipt_digest,
+                    }
+                )
+                changed = connection.execute(
+                    "UPDATE worker_assignment SET candidate_state = ? WHERE task_id = ? "
+                    "AND queue_generation = ? AND worker_role_key = ? "
+                    "AND candidate_digest = ? AND candidate_state = 'pending_review'",
+                    (
+                        next_candidate_state, task_id, queue_generation,
+                        worker_role_key, candidate_digest,
+                    ),
+                ).rowcount
+                if changed != 1:
+                    raise ReviewLoopError("candidate changed before review settlement")
+                connection.execute(
+                    "UPDATE hierarchy_task SET fix_count = ?, state = ? WHERE task_id = ? "
+                    "AND queue_generation = ?",
+                    (fix_count, state, task_id, queue_generation),
+                )
+                connection.execute(
+                    "INSERT INTO review_receipt(operation_id, task_id, queue_generation, "
+                    "worker_role_key, reviewer_role_key, payload) VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        operation_id, task_id, queue_generation, worker_role_key,
+                        reviewer_role_key, receipt_payload,
+                    ),
+                )
+                connection.commit()
+                return receipt
+            except BaseException:
                 connection.rollback()
-                raise ReviewLoopError("candidate changed before review settlement")
-            connection.execute(
-                "UPDATE hierarchy_task SET fix_count = ?, state = ? WHERE task_id = ? "
-                "AND queue_generation = ?",
-                (fix_count, state, task_id, queue_generation),
-            )
-            connection.execute(
-                "INSERT INTO review_receipt(operation_id, task_id, queue_generation, "
-                "worker_role_key, reviewer_role_key, payload) VALUES (?, ?, ?, ?, ?, ?)",
-                (
-                    operation_id, task_id, queue_generation, worker_role_key,
-                    reviewer_role_key, receipt_payload,
-                ),
-            )
-            connection.commit()
-        return receipt
+                raise
 
     @staticmethod
     def _runner_action(event: WorkflowEvent) -> RunnerAction | None:

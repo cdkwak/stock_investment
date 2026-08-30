@@ -20,6 +20,13 @@ from stock_data.orchestration.workflow_control.runner import (
     RunnerAction,
 )
 from stock_data.orchestration.workflow_control.registry import RoleIdentity, RoleKind
+from stock_data.orchestration.workflow_control.listener_gateway import (
+    ListenerGateway,
+    ListenerIntent,
+    ListenerRoute,
+    ListenerSinks,
+    RouteKind,
+)
 from stock_data.orchestration.workflow_control.session_runner import (
     InjectedSessionRunner,
     LocalFakeSessionBoundary,
@@ -466,3 +473,52 @@ def test_service_restart_resumes_stored_pm_lead_worker_reviewer_sessions(
     assert replay.session_ids == original.session_ids
     assert sessions.calls == 4
     restarted.close()
+
+
+def test_listener_generation_bound_envelope_delivers_to_service_exactly_once(
+    tmp_path: Path,
+) -> None:
+    instance, _ = service(tmp_path, "pm-listener")
+    instance.start()
+    instance.register_role_session(
+        RoleIdentity(
+            "project_manager", RoleKind.PROJECT_MANAGER, "pm-session-7",
+            "python-control", "repo::C:/workspace", "term-pm", "runtime-a",
+        ),
+        observed_at=T0,
+        lease_until=T0 + timedelta(hours=1),
+    )
+    identity = instance.resolve_pm_mailbox_identity()
+    intent = ListenerIntent(
+        listener_id="root-listener",
+        conversation_id="conversation-7",
+        checkpoint_cursor="turn-1",
+        user_text="PM에 전달",
+        received_at="2026-08-31T00:00:00Z",
+    )
+    route = ListenerRoute(
+        RouteKind.DIRECT_PM,
+        {
+            "message": "resume current work",
+            "recipient": identity.recipient,
+            "session_id": identity.session_id,
+            "generation": identity.generation,
+            "message_type": "operational_wake",
+            "queue_id": None,
+        },
+    )
+    with ListenerGateway(
+        tmp_path / "listener.sqlite3",
+        tmp_path / "listener.jsonl",
+        sinks=ListenerSinks(pm_mailbox=instance),
+        pm_identity_resolver=instance,
+    ) as gateway:
+        first = gateway.intake(intent, (route,))
+        replay = gateway.intake(intent, (route,))
+
+    assert replay == first
+    pending = instance.mailbox("project_manager", pending_only=True)
+    assert len(pending) == 1
+    assert pending[0].message_id == first[0].deliveries[0].receipt_key
+    assert pending[0].recipient_generation == identity.generation
+    instance.close()

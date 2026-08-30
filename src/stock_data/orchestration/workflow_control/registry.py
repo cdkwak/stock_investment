@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 import re
 import sqlite3
 from pathlib import Path
+from typing import Iterator
 
 from stock_data.orchestration.workflow_control.contracts import parse_utc, utc_text
 
 
-REGISTRY_SCHEMA_VERSION = 2
+REGISTRY_SCHEMA_VERSION = 3
 _ROLE_KEY = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/\\-]{0,254}$")
 _TASK_ID = re.compile(r"^RQ-\d{8}T\d{6}-[A-Z0-9]{4}$")
@@ -124,7 +126,7 @@ class RoleRegistry:
             connection.execute("PRAGMA foreign_keys = OFF")
             connection.execute("BEGIN IMMEDIATE")
             version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1, REGISTRY_SCHEMA_VERSION):
+            if version not in (0, 1, 2, REGISTRY_SCHEMA_VERSION):
                 connection.rollback()
                 raise RoleRegistryError("unsupported role registry schema")
             if version == 1:
@@ -167,6 +169,11 @@ class RoleRegistry:
                 )
                 """
             )
+            self._require_unique_sessions(connection)
+            connection.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_role_registry_codex_session "
+                "ON role_registry(codex_session_id)"
+            )
             self._validate_schema(connection)
             connection.execute(f"PRAGMA user_version = {REGISTRY_SCHEMA_VERSION}")
             connection.commit()
@@ -177,6 +184,15 @@ class RoleRegistry:
         """Upgrade the exact identifier-only v1 registry without rebinding rows."""
 
         RoleRegistry._validate_v1_schema(connection)
+        project_managers = connection.execute(
+            "SELECT role_key FROM role_registry WHERE role_kind = ? ORDER BY role_key",
+            (RoleKind.PROJECT_MANAGER.value,),
+        ).fetchall()
+        if len(project_managers) != 1:
+            raise RoleRegistrySchemaError(
+                "v1 migration requires exactly one durable project manager"
+            )
+        RoleRegistry._require_unique_sessions(connection)
         connection.execute("ALTER TABLE role_dispatch_history RENAME TO role_dispatch_history_v1")
         connection.execute("ALTER TABLE role_registry RENAME TO role_registry_v1")
         connection.execute(
@@ -219,18 +235,13 @@ class RoleRegistry:
             FROM role_registry_v1
             """
         )
-        project_managers = connection.execute(
-            "SELECT role_key FROM role_registry WHERE role_kind = ? ORDER BY role_key",
-            (RoleKind.PROJECT_MANAGER.value,),
-        ).fetchall()
-        if len(project_managers) == 1:
-            connection.execute(
-                "UPDATE role_registry SET parent_role_key = ? WHERE role_kind = ?",
-                (
-                    str(project_managers[0]["role_key"]),
-                    RoleKind.DOMAIN_LEAD.value,
-                ),
-            )
+        connection.execute(
+            "UPDATE role_registry SET parent_role_key = ? WHERE role_kind = ?",
+            (
+                str(project_managers[0]["role_key"]),
+                RoleKind.DOMAIN_LEAD.value,
+            ),
+        )
         connection.execute(
             """
             CREATE TABLE role_dispatch_history (
@@ -249,6 +260,22 @@ class RoleRegistry:
         )
         connection.execute("DROP TABLE role_dispatch_history_v1")
         connection.execute("DROP TABLE role_registry_v1")
+
+    @staticmethod
+    def _require_unique_sessions(connection: sqlite3.Connection) -> None:
+        try:
+            duplicate = connection.execute(
+                "SELECT codex_session_id FROM role_registry GROUP BY codex_session_id "
+                "HAVING COUNT(*) > 1 ORDER BY codex_session_id LIMIT 1"
+            ).fetchone()
+        except sqlite3.OperationalError as error:
+            raise RoleRegistrySchemaError(
+                "role registry schema shape is incompatible"
+            ) from error
+        if duplicate is not None:
+            raise RoleRegistrySchemaError(
+                "Codex session id must be unique across durable roles"
+            )
 
     @staticmethod
     def _validate_v1_schema(connection: sqlite3.Connection) -> None:
@@ -334,6 +361,14 @@ class RoleRegistry:
         ):
             connection.rollback()
             raise RoleRegistrySchemaError("role dispatch history schema shape is incompatible")
+        indexes = {
+            str(row[1])
+            for row in connection.execute("PRAGMA index_list(role_registry)")
+            if int(row[2]) == 1
+        }
+        if "uq_role_registry_codex_session" not in indexes:
+            connection.rollback()
+            raise RoleRegistrySchemaError("role registry session uniqueness is missing")
 
     def claim(
         self,
@@ -381,24 +416,32 @@ class RoleRegistry:
                     return existing
                 connection.rollback()
                 raise RoleClaimConflict("role key is already registered")
-            connection.execute(
-                """
-                INSERT INTO role_registry (
-                    role_key, role_kind, codex_session_id, orca_run_id, worktree_id,
-                    terminal_handle, runtime_id, active_task_id, active_dispatch_id,
-                    state, generation, heartbeat_at, lease_until, retry_attempt,
-                    parent_role_key, last_message_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, 0, ?, NULL)
-                """,
-                (
-                    identity.role_key, identity.role_kind.value,
-                    identity.codex_session_id, identity.orca_run_id,
-                    identity.worktree_id, identity.terminal_handle,
-                    identity.runtime_id, identity.active_task_id,
-                    identity.active_dispatch_id, RoleState.ACTIVE.value,
-                    heartbeat_text, lease_text, identity.parent_role_key,
-                ),
-            )
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO role_registry (
+                        role_key, role_kind, codex_session_id, orca_run_id, worktree_id,
+                        terminal_handle, runtime_id, active_task_id, active_dispatch_id,
+                        state, generation, heartbeat_at, lease_until, retry_attempt,
+                        parent_role_key, last_message_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, 0, ?, NULL)
+                    """,
+                    (
+                        identity.role_key, identity.role_kind.value,
+                        identity.codex_session_id, identity.orca_run_id,
+                        identity.worktree_id, identity.terminal_handle,
+                        identity.runtime_id, identity.active_task_id,
+                        identity.active_dispatch_id, RoleState.ACTIVE.value,
+                        heartbeat_text, lease_text, identity.parent_role_key,
+                    ),
+                )
+            except sqlite3.IntegrityError as error:
+                connection.rollback()
+                if "codex_session_id" in str(error):
+                    raise RoleClaimConflict(
+                        "Codex session is already assigned to another role"
+                    ) from error
+                raise
             if identity.active_task_id is not None and identity.active_dispatch_id is not None:
                 connection.execute(
                     """
@@ -424,6 +467,49 @@ class RoleRegistry:
         if row is None:
             raise RoleRegistryError("role key is not registered")
         return _record_from_row(row)
+
+    @contextmanager
+    def generation_guard(
+        self,
+        role_key: str,
+        *,
+        expected_generation: int,
+        expected_session_id: str,
+    ) -> Iterator[RoleRecord]:
+        """Serialize one external durable action against role lifecycle changes.
+
+        ``BEGIN IMMEDIATE`` reserves the registry writer lane until the caller's
+        separate controller transaction has committed or rolled back. Lifecycle
+        CAS operations therefore linearize entirely before or after that action.
+        """
+
+        _require_match(role_key, _ROLE_KEY, "role key")
+        _require_match(expected_session_id, _IDENTIFIER, "Codex session id")
+        if (
+            not isinstance(expected_generation, int)
+            or isinstance(expected_generation, bool)
+            or expected_generation < 1
+        ):
+            raise RoleRegistryError("expected generation must be positive")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                row = connection.execute(
+                    "SELECT * FROM role_registry WHERE role_key = ?", (role_key,)
+                ).fetchone()
+                if row is None:
+                    raise RoleRegistryError("role key is not registered")
+                record = _record_from_row(row)
+                if (
+                    record.generation != expected_generation
+                    or record.identity.codex_session_id != expected_session_id
+                ):
+                    raise StaleRoleGeneration("role generation or session changed")
+                yield record
+                connection.commit()
+            except BaseException:
+                connection.rollback()
+                raise
 
     def records(self) -> tuple[RoleRecord, ...]:
         with self._connect() as connection:
@@ -662,19 +748,24 @@ class RoleRegistry:
             return current
         if current.generation != expected_generation:
             raise StaleRoleGeneration("role generation changed")
-        try:
-            return self._cas_update(
-                role_key,
-                expected_generation,
-                "last_message_id = ?, heartbeat_at = ?, lease_until = ?, "
-                "generation = generation + 1",
-                (message_id, heartbeat_text, lease_text),
-            )
-        except StaleRoleGeneration:
-            replayed = self.get(role_key)
-            if replayed.last_message_id == message_id:
-                return replayed
-            raise
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            changed = connection.execute(
+                "UPDATE role_registry SET last_message_id = ?, heartbeat_at = ?, "
+                "lease_until = ? WHERE role_key = ? AND generation = ?",
+                (
+                    message_id, heartbeat_text, lease_text, role_key,
+                    expected_generation,
+                ),
+            ).rowcount
+            if changed != 1:
+                connection.rollback()
+                replayed = self.get(role_key)
+                if replayed.last_message_id == message_id:
+                    return replayed
+                raise StaleRoleGeneration("role generation changed")
+            connection.commit()
+        return self.get(role_key)
 
     def hierarchy(self, root_role_key: str = "project_manager") -> tuple[RoleRecord, ...]:
         """Return a deterministic parent-before-child durable session hierarchy."""
@@ -682,6 +773,16 @@ class RoleRegistry:
         records = {item.identity.role_key: item for item in self.records()}
         if root_role_key not in records:
             raise RoleRegistryError("hierarchy root is not registered")
+        project_managers = tuple(
+            item for item in records.values()
+            if item.identity.role_kind is RoleKind.PROJECT_MANAGER
+            and item.state is not RoleState.STOPPED
+        )
+        if (
+            len(project_managers) != 1
+            or project_managers[0].identity.role_key != root_role_key
+        ):
+            raise RoleRegistryError("hierarchy requires exactly one live project manager")
         ordered: list[RoleRecord] = []
         visiting: set[str] = set()
         visited: set[str] = set()
@@ -703,6 +804,12 @@ class RoleRegistry:
             visited.add(role_key)
 
         visit(root_role_key)
+        live_keys = {
+            key for key, record in records.items()
+            if record.state is not RoleState.STOPPED
+        }
+        if not live_keys <= visited:
+            raise RoleRegistryError("role hierarchy contains an orphan session")
         return tuple(ordered)
 
     def _cas_update(

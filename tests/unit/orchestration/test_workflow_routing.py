@@ -17,6 +17,7 @@ from stock_data.orchestration.workflow_control.routing import (
     WorkerAssignment,
     WorkflowRole,
     require_role_authority,
+    require_unique_role_sessions,
     role_profiles,
     route_execution_boundary,
     select_dependency_ready_leads,
@@ -124,6 +125,58 @@ def test_role_authority_and_task_contract_enforce_disjoint_preassigned_fanout() 
                 WorkerAssignment("worker_left", ("src/shared",)),
                 WorkerAssignment("worker_right", ("src/shared/child.py",)),
             ),
+        )
+
+
+def test_task_contract_scope_is_contained_and_windows_canonical() -> None:
+    common = dict(
+        task_id="RQ-20260829T010031-ABCD",
+        queue_generation="generation-a",
+        pm_role_key="project_manager",
+        lead_role_key="lead_data",
+        reviewer_role_key="reviewer_data",
+    )
+    with pytest.raises(RoutingError, match="escapes"):
+        TaskContract(
+            **common,
+            write_scope=("src/exact.py",),
+            worker_assignments=(WorkerAssignment("worker_code", ("src",)),),
+        )
+    with pytest.raises(RoutingError, match="overlap"):
+        TaskContract(
+            **common,
+            write_scope=("src",),
+            worker_assignments=(
+                WorkerAssignment("worker_left", ("src/Foo.py",)),
+                WorkerAssignment("worker_right", ("SRC/foo.py",)),
+            ),
+        )
+    with pytest.raises(RoutingError, match="Worker assignment"):
+        TaskContract(**common, write_scope=("src",), worker_assignments=())
+
+    for unsafe in (
+        "src/CON.py",
+        "src/aux/file.py",
+        "src/trailing.",
+        "src/trailing ",
+        "src/a:b.py",
+        "C:relative.py",
+    ):
+        with pytest.raises(RoutingError, match="non-canonical"):
+            WorkerAssignment("worker_code", (unsafe,))
+
+
+def test_reviewer_session_must_be_independent_from_workers_and_lead() -> None:
+    with pytest.raises(RoutingError, match="session"):
+        require_unique_role_sessions(
+            lead_role_key="lead_data",
+            reviewer_role_key="reviewer_data",
+            worker_role_keys=("worker_code",),
+            session_ids={
+                "lead_data": "session-lead",
+                "worker_code": "session-shared",
+                "reviewer_data": "session-shared",
+            },
         )
 
 

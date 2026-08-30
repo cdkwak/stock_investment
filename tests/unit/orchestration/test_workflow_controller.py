@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import hashlib
 import json
+import sqlite3
 from threading import Barrier, BrokenBarrierError, Event, Lock
 from typing import Mapping
 
@@ -37,8 +38,10 @@ from stock_data.orchestration.workflow_control.routing import (
     BoundaryRequest,
     ExecutionBoundary,
     QueueWorkItem,
+    RoleAction,
     TaskContract,
     WorkerAssignment,
+    RoutingError,
     route_execution_boundary,
 )
 from stock_data.orchestration.workflow_control.runner import (
@@ -459,7 +462,7 @@ def test_persistent_hierarchy_mailbox_ack_and_stale_generation_fence(
         acknowledgement_ref="ack-pm-message",
         observed_at=T0 + timedelta(minutes=1),
     )
-    assert ack.recipient_generation_after == pm.generation + 1
+    assert ack.recipient_generation_after == pm.generation
     assert restarted.deliver_pm_message(
         receipt_key=receipt_key, intent_key="b" * 64, message="resume current work"
     ) == message_id
@@ -489,6 +492,26 @@ def test_persistent_hierarchy_mailbox_ack_and_stale_generation_fence(
         concurrent_receipts = tuple(pool.map(acknowledge_once, (1, 2)))
     assert concurrent_receipts[0] == concurrent_receipts[1]
 
+    same_generation_messages = (
+        restarted.deliver_pm_message(
+            receipt_key="1" * 64, intent_key="2" * 64, message="first same generation"
+        ),
+        restarted.deliver_pm_message(
+            receipt_key="3" * 64, intent_key="4" * 64, message="second same generation"
+        ),
+    )
+    same_generation = restarted.role_registry.get("project_manager").generation
+    for index, pending_message in enumerate(same_generation_messages):
+        receipt = restarted.acknowledge_mailbox(
+            pending_message,
+            recipient_role_key="project_manager",
+            expected_generation=same_generation,
+            acknowledgement_ref=f"ack-same-{index}",
+            observed_at=T0 + timedelta(minutes=1, seconds=40 + index),
+        )
+        assert receipt.recipient_generation_after == same_generation
+    assert restarted.role_registry.get("project_manager").generation == same_generation
+
     next_message = restarted.deliver_pm_message(
         receipt_key="c" * 64, intent_key="d" * 64, message="new generation work"
     )
@@ -505,6 +528,33 @@ def test_persistent_hierarchy_mailbox_ack_and_stale_generation_fence(
             recipient_role_key="project_manager",
             expected_generation=current.generation,
             acknowledgement_ref="ack-stale",
+        )
+
+
+def test_mailbox_rejects_body_and_digest_tampering_before_ack(tmp_path: Path) -> None:
+    instance, _ = _hierarchy_controller(tmp_path)
+    message_id = instance.deliver_pm_message(
+        receipt_key="8" * 64, intent_key="9" * 64, message="original"
+    )
+    tampered_json = json.dumps(
+        {"intent_key": "9" * 64, "message": "tampered", "receipt_key": "8" * 64},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    with sqlite3.connect(instance.receipt_path) as connection:
+        connection.execute(
+            "UPDATE role_mailbox SET body_json = ?, body_digest = ? WHERE message_id = ?",
+            (tampered_json, hashlib.sha256(tampered_json.encode()).hexdigest(), message_id),
+        )
+
+    with pytest.raises(WorkflowControllerError, match="integrity|rebound"):
+        instance.mailbox("project_manager")
+    with pytest.raises(WorkflowControllerError, match="integrity|rebound"):
+        instance.acknowledge_mailbox(
+            message_id,
+            recipient_role_key="project_manager",
+            expected_generation=instance.role_registry.get("project_manager").generation,
+            acknowledgement_ref="ack-tampered",
         )
 
 
@@ -636,3 +686,468 @@ def test_task_contract_worker_reviewer_fix_pass_and_third_fix_replan(
         decision=ReviewDecision.PASS,
         reason_code="PASS_VERIFIED",
     ) == passed
+
+
+def test_conflicting_concurrent_reviews_have_one_atomic_durable_effect(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    instance, _ = _hierarchy_controller(tmp_path)
+    contract = _task_contract("RQ-20260829T093732-C120", "queue-generation-a")
+    instance.dispatch_task_contract(
+        contract,
+        pm_generation=instance.role_registry.get("project_manager").generation,
+    )
+    instance.dispatch_workers(
+        task_id=contract.task_id,
+        queue_generation=contract.queue_generation,
+        lead_role_key="lead_data",
+        lead_generation=instance.role_registry.get("lead_data").generation,
+    )
+    candidate = "6" * 64
+    instance.submit_worker_candidate(
+        task_id=contract.task_id,
+        queue_generation=contract.queue_generation,
+        worker_role_key="worker_code",
+        worker_generation=instance.role_registry.get("worker_code").generation,
+        candidate_digest=candidate,
+    )
+
+    original_enqueue = instance._enqueue_mailbox
+    settlement_barrier = Barrier(2)
+
+    def racing_enqueue(**kwargs: object):
+        if kwargs.get("message_type") in {MailboxMessageType.PASS, MailboxMessageType.FIX}:
+            settlement_barrier.wait(timeout=2)
+        return original_enqueue(**kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(instance, "_enqueue_mailbox", racing_enqueue)
+
+    def settle(decision: ReviewDecision) -> str:
+        try:
+            instance.review_worker_candidate(
+                task_id=contract.task_id,
+                queue_generation=contract.queue_generation,
+                worker_role_key="worker_code",
+                reviewer_role_key="reviewer_data",
+                reviewer_generation=instance.role_registry.get("reviewer_data").generation,
+                candidate_digest=candidate,
+                decision=decision,
+                reason_code=f"CONCURRENT_{decision.value}",
+            )
+            return "settled"
+        except ReviewLoopError:
+            return "stale"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = tuple(pool.map(settle, (ReviewDecision.PASS, ReviewDecision.FIX)))
+    assert outcomes.count("settled") == 1
+    settlement_messages = [
+        item
+        for recipient in ("lead_data", "worker_code")
+        for item in instance.mailbox(recipient)
+        if item.message_type in {MailboxMessageType.PASS, MailboxMessageType.FIX}
+    ]
+    assert len(settlement_messages) == 1
+    with sqlite3.connect(instance.receipt_path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM review_receipt").fetchone()[0] == 1
+
+
+def test_controller_refuses_reviewer_session_reused_by_worker(tmp_path: Path) -> None:
+    instance, _ = _hierarchy_controller(tmp_path)
+    registry_path = instance.receipt_path.with_name("role_registry.sqlite3")
+    with sqlite3.connect(registry_path) as connection:
+        connection.execute("DROP INDEX uq_role_registry_codex_session")
+        connection.execute(
+            "UPDATE role_registry SET codex_session_id = ? WHERE role_key = ?",
+            ("session-worker", "reviewer_data"),
+        )
+
+    with pytest.raises(RoutingError, match="unique Codex sessions"):
+        instance.dispatch_task_contract(
+            _task_contract("RQ-20260829T093733-C121", "queue-generation-a"),
+            pm_generation=instance.role_registry.get("project_manager").generation,
+        )
+
+
+@pytest.mark.parametrize(
+    ("case", "sender_role_key", "sender_action"),
+    (
+        ("pm_dispatch", "project_manager", RoleAction.ASSIGN_LEAD),
+        ("lead_dispatch", "lead_data", RoleAction.DISPATCH_WORKER),
+        ("lead_checkpoint", "lead_data", RoleAction.PROGRESS_CHECKPOINT),
+        ("worker_candidate", "worker_code", RoleAction.SUBMIT_CANDIDATE),
+        ("reviewer_pass", "reviewer_data", RoleAction.REVIEW_PASS),
+    ),
+)
+@pytest.mark.parametrize("iteration", range(3))
+def test_sender_generation_race_has_zero_durable_controller_effect(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+    sender_role_key: str,
+    sender_action: RoleAction,
+    iteration: int,
+) -> None:
+    del iteration
+    instance, _ = _hierarchy_controller(tmp_path)
+    contract = _task_contract("RQ-20260829T093734-C122", "queue-generation-a")
+    pm_generation = instance.role_registry.get("project_manager").generation
+    if case != "pm_dispatch":
+        instance.dispatch_task_contract(contract, pm_generation=pm_generation)
+    lead_generation = instance.role_registry.get("lead_data").generation
+    if case in {"worker_candidate", "reviewer_pass"}:
+        instance.dispatch_workers(
+            task_id=contract.task_id,
+            queue_generation=contract.queue_generation,
+            lead_role_key="lead_data",
+            lead_generation=lead_generation,
+        )
+    candidate_digest = "7" * 64
+    if case == "reviewer_pass":
+        instance.submit_worker_candidate(
+            task_id=contract.task_id,
+            queue_generation=contract.queue_generation,
+            worker_role_key="worker_code",
+            worker_generation=instance.role_registry.get("worker_code").generation,
+            candidate_digest=candidate_digest,
+        )
+
+    def controller_projection() -> tuple[tuple[object, ...], ...]:
+        with sqlite3.connect(instance.receipt_path) as connection:
+            rows: list[tuple[object, ...]] = []
+            for table in (
+                "hierarchy_task",
+                "worker_assignment",
+                "lead_checkpoint",
+                "role_mailbox",
+                "review_receipt",
+            ):
+                rows.extend(
+                    (table, *row)
+                    for row in connection.execute(f"SELECT * FROM {table} ORDER BY rowid")
+                )
+        return tuple(rows)
+
+    before = controller_projection()
+    preflight_complete = Event()
+    continue_action = Event()
+    original_require = instance._require_role
+
+    def racing_require(
+        role_key: str,
+        expected_generation: int,
+        **kwargs: object,
+    ):
+        record = original_require(role_key, expected_generation, **kwargs)  # type: ignore[arg-type]
+        if role_key == sender_role_key and kwargs.get("action") is sender_action:
+            preflight_complete.set()
+            assert continue_action.wait(timeout=3)
+        return record
+
+    monkeypatch.setattr(instance, "_require_role", racing_require)
+
+    if case == "pm_dispatch":
+        operation = lambda: instance.dispatch_task_contract(
+            contract, pm_generation=pm_generation
+        )
+    elif case == "lead_dispatch":
+        operation = lambda: instance.dispatch_workers(
+            task_id=contract.task_id,
+            queue_generation=contract.queue_generation,
+            lead_role_key="lead_data",
+            lead_generation=lead_generation,
+        )
+    elif case == "lead_checkpoint":
+        operation = lambda: instance.record_lead_checkpoint(
+            task_id=contract.task_id,
+            queue_generation=contract.queue_generation,
+            lead_role_key="lead_data",
+            lead_generation=lead_generation,
+            checkpoint_digest="a" * 64,
+        )
+    elif case == "worker_candidate":
+        operation = lambda: instance.submit_worker_candidate(
+            task_id=contract.task_id,
+            queue_generation=contract.queue_generation,
+            worker_role_key="worker_code",
+            worker_generation=instance.role_registry.get("worker_code").generation,
+            candidate_digest=candidate_digest,
+        )
+    else:
+        operation = lambda: instance.review_worker_candidate(
+            task_id=contract.task_id,
+            queue_generation=contract.queue_generation,
+            worker_role_key="worker_code",
+            reviewer_role_key="reviewer_data",
+            reviewer_generation=instance.role_registry.get("reviewer_data").generation,
+            candidate_digest=candidate_digest,
+            decision=ReviewDecision.PASS,
+            reason_code="PASS_RACE",
+        )
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(operation)
+        assert preflight_complete.wait(timeout=3)
+        sender = instance.role_registry.get(sender_role_key)
+        instance.role_registry.heartbeat(
+            sender_role_key,
+            expected_generation=sender.generation,
+            observed_at=T0 + timedelta(minutes=5),
+            lease_until=T0 + timedelta(hours=1, minutes=5),
+        )
+        continue_action.set()
+        with pytest.raises(StaleRoleGeneration):
+            future.result(timeout=3)
+
+    assert controller_projection() == before
+
+
+def _durable_hierarchy_projection(
+    instance: WorkflowController,
+) -> tuple[tuple[object, ...], ...]:
+    with sqlite3.connect(instance.receipt_path) as connection:
+        rows: list[tuple[object, ...]] = []
+        for table in (
+            "hierarchy_task",
+            "worker_assignment",
+            "lead_checkpoint",
+            "role_mailbox",
+            "review_receipt",
+        ):
+            rows.extend(
+                (table, *row)
+                for row in connection.execute(f"SELECT * FROM {table} ORDER BY rowid")
+            )
+    return tuple(rows)
+
+
+def _two_worker_contract(instance: WorkflowController) -> TaskContract:
+    instance.register_role_session(
+        RoleIdentity(
+            "worker_tests", RoleKind.WORKER, "session-worker-tests",
+            "python-control", "repo::C:/workspace", "term-worker-tests", "runtime-a",
+            parent_role_key="lead_data",
+        ),
+        observed_at=T0,
+        lease_until=T0 + timedelta(hours=1),
+    )
+    return TaskContract(
+        task_id="RQ-20260829T093735-C123",
+        queue_generation="queue-generation-a",
+        pm_role_key="project_manager",
+        lead_role_key="lead_data",
+        reviewer_role_key="reviewer_data",
+        write_scope=("src/stock_data", "tests/unit"),
+        worker_assignments=(
+            WorkerAssignment("worker_code", ("src/stock_data/component.py",)),
+            WorkerAssignment("worker_tests", ("tests/unit/test_component.py",)),
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("case", "failure_call"),
+    (
+        ("contract", 1),
+        ("fanout", 1),
+        ("fanout", 2),
+        ("candidate", 1),
+        ("candidate", 2),
+    ),
+)
+def test_split_state_and_mailbox_failure_rolls_back_every_effect(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+    failure_call: int,
+) -> None:
+    instance, _ = _hierarchy_controller(tmp_path)
+    contract = _two_worker_contract(instance) if case == "fanout" else _task_contract(
+        "RQ-20260829T093735-C123", "queue-generation-a"
+    )
+    if case != "contract":
+        instance.dispatch_task_contract(
+            contract,
+            pm_generation=instance.role_registry.get("project_manager").generation,
+        )
+    if case == "candidate":
+        instance.dispatch_workers(
+            task_id=contract.task_id,
+            queue_generation=contract.queue_generation,
+            lead_role_key="lead_data",
+            lead_generation=instance.role_registry.get("lead_data").generation,
+        )
+    before = _durable_hierarchy_projection(instance)
+    original_insert = instance._insert_mailbox_in_transaction
+    calls = 0
+
+    def failing_insert(*args: object, **kwargs: object):
+        nonlocal calls
+        calls += 1
+        if calls == failure_call:
+            raise RuntimeError("injected mailbox failure")
+        return original_insert(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(instance, "_insert_mailbox_in_transaction", failing_insert)
+    if case == "contract":
+        operation = lambda: instance.dispatch_task_contract(
+            contract,
+            pm_generation=instance.role_registry.get("project_manager").generation,
+        )
+    elif case == "fanout":
+        operation = lambda: instance.dispatch_workers(
+            task_id=contract.task_id,
+            queue_generation=contract.queue_generation,
+            lead_role_key="lead_data",
+            lead_generation=instance.role_registry.get("lead_data").generation,
+        )
+    else:
+        operation = lambda: instance.submit_worker_candidate(
+            task_id=contract.task_id,
+            queue_generation=contract.queue_generation,
+            worker_role_key="worker_code",
+            worker_generation=instance.role_registry.get("worker_code").generation,
+            candidate_digest="8" * 64,
+        )
+
+    with pytest.raises(RuntimeError, match="injected mailbox failure"):
+        operation()
+    assert calls == failure_call
+    assert _durable_hierarchy_projection(instance) == before
+
+
+@pytest.mark.parametrize(
+    ("case", "recipient_role_key"),
+    (
+        ("contract", "lead_data"),
+        ("fanout", "worker_code"),
+        ("candidate", "reviewer_data"),
+    ),
+)
+def test_recipient_generation_change_serializes_without_deadlock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+    recipient_role_key: str,
+) -> None:
+    instance, _ = _hierarchy_controller(tmp_path)
+    contract = _task_contract("RQ-20260829T093736-C124", "queue-generation-a")
+    if case != "contract":
+        instance.dispatch_task_contract(
+            contract,
+            pm_generation=instance.role_registry.get("project_manager").generation,
+        )
+    if case == "candidate":
+        instance.dispatch_workers(
+            task_id=contract.task_id,
+            queue_generation=contract.queue_generation,
+            lead_role_key="lead_data",
+            lead_generation=instance.role_registry.get("lead_data").generation,
+        )
+    original_insert = instance._insert_mailbox_in_transaction
+    insert_entered = Event()
+    release_insert = Event()
+    gated = False
+
+    def blocking_insert(*args: object, **kwargs: object):
+        nonlocal gated
+        if kwargs.get("recipient_role_key") == recipient_role_key and not gated:
+            gated = True
+            insert_entered.set()
+            assert release_insert.wait(timeout=3)
+        return original_insert(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(instance, "_insert_mailbox_in_transaction", blocking_insert)
+    if case == "contract":
+        operation = lambda: instance.dispatch_task_contract(
+            contract,
+            pm_generation=instance.role_registry.get("project_manager").generation,
+        )
+    elif case == "fanout":
+        operation = lambda: instance.dispatch_workers(
+            task_id=contract.task_id,
+            queue_generation=contract.queue_generation,
+            lead_role_key="lead_data",
+            lead_generation=instance.role_registry.get("lead_data").generation,
+        )
+    else:
+        operation = lambda: instance.submit_worker_candidate(
+            task_id=contract.task_id,
+            queue_generation=contract.queue_generation,
+            worker_role_key="worker_code",
+            worker_generation=instance.role_registry.get("worker_code").generation,
+            candidate_digest="9" * 64,
+        )
+
+    recipient = instance.role_registry.get(recipient_role_key)
+    heartbeat_started = Event()
+
+    def heartbeat_recipient():
+        heartbeat_started.set()
+        return instance.role_registry.heartbeat(
+            recipient_role_key,
+            expected_generation=recipient.generation,
+            observed_at=T0 + timedelta(minutes=6),
+            lease_until=T0 + timedelta(hours=1, minutes=6),
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        operation_future = pool.submit(operation)
+        assert insert_entered.wait(timeout=3)
+        heartbeat_future = pool.submit(heartbeat_recipient)
+        assert heartbeat_started.wait(timeout=3)
+        assert not heartbeat_future.done()
+        release_insert.set()
+        operation_future.result(timeout=3)
+        renewed = heartbeat_future.result(timeout=3)
+
+    assert renewed.generation == recipient.generation + 1
+
+
+def test_checkpoint_readback_failure_rolls_back_insert(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    instance, _ = _hierarchy_controller(tmp_path)
+    contract = _task_contract("RQ-20260829T093737-C125", "queue-generation-a")
+    instance.dispatch_task_contract(
+        contract,
+        pm_generation=instance.role_registry.get("project_manager").generation,
+    )
+    before = _durable_hierarchy_projection(instance)
+    original_connect = instance._connect
+
+    class ReadbackFailureConnection:
+        def __init__(self) -> None:
+            self.connection = original_connect()
+
+        def __enter__(self):
+            self.connection.__enter__()
+            return self
+
+        def __exit__(self, *exc: object):
+            return self.connection.__exit__(*exc)
+
+        def execute(self, sql: str, parameters: object = ()):
+            if sql.startswith("SELECT checkpoint_digest FROM lead_checkpoint"):
+                raise RuntimeError("injected checkpoint readback failure")
+            return self.connection.execute(sql, parameters)
+
+        def commit(self) -> None:
+            self.connection.commit()
+
+        def rollback(self) -> None:
+            self.connection.rollback()
+
+    monkeypatch.setattr(instance, "_connect", ReadbackFailureConnection)
+    with pytest.raises(RuntimeError, match="readback failure"):
+        instance.record_lead_checkpoint(
+            task_id=contract.task_id,
+            queue_generation=contract.queue_generation,
+            lead_role_key="lead_data",
+            lead_generation=instance.role_registry.get("lead_data").generation,
+            checkpoint_digest="b" * 64,
+        )
+
+    monkeypatch.setattr(instance, "_connect", original_connect)
+    assert _durable_hierarchy_projection(instance) == before

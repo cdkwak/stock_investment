@@ -30,6 +30,10 @@ from stock_data.orchestration.workflow_control.controller import (
 )
 from stock_data.orchestration.workflow_control.codex_boundary import CodexCliBoundary
 from stock_data.orchestration.workflow_control.events import canonical_event_json
+from stock_data.orchestration.workflow_control.listener_gateway import (
+    MailboxEnvelope as ListenerMailboxEnvelope,
+    PMMailboxIdentity,
+)
 from stock_data.orchestration.workflow_control.contracts import WorkflowEvent, utc_text
 from stock_data.orchestration.workflow_control.registry import RoleIdentity, RoleRecord
 from stock_data.orchestration.workflow_control.routing import TaskContract
@@ -966,6 +970,25 @@ class WorkflowControllerService:
         return self.controller.deliver_pm_message(
             receipt_key=receipt_key, intent_key=intent_key, message=message
         )
+
+    def resolve_pm_mailbox_identity(self) -> PMMailboxIdentity:
+        """Resolve Listener routing from the current durable PM registry row."""
+
+        self._require_started()
+        pm = self.controller.role_registry.get("project_manager")
+        return PMMailboxIdentity(
+            recipient=pm.identity.role_key,
+            session_id=pm.identity.codex_session_id,
+            generation=pm.generation,
+        )
+
+    def deliver_mailbox_envelope(self, envelope: ListenerMailboxEnvelope) -> str:
+        """Typed Listener sink; reject stale session or generation before insert."""
+
+        self._require_started()
+        if not isinstance(envelope, ListenerMailboxEnvelope):
+            raise ControllerServiceError("Listener mailbox delivery requires MailboxEnvelope")
+        return self.controller.deliver_listener_mailbox_envelope(envelope)
 
     def mailbox(
         self, recipient_role_key: str, *, pending_only: bool = False

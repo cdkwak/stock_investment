@@ -22,6 +22,12 @@ _QUEUE_STATES = {"new", "waiting", "ready", "active", "review", "blocked", "done
 _WRITER_LANES = {"gui", "data", "backtest", "shared"}
 _ROLE_KEY = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 _GENERATION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+_WINDOWS_RESERVED = frozenset(
+    {"con", "prn", "aux", "nul"}
+    | {f"com{index}" for index in range(1, 10)}
+    | {f"lpt{index}" for index in range(1, 10)}
+)
+_WINDOWS_FORBIDDEN = frozenset('<>:"|?*')
 
 
 class RoutingError(ValueError):
@@ -203,16 +209,7 @@ class QueueWorkItem:
         if any(_TASK_ID.fullmatch(dependency) is None for dependency in self.depends_on):
             raise RoutingError(f"invalid dependency for {self.task_id}")
         for path in self.write_scope:
-            parsed = PurePosixPath(path)
-            if (
-                not path
-                or parsed.parts == (".",)
-                or "\\" in path
-                or parsed.is_absolute()
-                or ".." in parsed.parts
-                or parsed.as_posix() != path
-            ):
-                raise RoutingError(f"non-canonical write scope for {self.task_id}")
+            _canonical_path(path, task_id=self.task_id)
 
 
 def _canonical_path(path: str, *, task_id: str) -> str:
@@ -228,7 +225,43 @@ def _canonical_path(path: str, *, task_id: str) -> str:
         or parsed.as_posix() != path
     ):
         raise RoutingError(f"non-canonical write scope for {task_id}")
+    for part in parsed.parts:
+        if (
+            part.endswith((".", " "))
+            or any(character in _WINDOWS_FORBIDDEN or ord(character) < 32 for character in part)
+            or part.split(".", 1)[0].casefold() in _WINDOWS_RESERVED
+        ):
+            raise RoutingError(f"non-canonical write scope for {task_id}")
     return path
+
+
+def _canonical_parts(path: str) -> tuple[str, ...]:
+    return tuple(part.casefold() for part in PurePosixPath(path).parts)
+
+
+def _path_is_within(path: str, allowed: str) -> bool:
+    path_parts = _canonical_parts(path)
+    allowed_parts = _canonical_parts(allowed)
+    return path_parts[: len(allowed_parts)] == allowed_parts
+
+
+def require_unique_role_sessions(
+    *,
+    lead_role_key: str,
+    reviewer_role_key: str,
+    worker_role_keys: tuple[str, ...],
+    session_ids: Mapping[str, str],
+) -> None:
+    """Require independent durable Codex sessions for Lead/Workers/Reviewer."""
+
+    role_keys = (lead_role_key, *worker_role_keys, reviewer_role_key)
+    if set(session_ids) != set(role_keys):
+        raise RoutingError("role session projection does not match the task contract")
+    values = tuple(session_ids[role_key] for role_key in role_keys)
+    if any(not isinstance(value, str) or not value for value in values):
+        raise RoutingError("role session projection contains an invalid session")
+    if len(values) != len(set(values)):
+        raise RoutingError("Reviewer, Lead, and Workers require unique Codex sessions")
 
 
 @dataclass(frozen=True, slots=True)
@@ -284,6 +317,8 @@ class TaskContract:
             not isinstance(item, WorkerAssignment) for item in self.worker_assignments
         ):
             raise RoutingError("task contract Worker assignments are invalid")
+        if not self.worker_assignments:
+            raise RoutingError("task contract requires a non-empty Worker assignment")
         workers = tuple(item.worker_role_key for item in self.worker_assignments)
         if len(workers) != len(set(workers)):
             raise RoutingError("task contract repeats a Worker identity")
@@ -292,7 +327,7 @@ class TaskContract:
         assigned_paths: list[tuple[str, str]] = []
         for assignment in self.worker_assignments:
             for path in assignment.write_scope:
-                if not any(_paths_overlap(path, allowed) for allowed in scope):
+                if not any(_path_is_within(path, allowed) for allowed in scope):
                     raise RoutingError("worker assignment escapes the task contract scope")
                 for prior_worker, prior_path in assigned_paths:
                     if _paths_overlap(path, prior_path):
@@ -349,8 +384,8 @@ class LeadPlan:
 
 
 def _paths_overlap(left: str, right: str) -> bool:
-    left_parts = PurePosixPath(left).parts
-    right_parts = PurePosixPath(right).parts
+    left_parts = _canonical_parts(left)
+    right_parts = _canonical_parts(right)
     shorter = min(len(left_parts), len(right_parts))
     return left_parts[:shorter] == right_parts[:shorter]
 
