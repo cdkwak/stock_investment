@@ -7,7 +7,7 @@ retained under `docs/archive/gui/status_history/`.
 
 ## Current phase
 
-`AUTONOMOUS_GUI_ENGINEERING_ACTIVE / DASHBOARD_CURRENT_STAGE_AND_COLD_BOUND_VALIDATED / OTHER_COVERAGE_INCOMPLETE`
+`AUTONOMOUS_GUI_ENGINEERING_ACTIVE / PYTHON_PM_MONITORING_ACTIVE / DASHBOARD_CURRENT_STAGE_AND_COLD_BOUND_VALIDATED / OTHER_COVERAGE_INCOMPLETE`
 
 GUI and application-service work may proceed in parallel with Data and
 Backtest. Presentation remains local and read-only; provider transport,
@@ -28,6 +28,7 @@ canonical promotion, and scheduler execution remain Data-owned.
 | Accounts | Toss and KB views are read-only and sanitized. The [P5 account-detail todo](ACCOUNT_DETAIL_TODO.md) records implemented scope and remaining gates. Verified holding fields include average/current price, correctly scaled provider returns, ordinary/after-cost/daily P/L and source-time detail. Per-source cards show allowlisted refresh outcome and eligibility. The user-requested [identifier-free account-scale history](../data/operations/ACCOUNT_VALUE_HISTORY_LOCAL.md) records KB exact total assets and distinctly labelled Toss components by source/currency; it explicitly does not treat deposits, withdrawals or trading-driven scale changes as returns. Unsupported cash, realized P/L and cross-currency totals remain absent. Toss and KB scheduled read-only refreshes are Data-owned; no direct identifier enters GUI state or documentation. |
 | Backtest | GUI consumes validated typed local result bundles and contains no Feature, Model, strategy, fill, risk, or accounting logic. |
 | Release readiness | GUI page, worker-quiescence, Health, and user-data-isolation checks pass. Focused recovery checks now accept all 39 managed Health rows after Yahoo, Toss-account, FRED, KRX breadth, index-fundamental, and short-investor recovery. The retained full release receipt predates the last recoveries, so rerun the full provider-free gate before making a new release decision. |
+| Python PM operations | The standalone Korean operations dashboard reads the canonical `data/runtime/python_pm` SQLite/JSONL projection and shows PM, Lead, Worker, Reviewer, Queue, warning, freshness, and recent-event state. It is read-only and has no Queue, broker, provider, or lifecycle mutation action. |
 
 ## Owning contracts and maps
 
@@ -51,6 +52,10 @@ GUI documents.
 
 - `app.py` is the application entry point; local GUI/application services live
   under `src/stock_data/gui/`.
+- `python -m stock_data.gui.operations_dashboard` starts the standalone
+  Python PM operations dashboard. Its default source is the repository-owned
+  `data/runtime/python_pm` control root; legacy role data is used only when an
+  explicit compatibility path is supplied.
 - Startup and rendering are provider-free and local-read-only by default.
 - A GUI action may request an allowlisted asynchronous Data-owned read-only
   operation through a typed service. Secrets and provider parameters never
@@ -79,6 +84,7 @@ GUI documents.
 | Daily summary input/runtime unavailable | The closed contract is concise and source-bound, but registry revision 1 intentionally yields `NO_OUTPUT` because no accepted `MARKET_STATE` result is selected; no Telegram runtime exists | GUI; a later reviewed task must bind the exact local result before implementing the provider-free composer |
 | First natural KB account occurrence pending | The configured local surface remains read-only and prior-valid while its installed 07:10 task awaits a natural receipt | Data/Scheduler; verify identifier-free receipt, exact snapshot digest, one-call budget, and prior-valid preservation |
 | Unmanaged retained-data gaps | Health remains visibly degraded outside the managed SLO | Data; fix each dataset through its own contract rather than masking the row |
+| Autonomous Queue polling is not installed | Python PM lifecycle execution is event-driven through the supported CLI rather than an unattended scheduler | Workflow; add a separately reviewed polling/wakeup host only if unattended dispatch is later required |
 
 ## Exact next GUI actions
 

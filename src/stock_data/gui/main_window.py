@@ -875,34 +875,44 @@ class IndicatorControlPanel(QtWidgets.QFrame):
         self._allows_lower_panels = allows_lower_panels
         self.setObjectName("indicatorControlPanel")
         self.setAccessibleName("차트 지표 표시 설정")
-        layout = QtWidgets.QHBoxLayout(self)
-        layout.setContentsMargins(4, 1, 4, 1)
-        layout.setSpacing(4)
+        self.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum,
+        )
+        self._control_layout = QtWidgets.QVBoxLayout(self)
+        self._control_layout.setSizeConstraint(QtWidgets.QLayout.SetNoConstraint)
+        self._control_layout.setContentsMargins(4, 1, 4, 1)
+        self._control_layout.setSpacing(2)
+        self._control_widgets: list[QtWidgets.QWidget] = []
+        self._control_rows: list[
+            tuple[QtWidgets.QWidget, QtWidgets.QHBoxLayout]
+        ] = []
+        self._reflowing = False
+        self._row_assignment: tuple[int, ...] = ()
         title = QtWidgets.QLabel("지표")
         title.setObjectName("chartStatus")
-        layout.addWidget(title)
+        self._add_responsive_control(title)
         self.ma = {}
         for key, label in (("ma5", "MA5"), ("ma20", "MA20"), ("ma60", "MA60"), ("ma120", "MA120")):
             control = QtWidgets.QCheckBox(label)
             control.setAccessibleName(f"가격 오버레이 {label} 표시")
             control.toggled.connect(self._emit_settings)
             self.ma[key] = control
-            layout.addWidget(control)
+            self._add_responsive_control(control)
         self.volume = QtWidgets.QCheckBox("거래량")
         self.volume.setAccessibleName("하단 패널 거래량 표시")
         self.volume.toggled.connect(self._emit_settings)
-        layout.addWidget(self.volume)
+        self._add_responsive_control(self.volume)
         self.extra_upper = {}
         for key, label in (("ema20", "EMA20"), ("bollinger_bands", "BB(20,2)")):
             control = QtWidgets.QCheckBox(label)
-            control.setAccessibleName(f"price overlay {label}")
+            control.setAccessibleName(f"가격 오버레이 {label} 표시")
             control.toggled.connect(self._emit_settings)
             self.extra_upper[key] = control
-            layout.addWidget(control)
+            self._add_responsive_control(control)
         self.rsi = self._mode_combo("RSI14")
         self.disparity = self._mode_combo("60일 괴리율")
-        layout.addWidget(self.rsi)
-        layout.addWidget(self.disparity)
+        self._add_responsive_control(self.rsi)
+        self._add_responsive_control(self.disparity)
         self.extra_lower = {}
         if allows_lower_panels:
             for key, label in (("atr14_mode", "ATR14"), ("adx14_mode", "ADX14"), ("obv_mode", "OBV"), ("bollinger_bandwidth_mode", "BB width")):
@@ -911,16 +921,91 @@ class IndicatorControlPanel(QtWidgets.QFrame):
                     lambda _index, current=key: self._exclusive_lower_panel(current)
                 )
                 self.extra_lower[key] = combo
-                layout.addWidget(combo)
+                self._add_responsive_control(combo)
         self.reset_button = QtWidgets.QPushButton("기본값")
         self.reset_button.setAccessibleName("현재 차트 지표 표시 기본값으로 재설정")
         self.reset_button.clicked.connect(self.reset_requested)
-        layout.addWidget(self.reset_button)
+        self._add_responsive_control(self.reset_button)
+        self._reflow_controls(self.width())
         self.setToolTip("가격 오버레이와 하단 패널의 표시만 바꿉니다. 계산, 가격, 거래량, 데이터 저장은 변경하지 않습니다.")
+
+    def _add_responsive_control(self, widget: QtWidgets.QWidget) -> None:
+        widget.setSizePolicy(
+            QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed,
+        )
+        self._control_widgets.append(widget)
+
+    def _ensure_control_row(self, index: int) -> QtWidgets.QHBoxLayout:
+        while len(self._control_rows) <= index:
+            row_widget = QtWidgets.QWidget(self)
+            row_widget.setMinimumWidth(0)
+            row_layout = QtWidgets.QHBoxLayout(row_widget)
+            row_layout.setSizeConstraint(QtWidgets.QLayout.SetNoConstraint)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(4)
+            row_layout.addStretch()
+            self._control_layout.addWidget(row_widget)
+            self._control_rows.append((row_widget, row_layout))
+        return self._control_rows[index][1]
+
+    def _reflow_controls(self, width: int) -> None:
+        """Wrap complete labels into as many keyboard-stable rows as needed."""
+        if self._reflowing:
+            return
+        margins = self._control_layout.contentsMargins()
+        available = max(width - margins.left() - margins.right(), 1)
+        spacing = 4
+        row = 0
+        row_width = 0
+        assignment = []
+        for widget in self._control_widgets:
+            required = max(widget.minimumSizeHint().width(), widget.sizeHint().width())
+            added = required + (spacing if row_width else 0)
+            if row_width and row_width + added > available:
+                row += 1
+                row_width = 0
+                added = required
+            assignment.append(row)
+            row_width += added
+        signature = tuple(assignment)
+        if signature == self._row_assignment:
+            return
+
+        self._reflowing = True
+        try:
+            for row_widget, row_layout in self._control_rows:
+                for widget in self._control_widgets:
+                    row_layout.removeWidget(widget)
+                row_widget.hide()
+            for widget, target_row in zip(self._control_widgets, assignment):
+                row_layout = self._ensure_control_row(target_row)
+                row_layout.insertWidget(row_layout.count() - 1, widget)
+                self._control_rows[target_row][0].show()
+            self._row_assignment = signature
+            self.updateGeometry()
+        finally:
+            self._reflowing = False
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt override
+        super().resizeEvent(event)
+        self._reflow_controls(event.size().width())
+
+    def showEvent(self, event) -> None:  # noqa: N802 - Qt override
+        super().showEvent(event)
+        self._reflow_controls(self.width())
+
+    def changeEvent(self, event) -> None:  # noqa: N802 - Qt override
+        super().changeEvent(event)
+        if event.type() in (
+            QtCore.QEvent.FontChange,
+            QtCore.QEvent.StyleChange,
+            QtCore.QEvent.LayoutDirectionChange,
+        ):
+            self._reflow_controls(self.width())
 
     def _mode_combo(self, label: str) -> QtWidgets.QComboBox:
         combo = QtWidgets.QComboBox()
-        combo.setMaximumWidth(112)
+        combo.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToContents)
         combo.addItem(f"{label}: 끔", "Off")
         combo.addItem(f"{label}: 가격 위", "Overlay")
         if self._allows_lower_panels:
@@ -931,10 +1016,10 @@ class IndicatorControlPanel(QtWidgets.QFrame):
 
     def _lower_mode_combo(self, label: str) -> QtWidgets.QComboBox:
         combo = QtWidgets.QComboBox()
-        combo.setMaximumWidth(82)
+        combo.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToContents)
         combo.addItem(f"{label}: off", "Off")
         combo.addItem(f"{label}: panel", "Panel")
-        combo.setAccessibleName(f"{label} lower panel display")
+        combo.setAccessibleName(f"하단 패널 {label} 표시")
         combo.currentIndexChanged.connect(self._emit_settings)
         return combo
 
@@ -5594,30 +5679,49 @@ class DashboardPage(QtWidgets.QScrollArea):
         controls.setContentsMargins(0, 0, 0, 0)
         controls.setSpacing(2)
         self.market_chart_controls = controls
+        header_widget = QtWidgets.QWidget()
+        header_layout = QtWidgets.QVBoxLayout(header_widget)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(2)
+        title_controls = QtWidgets.QHBoxLayout()
+        title_controls.setContentsMargins(0, 0, 0, 0)
         header_controls = QtWidgets.QHBoxLayout()
         header_controls.setContentsMargins(0, 0, 0, 0)
+        header_controls.setSpacing(4)
         self.market_chart_header_controls = header_controls
         self.kospi_chart_title = QtWidgets.QLabel("KOSPI 차트 · 불러오는 중…")
         self.kospi_chart_title.setObjectName("sectionTitle")
-        header_controls.addWidget(self.kospi_chart_title)
-        header_controls.addStretch()
-        market_asset_label = QtWidgets.QLabel("시장/지수")
+        self.kospi_chart_title.setMinimumWidth(0)
+        self.kospi_chart_title.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred,
+        )
+        title_controls.addWidget(self.kospi_chart_title)
+        header_layout.addLayout(title_controls)
+        self.market_asset_label = QtWidgets.QLabel("시장/지수")
         self.market_asset = QtWidgets.QComboBox()
         self.market_asset.addItems(list(self.CHART_METRICS))
+        self.market_asset.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToContents)
+        self.market_asset.setSizePolicy(
+            QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Fixed,
+        )
         self.market_asset.setToolTip("표시할 로컬 시장/지수 차트를 선택합니다.")
-        market_asset_label.setBuddy(self.market_asset)
-        market_period_label = QtWidgets.QLabel("기간")
+        self.market_asset_label.setBuddy(self.market_asset)
+        self.market_period_label = QtWidgets.QLabel("기간")
         self.market_period = QtWidgets.QComboBox()
         self.market_period.addItems(MARKET_PERIODS)
+        self.market_period.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToContents)
+        self.market_period.setSizePolicy(
+            QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Fixed,
+        )
         self.market_period.setCurrentText("120D")
         self.market_period.setToolTip("로컬 차트의 표시 기간을 선택합니다.")
-        market_period_label.setBuddy(self.market_period)
+        self.market_period_label.setBuddy(self.market_period)
         self.reload_button = QtWidgets.QPushButton("로컬 새로고침")
         self.reload_button.setAccessibleName("로컬 Dashboard 새로고침")
         self.reload_button.setToolTip("로컬에 저장된 화면 데이터만 다시 읽습니다. 네트워크 호출은 하지 않습니다.")
-        header_controls.addWidget(market_asset_label)
+        header_controls.addWidget(self.market_asset_label)
         header_controls.addWidget(self.market_asset)
-        header_controls.addWidget(market_period_label)
+        header_controls.addWidget(self.market_period_label)
         header_controls.addWidget(self.market_period)
         self.market_indicator_button = QtWidgets.QPushButton("보조지표")
         self.market_indicator_button.setCheckable(True)
@@ -5629,11 +5733,12 @@ class DashboardPage(QtWidgets.QScrollArea):
         self.market_indicator_panel.reset_requested.connect(self._reset_dashboard_indicators)
         header_controls.addWidget(self.reload_button)
         header_controls.addWidget(self.market_indicator_button)
-        controls.addLayout(header_controls)
-        indicator_controls = QtWidgets.QHBoxLayout()
+        header_controls.addStretch()
+        header_layout.addLayout(header_controls)
+        controls.addWidget(header_widget)
+        indicator_controls = QtWidgets.QVBoxLayout()
         indicator_controls.setContentsMargins(0, 0, 0, 0)
         indicator_controls.addWidget(self.market_indicator_panel)
-        indicator_controls.addStretch()
         self.market_indicator_controls = indicator_controls
         controls.addLayout(indicator_controls)
         self.market_indicator_panel.hide()
