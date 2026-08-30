@@ -101,8 +101,12 @@ def test_role_authority_and_task_contract_enforce_disjoint_preassigned_fanout() 
         reviewer_role_key="reviewer_data",
         write_scope=("src/data", "tests/data"),
         worker_assignments=(
-            WorkerAssignment("worker_source", ("src/data/source.py",)),
-            WorkerAssignment("worker_tests", ("tests/data/test_source.py",)),
+            WorkerAssignment(
+                "worker_source", ("src/data/source.py",), "reviewer_data"
+            ),
+            WorkerAssignment(
+                "worker_tests", ("tests/data/test_source.py",), "reviewer_tests"
+            ),
         ),
     )
 
@@ -177,6 +181,60 @@ def test_reviewer_session_must_be_independent_from_workers_and_lead() -> None:
                 "worker_code": "session-shared",
                 "reviewer_data": "session-shared",
             },
+        )
+
+
+def test_multi_worker_contract_requires_unique_preassigned_reviewer_per_worker() -> None:
+    common = dict(
+        task_id="RQ-20260829T093755-R201",
+        queue_generation="queue-generation-a",
+        pm_role_key="project_manager",
+        lead_role_key="lead_data",
+        reviewer_role_key="reviewer_data",
+        write_scope=("src", "tests"),
+    )
+    legacy = TaskContract(
+        **common,
+        worker_assignments=(WorkerAssignment("worker_code", ("src/component.py",)),),
+    )
+    assert legacy.worker_assignments[0].reviewer_role_key is None
+    contract = TaskContract(
+        **common,
+        worker_assignments=(
+            WorkerAssignment(
+                "worker_code", ("src/component.py",),
+                reviewer_role_key="reviewer_data",
+            ),
+            WorkerAssignment(
+                "worker_tests", ("tests/test_component.py",),
+                reviewer_role_key="reviewer_tests",
+            ),
+        ),
+    )
+    assert tuple(item.reviewer_role_key for item in contract.worker_assignments) == (
+        "reviewer_data", "reviewer_tests"
+    )
+    with pytest.raises(RoutingError, match="Reviewer.*reused|unique"):
+        TaskContract(
+            **common,
+            worker_assignments=(
+                WorkerAssignment(
+                    "worker_code", ("src/component.py",),
+                    reviewer_role_key="reviewer_data",
+                ),
+                WorkerAssignment(
+                    "worker_tests", ("tests/test_component.py",),
+                    reviewer_role_key="reviewer_data",
+                ),
+            ),
+        )
+    with pytest.raises(RoutingError, match="explicit unique Reviewer"):
+        TaskContract(
+            **common,
+            worker_assignments=(
+                WorkerAssignment("worker_code", ("src/component.py",)),
+                WorkerAssignment("worker_tests", ("tests/test_component.py",)),
+            ),
         )
 
 

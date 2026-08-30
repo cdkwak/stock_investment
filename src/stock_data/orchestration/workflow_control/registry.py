@@ -483,29 +483,50 @@ class RoleRegistry:
         CAS operations therefore linearize entirely before or after that action.
         """
 
-        _require_match(role_key, _ROLE_KEY, "role key")
-        _require_match(expected_session_id, _IDENTIFIER, "Codex session id")
-        if (
-            not isinstance(expected_generation, int)
-            or isinstance(expected_generation, bool)
-            or expected_generation < 1
-        ):
-            raise RoleRegistryError("expected generation must be positive")
+        with self.generations_guard(
+            ((role_key, expected_generation, expected_session_id),)
+        ) as records:
+            yield records[0]
+
+    @contextmanager
+    def generations_guard(
+        self,
+        expectations: tuple[tuple[str, int, str], ...],
+    ) -> Iterator[tuple[RoleRecord, ...]]:
+        """Atomically validate and reserve several role generations/sessions."""
+
+        if not expectations:
+            raise RoleRegistryError("generation guard requires at least one role")
+        role_keys = tuple(item[0] for item in expectations)
+        if len(role_keys) != len(set(role_keys)):
+            raise RoleRegistryError("generation guard repeats a role")
+        for role_key, generation, session_id in expectations:
+            _require_match(role_key, _ROLE_KEY, "role key")
+            _require_match(session_id, _IDENTIFIER, "Codex session id")
+            if (
+                not isinstance(generation, int)
+                or isinstance(generation, bool)
+                or generation < 1
+            ):
+                raise RoleRegistryError("expected generation must be positive")
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
-                row = connection.execute(
-                    "SELECT * FROM role_registry WHERE role_key = ?", (role_key,)
-                ).fetchone()
-                if row is None:
-                    raise RoleRegistryError("role key is not registered")
-                record = _record_from_row(row)
-                if (
-                    record.generation != expected_generation
-                    or record.identity.codex_session_id != expected_session_id
-                ):
-                    raise StaleRoleGeneration("role generation or session changed")
-                yield record
+                records: list[RoleRecord] = []
+                for role_key, generation, session_id in expectations:
+                    row = connection.execute(
+                        "SELECT * FROM role_registry WHERE role_key = ?", (role_key,)
+                    ).fetchone()
+                    if row is None:
+                        raise RoleRegistryError("role key is not registered")
+                    record = _record_from_row(row)
+                    if (
+                        record.generation != generation
+                        or record.identity.codex_session_id != session_id
+                    ):
+                        raise StaleRoleGeneration("role generation or session changed")
+                    records.append(record)
+                yield tuple(records)
                 connection.commit()
             except BaseException:
                 connection.rollback()

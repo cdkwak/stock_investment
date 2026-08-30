@@ -91,6 +91,7 @@ class MailboxMessageType(StrEnum):
     OPERATIONAL_WAKE = "operational_wake"
     USER_INTENT = "user_intent"
     TASK_CONTRACT = "task_contract"
+    LEAD_CHECKPOINT = "lead_checkpoint"
     WORKER_ASSIGNMENT = "worker_assignment"
     CANDIDATE = "candidate"
     REVIEW_VISIBILITY = "review_visibility"
@@ -384,13 +385,130 @@ class WorkflowController:
                 "CREATE TABLE IF NOT EXISTS worker_assignment("
                 "task_id TEXT NOT NULL, queue_generation TEXT NOT NULL, worker_role_key TEXT NOT NULL, "
                 "write_scope_json TEXT NOT NULL, candidate_digest TEXT, candidate_state TEXT, "
+                "reviewer_role_key TEXT, reviewer_generation INTEGER, reviewer_session_id TEXT, "
+                "fix_count INTEGER NOT NULL DEFAULT 0, assignment_digest TEXT, "
                 "PRIMARY KEY(task_id, queue_generation, worker_role_key))"
             )
+            assignment_columns = {
+                str(row[1])
+                for row in connection.execute("PRAGMA table_info(worker_assignment)")
+            }
+            for column, declaration in (
+                ("reviewer_role_key", "TEXT"),
+                ("reviewer_generation", "INTEGER"),
+                ("reviewer_session_id", "TEXT"),
+                ("fix_count", "INTEGER NOT NULL DEFAULT 0"),
+                ("assignment_digest", "TEXT"),
+            ):
+                if column not in assignment_columns:
+                    connection.execute(
+                        f"ALTER TABLE worker_assignment ADD COLUMN {column} {declaration}"
+                    )
+            ambiguous_legacy = connection.execute(
+                "SELECT task_id, queue_generation FROM worker_assignment "
+                "GROUP BY task_id, queue_generation HAVING COUNT(*) > 1 AND "
+                "SUM(CASE WHEN reviewer_role_key IS NULL OR reviewer_generation IS NULL "
+                "OR reviewer_session_id IS NULL THEN 1 ELSE 0 END) > 0"
+            ).fetchone()
+            if ambiguous_legacy is not None:
+                raise MailboxConflict(
+                    "legacy multi-Worker contract has no unique durable Reviewer mapping"
+                )
+            for row in connection.execute(
+                "SELECT * FROM worker_assignment WHERE assignment_digest IS NULL"
+            ).fetchall():
+                values = dict(row)
+                task = connection.execute(
+                    "SELECT reviewer_role_key, contract_json FROM hierarchy_task "
+                    "WHERE task_id = ? AND queue_generation = ?",
+                    (row["task_id"], row["queue_generation"]),
+                ).fetchone()
+                if task is None:
+                    raise MailboxConflict("legacy Worker assignment task is missing")
+                try:
+                    contract_payload = json.loads(str(task["contract_json"]))
+                    contract_assignments = tuple(contract_payload["worker_assignments"])
+                except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+                    raise MailboxConflict(
+                        "legacy Worker assignment contract is invalid"
+                    ) from error
+                matches = tuple(
+                    item
+                    for item in contract_assignments
+                    if item.get("worker_role_key") == row["worker_role_key"]
+                )
+                if len(matches) != 1:
+                    raise MailboxConflict("legacy Worker assignment is not canonical")
+                contract_assignment = matches[0]
+                expected_scope = _canonical(
+                    {"write_scope": list(contract_assignment.get("write_scope", ())) }
+                )
+                expected_reviewer = contract_assignment.get(
+                    "reviewer_role_key", task["reviewer_role_key"]
+                )
+                if (
+                    row["write_scope_json"] != expected_scope
+                    or not isinstance(expected_reviewer, str)
+                    or _ROLE_KEY.fullmatch(expected_reviewer) is None
+                    or (
+                        row["reviewer_role_key"] is not None
+                        and row["reviewer_role_key"] != expected_reviewer
+                    )
+                ):
+                    raise MailboxConflict("legacy Worker assignment integrity check failed")
+                if row["reviewer_role_key"] is None:
+                    try:
+                        legacy_reviewer = self.role_registry.get(expected_reviewer)
+                    except RoleRegistryError as error:
+                        raise MailboxConflict(
+                            "legacy Worker Reviewer route is unavailable"
+                        ) from error
+                    if legacy_reviewer.identity.role_kind is not RoleKind.REVIEWER:
+                        raise MailboxConflict("legacy Worker Reviewer route is invalid")
+                    values.update(
+                        {
+                            "reviewer_role_key": legacy_reviewer.identity.role_key,
+                            "reviewer_generation": legacy_reviewer.generation,
+                            "reviewer_session_id": legacy_reviewer.identity.codex_session_id,
+                        }
+                    )
+                else:
+                    raise MailboxConflict(
+                        "digestless non-legacy Worker assignment cannot be self-signed"
+                    )
+                connection.execute(
+                    "UPDATE worker_assignment SET reviewer_role_key = ?, "
+                    "reviewer_generation = ?, reviewer_session_id = ?, assignment_digest = ? "
+                    "WHERE task_id = ? "
+                    "AND queue_generation = ? AND worker_role_key = ?",
+                    (
+                        values["reviewer_role_key"],
+                        values["reviewer_generation"],
+                        values["reviewer_session_id"],
+                        self._worker_assignment_digest(values),
+                        row["task_id"],
+                        row["queue_generation"],
+                        row["worker_role_key"],
+                    ),
+                )
             connection.execute(
                 "CREATE TABLE IF NOT EXISTS lead_checkpoint("
                 "checkpoint_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, queue_generation TEXT NOT NULL, "
-                "lead_role_key TEXT NOT NULL, checkpoint_digest TEXT NOT NULL, created_at TEXT NOT NULL)"
+                "lead_role_key TEXT NOT NULL, checkpoint_digest TEXT NOT NULL, created_at TEXT NOT NULL, "
+                "row_digest TEXT)"
             )
+            checkpoint_columns = {
+                str(row[1]) for row in connection.execute("PRAGMA table_info(lead_checkpoint)")
+            }
+            if "row_digest" not in checkpoint_columns:
+                connection.execute("ALTER TABLE lead_checkpoint ADD COLUMN row_digest TEXT")
+            unverifiable_checkpoint = connection.execute(
+                "SELECT * FROM lead_checkpoint WHERE row_digest IS NULL"
+            ).fetchone()
+            if unverifiable_checkpoint is not None:
+                raise MailboxConflict(
+                    "unverifiable digestless checkpoint requires explicit recovery/replan"
+                )
             connection.execute(
                 "CREATE TABLE IF NOT EXISTS role_mailbox("
                 "message_id TEXT PRIMARY KEY, parent_message_id TEXT, sender_role_key TEXT NOT NULL, "
@@ -439,6 +557,102 @@ class WorkflowController:
                 "operation_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, queue_generation TEXT NOT NULL, "
                 "worker_role_key TEXT NOT NULL, reviewer_role_key TEXT NOT NULL, payload TEXT NOT NULL)"
             )
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS role_wake_outbox("
+                "wake_id TEXT PRIMARY KEY, role_key TEXT NOT NULL, role_generation INTEGER NOT NULL, "
+                "session_id TEXT NOT NULL, message_id TEXT, provenance TEXT NOT NULL, "
+                "status TEXT NOT NULL, runner_receipt_digest TEXT, outbox_digest TEXT)"
+            )
+            wake_columns = {
+                str(row[1]) for row in connection.execute("PRAGMA table_info(role_wake_outbox)")
+            }
+            if "outbox_digest" not in wake_columns:
+                connection.execute("ALTER TABLE role_wake_outbox ADD COLUMN outbox_digest TEXT")
+            unverifiable_wake = connection.execute(
+                "SELECT * FROM role_wake_outbox WHERE outbox_digest IS NULL"
+            ).fetchone()
+            if unverifiable_wake is not None:
+                raise MailboxConflict(
+                    "unverifiable digestless wake requires explicit recovery/replan"
+                )
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS lead_checkpoint_delivery("
+                "checkpoint_id TEXT NOT NULL, recipient_role_key TEXT NOT NULL, "
+                "recipient_generation INTEGER NOT NULL, recipient_session_id TEXT NOT NULL, "
+                "message_id TEXT NOT NULL UNIQUE, delivery_status TEXT NOT NULL, "
+                "acknowledgement_ref TEXT, acknowledged_at TEXT, ack_recipient_generation INTEGER, "
+                "ledger_digest TEXT NOT NULL, PRIMARY KEY(checkpoint_id, recipient_role_key, "
+                "recipient_generation, recipient_session_id))"
+            )
+            for mailbox_row in connection.execute(
+                "SELECT * FROM role_mailbox WHERE message_type = ?",
+                (MailboxMessageType.LEAD_CHECKPOINT.value,),
+            ).fetchall():
+                envelope = self._mailbox_from_row(mailbox_row)
+                checkpoint_id = envelope.body.get("checkpoint_id")
+                if not isinstance(checkpoint_id, str) or _IDENTIFIER.fullmatch(
+                    checkpoint_id
+                ) is None:
+                    raise MailboxConflict("checkpoint delivery body is invalid")
+                checkpoint_row = connection.execute(
+                    "SELECT * FROM lead_checkpoint WHERE checkpoint_id = ?",
+                    (checkpoint_id,),
+                ).fetchone()
+                if (
+                    checkpoint_row is None
+                    or checkpoint_row["row_digest"]
+                    != self._checkpoint_row_digest(checkpoint_row)
+                    or envelope.task_id != checkpoint_row["task_id"]
+                    or envelope.queue_generation != checkpoint_row["queue_generation"]
+                    or envelope.sender_role_key != checkpoint_row["lead_role_key"]
+                    or envelope.body.get("lead_role_key")
+                    != checkpoint_row["lead_role_key"]
+                    or envelope.body.get("checkpoint_digest")
+                    != checkpoint_row["checkpoint_digest"]
+                ):
+                    raise MailboxConflict(
+                        "checkpoint delivery legacy evidence is inconsistent"
+                    )
+                values = {
+                    "checkpoint_id": checkpoint_id,
+                    "recipient_role_key": envelope.recipient_role_key,
+                    "recipient_generation": envelope.recipient_generation,
+                    "recipient_session_id": envelope.recipient_session_id,
+                    "message_id": envelope.message_id,
+                    "delivery_status": envelope.delivery_status.value,
+                    "acknowledgement_ref": mailbox_row["acknowledgement_ref"],
+                    "acknowledged_at": mailbox_row["acknowledged_at"],
+                    "ack_recipient_generation": mailbox_row["ack_recipient_generation"],
+                }
+                connection.execute(
+                    "INSERT OR IGNORE INTO lead_checkpoint_delivery("
+                    "checkpoint_id, recipient_role_key, recipient_generation, "
+                    "recipient_session_id, message_id, delivery_status, acknowledgement_ref, "
+                    "acknowledged_at, ack_recipient_generation, ledger_digest) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (*values.values(), self._checkpoint_delivery_digest(values)),
+                )
+            for delivery in connection.execute(
+                "SELECT * FROM lead_checkpoint_delivery"
+            ).fetchall():
+                self._validate_checkpoint_delivery(delivery)
+                mailbox_row = connection.execute(
+                    "SELECT * FROM role_mailbox WHERE message_id = ?",
+                    (delivery["message_id"],),
+                ).fetchone()
+                if mailbox_row is None:
+                    raise MailboxConflict("checkpoint delivery mailbox is missing")
+                envelope = self._mailbox_from_row(mailbox_row)
+                if (
+                    envelope.recipient_role_key != delivery["recipient_role_key"]
+                    or envelope.recipient_generation
+                    != int(delivery["recipient_generation"])
+                    or envelope.recipient_session_id
+                    != delivery["recipient_session_id"]
+                    or envelope.body.get("checkpoint_id")
+                    != delivery["checkpoint_id"]
+                ):
+                    raise MailboxConflict("checkpoint delivery ledger was rebound")
 
     def pump(
         self,
@@ -722,20 +936,162 @@ class WorkflowController:
         action: RoleAction,
         expected_kind: RoleKind,
         operation: Callable[[], _GuardedResult],
+        additional_preflights: tuple[RoleRecord, ...] = (),
     ) -> _GuardedResult:
         """Run one controller mutation while lifecycle CAS is serialized."""
 
-        with self.role_registry.generation_guard(
-            preflight.identity.role_key,
-            expected_generation=preflight.generation,
-            expected_session_id=preflight.identity.codex_session_id,
-        ) as guarded:
+        preflights = (preflight, *additional_preflights)
+        with self.role_registry.generations_guard(
+            tuple(
+                (
+                    item.identity.role_key,
+                    item.generation,
+                    item.identity.codex_session_id,
+                )
+                for item in preflights
+            )
+        ) as guarded_records:
+            guarded = guarded_records[0]
             if guarded.state not in {RoleState.ACTIVE, RoleState.IDLE}:
                 raise RoleRegistryError("role is not available for mailbox work")
             if guarded.identity.role_kind is not expected_kind:
                 raise RoleRegistryError("role kind does not match the requested operation")
+            if any(
+                item.state not in {RoleState.ACTIVE, RoleState.IDLE}
+                for item in guarded_records[1:]
+            ):
+                raise RoleRegistryError("guarded recipient role is not available")
             require_role_authority(self._workflow_role(guarded.identity.role_kind), action)
             return operation()
+
+    def _require_unique_live_project_manager(self) -> RoleRecord:
+        project_managers = tuple(
+            item for item in self.role_registry.records()
+            if item.identity.role_kind is RoleKind.PROJECT_MANAGER
+            and item.state in {RoleState.ACTIVE, RoleState.IDLE}
+        )
+        if len(project_managers) != 1:
+            raise RoleRegistryError("checkpoint requires exactly one live project manager")
+        pm = project_managers[0]
+        return self._require_role(
+            pm.identity.role_key,
+            pm.generation,
+            expected_kind=RoleKind.PROJECT_MANAGER,
+        )
+
+    @staticmethod
+    def _checkpoint_material(row: sqlite3.Row | Mapping[str, object]) -> dict[str, object]:
+        return {
+            "checkpoint_id": row["checkpoint_id"],
+            "task_id": row["task_id"],
+            "queue_generation": row["queue_generation"],
+            "lead_role_key": row["lead_role_key"],
+            "checkpoint_digest": row["checkpoint_digest"],
+            "created_at": row["created_at"],
+        }
+
+    @staticmethod
+    def _worker_assignment_digest(
+        row: sqlite3.Row | Mapping[str, object],
+    ) -> str:
+        return _digest(
+            {
+                "task_id": row["task_id"],
+                "queue_generation": row["queue_generation"],
+                "worker_role_key": row["worker_role_key"],
+                "write_scope_json": row["write_scope_json"],
+                "reviewer_role_key": row["reviewer_role_key"],
+                "reviewer_generation": row["reviewer_generation"],
+                "reviewer_session_id": row["reviewer_session_id"],
+            }
+        )
+
+    @staticmethod
+    def _validate_worker_assignment(row: sqlite3.Row) -> None:
+        if row["assignment_digest"] != WorkflowController._worker_assignment_digest(row):
+            raise MailboxConflict("Worker/Reviewer assignment integrity check failed")
+
+    @staticmethod
+    def _checkpoint_row_digest(row: sqlite3.Row | Mapping[str, object]) -> str:
+        return _digest(WorkflowController._checkpoint_material(row))
+
+    @staticmethod
+    def _wake_outbox_material(
+        row: sqlite3.Row | Mapping[str, object],
+    ) -> dict[str, object]:
+        return {
+            "wake_id": row["wake_id"],
+            "role_key": row["role_key"],
+            "role_generation": row["role_generation"],
+            "session_id": row["session_id"],
+            "message_id": row["message_id"],
+            "provenance": row["provenance"],
+            "status": row["status"],
+            "runner_receipt_digest": row["runner_receipt_digest"],
+        }
+
+    @staticmethod
+    def _wake_outbox_digest(row: sqlite3.Row | Mapping[str, object]) -> str:
+        return _digest(WorkflowController._wake_outbox_material(row))
+
+    @staticmethod
+    def _checkpoint_delivery_material(
+        row: sqlite3.Row | Mapping[str, object],
+    ) -> dict[str, object]:
+        return {
+            "checkpoint_id": row["checkpoint_id"],
+            "recipient_role_key": row["recipient_role_key"],
+            "recipient_generation": row["recipient_generation"],
+            "recipient_session_id": row["recipient_session_id"],
+            "message_id": row["message_id"],
+            "delivery_status": row["delivery_status"],
+            "acknowledgement_ref": row["acknowledgement_ref"],
+            "acknowledged_at": row["acknowledged_at"],
+            "ack_recipient_generation": row["ack_recipient_generation"],
+        }
+
+    @staticmethod
+    def _checkpoint_delivery_digest(
+        row: sqlite3.Row | Mapping[str, object],
+    ) -> str:
+        return _digest(WorkflowController._checkpoint_delivery_material(row))
+
+    @staticmethod
+    def _validate_checkpoint_delivery(row: sqlite3.Row) -> None:
+        if row["ledger_digest"] != WorkflowController._checkpoint_delivery_digest(row):
+            raise MailboxConflict("checkpoint delivery ledger integrity check failed")
+
+    def _checkpoint_delivery_for_mailbox(
+        self,
+        connection: sqlite3.Connection,
+        mailbox_row: sqlite3.Row,
+        envelope: MailboxEnvelope,
+    ) -> sqlite3.Row | None:
+        if envelope.message_type is not MailboxMessageType.LEAD_CHECKPOINT:
+            return None
+        checkpoint_id = envelope.body.get("checkpoint_id")
+        if not isinstance(checkpoint_id, str):
+            raise MailboxConflict("checkpoint mailbox body is invalid")
+        delivery = connection.execute(
+            "SELECT * FROM lead_checkpoint_delivery WHERE message_id = ?",
+            (envelope.message_id,),
+        ).fetchone()
+        if delivery is None:
+            raise MailboxConflict("checkpoint delivery ledger is missing")
+        self._validate_checkpoint_delivery(delivery)
+        if (
+            delivery["checkpoint_id"] != checkpoint_id
+            or delivery["recipient_role_key"] != envelope.recipient_role_key
+            or int(delivery["recipient_generation"]) != envelope.recipient_generation
+            or delivery["recipient_session_id"] != envelope.recipient_session_id
+            or delivery["delivery_status"] != envelope.delivery_status.value
+            or delivery["acknowledgement_ref"] != mailbox_row["acknowledgement_ref"]
+            or delivery["acknowledged_at"] != mailbox_row["acknowledged_at"]
+            or delivery["ack_recipient_generation"]
+            != mailbox_row["ack_recipient_generation"]
+        ):
+            raise MailboxConflict("checkpoint delivery ledger was rebound")
+        return delivery
 
     @staticmethod
     def _envelope_material(
@@ -763,6 +1119,26 @@ class WorkflowController:
 
     @staticmethod
     def _internal_message_id(row: sqlite3.Row | Mapping[str, object]) -> str:
+        material = {
+            "body_digest": row["body_digest"],
+            "message_type": row["message_type"],
+            "parent_message_id": row["parent_message_id"],
+            "queue_generation": row["queue_generation"],
+            "recipient_role_key": row["recipient_role_key"],
+            "sender_role_key": row["sender_role_key"],
+            "task_id": row["task_id"],
+        }
+        if row["message_type"] == MailboxMessageType.LEAD_CHECKPOINT.value:
+            material.update(
+                {
+                    "recipient_generation": row["recipient_generation"],
+                    "recipient_session_id": row["recipient_session_id"],
+                }
+            )
+        return "msg-" + _digest(material)
+
+    @staticmethod
+    def _legacy_internal_message_id(row: sqlite3.Row | Mapping[str, object]) -> str:
         return "msg-" + _digest(
             {
                 "body_digest": row["body_digest"],
@@ -871,6 +1247,13 @@ class WorkflowController:
             "sender_role_key": sender_role_key,
             "task_id": task_id,
         }
+        if message_type is MailboxMessageType.LEAD_CHECKPOINT:
+            identity.update(
+                {
+                    "recipient_generation": recipient.generation,
+                    "recipient_session_id": recipient.identity.codex_session_id,
+                }
+            )
         message_id = message_id_override or ("msg-" + _digest(identity))
         if _IDENTIFIER.fullmatch(message_id) is None:
             raise WorkflowControllerError("mailbox message id is invalid")
@@ -964,7 +1347,10 @@ class WorkflowController:
         message_id = str(row["message_id"])
         body = json.loads(body_json)
         if message_id.startswith("msg-"):
-            if message_id != WorkflowController._internal_message_id(row):
+            valid_internal_ids = {WorkflowController._internal_message_id(row)}
+            if str(row["message_type"]) == MailboxMessageType.LEAD_CHECKPOINT.value:
+                valid_internal_ids.add(WorkflowController._legacy_internal_message_id(row))
+            if message_id not in valid_internal_ids:
                 raise MailboxConflict("mailbox message id was rebound")
         elif str(row["message_type"]) in {
             MailboxMessageType.DIRECT_MESSAGE.value,
@@ -1045,6 +1431,8 @@ class WorkflowController:
         if envelope.delivery_status is MailboxStatus.ACKNOWLEDGED:
             if row["acknowledgement_ref"] != acknowledgement_ref:
                 raise MailboxConflict("mailbox acknowledgement was rebound")
+            with self._connect() as connection:
+                self._checkpoint_delivery_for_mailbox(connection, row, envelope)
             current = self.role_registry.get(recipient_role_key)
             return MailboxAcknowledgement(
                 message_id, recipient_role_key, envelope.recipient_generation,
@@ -1091,6 +1479,45 @@ class WorkflowController:
             else:
                 acknowledged_at = now
                 acknowledged_generation = updated_role.generation
+            if envelope.message_type is MailboxMessageType.LEAD_CHECKPOINT:
+                pending_row = connection.execute(
+                    "SELECT * FROM lead_checkpoint_delivery WHERE message_id = ?",
+                    (message_id,),
+                ).fetchone()
+                if pending_row is None:
+                    connection.rollback()
+                    raise MailboxConflict("checkpoint delivery ledger is missing")
+                self._validate_checkpoint_delivery(pending_row)
+                if pending_row["delivery_status"] not in {
+                    MailboxStatus.PENDING.value,
+                    MailboxStatus.ACKNOWLEDGED.value,
+                }:
+                    connection.rollback()
+                    raise MailboxConflict("checkpoint delivery status is invalid")
+                delivery_values = {
+                    "checkpoint_id": pending_row["checkpoint_id"],
+                    "recipient_role_key": pending_row["recipient_role_key"],
+                    "recipient_generation": pending_row["recipient_generation"],
+                    "recipient_session_id": pending_row["recipient_session_id"],
+                    "message_id": pending_row["message_id"],
+                    "delivery_status": MailboxStatus.ACKNOWLEDGED.value,
+                    "acknowledgement_ref": acknowledgement_ref,
+                    "acknowledged_at": utc_text(acknowledged_at),
+                    "ack_recipient_generation": acknowledged_generation,
+                }
+                connection.execute(
+                    "UPDATE lead_checkpoint_delivery SET delivery_status = ?, "
+                    "acknowledgement_ref = ?, acknowledged_at = ?, "
+                    "ack_recipient_generation = ?, ledger_digest = ? WHERE message_id = ?",
+                    (
+                        MailboxStatus.ACKNOWLEDGED.value,
+                        acknowledgement_ref,
+                        utc_text(acknowledged_at),
+                        acknowledged_generation,
+                        self._checkpoint_delivery_digest(delivery_values),
+                        message_id,
+                    ),
+                )
             connection.commit()
         return MailboxAcknowledgement(
             message_id, recipient_role_key, expected_generation,
@@ -1213,10 +1640,15 @@ class WorkflowController:
             "reviewer_role_key": contract.reviewer_role_key,
             "write_scope": list(contract.write_scope),
             "worker_assignments": [
-                {
-                    "worker_role_key": item.worker_role_key,
-                    "write_scope": list(item.write_scope),
-                }
+                    {
+                        "worker_role_key": item.worker_role_key,
+                        "write_scope": list(item.write_scope),
+                        **(
+                            {"reviewer_role_key": item.reviewer_role_key}
+                            if item.reviewer_role_key is not None
+                            else {}
+                        ),
+                    }
                 for item in contract.worker_assignments
             ],
             "worker_profile": contract.worker_profile,
@@ -1238,10 +1670,34 @@ class WorkflowController:
             action=RoleAction.ASSIGN_LEAD,
             expected_kind=RoleKind.PROJECT_MANAGER,
         )
+        lead = self._require_role(
+            contract.lead_role_key,
+            self.role_registry.get(contract.lead_role_key).generation,
+            expected_kind=RoleKind.DOMAIN_LEAD,
+        )
+        workers = tuple(
+            self._require_role(
+                assignment.worker_role_key,
+                self.role_registry.get(assignment.worker_role_key).generation,
+                expected_kind=RoleKind.WORKER,
+            )
+            for assignment in contract.worker_assignments
+        )
+        reviewers = tuple(
+            self._require_role(
+                assignment.reviewer_role_key or contract.reviewer_role_key,
+                self.role_registry.get(
+                    assignment.reviewer_role_key or contract.reviewer_role_key
+                ).generation,
+                expected_kind=RoleKind.REVIEWER,
+            )
+            for assignment in contract.worker_assignments
+        )
         return self._run_generation_bound(
             pm,
             action=RoleAction.ASSIGN_LEAD,
             expected_kind=RoleKind.PROJECT_MANAGER,
+            additional_preflights=(lead, *workers, *reviewers),
             operation=lambda: self._dispatch_task_contract_unlocked(
                 contract, pm_generation=pm_generation
             ),
@@ -1262,31 +1718,39 @@ class WorkflowController:
             expected_kind=RoleKind.PROJECT_MANAGER,
         )
         lead = self.role_registry.get(contract.lead_role_key)
-        reviewer = self.role_registry.get(contract.reviewer_role_key)
         if lead.identity.role_kind is not RoleKind.DOMAIN_LEAD:
             raise RoleRegistryError("task contract Lead identity is not a Lead")
-        if reviewer.identity.role_kind is not RoleKind.REVIEWER:
-            raise RoleRegistryError("task contract Reviewer identity is not a Reviewer")
         if lead.identity.parent_role_key != pm.identity.role_key:
             raise RoleRegistryError("task contract Lead is outside the PM hierarchy")
-        if reviewer.identity.parent_role_key != lead.identity.role_key:
-            raise RoleRegistryError("task contract Reviewer is outside the Lead hierarchy")
         session_ids = {
             lead.identity.role_key: lead.identity.codex_session_id,
-            reviewer.identity.role_key: reviewer.identity.codex_session_id,
         }
+        reviewers_by_worker: dict[str, RoleRecord] = {}
         for assignment in contract.worker_assignments:
             worker = self.role_registry.get(assignment.worker_role_key)
+            reviewer = self.role_registry.get(
+                assignment.reviewer_role_key or contract.reviewer_role_key
+            )
             if worker.identity.role_kind is not RoleKind.WORKER:
                 raise RoleRegistryError("task contract Worker identity is not a Worker")
+            if reviewer.identity.role_kind is not RoleKind.REVIEWER:
+                raise RoleRegistryError("task contract Reviewer identity is not a Reviewer")
             if worker.identity.parent_role_key != lead.identity.role_key:
                 raise RoleRegistryError("task contract Worker is outside the Lead hierarchy")
+            if reviewer.identity.parent_role_key != lead.identity.role_key:
+                raise RoleRegistryError("task contract Reviewer is outside the Lead hierarchy")
             session_ids[worker.identity.role_key] = worker.identity.codex_session_id
+            session_ids[reviewer.identity.role_key] = reviewer.identity.codex_session_id
+            reviewers_by_worker[assignment.worker_role_key] = reviewer
         require_unique_role_sessions(
             lead_role_key=lead.identity.role_key,
-            reviewer_role_key=reviewer.identity.role_key,
+            reviewer_role_key=contract.reviewer_role_key,
             worker_role_keys=tuple(
                 assignment.worker_role_key for assignment in contract.worker_assignments
+            ),
+            reviewer_role_keys=tuple(
+                reviewers_by_worker[assignment.worker_role_key].identity.role_key
+                for assignment in contract.worker_assignments
             ),
             session_ids=session_ids,
         )
@@ -1352,15 +1816,76 @@ class WorkflowController:
                 ),
             )
             for assignment in contract.worker_assignments:
-                connection.execute(
-                    "INSERT OR IGNORE INTO worker_assignment(task_id, queue_generation, "
-                    "worker_role_key, write_scope_json) VALUES (?, ?, ?, ?)",
-                    (
-                        contract.task_id, contract.queue_generation,
-                        assignment.worker_role_key,
-                        _canonical({"write_scope": list(assignment.write_scope)}),
-                    ),
+                reviewer = reviewers_by_worker[assignment.worker_role_key]
+                write_scope_json = _canonical(
+                    {"write_scope": list(assignment.write_scope)}
                 )
+                existing_assignment = connection.execute(
+                    "SELECT * FROM worker_assignment WHERE task_id = ? "
+                    "AND queue_generation = ? AND worker_role_key = ?",
+                    (
+                        contract.task_id,
+                        contract.queue_generation,
+                        assignment.worker_role_key,
+                    ),
+                ).fetchone()
+                if existing_assignment is None:
+                    assignment_values = {
+                        "task_id": contract.task_id,
+                        "queue_generation": contract.queue_generation,
+                        "worker_role_key": assignment.worker_role_key,
+                        "write_scope_json": write_scope_json,
+                        "reviewer_role_key": reviewer.identity.role_key,
+                        "reviewer_generation": reviewer.generation,
+                        "reviewer_session_id": reviewer.identity.codex_session_id,
+                    }
+                    connection.execute(
+                        "INSERT INTO worker_assignment(task_id, queue_generation, "
+                        "worker_role_key, write_scope_json, reviewer_role_key, "
+                        "reviewer_generation, reviewer_session_id, assignment_digest) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            *assignment_values.values(),
+                            self._worker_assignment_digest(assignment_values),
+                        ),
+                    )
+                elif (
+                    existing_assignment["write_scope_json"] != write_scope_json
+                    or existing_assignment["reviewer_role_key"]
+                    not in {None, reviewer.identity.role_key}
+                    or existing_assignment["reviewer_generation"]
+                    not in {None, reviewer.generation}
+                    or existing_assignment["reviewer_session_id"]
+                    not in {None, reviewer.identity.codex_session_id}
+                ):
+                    raise MailboxConflict("Worker/Reviewer assignment was rebound")
+                elif existing_assignment["reviewer_role_key"] is None:
+                    assignment_values = {
+                        "task_id": contract.task_id,
+                        "queue_generation": contract.queue_generation,
+                        "worker_role_key": assignment.worker_role_key,
+                        "write_scope_json": write_scope_json,
+                        "reviewer_role_key": reviewer.identity.role_key,
+                        "reviewer_generation": reviewer.generation,
+                        "reviewer_session_id": reviewer.identity.codex_session_id,
+                    }
+                    connection.execute(
+                        "UPDATE worker_assignment SET reviewer_role_key = ?, "
+                        "reviewer_generation = ?, reviewer_session_id = ?, "
+                        "assignment_digest = ? WHERE task_id = ? "
+                        "AND queue_generation = ? AND worker_role_key = ?",
+                        (
+                            reviewer.identity.role_key,
+                            reviewer.generation,
+                            reviewer.identity.codex_session_id,
+                            self._worker_assignment_digest(assignment_values),
+                            contract.task_id,
+                            contract.queue_generation,
+                            assignment.worker_role_key,
+                        ),
+                    )
+                else:
+                    self._validate_worker_assignment(existing_assignment)
             envelope = self._insert_mailbox_in_transaction(
                 connection,
                 sender_role_key=contract.pm_role_key,
@@ -1401,10 +1926,45 @@ class WorkflowController:
             action=RoleAction.DISPATCH_WORKER,
             expected_kind=RoleKind.DOMAIN_LEAD,
         )
+        task = self._current_task(task_id, queue_generation)
+        if task["lead_role_key"] != lead_role_key:
+            raise RoleRegistryError("Lead does not own this task contract")
+        with self._connect() as connection:
+            assignment_rows = tuple(
+                connection.execute(
+                    "SELECT * FROM worker_assignment WHERE task_id = ? "
+                    "AND queue_generation = ? ORDER BY worker_role_key",
+                    (task_id, queue_generation),
+                ).fetchall()
+            )
+        for row in assignment_rows:
+            self._validate_worker_assignment(row)
+        workers = tuple(
+            self._require_role(
+                role_key,
+                self.role_registry.get(role_key).generation,
+                expected_kind=RoleKind.WORKER,
+            )
+            for role_key in (str(row["worker_role_key"]) for row in assignment_rows)
+        )
+        reviewers = tuple(
+            self._require_role(
+                str(row["reviewer_role_key"]),
+                int(row["reviewer_generation"]),
+                expected_kind=RoleKind.REVIEWER,
+            )
+            for row in assignment_rows
+        )
+        if any(
+            reviewer.identity.codex_session_id != str(row["reviewer_session_id"])
+            for reviewer, row in zip(reviewers, assignment_rows, strict=True)
+        ):
+            raise StaleRoleGeneration("preassigned Reviewer session changed")
         return self._run_generation_bound(
             lead,
             action=RoleAction.DISPATCH_WORKER,
             expected_kind=RoleKind.DOMAIN_LEAD,
+            additional_preflights=(*workers, *reviewers),
             operation=lambda: self._dispatch_workers_unlocked(
                 task_id=task_id,
                 queue_generation=queue_generation,
@@ -1444,10 +2004,12 @@ class WorkflowController:
                 if task["state"] == "replan_required":
                     raise ReviewLoopError("task requires PM replan before Worker dispatch")
                 assignments = connection.execute(
-                    "SELECT worker_role_key, write_scope_json FROM worker_assignment "
+                    "SELECT * FROM worker_assignment "
                     "WHERE task_id = ? AND queue_generation = ? ORDER BY worker_role_key",
                     (task_id, queue_generation),
                 ).fetchall()
+                for assignment in assignments:
+                    self._validate_worker_assignment(assignment)
                 recipients = tuple(
                     (
                         assignment,
@@ -1464,7 +2026,12 @@ class WorkflowController:
                         recipient_role_key=worker.identity.role_key,
                         recipient_generation=worker.generation,
                         message_type=MailboxMessageType.WORKER_ASSIGNMENT,
-                        body=json.loads(str(assignment["write_scope_json"])),
+                        body=json.loads(str(assignment["write_scope_json"]))
+                        | {
+                            "reviewer_role_key": assignment["reviewer_role_key"],
+                            "reviewer_generation": assignment["reviewer_generation"],
+                            "reviewer_session_id": assignment["reviewer_session_id"],
+                        },
                         task_id=task_id,
                         queue_generation=queue_generation,
                     )
@@ -1498,16 +2065,19 @@ class WorkflowController:
             action=RoleAction.PROGRESS_CHECKPOINT,
             expected_kind=RoleKind.DOMAIN_LEAD,
         )
+        project_manager = self._require_unique_live_project_manager()
         return self._run_generation_bound(
             lead,
             action=RoleAction.PROGRESS_CHECKPOINT,
             expected_kind=RoleKind.DOMAIN_LEAD,
+            additional_preflights=(project_manager,),
             operation=lambda: self._record_lead_checkpoint_unlocked(
                 task_id=task_id,
                 queue_generation=queue_generation,
                 lead_role_key=lead_role_key,
                 lead_generation=lead_generation,
                 checkpoint_digest=checkpoint_digest,
+                project_manager=project_manager,
             ),
         )
 
@@ -1519,6 +2089,7 @@ class WorkflowController:
         lead_role_key: str,
         lead_generation: int,
         checkpoint_digest: str,
+        project_manager: RoleRecord,
     ) -> str:
         """Record sanitized Lead-owned progress without mutating Queue structure."""
 
@@ -1550,21 +2121,115 @@ class WorkflowController:
                     raise StaleQueueGeneration("Queue task generation is stale")
                 if task["lead_role_key"] != lead_role_key:
                     raise RoleRegistryError("Lead does not own this task checkpoint")
+                created_at = utc_text(datetime.now(UTC))
+                checkpoint_values = {
+                    "checkpoint_id": checkpoint_id,
+                    "task_id": task_id,
+                    "queue_generation": queue_generation,
+                    "lead_role_key": lead_role_key,
+                    "checkpoint_digest": checkpoint_digest,
+                    "created_at": created_at,
+                }
                 connection.execute(
                     "INSERT OR IGNORE INTO lead_checkpoint(checkpoint_id, task_id, "
-                    "queue_generation, lead_role_key, checkpoint_digest, created_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
-                    (
-                        checkpoint_id, task_id, queue_generation, lead_role_key,
-                        checkpoint_digest, utc_text(datetime.now(UTC)),
-                    ),
+                    "queue_generation, lead_role_key, checkpoint_digest, created_at, row_digest) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (*checkpoint_values.values(), self._checkpoint_row_digest(checkpoint_values)),
                 )
                 row = connection.execute(
-                    "SELECT checkpoint_digest FROM lead_checkpoint WHERE checkpoint_id = ?",
+                    "SELECT checkpoint_digest, checkpoint_id, task_id, queue_generation, "
+                    "lead_role_key, created_at, row_digest FROM lead_checkpoint "
+                    "WHERE checkpoint_id = ?",
                     (checkpoint_id,),
                 ).fetchone()
-                if row is None or row["checkpoint_digest"] != checkpoint_digest:
+                if row is None:
                     raise MailboxConflict("Lead checkpoint id was rebound")
+                try:
+                    parse_utc(str(row["created_at"]))
+                except (TypeError, ValueError) as error:
+                    raise MailboxConflict("checkpoint created_at integrity failed") from error
+                if (
+                    row["checkpoint_id"] != checkpoint_id
+                    or row["task_id"] != task_id
+                    or row["queue_generation"] != queue_generation
+                    or row["lead_role_key"] != lead_role_key
+                    or row["checkpoint_digest"] != checkpoint_digest
+                    or row["row_digest"] != self._checkpoint_row_digest(row)
+                ):
+                    raise MailboxConflict("checkpoint row integrity check failed")
+                delivery = connection.execute(
+                    "SELECT * FROM lead_checkpoint_delivery WHERE checkpoint_id = ? "
+                    "AND recipient_role_key = ? AND recipient_generation = ? "
+                    "AND recipient_session_id = ?",
+                    (
+                        checkpoint_id,
+                        project_manager.identity.role_key,
+                        project_manager.generation,
+                        project_manager.identity.codex_session_id,
+                    ),
+                ).fetchone()
+                if delivery is not None:
+                    self._validate_checkpoint_delivery(delivery)
+                    mailbox_row = connection.execute(
+                        "SELECT * FROM role_mailbox WHERE message_id = ?",
+                        (delivery["message_id"],),
+                    ).fetchone()
+                    if mailbox_row is None:
+                        raise MailboxConflict("checkpoint delivery mailbox is missing")
+                    envelope = self._mailbox_from_row(mailbox_row)
+                    if (
+                        envelope.recipient_role_key
+                        != project_manager.identity.role_key
+                        or envelope.recipient_generation != project_manager.generation
+                        or envelope.recipient_session_id
+                        != project_manager.identity.codex_session_id
+                        or envelope.message_type is not MailboxMessageType.LEAD_CHECKPOINT
+                        or envelope.body.get("checkpoint_id") != checkpoint_id
+                        or envelope.delivery_status.value != delivery["delivery_status"]
+                        or mailbox_row["acknowledgement_ref"]
+                        != delivery["acknowledgement_ref"]
+                        or mailbox_row["acknowledged_at"] != delivery["acknowledged_at"]
+                        or mailbox_row["ack_recipient_generation"]
+                        != delivery["ack_recipient_generation"]
+                    ):
+                        raise MailboxConflict("checkpoint delivery ledger was rebound")
+                else:
+                    envelope = self._insert_mailbox_in_transaction(
+                        connection,
+                        sender_role_key=lead_role_key,
+                        recipient_role_key=project_manager.identity.role_key,
+                        recipient_generation=project_manager.generation,
+                        message_type=MailboxMessageType.LEAD_CHECKPOINT,
+                        body={
+                            "checkpoint_digest": checkpoint_digest,
+                            "checkpoint_id": checkpoint_id,
+                            "lead_role_key": lead_role_key,
+                        },
+                        task_id=task_id,
+                        queue_generation=queue_generation,
+                    )
+                    delivery_values = {
+                        "checkpoint_id": checkpoint_id,
+                        "recipient_role_key": envelope.recipient_role_key,
+                        "recipient_generation": envelope.recipient_generation,
+                        "recipient_session_id": envelope.recipient_session_id,
+                        "message_id": envelope.message_id,
+                        "delivery_status": envelope.delivery_status.value,
+                        "acknowledgement_ref": None,
+                        "acknowledged_at": None,
+                        "ack_recipient_generation": None,
+                    }
+                    connection.execute(
+                        "INSERT INTO lead_checkpoint_delivery(checkpoint_id, "
+                        "recipient_role_key, recipient_generation, recipient_session_id, "
+                        "message_id, delivery_status, acknowledgement_ref, acknowledged_at, "
+                        "ack_recipient_generation, ledger_digest) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            *delivery_values.values(),
+                            self._checkpoint_delivery_digest(delivery_values),
+                        ),
+                    )
                 connection.commit()
             except BaseException:
                 connection.rollback()
@@ -1588,10 +2253,33 @@ class WorkflowController:
             action=RoleAction.SUBMIT_CANDIDATE,
             expected_kind=RoleKind.WORKER,
         )
+        task = self._current_task(task_id, queue_generation)
+        with self._connect() as connection:
+            assignment = connection.execute(
+                "SELECT * FROM worker_assignment WHERE task_id = ? "
+                "AND queue_generation = ? AND worker_role_key = ?",
+                (task_id, queue_generation, worker_role_key),
+            ).fetchone()
+        if assignment is None:
+            raise RoleRegistryError("Worker is outside the task fan-out")
+        self._validate_worker_assignment(assignment)
+        reviewer = self._require_role(
+            str(assignment["reviewer_role_key"]),
+            int(assignment["reviewer_generation"]),
+            expected_kind=RoleKind.REVIEWER,
+        )
+        if reviewer.identity.codex_session_id != assignment["reviewer_session_id"]:
+            raise StaleRoleGeneration("preassigned Reviewer session changed")
+        lead = self._require_role(
+            str(task["lead_role_key"]),
+            self.role_registry.get(str(task["lead_role_key"])).generation,
+            expected_kind=RoleKind.DOMAIN_LEAD,
+        )
         return self._run_generation_bound(
             worker,
             action=RoleAction.SUBMIT_CANDIDATE,
             expected_kind=RoleKind.WORKER,
+            additional_preflights=(reviewer, lead),
             operation=lambda: self._submit_worker_candidate_unlocked(
                 task_id=task_id,
                 queue_generation=queue_generation,
@@ -1633,12 +2321,13 @@ class WorkflowController:
                 if task["state"] == "replan_required":
                     raise ReviewLoopError("third FIX requires Lead/PM replan")
                 assignment = connection.execute(
-                    "SELECT candidate_digest, candidate_state FROM worker_assignment "
+                    "SELECT * FROM worker_assignment "
                     "WHERE task_id = ? AND queue_generation = ? AND worker_role_key = ?",
                     (task_id, queue_generation, worker_role_key),
                 ).fetchone()
                 if assignment is None:
                     raise RoleRegistryError("Worker is outside the task fan-out")
+                self._validate_worker_assignment(assignment)
                 if assignment["candidate_state"] == "pending_review":
                     if assignment["candidate_digest"] != candidate_digest:
                         raise ReviewLoopError("a frozen candidate is already awaiting review")
@@ -1651,7 +2340,13 @@ class WorkflowController:
                         "AND queue_generation = ? AND worker_role_key = ?",
                         (candidate_digest, task_id, queue_generation, worker_role_key),
                     )
-                reviewer = self.role_registry.get(str(task["reviewer_role_key"]))
+                reviewer = self._require_role(
+                    str(assignment["reviewer_role_key"]),
+                    int(assignment["reviewer_generation"]),
+                    expected_kind=RoleKind.REVIEWER,
+                )
+                if reviewer.identity.codex_session_id != assignment["reviewer_session_id"]:
+                    raise StaleRoleGeneration("preassigned Reviewer session changed")
                 lead = self.role_registry.get(str(task["lead_role_key"]))
                 self._require_role(reviewer.identity.role_key, reviewer.generation)
                 self._require_role(lead.identity.role_key, lead.generation)
@@ -1805,19 +2500,25 @@ class WorkflowController:
                     raise ReviewLoopError("task contract is not registered")
                 if task["queue_generation"] != queue_generation:
                     raise StaleQueueGeneration("Queue task generation is stale")
-                if task["reviewer_role_key"] != reviewer_role_key:
-                    raise RoleRegistryError(
-                        "review decision did not come from the preassigned Reviewer"
-                    )
                 if task["state"] == "replan_required":
                     raise ReviewLoopError("third FIX already requires Lead/PM replan")
                 assignment = connection.execute(
-                    "SELECT candidate_digest, candidate_state FROM worker_assignment "
+                    "SELECT * FROM worker_assignment "
                     "WHERE task_id = ? AND queue_generation = ? AND worker_role_key = ?",
                     (task_id, queue_generation, worker_role_key),
                 ).fetchone()
                 if assignment is None:
                     raise RoleRegistryError("reviewed Worker is outside the task fan-out")
+                self._validate_worker_assignment(assignment)
+                if (
+                    assignment["reviewer_role_key"] != reviewer_role_key
+                    or int(assignment["reviewer_generation"]) != reviewer_generation
+                    or assignment["reviewer_session_id"]
+                    != reviewer.identity.codex_session_id
+                ):
+                    raise RoleRegistryError(
+                        "review decision did not come from the preassigned Reviewer"
+                    )
                 if (
                     assignment["candidate_state"] != "pending_review"
                     or assignment["candidate_digest"] != candidate_digest
@@ -1826,7 +2527,7 @@ class WorkflowController:
                 lead = self.role_registry.get(str(task["lead_role_key"]))
                 pm = self.role_registry.get(str(task["pm_role_key"]))
                 worker = self.role_registry.get(worker_role_key)
-                current_fix_count = int(task["fix_count"])
+                current_fix_count = int(assignment["fix_count"])
                 message_ids: list[str] = []
                 body = {
                     "candidate_digest": candidate_digest,
@@ -1900,18 +2601,20 @@ class WorkflowController:
                     }
                 )
                 changed = connection.execute(
-                    "UPDATE worker_assignment SET candidate_state = ? WHERE task_id = ? "
+                    "UPDATE worker_assignment SET candidate_state = ?, fix_count = ? "
+                    "WHERE task_id = ? "
                     "AND queue_generation = ? AND worker_role_key = ? "
                     "AND candidate_digest = ? AND candidate_state = 'pending_review'",
                     (
-                        next_candidate_state, task_id, queue_generation,
+                        next_candidate_state, fix_count, task_id, queue_generation,
                         worker_role_key, candidate_digest,
                     ),
                 ).rowcount
                 if changed != 1:
                     raise ReviewLoopError("candidate changed before review settlement")
                 connection.execute(
-                    "UPDATE hierarchy_task SET fix_count = ?, state = ? WHERE task_id = ? "
+                    "UPDATE hierarchy_task SET fix_count = MAX(fix_count, ?), state = ? "
+                    "WHERE task_id = ? "
                     "AND queue_generation = ?",
                     (fix_count, state, task_id, queue_generation),
                 )
@@ -2122,18 +2825,205 @@ class WorkflowController:
         self,
         *,
         role_key: str,
-        role_generation: int,
-        session_id: str,
-        provenance: str,
+        expected_generation: int,
+        expected_session_id: str,
+        message_id: str | None = None,
     ) -> str:
-        """Wake one exact reusable role for a sanitized material event."""
+        """Resume one exact durable role through a retry-safe wake outbox.
+
+        A candidate-bound wake additionally proves that the durable mailbox is
+        still addressed to this exact Reviewer lifecycle.  The external Codex
+        resume is keyed by a stable provenance digest, so a crash after the
+        boundary call can safely retry the same operation.
+        """
 
         if self.session_runner is None:
             raise WorkflowControllerError("role wakeup requires a direct session runner")
-        return self.session_runner.run(
-            SessionAction.RESUME,
-            role_key=role_key,
-            role_generation=role_generation,
-            session_id=session_id,
-            provenance=provenance,
-        ).receipt_digest
+        preflight = self._require_role(role_key, expected_generation)
+        if preflight.identity.codex_session_id != expected_session_id:
+            raise StaleRoleGeneration("role generation or session changed")
+        if message_id is not None and _IDENTIFIER.fullmatch(message_id) is None:
+            raise WorkflowControllerError("wake message id is invalid")
+        wake_id = "wake-" + _digest(
+            {
+                "message_id": message_id,
+                "role_generation": expected_generation,
+                "role_key": role_key,
+                "session_id": expected_session_id,
+            }
+        )
+        provenance = _digest({"wake_id": wake_id})
+        with self.role_registry.generation_guard(
+            role_key,
+            expected_generation=expected_generation,
+            expected_session_id=expected_session_id,
+        ) as guarded:
+            if guarded.state not in {RoleState.ACTIVE, RoleState.IDLE}:
+                raise RoleRegistryError("role is not available for wakeup")
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                try:
+                    if message_id is not None:
+                        message = connection.execute(
+                            "SELECT * FROM role_mailbox WHERE message_id = ?",
+                            (message_id,),
+                        ).fetchone()
+                        if message is None:
+                            raise MailboxConflict("wake mailbox message does not exist")
+                        envelope = self._mailbox_from_row(message)
+                        if (
+                            envelope.recipient_role_key != role_key
+                            or envelope.recipient_generation != expected_generation
+                            or envelope.recipient_session_id != expected_session_id
+                        ):
+                            raise MailboxConflict(
+                                "wake mailbox is addressed to a different role lifecycle"
+                            )
+                        if (
+                            envelope.message_type is MailboxMessageType.CANDIDATE
+                            and guarded.identity.role_kind is not RoleKind.REVIEWER
+                        ):
+                            raise RoleRegistryError(
+                                "candidate wake requires the assigned Reviewer role"
+                            )
+                        if envelope.message_type is MailboxMessageType.CANDIDATE:
+                            worker_role_key = envelope.body.get("worker_role_key")
+                            candidate_digest = envelope.body.get("candidate_digest")
+                            if (
+                                envelope.task_id is None
+                                or envelope.queue_generation is None
+                                or not isinstance(worker_role_key, str)
+                                or _ROLE_KEY.fullmatch(worker_role_key) is None
+                                or not isinstance(candidate_digest, str)
+                                or _DIGEST.fullmatch(candidate_digest) is None
+                                or envelope.sender_role_key != worker_role_key
+                            ):
+                                raise MailboxConflict(
+                                    "candidate wake mailbox facts are invalid"
+                                )
+                            task = connection.execute(
+                                "SELECT queue_generation FROM hierarchy_task "
+                                "WHERE task_id = ?",
+                                (envelope.task_id,),
+                            ).fetchone()
+                            assignment = connection.execute(
+                                "SELECT * FROM worker_assignment WHERE task_id = ? "
+                                "AND queue_generation = ? AND worker_role_key = ?",
+                                (
+                                    envelope.task_id,
+                                    envelope.queue_generation,
+                                    worker_role_key,
+                                ),
+                            ).fetchone()
+                            if (
+                                task is None
+                                or task["queue_generation"] != envelope.queue_generation
+                                or assignment is None
+                            ):
+                                raise MailboxConflict(
+                                    "candidate wake task assignment is missing"
+                                )
+                            self._validate_worker_assignment(assignment)
+                            if (
+                                assignment["reviewer_role_key"] != role_key
+                                or int(assignment["reviewer_generation"])
+                                != expected_generation
+                                or assignment["reviewer_session_id"]
+                                != expected_session_id
+                                or assignment["candidate_state"] != "pending_review"
+                                or assignment["candidate_digest"] != candidate_digest
+                            ):
+                                raise MailboxConflict(
+                                    "candidate wake does not match the frozen pending pair"
+                                )
+                    existing = connection.execute(
+                        "SELECT * FROM role_wake_outbox WHERE wake_id = ?", (wake_id,)
+                    ).fetchone()
+                    if existing is None:
+                        pending_values = {
+                            "wake_id": wake_id,
+                            "role_key": role_key,
+                            "role_generation": expected_generation,
+                            "session_id": expected_session_id,
+                            "message_id": message_id,
+                            "provenance": provenance,
+                            "status": "pending",
+                            "runner_receipt_digest": None,
+                        }
+                        connection.execute(
+                            "INSERT INTO role_wake_outbox(wake_id, role_key, role_generation, "
+                            "session_id, message_id, provenance, status, runner_receipt_digest, "
+                            "outbox_digest) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            (
+                                *pending_values.values(),
+                                self._wake_outbox_digest(pending_values),
+                            ),
+                        )
+                    else:
+                        if existing["outbox_digest"] != self._wake_outbox_digest(existing):
+                            raise MailboxConflict("wake outbox integrity check failed")
+                        if (
+                            existing["role_key"] != role_key
+                            or int(existing["role_generation"]) != expected_generation
+                            or existing["session_id"] != expected_session_id
+                            or existing["message_id"] != message_id
+                            or existing["provenance"] != provenance
+                        ):
+                            raise MailboxConflict("wake id was rebound")
+                        if existing["status"] == "completed":
+                            receipt_digest = existing["runner_receipt_digest"]
+                            if not isinstance(receipt_digest, str) or _DIGEST.fullmatch(
+                                receipt_digest
+                            ) is None:
+                                raise MailboxConflict("completed wake receipt is invalid")
+                            connection.commit()
+                            return receipt_digest
+                    connection.commit()
+                except BaseException:
+                    connection.rollback()
+                    raise
+
+            receipt = self.session_runner.run(
+                SessionAction.RESUME,
+                role_key=role_key,
+                role_generation=expected_generation,
+                session_id=expected_session_id,
+                provenance=provenance,
+            )
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                try:
+                    row = connection.execute(
+                        "SELECT * FROM role_wake_outbox WHERE wake_id = ?",
+                        (wake_id,),
+                    ).fetchone()
+                    if row is None:
+                        raise MailboxConflict("wake outbox row disappeared")
+                    if row["outbox_digest"] != self._wake_outbox_digest(row):
+                        raise MailboxConflict("wake outbox integrity check failed")
+                    if row["status"] == "completed":
+                        if row["runner_receipt_digest"] != receipt.receipt_digest:
+                            raise MailboxConflict("wake receipt was rebound")
+                    elif row["status"] == "pending":
+                        completed_values = {
+                            **self._wake_outbox_material(row),
+                            "status": "completed",
+                            "runner_receipt_digest": receipt.receipt_digest,
+                        }
+                        connection.execute(
+                            "UPDATE role_wake_outbox SET status = 'completed', "
+                            "runner_receipt_digest = ?, outbox_digest = ? "
+                            "WHERE wake_id = ? AND status = 'pending'",
+                            (
+                                receipt.receipt_digest,
+                                self._wake_outbox_digest(completed_values),
+                                wake_id,
+                            ),
+                        )
+                    else:
+                        raise MailboxConflict("wake outbox status is invalid")
+                    connection.commit()
+                except BaseException:
+                    connection.rollback()
+                    raise
+        return receipt.receipt_digest

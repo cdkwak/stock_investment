@@ -355,6 +355,12 @@ def test_material_question_wakes_exact_pm_once_without_orca_dependency(
 ) -> None:
     supervisor, direct, sessions = build_supervisor(tmp_path)
     record = role_record(heartbeat_at=T0 + timedelta(seconds=50))
+    durable = supervisor.controller.register_role_session(
+        record.identity,
+        observed_at=record.heartbeat_at,
+        lease_until=record.lease_until,
+    )
+    record = replace(record, generation=durable.generation)
     observation = OrcaObservation(
         observed_at=T0 + timedelta(minutes=1),
         runtime_id="runtime-a",

@@ -1074,6 +1074,24 @@ class WorkflowControllerService:
             candidate_digest=candidate_digest,
         )
 
+    def wake_role_session(
+        self,
+        *,
+        role_key: str,
+        expected_generation: int,
+        expected_session_id: str,
+        message_id: str | None = None,
+    ) -> str:
+        """Wake one exact persisted Codex role through the controller outbox."""
+
+        self._require_started()
+        return self.controller.wake_role_session(
+            role_key=role_key,
+            expected_generation=expected_generation,
+            expected_session_id=expected_session_id,
+            message_id=message_id,
+        )
+
     def review_worker_candidate(
         self,
         *,

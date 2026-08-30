@@ -251,10 +251,12 @@ def require_unique_role_sessions(
     reviewer_role_key: str,
     worker_role_keys: tuple[str, ...],
     session_ids: Mapping[str, str],
+    reviewer_role_keys: tuple[str, ...] | None = None,
 ) -> None:
     """Require independent durable Codex sessions for Lead/Workers/Reviewer."""
 
-    role_keys = (lead_role_key, *worker_role_keys, reviewer_role_key)
+    reviewers = reviewer_role_keys or (reviewer_role_key,)
+    role_keys = (lead_role_key, *worker_role_keys, *reviewers)
     if set(session_ids) != set(role_keys):
         raise RoutingError("role session projection does not match the task contract")
     values = tuple(session_ids[role_key] for role_key in role_keys)
@@ -268,6 +270,7 @@ def require_unique_role_sessions(
 class WorkerAssignment:
     worker_role_key: str
     write_scope: tuple[str, ...]
+    reviewer_role_key: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.worker_role_key, str) or _ROLE_KEY.fullmatch(self.worker_role_key) is None:
@@ -277,6 +280,14 @@ class WorkerAssignment:
         normalized = tuple(_canonical_path(path, task_id=self.worker_role_key) for path in self.write_scope)
         if len(normalized) != len(set(normalized)):
             raise RoutingError("worker assignment repeats a write scope")
+        if (
+            self.reviewer_role_key is not None
+            and (
+                not isinstance(self.reviewer_role_key, str)
+                or _ROLE_KEY.fullmatch(self.reviewer_role_key) is None
+            )
+        ):
+            raise RoutingError("worker assignment Reviewer role key is invalid")
 
 
 @dataclass(frozen=True, slots=True)
@@ -336,6 +347,21 @@ class TaskContract:
                             f"{assignment.worker_role_key}"
                         )
                 assigned_paths.append((assignment.worker_role_key, path))
+        reviewers = tuple(
+            assignment.reviewer_role_key or self.reviewer_role_key
+            for assignment in self.worker_assignments
+        )
+        if len(self.worker_assignments) > 1 and any(
+            assignment.reviewer_role_key is None
+            for assignment in self.worker_assignments
+        ):
+            raise RoutingError(
+                "multi-Worker contracts require an explicit unique Reviewer per Worker"
+            )
+        if len(reviewers) != len(set(reviewers)):
+            raise RoutingError("a Reviewer cannot be reused across Worker assignments")
+        if set(reviewers) & {self.pm_role_key, self.lead_role_key, *workers}:
+            raise RoutingError("Worker Reviewers must be distinct from PM, Lead, and Workers")
         if self.worker_profile not in _QUEUE_PROFILES:
             raise RoutingError("task contract worker profile is invalid")
         if self.reviewer_profile not in _QUEUE_PROFILES:
@@ -353,6 +379,11 @@ class TaskContract:
                         {
                             "worker_role_key": item.worker_role_key,
                             "write_scope": list(item.write_scope),
+                            **(
+                                {"reviewer_role_key": item.reviewer_role_key}
+                                if item.reviewer_role_key is not None
+                                else {}
+                            ),
                         }
                         for item in self.worker_assignments
                     ],

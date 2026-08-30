@@ -161,9 +161,8 @@ class WorkflowSupervisor:
             wake_receipts.append(
                 self.controller.wake_role_session(
                     role_key=signal.role_key,
-                    role_generation=record.generation,
-                    session_id=record.identity.codex_session_id,
-                    provenance=signal.provenance,
+                    expected_generation=record.generation,
+                    expected_session_id=record.identity.codex_session_id,
                 )
             )
         return SupervisorCycleReceipt(

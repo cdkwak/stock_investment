@@ -475,6 +475,54 @@ def test_service_restart_resumes_stored_pm_lead_worker_reviewer_sessions(
     restarted.close()
 
 
+def test_service_exposes_generation_bound_retry_safe_reviewer_wake(
+    tmp_path: Path,
+) -> None:
+    sessions = LocalFakeSessionBoundary()
+    controller = WorkflowController(
+        WorkflowStateStore(tmp_path / "wake-state.sqlite3", tmp_path / "wake-events.jsonl"),
+        InjectedDirectRunner(LocalFakeDirectBoundary()),
+        tmp_path / "wake-controller.sqlite3",
+        session_runner=InjectedSessionRunner(sessions),
+    )
+    instance = WorkflowControllerService(
+        controller, tmp_path / "wake-service", owner_id="pm-wake"
+    )
+    instance.start()
+    for identity in (
+        RoleIdentity(
+            "project_manager", RoleKind.PROJECT_MANAGER, "session-pm",
+            "python-control", "repo::C:/workspace", "term-pm", "runtime-a",
+        ),
+        RoleIdentity(
+            "lead_data", RoleKind.DOMAIN_LEAD, "session-lead",
+            "python-control", "repo::C:/workspace", "term-lead", "runtime-a",
+            parent_role_key="project_manager",
+        ),
+        RoleIdentity(
+            "reviewer_data", RoleKind.REVIEWER, "session-reviewer",
+            "python-control", "repo::C:/workspace", "term-reviewer", "runtime-a",
+            parent_role_key="lead_data",
+        ),
+    ):
+        instance.register_role_session(
+            identity, observed_at=T0, lease_until=T0 + timedelta(hours=1)
+        )
+    reviewer = controller.role_registry.get("reviewer_data")
+    receipt = instance.wake_role_session(
+        role_key="reviewer_data",
+        expected_generation=reviewer.generation,
+        expected_session_id=reviewer.identity.codex_session_id,
+    )
+    assert instance.wake_role_session(
+        role_key="reviewer_data",
+        expected_generation=reviewer.generation,
+        expected_session_id=reviewer.identity.codex_session_id,
+    ) == receipt
+    assert sessions.calls == 1
+    instance.close()
+
+
 def test_listener_generation_bound_envelope_delivers_to_service_exactly_once(
     tmp_path: Path,
 ) -> None:
