@@ -240,6 +240,28 @@ rewrite it unless the user explicitly instructs them to do so.
   tune Lead topology, Queue stages, backlog targets, model profiles and review
   policy from observed bottlenecks, while preserving user ownership of the Goal
   and the non-delegable financial, legal, access and secret boundaries.
+- Workflow evolution follows an evidence-driven closed loop: agents record
+  throughput, wait time, rework, review failures, repeated user escalations,
+  idle runnable work and session-start overhead; a planning-only Workflow
+  Steward turns those observations into bounded, reversible proposals. Changes
+  are replayed or evaluated, independently reviewed, canary-tested where
+  practical, and then promoted or rolled back. Agents may improve operating
+  policy from recorded outcomes, but they must not silently rewrite the Goal,
+  relax protected boundaries, or treat unreviewed self-generated rules as
+  standing authority.
+- The Project Manager keeps runnable work flowing through multiple disjoint
+  Domain Leads when safe capacity exists, reuses healthy sessions before
+  creating replacements, and applies role-aware model profiles so listening,
+  planning and routine coordination do not default to the most expensive
+  reasoning tier. Higher tiers are reserved for evidenced complexity or risk.
+- The Project Manager defaults to `gpt-5.6-sol` with `medium` reasoning effort.
+  Lower-cost models remain appropriate for bounded listening, projection and
+  routine helper work; higher PM effort requires a concrete complexity or risk
+  reason rather than becoming the standing default.
+- A concise operational digest records where work waited, which failures or
+  retries occurred, how capacity and model profiles were used, and what workflow
+  changes were proposed, tested, promoted or rolled back. This lets the user
+  understand overnight progress and bottlenecks without reading agent logs.
 - The Project Manager keeps a concise current-workflow snapshot and an
   append-only workflow change log. Each material change records when and why it
   changed, the affected roles or Queue stages, and the expected operational
