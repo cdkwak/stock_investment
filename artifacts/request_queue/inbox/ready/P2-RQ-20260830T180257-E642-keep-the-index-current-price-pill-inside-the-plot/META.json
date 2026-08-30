@@ -1,0 +1,48 @@
+{
+  "assigned_agent": null,
+  "assigned_role": null,
+  "branch": null,
+  "completed_at": null,
+  "complexity": "standard",
+  "created_at": "2026-08-30T18:02:57+09:00",
+  "created_by": "pm_run_7bd76becf17b",
+  "depends_on": [
+    "RQ-20260830T180256-6F2D"
+  ],
+  "domain": "gui",
+  "fingerprint": "gui-audit-20260830:ux08:index-price-pill-margin",
+  "heartbeat": null,
+  "id": "RQ-20260830T180257-E642",
+  "intake_role": "coordinator",
+  "kind": "bug",
+  "lead_owner": "gui_lead",
+  "lease_until": null,
+  "legacy_id": null,
+  "owner": null,
+  "parallelizable": false,
+  "parent_task": "RQ-20260828T221144-D1E1",
+  "priority": "P2",
+  "priority_hint": "P2",
+  "reported_by_role": "user",
+  "resource_locks": [
+    "gui-main-window",
+    "qt-process"
+  ],
+  "review_required": true,
+  "reviewer": "fresh_gpt56_sol_xhigh",
+  "reviewer_profile": "strong",
+  "risk": "medium",
+  "schema_version": 1,
+  "slug": "keep-the-index-current-price-pill-inside-the-plot",
+  "state": "ready",
+  "title": "Keep the Index current-price pill inside the plot",
+  "updated_at": "2026-08-30T18:04:30+09:00",
+  "worker_profile": "balanced",
+  "worktree": null,
+  "write_scope": [
+    "src/stock_data/gui/main_window.py",
+    "tests/unit/gui/test_current_display.py",
+    "tests/unit/gui/test_gui_health.py"
+  ],
+  "writer_lane": "gui"
+}
