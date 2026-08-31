@@ -31,6 +31,7 @@ _STATE_META = {
     "blocked": ("!", "해결 필요", "error"), "failed": ("!", "해결 필요", "error"),
     "stalled": ("!", "확인 필요", "review"), "stale": ("!", "갱신 필요", "review"),
     "stopped": ("■", "완료", "neutral"), "done": ("■", "완료", "neutral"),
+    "unregistered": ("—", "미등록", "error"),
     "unknown": ("?", "확인 필요", "unknown"),
 }
 _DOMAIN_TITLES = {
@@ -56,6 +57,25 @@ def _age_text(value: datetime | None, now: datetime) -> str:
     if seconds < 3600:
         return f"{seconds // 60}분 전"
     return f"{seconds // 3600}시간 전"
+
+
+def _role_connected(role: object) -> bool:
+    return bool(
+        getattr(role, "active", False)
+        and getattr(role, "fresh", False)
+        and str(getattr(role, "state", "")).casefold()
+        not in {"stopped", "recovery_required"}
+    )
+
+
+def _actual_activity_at(snapshot: MonitoringSnapshot) -> datetime | None:
+    values = [event.occurred_at for event in snapshot.events]
+    values.extend(
+        role.heartbeat_at
+        for role in (*snapshot.pm, *snapshot.leads, *snapshot.workers, *snapshot.reviewers)
+        if role.heartbeat_at is not None
+    )
+    return max(values, default=None)
 
 
 class StateBadge(QtWidgets.QLabel):
@@ -92,7 +112,7 @@ class CopyListWidget(QtWidgets.QListWidget):
 class RoleCard(QtWidgets.QFrame):
     """A compact factual task card (kept under its former public name)."""
 
-    def __init__(self, task: TaskView, *, workers: int, reviewers: int, now: datetime, parent: QtWidgets.QWidget | None = None) -> None:
+    def __init__(self, task: TaskView, *, lead_connected: bool, workers: int, reviewers: int, now: datetime, parent: QtWidgets.QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("taskCard")
         self.setFrameShape(QtWidgets.QFrame.StyledPanel)
@@ -101,25 +121,38 @@ class RoleCard(QtWidgets.QFrame):
         layout.setContentsMargins(14, 12, 14, 12)
         layout.setSpacing(6)
         top = QtWidgets.QHBoxLayout()
-        self.title = QtWidgets.QLabel(task.human_title or _DOMAIN_TITLES.get(str(task.domain or "").casefold(), "현재 작업"))
+        self.title = QtWidgets.QLabel(task.human_title or _DOMAIN_TITLES.get(str(task.domain or "").casefold(), "제목이 없는 작업 문서"))
         self.title.setObjectName("cardTitle")
         self.title.setWordWrap(True)
         self.badge = StateBadge(task.state)
+        document_badges = {
+            "active": ("● 진행 문서", "진행 중인 작업 문서"),
+            "review": ("◇ 검토 문서", "검토 중인 작업 문서"),
+        }
+        document_badge = document_badges.get(task.state.casefold())
+        if document_badge is not None:
+            self.badge.setText(document_badge[0])
+            self.badge.setAccessibleName(f"문서 상태: {document_badge[1]}")
         top.addWidget(self.title, 1)
         top.addWidget(self.badge)
         layout.addLayout(top)
-        self.summary = QtWidgets.QLabel(task.summary or "작업 내용을 확인하고 있습니다.")
+        self.summary = QtWidgets.QLabel(task.summary or "작업 문서의 설명이 없습니다.")
         self.summary.setObjectName("cardSummary")
         self.summary.setWordWrap(True)
         self.summary.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
         layout.addWidget(self.summary)
-        self.lead = QtWidgets.QLabel("담당 리드: 배정됨" if task.lead or task.owner else "담당 리드: 배정 확인 중")
+        owner_text = "지정됨" if task.owner else "미지정"
+        session_text = "연결됨" if lead_connected else "연결되지 않음"
+        self.lead = QtWidgets.QLabel(f"문서상 담당: {owner_text} · 실제 리드 세션: {session_text}")
         self.lead.setObjectName("cardMeta")
         layout.addWidget(self.lead)
-        self.counts = QtWidgets.QLabel(f"작업자 {workers}명 ↔ 검토자 {reviewers}명")
+        self.counts = QtWidgets.QLabel(f"실제 작업자 {workers}명 ↔ 실제 검토자 {reviewers}명")
         self.counts.setObjectName("cardMeta")
         layout.addWidget(self.counts)
-        self.activity = QtWidgets.QLabel(f"수정 요청 {max(0, task.fix_count)}회 · 마지막 활동 {_age_text(task.last_activity or task.updated_at, now)}")
+        self.activity = QtWidgets.QLabel(
+            f"실제 활동 {_age_text(task.last_activity, now)} · "
+            f"문서 갱신 {_age_text(task.updated_at, now)} · 수정 요청 {max(0, task.fix_count)}회"
+        )
         self.activity.setObjectName("cardMeta")
         layout.addWidget(self.activity)
         self.setAccessibleName(f"{self.title.text()}, {self.badge.text()}, {self.summary.text()}, {self.lead.text()}, {self.counts.text()}, {self.activity.text()}")
@@ -161,12 +194,12 @@ class OperationsDashboard(QtWidgets.QMainWindow):
         header = QtWidgets.QHBoxLayout()
         copy = QtWidgets.QVBoxLayout()
         self.page_title = QtWidgets.QLabel("프로젝트 작업 현황", objectName="pageTitle")
-        self.page_subtitle = QtWidgets.QLabel("PM이 작업을 나누고 검토하는 현재 흐름입니다", objectName="pageSubtitle")
+        self.page_subtitle = QtWidgets.QLabel("실제 세션과 작업 문서 상태를 구분해 보여줍니다", objectName="pageSubtitle")
         copy.addWidget(self.page_title); copy.addWidget(self.page_subtitle)
         header.addLayout(copy, 1)
         status = QtWidgets.QVBoxLayout()
-        self.refresh_status = QtWidgets.QLabel("정보 갱신 상태 · 5초마다 자동 확인", objectName="refreshStatus")
-        self.last_refreshed = QtWidgets.QLabel("마지막 갱신 확인 중", objectName="lastRefreshed")
+        self.refresh_status = QtWidgets.QLabel("화면 자동 확인 · 5초 간격", objectName="refreshStatus")
+        self.last_refreshed = QtWidgets.QLabel("화면 확인 시각을 읽는 중", objectName="lastRefreshed")
         status.addWidget(self.refresh_status, alignment=QtCore.Qt.AlignRight); status.addWidget(self.last_refreshed, alignment=QtCore.Qt.AlignRight)
         header.addLayout(status)
         self.refresh_button = QtWidgets.QPushButton("정보 다시 확인", objectName="refreshButton")
@@ -187,24 +220,24 @@ class OperationsDashboard(QtWidgets.QMainWindow):
         self.pm_card.setMaximumHeight(160)
         pm = QtWidgets.QVBoxLayout(self.pm_card); pm.setContentsMargins(16, 13, 16, 13); pm.setSpacing(5)
         pm_top = QtWidgets.QHBoxLayout()
-        self.pm_heading = QtWidgets.QLabel("작업 관리자(PM)", objectName="pmHeading")
+        self.pm_heading = QtWidgets.QLabel("Python 작업 관리자(PM)", objectName="pmHeading")
         self.pm_badge = StateBadge(); pm_top.addWidget(self.pm_heading, 1); pm_top.addWidget(self.pm_badge); pm.addLayout(pm_top)
-        self.pm_decision = QtWidgets.QLabel("현재 판단: 상태를 읽고 있습니다.", objectName="pmDecision")
-        self.pm_assignment = QtWidgets.QLabel("맡긴 일: 확인 중", objectName="pmAssignment")
-        self.pm_next = QtWidgets.QLabel("다음 확인: 작업 목록을 확인합니다.", objectName="pmNext")
+        self.pm_decision = QtWidgets.QLabel("세션 상태: 확인 중", objectName="pmDecision")
+        self.pm_assignment = QtWidgets.QLabel("실행 연결: 확인 중", objectName="pmAssignment")
+        self.pm_next = QtWidgets.QLabel("최근 PM 기록: 확인 중", objectName="pmNext")
         for label in (self.pm_decision, self.pm_assignment, self.pm_next):
             label.setWordWrap(True); label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse); pm.addWidget(label)
         self.pm_activity = self.pm_assignment; self.pm_freshness = self.last_refreshed
         self.flow_panel = QtWidgets.QFrame(objectName="flowPanel")
         flow = QtWidgets.QHBoxLayout(self.flow_panel); flow.setContentsMargins(14, 9, 14, 9)
-        self.flow_text = QtWidgets.QLabel("요청 → 목표 정리 → 작업 목록 → 작업 관리자 → 담당 리드 → 작업자 ↔ 검토자 → 담당 리드 → 작업 관리자", objectName="flowText"); self.flow_text.setWordWrap(True); flow.addWidget(self.flow_text)
+        self.flow_text = QtWidgets.QLabel("운영 구조 · 대화창 → 목표·문서 계획 → PM → 리드 → 작업자 ↔ 검토자 → 리드 → PM", objectName="flowText"); self.flow_text.setWordWrap(True); flow.addWidget(self.flow_text)
         self.flow_panel.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Maximum)
         self.flow_panel.setMaximumHeight(50)
         self.task_panel = self._make_panel("진행·검토·확인 필요 작업"); self.lead_section = self.task_panel
         self.lead_grid_host = QtWidgets.QWidget(); self.lead_grid = QtWidgets.QGridLayout(self.lead_grid_host)
         self.lead_grid.setContentsMargins(0, 0, 0, 0); self.lead_grid.setHorizontalSpacing(8); self.lead_grid.setVerticalSpacing(8)
         self.task_panel.layout().addWidget(self.lead_grid_host)  # type: ignore[union-attr]
-        self.queue_panel = self._make_panel("작업 목록 요약 · 현재 소유권")
+        self.queue_panel = self._make_panel("작업 문서 요약 · 문서 담당과 실제 연결")
         self.queue_text = QtWidgets.QLabel(objectName="queueText"); self.queue_text.setWordWrap(True); self.queue_text.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
         self.queue_panel.layout().addWidget(self.queue_text)  # type: ignore[union-attr]
         self.event_panel = self._make_panel("최근 활동")
@@ -247,13 +280,40 @@ class OperationsDashboard(QtWidgets.QMainWindow):
 
     def render_snapshot(self, snapshot: MonitoringSnapshot) -> None:
         self._snapshot = snapshot; now = snapshot.observed_at
-        self.last_refreshed.setText(f"마지막 갱신 {_format_time(now)} · {_age_text(now, now)}")
-        pm = max(snapshot.pm, key=lambda role: (role.active, role.generation, role.heartbeat_at or datetime.min.replace(tzinfo=timezone.utc)), default=None)
-        self.pm_badge.set_state(pm.state if pm else "unknown")
+        actual_activity = _actual_activity_at(snapshot)
+        self.last_refreshed.setText(
+            f"화면 확인 {_format_time(now)} · 실제 활동 {_age_text(actual_activity, now)}"
+        )
+        pm = max(snapshot.pm, key=lambda role: (_role_connected(role), role.generation, role.heartbeat_at or datetime.min.replace(tzinfo=timezone.utc)), default=None)
+        connected_pm = pm if pm is not None and _role_connected(pm) else None
+        registered_pm = pm if pm is not None and pm.active else None
+        self.pm_badge.set_state(
+            connected_pm.state if connected_pm else "stale" if registered_pm else "unregistered"
+        )
         assigned = self._display_tasks(snapshot)
-        self.pm_decision.setText(f"현재 판단: {snapshot.pm_current_decision or ('진행 중인 내용을 확인하고 있습니다.' if assigned else '다음으로 맡길 일을 정리하고 있습니다.')}")
-        self.pm_assignment.setText(f"맡긴 일: {assigned[0].human_title if assigned else '현재 진행 중인 작업 없음'}")
-        self.pm_next.setText(f"다음 확인: {snapshot.pm_next_action or '최근 활동과 작업 목록을 다시 확인합니다.'}")
+        current_documents = sum(task.state in {"active", "review"} for task in snapshot.tasks)
+        if connected_pm is None and registered_pm is not None:
+            self.pm_decision.setText("세션 상태: 등록되어 있지만 최근 활동 확인이 오래되었습니다.")
+            self.pm_assignment.setText(f"작업 문서: 진행·검토 문서 {current_documents}건 · PM 연결 재확인 필요")
+            self.pm_next.setText("필요한 조치: 다음 Python PM 깨우기 결과와 역할 heartbeat를 확인하세요.")
+        elif connected_pm is None:
+            self.pm_decision.setText("세션 상태: 등록되어 작동 중인 PM 세션이 없습니다.")
+            self.pm_assignment.setText(f"작업 문서: 진행·검토 문서 {current_documents}건 · PM 실행 연결 없음")
+            self.pm_next.setText("필요한 조치: Python PM을 시작하고 문서를 실제 리드 세션에 연결하세요.")
+        else:
+            task_title = next(
+                (task.human_title for task in assigned if task.task_id == connected_pm.active_task_id),
+                None,
+            )
+            self.pm_decision.setText(
+                f"최근 PM 판단: {snapshot.pm_current_decision or '기록 없음'}"
+            )
+            self.pm_assignment.setText(
+                f"실행 연결: {task_title or '현재 연결된 작업 없음'}"
+            )
+            self.pm_next.setText(
+                f"다음 행동 기록: {snapshot.pm_next_action or '기록 없음'}"
+            )
         self.pm_card.setAccessibleName("작업 관리자 PM. " + " ".join((self.pm_badge.text(), self.pm_decision.text(), self.pm_assignment.text(), self.pm_next.text())))
         self._render_tasks(assigned, snapshot); self._render_queue(snapshot); self._render_events(snapshot.events); self._render_warnings(snapshot.warnings); self._reflow_content()
 
@@ -269,9 +329,10 @@ class OperationsDashboard(QtWidgets.QMainWindow):
         if not tasks: tasks = [TaskView("", "unknown", human_title="현재 확인할 작업 없음", summary="작업 목록이 비어 있거나 아직 확인되지 않았습니다.")]
         self._task_cards = []; self._lead_cards = self._task_cards
         for task in tasks:
-            workers = sum(worker.active and worker.active_task_id == task.task_id for worker in snapshot.workers)
-            reviewers = sum(reviewer.active and reviewer.active_task_id == task.task_id for reviewer in snapshot.reviewers)
-            self._task_cards.append(RoleCard(task, workers=workers, reviewers=reviewers, now=snapshot.observed_at))
+            lead_connected = any(_role_connected(lead) and lead.active_task_id == task.task_id for lead in snapshot.leads)
+            workers = sum(_role_connected(worker) and worker.active_task_id == task.task_id for worker in snapshot.workers)
+            reviewers = sum(_role_connected(reviewer) and reviewer.active_task_id == task.task_id for reviewer in snapshot.reviewers)
+            self._task_cards.append(RoleCard(task, lead_connected=lead_connected, workers=workers, reviewers=reviewers, now=snapshot.observed_at))
         self._reflow_task_cards()
 
     def _reflow_task_cards(self) -> None:
@@ -284,18 +345,28 @@ class OperationsDashboard(QtWidgets.QMainWindow):
 
     def _render_queue(self, snapshot: MonitoringSnapshot) -> None:
         queue = snapshot.queue
-        if queue is None: text = "작업 목록을 확인하지 못했습니다. 다음 갱신 때 다시 확인합니다."
+        if queue is None: text = "작업 문서를 확인하지 못했습니다. 다음 화면 확인 때 다시 읽습니다."
         else:
             counts = " · ".join((f"시작 대기 {queue.count('ready')}", f"진행 중 {queue.count('active')}", f"검토 중 {queue.count('review')}", f"해결 필요 {queue.count('blocked')}", f"완료 {queue.count('done')}"))
-            ownership = "현재 소유권: 담당 리드 확인 중"
+            ownership = "문서상 담당: 현재 문서 없음 · 실제 리드 세션: 연결 없음"
             if queue.current_tasks:
-                ownership = "현재 소유권: 담당 리드 배정됨" + (" · 검토자 배정됨" if any(item.reviewer for item in queue.current_tasks) else "")
-            text = f"{snapshot.goal_summary or '내 요청을 목표로 정리하고 있습니다.'}\n{snapshot.queue_action or '작업 목록을 확인 중'} · {snapshot.proposal_state or '확인 중'}\n{counts}\n{ownership}"
-        self.queue_text.setText(text); self.queue_panel.setAccessibleName("작업 목록 요약. " + text.replace("\n", " "))
+                declared = sum(bool(item.owner) for item in queue.current_tasks)
+                connected = sum(
+                    any(_role_connected(lead) and lead.active_task_id == item.task_id for lead in snapshot.leads)
+                    for item in queue.current_tasks
+                )
+                ownership = (
+                    f"문서상 담당: {declared}/{len(queue.current_tasks)}건 지정 · "
+                    f"실제 리드 세션: {connected}/{len(queue.current_tasks)}건 연결"
+                )
+            goal = snapshot.goal_summary or "목표 설명은 이 화면의 관측 자료에 없습니다."
+            action = snapshot.queue_action or "작업 문서 상태를 확인하지 못했습니다."
+            text = f"{goal}\n{action}\n{counts}\n{ownership}"
+        self.queue_text.setText(text); self.queue_panel.setAccessibleName("작업 문서 요약. " + text.replace("\n", " "))
 
     def _render_events(self, events: tuple[EventView, ...]) -> None:
         self.event_list.clear(); rows = sorted(events, key=lambda item: item.occurred_at, reverse=True)
-        if not rows: self.event_list.addItem("? 최근 활동을 아직 확인하지 못했습니다."); return
+        if not rows: self.event_list.addItem("— 실제 에이전트 활동 기록이 없습니다."); return
         for event in rows:
             item = QtWidgets.QListWidgetItem(f"{_format_time(event.occurred_at)}  {event.human_message or '최근 활동을 확인했습니다.'}")
             item.setToolTip(f"발생 시각: {event.occurred_at.isoformat()}"); self.event_list.addItem(item)
@@ -306,9 +377,24 @@ class OperationsDashboard(QtWidgets.QMainWindow):
             if item.widget(): item.widget().deleteLater()
         self.warning_box.setVisible(bool(warnings))
         if not warnings: return
-        first = warnings[0]; title = first.human_title or first.message; suffix = f" 외 {len(warnings) - 1}건" if len(warnings) > 1 else ""
+        priority = {
+            "PM_SESSION_MISSING": 0,
+            "DUPLICATE_PM_GENERATION": 1,
+            "LEAD_SESSION_MISSING": 2,
+            "REVIEWER_SESSION_MISSING": 3,
+            "OWNERSHIP_CONFLICT": 4,
+        }
+        ordered = tuple(sorted(
+            warnings,
+            key=lambda warning: (
+                0 if warning.severity == "error" else 1,
+                priority.get(warning.code, 99),
+                warning.code,
+            ),
+        ))
+        first = ordered[0]; title = first.human_title or first.message; suffix = f" 외 {len(ordered) - 1}건" if len(ordered) > 1 else ""
         self.warning_summary.setText(f"! 확인할 내용 {len(warnings)}건 · {title}{suffix}")
-        for warning in warnings:
+        for warning in ordered:
             action = warning.operator_action or "정보를 다시 확인하세요."
             label = QtWidgets.QLabel(f"! {warning.human_title or warning.message} · {action}", objectName="warningText"); label.setWordWrap(True); label.setAccessibleName(f"경고: {warning.human_title or warning.message}. 안내: {action}"); self.warning_layout.addWidget(label)
         self._toggle_warning_details(self.warning_toggle.isChecked())

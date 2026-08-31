@@ -309,6 +309,64 @@ def test_health_summary_separates_managed_automation_from_full_inventory():
     assert summary["current"] == 2
 
 
+def test_health_summary_uses_only_stale_or_unknown_kospi200_chain_rows_for_decision_hold():
+    chain_rows = tuple(
+        HealthDatasetRow(
+            dataset, "SOURCE", "DAILY", "2026-08-27", "2026-08-28", freshness,
+            "READY", "N/A", "PIT_SAFE", "SCHEDULED / ENABLED", "fixture", "VALIDATED",
+        )
+        for dataset, freshness in (
+            ("kr_index_constituent_daily", "STALE"),
+            ("kr_kospi200_constituent_price_daily", "UNKNOWN"),
+            ("kr_kospi200_breadth_daily", "STALE"),
+        )
+    )
+    unrelated_stale = HealthDatasetRow(
+        "unrelated", "SOURCE", "DAILY", "2026-08-27", "2026-08-28", "STALE",
+        "READY", "N/A", "PIT_SAFE", "SCHEDULED / ENABLED", "fixture", "VALIDATED",
+    )
+
+    held = summarize_health_artifact(HealthArtifactView("READY", "fixture", chain_rows))
+    lifted = summarize_health_artifact(HealthArtifactView(
+        "READY", "fixture", tuple(
+            HealthDatasetRow(
+                row.dataset, row.role, row.cadence, "2026-08-28", "2026-08-28", "CURRENT",
+                row.operational, row.blocker, row.pit, row.automation, row.source,
+                row.runtime_coverage,
+            )
+            for row in chain_rows
+        ) + (unrelated_stale,),
+    ))
+
+    assert held["decision_hold_causes"] == (
+        "KOSPI200_BREADTH_DEPENDENCY_FRESHNESS_UNRESOLVED",
+    )
+    assert lifted["decision_hold_causes"] == ()
+
+
+def test_data_health_projects_numeric_free_kospi200_decision_hold(tmp_path):
+    projection = project_refresh_status(
+        tmp_path,
+        health={
+            "managed_total": 3, "managed_acceptable": 0,
+            "managed_current": 0, "managed_expected_lag": 0,
+            "decision_hold_causes": (
+                "KOSPI200_BREADTH_DEPENDENCY_FRESHNESS_UNRESOLVED",
+            ),
+        },
+        metrics={}, generated_at_utc="2026-08-28T11:00:00+00:00",
+    )
+
+    surface = projection.surface("DATA_HEALTH")
+    assert surface.operation_state == "PARTIAL_FAILURE"
+    assert surface.freshness_state == "STALE"
+    assert surface.retained_value_state == "DISPLAYABLE_WITH_WARNING"
+    assert surface.reason_codes == (
+        "DECISION_HOLD", "KOSPI200_BREADTH_DEPENDENCY_FRESHNESS_UNRESOLVED",
+        "RETAINED_VALUE_STALE",
+    )
+
+
 def test_health_summary_and_surface_expose_unmanaged_display_gaps(tmp_path):
     current = HealthDatasetRow(
         "managed", "SOURCE", "DAILY", "2026-08-26", "2026-08-26", "CURRENT",

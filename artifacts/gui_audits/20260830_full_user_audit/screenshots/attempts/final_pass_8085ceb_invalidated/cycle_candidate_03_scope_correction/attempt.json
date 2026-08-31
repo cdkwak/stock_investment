@@ -1,0 +1,10 @@
+{
+  "schema": "gui-final-acceptance-attempt/v1",
+  "cycle_candidate": "03",
+  "accepted": false,
+  "classification": "INVALIDATED_SCOPE_CORRECTION",
+  "reason": "PM corrected the ten-count before cycle 03 completed; the process was interrupted and no later GUI cycle started.",
+  "clean_close_claimed": false,
+  "product_defect_claimed": false,
+  "retained_partial_screenshot_count": 10
+}

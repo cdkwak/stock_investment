@@ -13,7 +13,8 @@ if os.name == "nt":
 import pytest
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from stock_data.gui.main_window import DashboardPage
+from stock_data.gui.main_window import DashboardPage, DecisionCockpitPage
+from stock_data.gui.services import DecisionCockpitRow, DecisionCockpitView
 from stock_data.orchestration.release_readiness import (
     NATIVE_GUI_HEALTH_TIMEOUT_MS,
     assess_native_gui,
@@ -34,6 +35,78 @@ VIEWPORT_CASES = (
     ((1366, 768), 1.25),
     ((1280, 720), 1.25),
 )
+
+
+@pytest.mark.parametrize("viewport", ((1280, 720), (1600, 900)))
+def test_decision_cockpit_is_laptop_safe_keyboard_reachable_and_qt_clean(
+    viewport,
+) -> None:
+    qt_messages = []
+    previous_handler = QtCore.qInstallMessageHandler(
+        lambda message_type, _context, message: qt_messages.append(
+            (message_type, message)
+        )
+    )
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    page = DecisionCockpitPage()
+    rows = tuple(
+        DecisionCockpitRow(
+            market="KOSPI",
+            symbol=f"{5930 + index:06d}",
+            identity=f"로컬 예시 {index + 1} · {5930 + index:06d} · KOSPI",
+            observed_evidence="기술 관찰 · 과매도",
+            missing_evidence="실적·상대가치 근거 없음",
+            as_of="2026-08-28",
+            provenance="보존된 원본가격 · 현재 종목 목록",
+        )
+        for index in range(3)
+    )
+    page.render_view(DecisionCockpitView(
+        state="READY",
+        headline="현재 로컬 관찰 후보를 원자료와 함께 모았습니다.",
+        detail="설명용 순서이며 추천·점수·목표 비중이 아닙니다.",
+        rows=rows,
+        provenance="보존된 국내 원본가격·현재 종목 목록 · 기준일 2026-08-28",
+        guided_example=("KOSPI", "005930"),
+    ))
+    try:
+        page.resize(*viewport)
+        page.show()
+        app.processEvents()
+
+        buttons = (
+            page.market_button, page.research_button, page.account_button,
+            page.backtest_button, page.example_button, page.select_button,
+            page.data_status_button, page.refresh_button,
+        )
+        assert page.candidate_table.horizontalScrollBar().maximum() == 0
+        assert all(button.isVisible() for button in buttons)
+        button_rects = tuple(
+            QtCore.QRect(button.mapTo(page, QtCore.QPoint()), button.size())
+            for button in buttons
+        )
+        assert all(page.rect().contains(rect) for rect in button_rects)
+        assert all(button.focusPolicy() & QtCore.Qt.TabFocus for button in buttons)
+        assert all(button.accessibleName().strip() for button in buttons)
+        assert page.candidate_table.accessibleName().strip()
+        assert page.provenance.accessibleName().strip()
+        assert page.candidate_table.rowCount() == 3
+
+        focus_order = []
+        cursor = buttons[0]
+        for _ in range(128):
+            if cursor in buttons and cursor not in focus_order:
+                focus_order.append(cursor)
+            cursor = cursor.nextInFocusChain()
+            if cursor is buttons[0]:
+                break
+        assert tuple(focus_order) == buttons
+    finally:
+        page.close()
+        page.deleteLater()
+        app.processEvents()
+        QtCore.qInstallMessageHandler(previous_handler)
+    assert not qt_messages
 
 
 def test_provider_free_cold_gui_renders_managed_health_within_bound() -> None:

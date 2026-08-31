@@ -21,12 +21,13 @@ For sovereign yields and bond ETFs, also preserve
 
 | Field | Current fact |
 |---|---|
-| Status date | 2026-08-28 KST |
+| Status date | 2026-08-30 KST |
 | Domain state | `AUTONOMOUS_PUBLIC_AND_EXISTING_CREDENTIAL_READONLY_OPERATIONS_ACTIVE` |
 | Data flow | `Provider -> Landing -> Normalized -> Derived -> Published`; never merge layers |
 | Registry | 40 operation entries, 80 universe rows, 39 automation-enabled datasets |
-| Runtime health | Current local readback validates all 39 automation-enabled rows with runtime failures 0 and managed freshness `CURRENT 13 / EXPECTED_LAG 26 / STALE 0 / UNKNOWN 0`. The broader validator reads 41 retained runtime paths. Typed Health remains `DEGRADED` only because non-managed research/static rows include stale or unknown states; scheduler Health reconciliation and the GUI managed-Health contract pass 39/39. |
-| Scheduler baseline | Thirteen enabled Data definitions remain; no extra Windows task was created. All 39 automation-enabled datasets map to 19 logical lanes. KR bundle contract v5 keeps 09:10/14:10/20:30 and adds 20:30 short-balance, short-investor, LS t8462 Raw, and Toss Treasury lanes while formalizing the existing liquidity/credit child. The BOK source observation stays on its correct 17:10 task. The separate read-only KB account task remains outside the 80-row market universe. Stable relations are in [Scheduler Data Map](SCHEDULER_DATA_MAP.md). |
+| Runtime health | Retained local health rows mark `kr_index_constituent_daily`, `kr_kospi200_constituent_price_daily`, and `kr_kospi200_breadth_daily` `STALE` at latest `2026-08-27` versus expected `2026-08-28`. Their causal chain is source constituents -> published constituent prices -> derived breadth. The GUI Health summary emits only the typed numeric-free `KOSPI200_BREADTH_DEPENDENCY_FRESHNESS_UNRESOLVED` decision hold while any member is `STALE` or `UNKNOWN`; no numeric conclusion from that chain is supported until the retained rows become acceptable. |
+| Scheduler baseline | Thirteen enabled Data definitions remain; no extra Windows task was created. All 39 automation-enabled datasets map to 19 logical lanes. KR bundle contract v5 keeps 09:10/14:10/20:30 and adds 20:30 short-balance, short-investor, LS t8462 Raw, and Toss Treasury lanes while formalizing the existing liquidity/credit child. The BOK source observation stays on its correct 17:10 task and now exits API-zero because its three-batch gate is reached. The separate read-only KB account task remains outside the 80-row market universe. Stable relations are in [Scheduler Data Map](SCHEDULER_DATA_MAP.md). |
+| BOK finality gate | `THREE_BATCH_GATE_REVIEWED / BOUNDED_THREE_BATCH_AVAILABILITY_CONFIRMED / PERMANENT_FINALITY_UNKNOWN`. The 2026-08-26..28 batches each selected the same-day provider-native date across all six tenors with six data calls, one separate UI call, retry zero, and no Normalized write. Both next-provider-day comparisons were field/byte `SAME`; all UI table markers were `N/N`. The 2026-08-29 scheduler receipt stopped at 3 to 3 with API calls zero. A separate daily-route contract may use only the runbook's provider-native common-date and preceding-date-unchanged gate; automatic expected latest, predictive use, promotion, and Dashboard numeric use remain disabled. |
 | Scheduler expansion validation | The first natural v5 20:30 run exposed two bounded contract mismatches without partial canonical loss: exact KRX KOSPI200 membership returned 201 observed rows, and short-investor data was available same-day after 18:10. Contract/test fixes then atomically advanced the breadth chain through 2026-08-26 (201/201 prices; 144/54/3), short investor through 2026-08-27, and index fundamentals through 2026-08-26; each replay passed at API 0. Toss Treasury remains advanced through its T+1 target and LS t8462 Raw remains non-promoted. |
 | Global current route | One unified 30-minute scheduler task covers 17 accepted routes. Thirteen use completed 30-minute bars; `^VIX`, `^FVX`, `^TNX`, and `^TYX` preserve provider-native 15-minute bars. The 03:02 occurrence retained all Landing responses but returned 1 after only `SP500_CURRENT_60M` raised a fallback invariant; its prior value was preserved and copied-state replay passed. The natural 03:32 recovery then passed all 17 routes with failures 0, retries 0, and history writes 0. |
 | Equity current valuation observation | One retry-zero KRX `MDCSTAT03501` ALL-market observation for 2026-08-25 retained 2,719 unique source rows with zero duplicates. It is exact-date descriptive PER/PBR evidence only (`PIT_LIMITED_FIRST_OBSERVED_ONLY`), not canonical history, Forward EPS or a relative-value judgment. The 09:10 child introduced in v4 is retained unchanged in active bundle v5 and catches up one completed session at a time; valid-empty is expected provider lag and retries only at the next natural occurrence, while auth/network/schema failures remain typed lane failures. |
@@ -44,20 +45,17 @@ still apply.
 1. Observe the next natural KR bundle v5 occurrences at 09:10 and 20:30.
    Confirm that the source-width and same-day-publication fixes remain API-zero
    when current, the 13-lane receipt completes, and managed Health stays `39/39`.
-2. Complete the BOK 817Y002 17:10 three-batch publication/finality gate. Do not
-   substitute Yahoo Treasury quote indices, futures prices, or an older curve
-   for an official BOK yield.
-3. Observe the next date-keyed Toss account 07:00 occurrence; reconcile its
+2. Observe the next date-keyed Toss account 07:00 occurrence; reconcile its
    identifier-free terminal receipt, Normalized digest, and call budget.
-4. Observe the first natural KB `SSQM2952` account occurrence at 07:10 and
+3. Observe the first natural KB `SSQM2952` account occurrence at 07:10 and
    verify its identifier-free receipt, exact snapshot digest, one-call budget,
    and prior-valid preservation. Keep the separate disabled legacy KB market
    task distinct; exact inventory is in [Scheduler Status](../project/SCHEDULER_STATUS.md).
-5. Use [Source Fallback Policy](SOURCE_FALLBACK_POLICY.md) for every backup-source
+4. Use [Source Fallback Policy](SOURCE_FALLBACK_POLICY.md) for every backup-source
    proposal. Only the exact FRED VIX same-upstream parser fallback is currently
    active; never substitute provider-specific Treasury, flow, derivative, or
    account values merely because a primary route failed.
-6. Keep `ls_t1633_program_trading_candidate` out of the scheduler. Its
+5. Keep `ls_t1633_program_trading_candidate` out of the scheduler. Its
    2026-08-26 recheck used one bounded transient retry, stopped after three data
    calls, and promoted nothing; investigate the provider failure separately.
 
@@ -100,7 +98,7 @@ Continue independent evidence work.
 | LS semantics | [Source boundaries](research/active/LS_SOURCE_BOUNDARIES.md), [t8462 semantics](research/active/LS_T8462_DERIVATIVES_SEMANTICS.md) |
 | ETF and futures PIT | [KRX ETF PIT](research/active/KRX_ETF_PIT.md), [Yahoo commodity futures normalization](research/active/YAHOO_COMMODITY_FUTURES_NORMALIZATION.md) |
 | U.S. historical/PIT | [Security master](research/active/US_SECURITY_MASTER_PIT_UNIVERSE.md), [primary OHLCV](research/active/US_EQUITY_ETF_HISTORICAL_OHLCV_PRIMARY_SOURCE.md), [source addendum](research/active/US_EQUITY_ETF_HISTORICAL_OHLCV_PRIMARY_SOURCE_ADDENDUM.md), [SEC fundamentals](research/active/SEC_US_FUNDAMENTAL_PIT.md) |
-| Forward earnings | [KR forward-earnings PIT contract](research/active/KR_FORWARD_EARNINGS_PIT_CONTRACT.md) |
+| Forward earnings | [KR forward-earnings PIT contract](research/active/KR_FORWARD_EARNINGS_PIT_CONTRACT.md) (`FREE_OBSERVATION_UNSUPPORTED / NUMERIC_USE_FORBIDDEN` for Korea Forward EPS, 1W/1M revisions and Forward ROE) |
 | Release timestamps and sector history | [CFTC release PIT](research/active/CFTC_RELEASE_DATE_PIT.md), [sector taxonomy feasibility](research/active/SECTOR_TAXONOMY_MEMBERSHIP_PIT_FEASIBILITY.md) (`sector-input-feasibility/v1`, `NUMERIC_CONSUMER_NOT_READY`; shared Data/Backtest feasibility boundary) |
 | Provider/account semantics | [KB snapshot contract](research/active/KBSEC_SNAPSHOT_CONTRACT.md), [SOX source research](research/active/SOX_SOURCE_RESEARCH.md) |
 | Additional free sources | [Historical free-source discovery](research/active/HISTORICAL_FREE_SOURCE_DISCOVERY.md) |

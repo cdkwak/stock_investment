@@ -1,0 +1,1370 @@
+{
+  "schema": "qt-gui-stress/v1",
+  "head": "19503fa65bf91b45a2e363f86489c1b1d4893401",
+  "research_pane_matrix": [
+    {
+      "display_viewport": [
+        2560,
+        1440
+      ],
+      "actual_client": [
+        2560,
+        1334
+      ],
+      "configuration": "all_open",
+      "visible": [
+        "OHLCV",
+        "CHART",
+        "INSTRUMENT_FACTS",
+        "WATCHLIST",
+        "SOURCE_STATUS"
+      ],
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Research_panes_all_open_2560x1440.png",
+        "sha256": "a5d61f6c36051763f80f1e6492156922958349777b3b7e9f4dc5cf676f0e23fb",
+        "bytes": 90243,
+        "pixels": [
+          2560,
+          1334
+        ],
+        "captured_at": 1788076744.906379
+      },
+      "clipping_candidates": []
+    },
+    {
+      "display_viewport": [
+        2560,
+        1440
+      ],
+      "actual_client": [
+        2560,
+        1334
+      ],
+      "configuration": "core_chart",
+      "visible": [
+        "OHLCV",
+        "CHART"
+      ],
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Research_panes_core_chart_2560x1440.png",
+        "sha256": "d7362ccb2b44becd2206414e82c02e9c01b5c5f3454f4e66893ae7979ab0c0ad",
+        "bytes": 75686,
+        "pixels": [
+          2560,
+          1334
+        ],
+        "captured_at": 1788076746.2227488
+      },
+      "clipping_candidates": []
+    },
+    {
+      "display_viewport": [
+        2560,
+        1440
+      ],
+      "actual_client": [
+        2560,
+        1334
+      ],
+      "configuration": "research_rail",
+      "visible": [
+        "INSTRUMENT_FACTS",
+        "WATCHLIST",
+        "SOURCE_STATUS"
+      ],
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Research_panes_research_rail_2560x1440.png",
+        "sha256": "98d4579930ff8b81bd6471309d273c1719c9f78fe0733d496b80e672a2643b7a",
+        "bytes": 80826,
+        "pixels": [
+          2560,
+          1334
+        ],
+        "captured_at": 1788076747.5778
+      },
+      "clipping_candidates": []
+    },
+    {
+      "display_viewport": [
+        2560,
+        1440
+      ],
+      "actual_client": [
+        2560,
+        1334
+      ],
+      "configuration": "minimal_chart",
+      "visible": [
+        "CHART"
+      ],
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Research_panes_minimal_chart_2560x1440.png",
+        "sha256": "9e0d71c2c9680bbdcc8337be4dbcfcdb352936ba3e8ba834043ba3a3bc902ecc",
+        "bytes": 70762,
+        "pixels": [
+          2560,
+          1334
+        ],
+        "captured_at": 1788076748.9459386
+      },
+      "clipping_candidates": []
+    },
+    {
+      "display_viewport": [
+        1920,
+        1080
+      ],
+      "actual_client": [
+        1920,
+        1080
+      ],
+      "configuration": "all_open",
+      "visible": [
+        "OHLCV",
+        "CHART",
+        "INSTRUMENT_FACTS",
+        "WATCHLIST",
+        "SOURCE_STATUS"
+      ],
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Research_panes_all_open_1920x1080.png",
+        "sha256": "24d3dd5475b852a3b26221978fbb109c24523276be1b6bce6b2d9ebb6b27a396",
+        "bytes": 84927,
+        "pixels": [
+          1920,
+          1080
+        ],
+        "captured_at": 1788076750.486038
+      },
+      "clipping_candidates": []
+    },
+    {
+      "display_viewport": [
+        1920,
+        1080
+      ],
+      "actual_client": [
+        1920,
+        1080
+      ],
+      "configuration": "core_chart",
+      "visible": [
+        "OHLCV",
+        "CHART"
+      ],
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Research_panes_core_chart_1920x1080.png",
+        "sha256": "53a95d0583f59153b5e367a467b45e8f832a2bbe03460a885b402debaf8864fb",
+        "bytes": 71621,
+        "pixels": [
+          1920,
+          1080
+        ],
+        "captured_at": 1788076751.7867804
+      },
+      "clipping_candidates": []
+    },
+    {
+      "display_viewport": [
+        1920,
+        1080
+      ],
+      "actual_client": [
+        1920,
+        1080
+      ],
+      "configuration": "research_rail",
+      "visible": [
+        "INSTRUMENT_FACTS",
+        "WATCHLIST",
+        "SOURCE_STATUS"
+      ],
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Research_panes_research_rail_1920x1080.png",
+        "sha256": "4906293edd8ee264c770c46854972ea233b96822365aa48525685f7bf0400562",
+        "bytes": 76987,
+        "pixels": [
+          1920,
+          1080
+        ],
+        "captured_at": 1788076753.116553
+      },
+      "clipping_candidates": []
+    },
+    {
+      "display_viewport": [
+        1920,
+        1080
+      ],
+      "actual_client": [
+        1920,
+        1080
+      ],
+      "configuration": "minimal_chart",
+      "visible": [
+        "CHART"
+      ],
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Research_panes_minimal_chart_1920x1080.png",
+        "sha256": "fca71af9bde93b0dba4a120153f303f416745aed43e1845209a9af1b73b32ff9",
+        "bytes": 66673,
+        "pixels": [
+          1920,
+          1080
+        ],
+        "captured_at": 1788076754.3961513
+      },
+      "clipping_candidates": []
+    },
+    {
+      "display_viewport": [
+        1600,
+        900
+      ],
+      "actual_client": [
+        1600,
+        900
+      ],
+      "configuration": "all_open",
+      "visible": [
+        "OHLCV",
+        "CHART",
+        "INSTRUMENT_FACTS",
+        "WATCHLIST",
+        "SOURCE_STATUS"
+      ],
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Research_panes_all_open_1600x900.png",
+        "sha256": "06182add4d6fd0badd39c0a11d069061486a811edd881a1f4d65df6fff3d32c8",
+        "bytes": 84161,
+        "pixels": [
+          1600,
+          900
+        ],
+        "captured_at": 1788076755.9458025
+      },
+      "clipping_candidates": []
+    },
+    {
+      "display_viewport": [
+        1600,
+        900
+      ],
+      "actual_client": [
+        1600,
+        900
+      ],
+      "configuration": "core_chart",
+      "visible": [
+        "OHLCV",
+        "CHART"
+      ],
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Research_panes_core_chart_1600x900.png",
+        "sha256": "fb14a096da0fd00c064e0cf196f0a7d736f1bbf9a6cdbd7aefaf26fc94d8e185",
+        "bytes": 70644,
+        "pixels": [
+          1600,
+          900
+        ],
+        "captured_at": 1788076757.2046754
+      },
+      "clipping_candidates": []
+    },
+    {
+      "display_viewport": [
+        1600,
+        900
+      ],
+      "actual_client": [
+        1600,
+        900
+      ],
+      "configuration": "research_rail",
+      "visible": [
+        "INSTRUMENT_FACTS",
+        "WATCHLIST",
+        "SOURCE_STATUS"
+      ],
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Research_panes_research_rail_1600x900.png",
+        "sha256": "076c01d736189f6afc6fa806f88939cb419e39afdd5b82945df8b181a164b39d",
+        "bytes": 76128,
+        "pixels": [
+          1600,
+          900
+        ],
+        "captured_at": 1788076758.521351
+      },
+      "clipping_candidates": []
+    },
+    {
+      "display_viewport": [
+        1600,
+        900
+      ],
+      "actual_client": [
+        1600,
+        900
+      ],
+      "configuration": "minimal_chart",
+      "visible": [
+        "CHART"
+      ],
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Research_panes_minimal_chart_1600x900.png",
+        "sha256": "befccbdc6418cc5319e6b899aa103fb3934154e94d2060500d4c66b740b4690d",
+        "bytes": 65723,
+        "pixels": [
+          1600,
+          900
+        ],
+        "captured_at": 1788076759.7959552
+      },
+      "clipping_candidates": []
+    },
+    {
+      "display_viewport": [
+        1366,
+        768
+      ],
+      "actual_client": [
+        1366,
+        768
+      ],
+      "configuration": "all_open",
+      "visible": [
+        "OHLCV",
+        "CHART",
+        "INSTRUMENT_FACTS",
+        "WATCHLIST",
+        "SOURCE_STATUS"
+      ],
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Research_panes_all_open_1366x768.png",
+        "sha256": "c4963d0838605d08392d41b69d38ac63edefb8faa4963bce9e2979b0c10995af",
+        "bytes": 81022,
+        "pixels": [
+          1366,
+          768
+        ],
+        "captured_at": 1788076761.3187745
+      },
+      "clipping_candidates": []
+    },
+    {
+      "display_viewport": [
+        1366,
+        768
+      ],
+      "actual_client": [
+        1366,
+        768
+      ],
+      "configuration": "core_chart",
+      "visible": [
+        "OHLCV",
+        "CHART"
+      ],
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Research_panes_core_chart_1366x768.png",
+        "sha256": "f2d9ee565fddf99d4684cbe8dfa4dcf6002f0019b97ab42199d460e2b4bec55e",
+        "bytes": 67641,
+        "pixels": [
+          1366,
+          768
+        ],
+        "captured_at": 1788076762.5849066
+      },
+      "clipping_candidates": []
+    },
+    {
+      "display_viewport": [
+        1366,
+        768
+      ],
+      "actual_client": [
+        1366,
+        768
+      ],
+      "configuration": "research_rail",
+      "visible": [
+        "INSTRUMENT_FACTS",
+        "WATCHLIST",
+        "SOURCE_STATUS"
+      ],
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Research_panes_research_rail_1366x768.png",
+        "sha256": "8155254cee07b84c50dd56333833dabd81ebaefc33f1d60ca7472a58766f6550",
+        "bytes": 73247,
+        "pixels": [
+          1366,
+          768
+        ],
+        "captured_at": 1788076763.8587973
+      },
+      "clipping_candidates": []
+    },
+    {
+      "display_viewport": [
+        1366,
+        768
+      ],
+      "actual_client": [
+        1366,
+        768
+      ],
+      "configuration": "minimal_chart",
+      "visible": [
+        "CHART"
+      ],
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Research_panes_minimal_chart_1366x768.png",
+        "sha256": "67220436506fdaae4392c5fcd7778828ebcfca022e4d4040a5b9ab7f4d77f22c",
+        "bytes": 63024,
+        "pixels": [
+          1366,
+          768
+        ],
+        "captured_at": 1788076765.1189728
+      },
+      "clipping_candidates": []
+    },
+    {
+      "display_viewport": [
+        1280,
+        720
+      ],
+      "actual_client": [
+        1280,
+        720
+      ],
+      "configuration": "all_open",
+      "visible": [
+        "OHLCV",
+        "CHART",
+        "INSTRUMENT_FACTS",
+        "WATCHLIST",
+        "SOURCE_STATUS"
+      ],
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Research_panes_all_open_1280x720.png",
+        "sha256": "1d6343d7974bb69fcfe343ce73618320ad99e14d843589eba61e592335bc9b26",
+        "bytes": 79519,
+        "pixels": [
+          1280,
+          720
+        ],
+        "captured_at": 1788076766.6492434
+      },
+      "clipping_candidates": [
+        {
+          "kind": "vertical",
+          "class": "QLabel",
+          "name": "가격과 출처 상태는 exact typed view가 수락된 뒤 표시됩니다.",
+          "needed": 216,
+          "actual": 174
+        }
+      ]
+    },
+    {
+      "display_viewport": [
+        1280,
+        720
+      ],
+      "actual_client": [
+        1280,
+        720
+      ],
+      "configuration": "core_chart",
+      "visible": [
+        "OHLCV",
+        "CHART"
+      ],
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Research_panes_core_chart_1280x720.png",
+        "sha256": "22c200ab354f1309f7119780c43c1050d01615616d7c0c075bb91e7ec837a5d6",
+        "bytes": 66630,
+        "pixels": [
+          1280,
+          720
+        ],
+        "captured_at": 1788076767.9135609
+      },
+      "clipping_candidates": []
+    },
+    {
+      "display_viewport": [
+        1280,
+        720
+      ],
+      "actual_client": [
+        1280,
+        720
+      ],
+      "configuration": "research_rail",
+      "visible": [
+        "INSTRUMENT_FACTS",
+        "WATCHLIST",
+        "SOURCE_STATUS"
+      ],
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Research_panes_research_rail_1280x720.png",
+        "sha256": "a07c8f12c3e410e106ea4484dbc5f44740e2df571c040678278933b98299b09f",
+        "bytes": 72167,
+        "pixels": [
+          1280,
+          720
+        ],
+        "captured_at": 1788076769.1867507
+      },
+      "clipping_candidates": []
+    },
+    {
+      "display_viewport": [
+        1280,
+        720
+      ],
+      "actual_client": [
+        1280,
+        720
+      ],
+      "configuration": "minimal_chart",
+      "visible": [
+        "CHART"
+      ],
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Research_panes_minimal_chart_1280x720.png",
+        "sha256": "8e518160a0ccc44e22d99cb03fe9b6d9624e6a0f4766b87b43598a85b0e56634",
+        "bytes": 62084,
+        "pixels": [
+          1280,
+          720
+        ],
+        "captured_at": 1788076770.4394808
+      },
+      "clipping_candidates": []
+    }
+  ],
+  "large_font_matrix": [
+    {
+      "surface": "Dashboard",
+      "display_viewport": [
+        2560,
+        1440
+      ],
+      "actual_client": [
+        2560,
+        1334
+      ],
+      "scale": 1.25,
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Dashboard_largefont_2560x1440.png",
+        "sha256": "7fdc628d5ed0dbaa6f90db52adba53b51de5da355b0785eb636d369e6e2bf8c4",
+        "bytes": 147289,
+        "pixels": [
+          2560,
+          1334
+        ],
+        "captured_at": 1788076773.1486435
+      },
+      "clipping_candidates": [
+        {
+          "kind": "horizontal",
+          "class": "QLabel",
+          "name": "시장 국면 판정 보류",
+          "needed": 896,
+          "actual": 797
+        },
+        {
+          "kind": "vertical",
+          "class": "QLabel",
+          "name": "KOSPI200 선물 Basis",
+          "needed": 45,
+          "actual": 28
+        },
+        {
+          "kind": "vertical",
+          "class": "QLabel",
+          "name": "확인 필요",
+          "needed": 18,
+          "actual": 13
+        },
+        {
+          "kind": "vertical",
+          "class": "QLabel",
+          "name": "KOSPI200 옵션 거래량 P/C",
+          "needed": 75,
+          "actual": 28
+        },
+        {
+          "kind": "vertical",
+          "class": "QLabel",
+          "name": "확인 필요",
+          "needed": 18,
+          "actual": 13
+        },
+        {
+          "kind": "vertical",
+          "class": "QLabel",
+          "name": "KOSPI200 옵션 OI P/C",
+          "needed": 75,
+          "actual": 28
+        },
+        {
+          "kind": "vertical",
+          "class": "QLabel",
+          "name": "확인 필요",
+          "needed": 18,
+          "actual": 13
+        },
+        {
+          "kind": "vertical",
+          "class": "QLabel",
+          "name": "Call / Put 최대 OI",
+          "needed": 75,
+          "actual": 28
+        },
+        {
+          "kind": "vertical",
+          "class": "QLabel",
+          "name": "확인 필요",
+          "needed": 18,
+          "actual": 13
+        },
+        {
+          "kind": "vertical",
+          "class": "QLabel",
+          "name": "확인 필요",
+          "needed": 18,
+          "actual": 13
+        }
+      ]
+    },
+    {
+      "surface": "Dashboard",
+      "display_viewport": [
+        1366,
+        768
+      ],
+      "actual_client": [
+        1366,
+        768
+      ],
+      "scale": 1.25,
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Dashboard_largefont_1366x768.png",
+        "sha256": "0dede4ac43e6956bbffddcd392a22c18cfc9b4b0a55569dd25db92ecfffbed66",
+        "bytes": 78173,
+        "pixels": [
+          1366,
+          768
+        ],
+        "captured_at": 1788076774.6806562
+      },
+      "clipping_candidates": [
+        {
+          "kind": "horizontal",
+          "class": "QLabel",
+          "name": "시장 국면 판정 보류",
+          "needed": 896,
+          "actual": 395
+        },
+        {
+          "kind": "horizontal",
+          "class": "QLabel",
+          "name": "확인 필요",
+          "needed": 64,
+          "actual": 34
+        },
+        {
+          "kind": "horizontal",
+          "class": "QLabel",
+          "name": "변동 N/A",
+          "needed": 41,
+          "actual": 34
+        },
+        {
+          "kind": "horizontal",
+          "class": "QLabel",
+          "name": "확인 필요",
+          "needed": 64,
+          "actual": 33
+        },
+        {
+          "kind": "horizontal",
+          "class": "QLabel",
+          "name": "변동 N/A",
+          "needed": 41,
+          "actual": 34
+        },
+        {
+          "kind": "horizontal",
+          "class": "QLabel",
+          "name": "확인 필요",
+          "needed": 64,
+          "actual": 34
+        },
+        {
+          "kind": "horizontal",
+          "class": "QLabel",
+          "name": "변동 N/A",
+          "needed": 41,
+          "actual": 34
+        },
+        {
+          "kind": "vertical",
+          "class": "QLabel",
+          "name": "KOSPI200 선물 Basis",
+          "needed": 45,
+          "actual": 28
+        },
+        {
+          "kind": "vertical",
+          "class": "QLabel",
+          "name": "확인 필요",
+          "needed": 18,
+          "actual": 13
+        },
+        {
+          "kind": "vertical",
+          "class": "QLabel",
+          "name": "KOSPI200 옵션 거래량 P/C",
+          "needed": 75,
+          "actual": 28
+        },
+        {
+          "kind": "vertical",
+          "class": "QLabel",
+          "name": "확인 필요",
+          "needed": 18,
+          "actual": 13
+        },
+        {
+          "kind": "vertical",
+          "class": "QLabel",
+          "name": "KOSPI200 옵션 OI P/C",
+          "needed": 75,
+          "actual": 28
+        },
+        {
+          "kind": "vertical",
+          "class": "QLabel",
+          "name": "확인 필요",
+          "needed": 18,
+          "actual": 13
+        },
+        {
+          "kind": "vertical",
+          "class": "QLabel",
+          "name": "Call / Put 최대 OI",
+          "needed": 75,
+          "actual": 28
+        },
+        {
+          "kind": "vertical",
+          "class": "QLabel",
+          "name": "확인 필요",
+          "needed": 18,
+          "actual": 13
+        },
+        {
+          "kind": "vertical",
+          "class": "QLabel",
+          "name": "확인 필요",
+          "needed": 18,
+          "actual": 13
+        },
+        {
+          "kind": "horizontal",
+          "class": "QCheckBox",
+          "name": "가격 오버레이 MA5 표시",
+          "needed": 60,
+          "actual": 52
+        },
+        {
+          "kind": "horizontal",
+          "class": "QCheckBox",
+          "name": "가격 오버레이 MA20 표시",
+          "needed": 71,
+          "actual": 52
+        },
+        {
+          "kind": "horizontal",
+          "class": "QCheckBox",
+          "name": "가격 오버레이 MA60 표시",
+          "needed": 71,
+          "actual": 53
+        },
+        {
+          "kind": "horizontal",
+          "class": "QCheckBox",
+          "name": "가격 오버레이 MA120 표시",
+          "needed": 82,
+          "actual": 52
+        },
+        {
+          "kind": "horizontal",
+          "class": "QCheckBox",
+          "name": "하단 패널 거래량 표시",
+          "needed": 78,
+          "actual": 52
+        },
+        {
+          "kind": "horizontal",
+          "class": "QCheckBox",
+          "name": "price overlay EMA20",
+          "needed": 81,
+          "actual": 52
+        },
+        {
+          "kind": "horizontal",
+          "class": "QCheckBox",
+          "name": "price overlay BB(20,2)",
+          "needed": 91,
+          "actual": 53
+        },
+        {
+          "kind": "horizontal",
+          "class": "QPushButton",
+          "name": "현재 차트 지표 표시 기본값으로 재설정",
+          "needed": 78,
+          "actual": 52
+        }
+      ]
+    },
+    {
+      "surface": "Index_Graph",
+      "display_viewport": [
+        2560,
+        1440
+      ],
+      "actual_client": [
+        2560,
+        1334
+      ],
+      "scale": 1.25,
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Index_Graph_largefont_2560x1440.png",
+        "sha256": "2d968228f3cf13822a0bef38d768e32c922a3dd7dc56f4b9e8869fce70a9fab9",
+        "bytes": 170197,
+        "pixels": [
+          2560,
+          1334
+        ],
+        "captured_at": 1788076777.212562
+      },
+      "clipping_candidates": []
+    },
+    {
+      "surface": "Index_Graph",
+      "display_viewport": [
+        1366,
+        768
+      ],
+      "actual_client": [
+        1366,
+        768
+      ],
+      "scale": 1.25,
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Index_Graph_largefont_1366x768.png",
+        "sha256": "85bc84b3e54181083ef732ff6d78f542f967b0d41ee81579a6606e70bfa07123",
+        "bytes": 96487,
+        "pixels": [
+          1366,
+          768
+        ],
+        "captured_at": 1788076778.782161
+      },
+      "clipping_candidates": []
+    },
+    {
+      "surface": "Equity",
+      "display_viewport": [
+        2560,
+        1440
+      ],
+      "actual_client": [
+        2560,
+        1334
+      ],
+      "scale": 1.25,
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Equity_largefont_2560x1440.png",
+        "sha256": "85b78faa59b0711bac1aef5917982418a934e45b393bda4c53f563d063188604",
+        "bytes": 60220,
+        "pixels": [
+          2560,
+          1334
+        ],
+        "captured_at": 1788076781.251111
+      },
+      "clipping_candidates": [
+        {
+          "kind": "horizontal",
+          "class": "QToolButton",
+          "name": "",
+          "needed": 133,
+          "actual": 30
+        }
+      ]
+    },
+    {
+      "surface": "Equity",
+      "display_viewport": [
+        1366,
+        768
+      ],
+      "actual_client": [
+        1366,
+        768
+      ],
+      "scale": 1.25,
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Equity_largefont_1366x768.png",
+        "sha256": "b6d615f1dc7dacda60ac6c86993ceca9698e682989911afeb78da31c8e732743",
+        "bytes": 50617,
+        "pixels": [
+          1366,
+          768
+        ],
+        "captured_at": 1788076782.74946
+      },
+      "clipping_candidates": [
+        {
+          "kind": "horizontal",
+          "class": "QToolButton",
+          "name": "",
+          "needed": 133,
+          "actual": 30
+        }
+      ]
+    },
+    {
+      "surface": "Research_Workspace",
+      "display_viewport": [
+        2560,
+        1440
+      ],
+      "actual_client": [
+        2560,
+        1334
+      ],
+      "scale": 1.25,
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Research_Workspace_largefont_2560x1440.png",
+        "sha256": "82132b8a931a104fc0a580226ab95219f87ac19a28a9edf5c8f142c7b9a237ff",
+        "bytes": 90237,
+        "pixels": [
+          2560,
+          1334
+        ],
+        "captured_at": 1788076785.3736646
+      },
+      "clipping_candidates": []
+    },
+    {
+      "surface": "Research_Workspace",
+      "display_viewport": [
+        1366,
+        768
+      ],
+      "actual_client": [
+        1366,
+        768
+      ],
+      "scale": 1.25,
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Research_Workspace_largefont_1366x768.png",
+        "sha256": "e59e6d0a3e38daa3787f4838c0cf73453796c439056e3e29aa72fcb4cf8ceed4",
+        "bytes": 81031,
+        "pixels": [
+          1366,
+          768
+        ],
+        "captured_at": 1788076786.9205124
+      },
+      "clipping_candidates": []
+    },
+    {
+      "surface": "US_ETF",
+      "display_viewport": [
+        2560,
+        1440
+      ],
+      "actual_client": [
+        2560,
+        1334
+      ],
+      "scale": 1.25,
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/US_ETF_largefont_2560x1440.png",
+        "sha256": "3256091533dd87b2892f224159426c75ce27dc14c87add27e1d2be28c3cce13e",
+        "bytes": 58332,
+        "pixels": [
+          2560,
+          1334
+        ],
+        "captured_at": 1788076789.4190276
+      },
+      "clipping_candidates": [
+        {
+          "kind": "horizontal",
+          "class": "QToolButton",
+          "name": "",
+          "needed": 133,
+          "actual": 30
+        }
+      ]
+    },
+    {
+      "surface": "US_ETF",
+      "display_viewport": [
+        1366,
+        768
+      ],
+      "actual_client": [
+        1366,
+        768
+      ],
+      "scale": 1.25,
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/US_ETF_largefont_1366x768.png",
+        "sha256": "471d353092e91d78f8981a8d36c791be92d365e59d3494b2b76200a13bbea25e",
+        "bytes": 48426,
+        "pixels": [
+          1366,
+          768
+        ],
+        "captured_at": 1788076790.9090312
+      },
+      "clipping_candidates": [
+        {
+          "kind": "horizontal",
+          "class": "QToolButton",
+          "name": "",
+          "needed": 133,
+          "actual": 30
+        }
+      ]
+    },
+    {
+      "surface": "Watchlist",
+      "display_viewport": [
+        2560,
+        1440
+      ],
+      "actual_client": [
+        2560,
+        1334
+      ],
+      "scale": 1.25,
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Watchlist_largefont_2560x1440.png",
+        "sha256": "fc43d1aa001a81e37f370e89ecd081fb367f31781b80c2bc49c1cb10c760b613",
+        "bytes": 45501,
+        "pixels": [
+          2560,
+          1334
+        ],
+        "captured_at": 1788076793.5052755
+      },
+      "clipping_candidates": []
+    },
+    {
+      "surface": "Watchlist",
+      "display_viewport": [
+        1366,
+        768
+      ],
+      "actual_client": [
+        1366,
+        768
+      ],
+      "scale": 1.25,
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Watchlist_largefont_1366x768.png",
+        "sha256": "68a154352e4ea6feeb5eb48c90f0951cdd1b68f427c4ba8b0eac5d1f0ed60275",
+        "bytes": 36406,
+        "pixels": [
+          1366,
+          768
+        ],
+        "captured_at": 1788076794.9913063
+      },
+      "clipping_candidates": []
+    },
+    {
+      "surface": "Data_Status",
+      "display_viewport": [
+        2560,
+        1440
+      ],
+      "actual_client": [
+        2560,
+        1334
+      ],
+      "scale": 1.25,
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Data_Status_largefont_2560x1440.png",
+        "sha256": "9825a54f957eeef85375b4962761a7d6e1e9b2314f6fc81002b832eb9b84b38f",
+        "bytes": 103156,
+        "pixels": [
+          2560,
+          1334
+        ],
+        "captured_at": 1788076797.5968924
+      },
+      "clipping_candidates": []
+    },
+    {
+      "surface": "Data_Status",
+      "display_viewport": [
+        1366,
+        768
+      ],
+      "actual_client": [
+        1366,
+        768
+      ],
+      "scale": 1.25,
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Data_Status_largefont_1366x768.png",
+        "sha256": "84a2f05e5ebf1d354297ff345351ccd13eb97cc1e2657ba0f5b29cae9f56cf14",
+        "bytes": 83161,
+        "pixels": [
+          1366,
+          768
+        ],
+        "captured_at": 1788076799.1533744
+      },
+      "clipping_candidates": []
+    },
+    {
+      "surface": "Account",
+      "display_viewport": [
+        2560,
+        1440
+      ],
+      "actual_client": [
+        2560,
+        1334
+      ],
+      "scale": 1.25,
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Account_largefont_2560x1440.png",
+        "sha256": "310b997e0564b7aa113157399ba8137a1afc540c6a1e8a0450bea0bb8baf365d",
+        "bytes": 82852,
+        "pixels": [
+          2560,
+          1334
+        ],
+        "captured_at": 1788076801.6649404
+      },
+      "clipping_candidates": []
+    },
+    {
+      "surface": "Account",
+      "display_viewport": [
+        1366,
+        768
+      ],
+      "actual_client": [
+        1366,
+        768
+      ],
+      "scale": 1.25,
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Account_largefont_1366x768.png",
+        "sha256": "be423b112c90dfef619ed66378aad054369ee69e32a913f3ec750a19296b3de2",
+        "bytes": 71184,
+        "pixels": [
+          1366,
+          768
+        ],
+        "captured_at": 1788076803.1688628
+      },
+      "clipping_candidates": []
+    },
+    {
+      "surface": "Net_Worth",
+      "display_viewport": [
+        2560,
+        1440
+      ],
+      "actual_client": [
+        2560,
+        1334
+      ],
+      "scale": 1.25,
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Net_Worth_largefont_2560x1440.png",
+        "sha256": "1aefde12938ca8783bc421ea739ff9cc931b45bec0ea9789754ec0cfd087bec5",
+        "bytes": 52170,
+        "pixels": [
+          2560,
+          1334
+        ],
+        "captured_at": 1788076805.790709
+      },
+      "clipping_candidates": []
+    },
+    {
+      "surface": "Net_Worth",
+      "display_viewport": [
+        1366,
+        768
+      ],
+      "actual_client": [
+        1366,
+        768
+      ],
+      "scale": 1.25,
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Net_Worth_largefont_1366x768.png",
+        "sha256": "71f765deb1d6b463e993f5dbe689d350c248c97ccc08a8f7511326bbad14755e",
+        "bytes": 40806,
+        "pixels": [
+          1366,
+          768
+        ],
+        "captured_at": 1788076807.2733366
+      },
+      "clipping_candidates": []
+    },
+    {
+      "surface": "Backtest",
+      "display_viewport": [
+        2560,
+        1440
+      ],
+      "actual_client": [
+        2560,
+        1334
+      ],
+      "scale": 1.25,
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Backtest_largefont_2560x1440.png",
+        "sha256": "a44eefb446a218f9b7febdb067b18f44ee5098824efd0c107e51a8df8de9775b",
+        "bytes": 85097,
+        "pixels": [
+          2560,
+          1334
+        ],
+        "captured_at": 1788076809.9420018
+      },
+      "clipping_candidates": []
+    },
+    {
+      "surface": "Backtest",
+      "display_viewport": [
+        1366,
+        768
+      ],
+      "actual_client": [
+        1366,
+        768
+      ],
+      "scale": 1.25,
+      "evidence": {
+        "path": "artifacts/gui_audits/20260830_qt_ux_exhaustive/evidence/Backtest_largefont_1366x768.png",
+        "sha256": "622c02c987109096b8b009da446e1fc11de03723f181fc37e63afc987244d079",
+        "bytes": 61016,
+        "pixels": [
+          1366,
+          768
+        ],
+        "captured_at": 1788076811.4827108
+      },
+      "clipping_candidates": []
+    }
+  ],
+  "scenarios": [
+    {
+      "id": 1,
+      "name": "First Contact",
+      "result": "ASSESSED",
+      "evidence": "first_time_user rows in every surface"
+    },
+    {
+      "id": 2,
+      "name": "Interrupted Workflow",
+      "result": "ASSESSED",
+      "evidence": "global switcher Escape and page revisit state"
+    },
+    {
+      "id": 3,
+      "name": "Wrong Turn Recovery",
+      "result": "ASSESSED",
+      "evidence": "modal cancel and tab round trips"
+    },
+    {
+      "id": 4,
+      "name": "Returning User",
+      "result": "ASSESSED",
+      "evidence": "second tab visit and restored local controls"
+    },
+    {
+      "id": 5,
+      "name": "Keyboard Only",
+      "result": "ASSESSED",
+      "evidence": "per-surface focus trail and keyboard primary action"
+    },
+    {
+      "id": 6,
+      "name": "Heavy Data",
+      "result": "ASSESSED",
+      "evidence": "0/1/100/1000 rows on visible QTableWidget components"
+    },
+    {
+      "id": 7,
+      "name": "Destructive Confidence",
+      "result": "ASSESSED_WITHOUT_MUTATION",
+      "evidence": "Account deletion and Watchlist creation are inspected/cancelled or safety-skipped"
+    },
+    {
+      "id": 8,
+      "name": "Second User Role",
+      "result": "NOT_APPLICABLE",
+      "reason": "single-user local desktop app; read-only account role boundary substituted"
+    },
+    {
+      "id": 9,
+      "name": "Lifecycle Position",
+      "result": "ASSESSED",
+      "evidence": "empty, partial, unavailable, and synthetic populated local states"
+    },
+    {
+      "id": 10,
+      "name": "Round Trip",
+      "result": "ASSESSED",
+      "evidence": "all top tabs plus Account nested round trips restore state"
+    },
+    {
+      "id": 11,
+      "name": "Data Seasoning",
+      "result": "ASSESSED",
+      "evidence": "date/range selectors and empty/long/heavy table states; no scheduler/provider action"
+    }
+  ],
+  "motion": {
+    "visible_property_animations": 0,
+    "reduced_motion_path": "not found in native runtime inventory"
+  },
+  "network": {
+    "applicable": false,
+    "reason": "provider-free native local audit; no network/provider refresher injected",
+    "requests": 0,
+    "http_5xx": 0,
+    "http_403_404": 0
+  },
+  "web_only": {
+    "axe_core": "N/A — native Qt; replaced by accessible-name/focus inventory",
+    "LCP_CLS_INP": "N/A — native Qt; replaced by startup/tab/action/resize latency",
+    "print_stylesheet": "N/A — native desktop application"
+  },
+  "duration_s": 438.936,
+  "qt_message_count": 0,
+  "closed_cleanly": true
+}

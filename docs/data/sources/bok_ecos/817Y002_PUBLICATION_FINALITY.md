@@ -1,6 +1,6 @@
 # BOK ECOS 817Y002 publication and finality evidence
 
-Status: `CURRENT SOURCE EVIDENCE / FINALITY UNDOCUMENTED`
+Status: `CURRENT SOURCE EVIDENCE / THREE_BATCH_GATE_REVIEWED`
 
 Scope: ECOS `StatisticSearch`, table `817Y002`, daily 2Y, 3Y, 5Y, 10Y, 20Y,
 and 30Y Korean Treasury yield observations. This note is evidence, not execution
@@ -44,27 +44,35 @@ or whether later revisions can occur.
 - Availability/finality: `UNKNOWN` until an explicit reviewed date is selected.
 - XKRX sessions, Treasury-futures sessions, and the local business date are not
   valid proxies.
-- Scheduler eligibility and unattended promotion remain disabled.
+- Canonical daily-route scheduler eligibility and unattended promotion remain
+  disabled; the separate evidence observer is installed and API-zero idle at
+  the reached gate.
 
-## Prospective observation checkpoint
+## Reviewed three-batch observation
 
-The active finality observation captured its first of three required batches in
-the predeclared 2026-08-26 17:00-18:00 KST window. Six exact-tenor
-`StatisticSearch` responses had provider-native date 2026-08-26 in common. The
-official single-table information response was captured separately and reported
-`prvsMrkYn=N` and `brknwsMrkYn=N`; this table-level UI flag is not treated as an
-API row-level finality field. The batch used six data calls and one separate UI
-call, retry zero, immutable diagnostic Landing first, and no Normalized write.
-Retained readback and same-window replay both required API zero, and the runtime
-credential was absent from every retained run file. Both complete-Landing state
-recovery and the inverse state-first/checkpoint-second interruption reconcile
-the exact retained evidence with API zero; a partial retry-zero capture remains
-non-resumable.
+The predeclared 17:00-18:00 KST observations completed on 2026-08-26,
+2026-08-27, and 2026-08-28. Each retained six exact-tenor `StatisticSearch`
+responses with the same-day provider-native date common to all six tenors. Each
+batch used six data calls and one separate UI call, retry zero, immutable
+diagnostic Landing first, and no Normalized write. All three separately retained
+`OSUUA02R03` responses reported `prvsMrkYn=N` and `brknwsMrkYn=N`; these remain
+table-level UI evidence rather than row-level API finality fields.
 
-Because this is the first batch, its next-provider-day field and canonical-row
-byte comparison is pending. It establishes same-window availability only. It
-does not establish earliest publication time, a permanent lag, or finality, so
-automatic expected latest remains unset and `UNKNOWN`.
+The second batch retrieved the 2026-08-26 rows again and the third retrieved the
+2026-08-27 rows again. In both comparisons every retained source field and every
+canonical row SHA-256 matched. The version-1 state binds all three batch
+identities, response hashes, selected rows, call counts, UI evidence, and
+comparison results. Every checkpoint is `COMPLETE`; the latest checkpoint
+hash-binds the current state. The 2026-08-29 scheduler receipt then stopped at
+the reached review gate with batch count 3 to 3, API calls zero, and Normalized
+writes zero.
+
+This supports `BOUNDED_THREE_BATCH_AVAILABILITY_CONFIRMED` and the exact
+provider-native fail-closed route gate documented in the active runbook. It does
+not establish the earliest publication time, an official revision window, a
+permanent lag, or predictive vintage, so `PERMANENT_FINALITY_UNKNOWN` and an
+unset automatic expected latest remain the supported boundary. No historical,
+Normalized, Canonical, or Dashboard promotion was performed.
 
 No exact automatic reviewed date can be selected from the currently documented
 official rules. The bounded observation plan is owned by

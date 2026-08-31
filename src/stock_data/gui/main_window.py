@@ -120,6 +120,7 @@ from stock_data.gui.services import (
     DashboardSparklineView,
     DashboardSeriesView,
     DashboardService,
+    DecisionCockpitView,
     EquityIdentity,
     EquitySearchView,
     EquitySeriesView,
@@ -133,6 +134,9 @@ from stock_data.gui.services import (
     TossShortWatchlistView,
     TreasuryRateView,
     VIXSourceView,
+    candidate_recovery_view,
+    decision_cockpit_identity_unavailable,
+    decision_cockpit_view,
     instrument_facts_view,
     DASHBOARD_CHART_COVERAGE_ATTR,
 )
@@ -12050,7 +12054,7 @@ class EquityChartWorker(QtCore.QObject):
             elif self.action == "candidate_scan":
                 result = self.service.scan()
             elif self.action == "candidate_identity":
-                _market, symbol = self.request
+                _market, symbol, *_origin = self.request
                 result = self.service.search(str(symbol))
             else:
                 raise ValueError("unsupported equity worker action")
@@ -12637,7 +12641,7 @@ class ResearchWorkspacePage(QtWidgets.QWidget):
         source_panel = self._new_panel("SOURCE_STATUS")
         source_layout = QtWidgets.QVBoxLayout(source_panel)
         self.source_status = QtWidgets.QLabel(
-            "가격과 출처 상태는 exact typed view가 수락된 뒤 표시됩니다."
+            "검증된 로컬 가격과 출처 상태가 준비되면 표시합니다."
         )
         self.source_status.setWordWrap(True)
         self.source_status.setAlignment(QtCore.Qt.AlignTop)
@@ -12804,6 +12808,7 @@ class ResearchWorkspacePage(QtWidgets.QWidget):
         self.candidate_status.setText(
             "현재 로컬 종목 일봉을 읽는 중입니다 · 화면은 계속 사용할 수 있습니다."
         )
+        self.candidate_status.setToolTip("")
         self.candidate_status.setAccessibleName("현재 후보 로컬 입력 확인 중")
 
     def render_exploratory_candidates(self, view: ExploratoryCandidateView) -> None:
@@ -12816,15 +12821,21 @@ class ResearchWorkspacePage(QtWidgets.QWidget):
         except (AttributeError, TypeError, ValueError):
             self.candidate_axis_status.setText("기술 축 N/A · 실적 축 N/A · 가치 축 N/A")
             self.candidate_status.setText("로컬 후보 결과 검증 실패 · 행 숨김")
+            self.candidate_status.setToolTip("")
             self.candidate_status.setAccessibleName("현재 후보 결과 계약 검증 실패")
             return
         if view.availability != "READY":
             self.candidate_axis_status.setText("기술 축 N/A · 실적 축 N/A · 가치 축 N/A")
-            reason = view.unavailable_reason or "UNKNOWN"
+            recovery = candidate_recovery_view(view.unavailable_reason)
             self.candidate_status.setText(
-                f"현재 후보를 읽지 못했습니다 · {reason}"
+                f"{recovery.title} {recovery.impact} {recovery.next_step}"
             )
-            self.candidate_status.setAccessibleName(f"현재 후보 입력 오류 · {reason}")
+            self.candidate_status.setToolTip(
+                f"기술 세부정보\n{recovery.technical_detail}"
+            )
+            self.candidate_status.setAccessibleName(
+                "현재 후보 입력 확인 필요 · 숫자 표시 없음"
+            )
             return
         valuation_rows = sum(
             candidate.valuation_state == "AVAILABLE_CURRENT_TRAILING"
@@ -13085,6 +13096,170 @@ class ResearchWorkspacePage(QtWidgets.QWidget):
         self.apply_preset(self._preferences.active_preset)
 
 
+class DecisionCockpitPage(QtWidgets.QScrollArea):
+    """Laptop-safe read-only composition that links existing evidence surfaces."""
+
+    surface_requested = QtCore.Signal(str)
+    candidate_requested = QtCore.Signal(str, str)
+    candidate_refresh_requested = QtCore.Signal()
+    symbol_selection_requested = QtCore.Signal()
+
+    def __init__(self, parent: QtWidgets.QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setAccessibleName("읽기 전용 투자 판단 근거 모음")
+        self._guided_example: tuple[str, str] | None = None
+        self.setWidgetResizable(True)
+        self.setFrameShape(QtWidgets.QFrame.NoFrame)
+        self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        content = QtWidgets.QWidget()
+        content.setMinimumWidth(0)
+        self.setWidget(content)
+        self.content = content
+        layout = QtWidgets.QVBoxLayout(content)
+        layout.setContentsMargins(14, 12, 14, 14)
+        layout.setSpacing(10)
+
+        title = QtWidgets.QLabel("투자 판단 · 읽기 전용 근거 모음")
+        title.setObjectName("pageTitle")
+        title.setWordWrap(True)
+        subtitle = QtWidgets.QLabel(
+            "시장·후보·보유·검증 원자료를 한곳에서 열어 봅니다. "
+            "추천, 목표 비중, 주문 기능은 만들지 않습니다."
+        )
+        subtitle.setObjectName("pageSubtitle")
+        subtitle.setWordWrap(True)
+        layout.addWidget(title)
+        layout.addWidget(subtitle)
+
+        source_box = QtWidgets.QGroupBox("현재 후보 근거")
+        source_box.setAccessibleName("현재 후보 근거와 출처")
+        source_layout = QtWidgets.QVBoxLayout(source_box)
+        self.status_title = QtWidgets.QLabel("현재 로컬 후보 입력을 확인하는 중입니다.")
+        self.status_title.setObjectName("sectionTitle")
+        self.status_title.setWordWrap(True)
+        self.status_detail = QtWidgets.QLabel(
+            "확인 전에는 후보와 관련 숫자를 표시하지 않습니다."
+        )
+        self.status_detail.setWordWrap(True)
+        self.provenance = QtWidgets.QLabel("출처 확인 전 · 숫자 표시 없음")
+        self.provenance.setWordWrap(True)
+        self.provenance.setAccessibleName("후보 근거 출처와 기준일")
+        source_layout.addWidget(self.status_title)
+        source_layout.addWidget(self.status_detail)
+        source_layout.addWidget(self.provenance)
+
+        self.candidate_table = QtWidgets.QTableWidget(0, 4)
+        self.candidate_table.setHorizontalHeaderLabels((
+            "종목", "확인된 관찰 근거", "아직 없는 근거", "기준일·출처",
+        ))
+        self.candidate_table.setAccessibleName("읽기 전용 투자 판단 후보 근거")
+        self.candidate_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        self.candidate_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        self.candidate_table.setAlternatingRowColors(True)
+        self.candidate_table.verticalHeader().setVisible(False)
+        header = self.candidate_table.horizontalHeader()
+        header.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeToContents)
+        for column in range(1, 4):
+            header.setSectionResizeMode(column, QtWidgets.QHeaderView.Stretch)
+        self.candidate_table.setMinimumHeight(160)
+        self.candidate_table.setMaximumHeight(300)
+        source_layout.addWidget(self.candidate_table)
+        layout.addWidget(source_box)
+
+        actions = QtWidgets.QGroupBox("원자료와 복구")
+        actions.setAccessibleName("원자료 화면과 로컬 복구 작업")
+        action_layout = QtWidgets.QGridLayout(actions)
+        self.market_button = QtWidgets.QPushButton("시장 근거 보기")
+        self.research_button = QtWidgets.QPushButton("후보 원자료 보기")
+        self.account_button = QtWidgets.QPushButton("보유 영향 보기")
+        self.backtest_button = QtWidgets.QPushButton("검증 근거 보기")
+        self.example_button = QtWidgets.QPushButton("로컬 후보 예시 열기")
+        self.select_button = QtWidgets.QPushButton("종목 선택")
+        self.data_status_button = QtWidgets.QPushButton("데이터 상태 열기")
+        self.refresh_button = QtWidgets.QPushButton("현재 후보 다시 확인")
+        buttons = (
+            self.market_button, self.research_button,
+            self.account_button, self.backtest_button,
+            self.example_button, self.select_button,
+            self.data_status_button, self.refresh_button,
+        )
+        for index, button in enumerate(buttons):
+            button.setAccessibleName(button.text())
+            action_layout.addWidget(button, index // 4, index % 4)
+        self.example_button.setEnabled(False)
+        layout.addWidget(actions)
+        layout.addStretch()
+
+        self.market_button.clicked.connect(lambda: self.surface_requested.emit("DASHBOARD"))
+        self.research_button.clicked.connect(lambda: self.surface_requested.emit("RESEARCH"))
+        self.account_button.clicked.connect(lambda: self.surface_requested.emit("ACCOUNT"))
+        self.backtest_button.clicked.connect(lambda: self.surface_requested.emit("BACKTEST"))
+        self.data_status_button.clicked.connect(
+            lambda: self.surface_requested.emit("DATA_STATUS")
+        )
+        self.refresh_button.clicked.connect(self.candidate_refresh_requested.emit)
+        self.select_button.clicked.connect(self.symbol_selection_requested.emit)
+        self.example_button.clicked.connect(self._open_guided_example)
+        self.candidate_table.itemActivated.connect(self._open_candidate_row)
+        for left, right in zip(buttons, buttons[1:]):
+            QtWidgets.QWidget.setTabOrder(left, right)
+
+    def begin_candidate_scan(self) -> None:
+        self._guided_example = None
+        self.example_button.setEnabled(False)
+        self.refresh_button.setEnabled(False)
+        self.candidate_table.clearContents()
+        self.candidate_table.setRowCount(0)
+        self.status_title.setText("현재 로컬 후보 입력을 확인하는 중입니다.")
+        self.status_detail.setText("확인 전에는 후보와 관련 숫자를 표시하지 않습니다.")
+        self.provenance.setText("출처 확인 중 · 숫자 표시 없음")
+        self.provenance.setToolTip("")
+
+    def render_view(self, view: DecisionCockpitView) -> None:
+        if not isinstance(view, DecisionCockpitView):
+            view = decision_cockpit_view(object())
+        self.candidate_table.clearContents()
+        self.candidate_table.setRowCount(0)
+        self.status_title.setText(view.headline)
+        self.status_detail.setText(view.detail)
+        self.provenance.setText(view.provenance)
+        technical = view.recovery.technical_detail if view.recovery else ""
+        self.provenance.setToolTip(
+            f"기술 세부정보\n{technical}" if technical else ""
+        )
+        self._guided_example = view.guided_example
+        self.example_button.setEnabled(view.guided_example is not None)
+        self.refresh_button.setEnabled(True)
+        self.candidate_table.setRowCount(len(view.rows))
+        for row_index, row in enumerate(view.rows):
+            values = (
+                row.identity,
+                row.observed_evidence,
+                row.missing_evidence,
+                f"{row.as_of} · {row.provenance}",
+            )
+            for column, value in enumerate(values):
+                item = QtWidgets.QTableWidgetItem(value)
+                item.setData(QtCore.Qt.UserRole, value)
+                if column == 0:
+                    item.setData(QtCore.Qt.UserRole + 1, (row.market, row.symbol))
+                self.candidate_table.setItem(row_index, column, item)
+
+    def _open_guided_example(self) -> None:
+        if self._guided_example is not None:
+            self.candidate_requested.emit(*self._guided_example)
+
+    def _open_candidate_row(self, item: QtWidgets.QTableWidgetItem) -> None:
+        first = self.candidate_table.item(item.row(), 0)
+        identity = first.data(QtCore.Qt.UserRole + 1) if first is not None else None
+        if (
+            isinstance(identity, tuple)
+            and len(identity) == 2
+            and all(isinstance(value, str) and value for value in identity)
+        ):
+            self.candidate_requested.emit(identity[0], identity[1])
+
+
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(
         self,
@@ -13277,6 +13452,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle("Stock Investment · Market Overview"); self.resize(1600,900); self.setMinimumSize(900,640)
         tabs = QtWidgets.QTabWidget()
         self.tabs = tabs
+        self.decision_cockpit_page = DecisionCockpitPage()
         self.dashboard = DashboardPage()
         self.index_page = IndexPage()
         self.equity_page = IndividualEquityPage()
@@ -13298,6 +13474,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.account_workspace_tabs.addTab(self.net_worth_page, "순자산·증감")
         account_workspace_layout.addWidget(self.account_workspace_tabs)
         self.backtest_page = BacktestPage()
+        tabs.addTab(self.decision_cockpit_page, "투자 판단")
         tabs.addTab(self.dashboard, "Dashboard")
         tabs.addTab(self.index_page, "Index Graph")
         tabs.addTab(self.equity_page, "종목 차트")
@@ -13373,6 +13550,18 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         self.research_workspace_page.candidate_symbol_requested.connect(
             self._open_candidate_symbol
+        )
+        self.decision_cockpit_page.surface_requested.connect(
+            self._open_decision_surface
+        )
+        self.decision_cockpit_page.candidate_requested.connect(
+            self._open_cockpit_candidate_symbol
+        )
+        self.decision_cockpit_page.candidate_refresh_requested.connect(
+            self.refresh_candidate_scan
+        )
+        self.decision_cockpit_page.symbol_selection_requested.connect(
+            self._open_global_symbol_switcher
         )
         self.tabs.currentChanged.connect(self._candidate_tab_changed)
         self.watchlist_page.list_created.connect(self._create_watchlist)
@@ -13540,7 +13729,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._apply_dashboard_window_geometry(
             self._dashboard_preferences.window_geometry
         )
-        QtCore.QTimer.singleShot(0, self._queue_local_dashboard_reload); QtCore.QTimer.singleShot(0, self._request_current_observation_acquisition); QtCore.QTimer.singleShot(0, lambda: self.refresh_index("KOSPI","120D")); QtCore.QTimer.singleShot(0, self.refresh_backtest)
+        QtCore.QTimer.singleShot(0, self._queue_local_dashboard_reload); QtCore.QTimer.singleShot(0, self._request_current_observation_acquisition); QtCore.QTimer.singleShot(0, lambda: self.refresh_index("KOSPI","120D")); QtCore.QTimer.singleShot(0, self.refresh_backtest); QtCore.QTimer.singleShot(0, lambda: self._candidate_tab_changed(self.tabs.currentIndex()))
         # Startup performs one provider-free local read.  A provider-capable
         # refresh is constructed only from the Account page's MANUAL click.
         QtCore.QTimer.singleShot(0, self._request_account_snapshot)
@@ -14692,10 +14881,23 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         origin = self._global_symbol_origin
         self._global_symbol_origin = None
-        if origin is self.research_workspace_page:
+        if origin in {self.research_workspace_page, self.decision_cockpit_page}:
             self._open_research_identity(identity)
             return
         self._open_chart_identity(identity)
+
+    @QtCore.Slot(str)
+    def _open_decision_surface(self, surface: str) -> None:
+        pages = {
+            "DASHBOARD": self.dashboard,
+            "RESEARCH": self.research_workspace_page,
+            "ACCOUNT": self.account_workspace_page,
+            "BACKTEST": self.backtest_page,
+            "DATA_STATUS": self.data_status_page,
+        }
+        page = pages.get(str(surface))
+        if page is not None:
+            self.tabs.setCurrentWidget(page)
 
     @QtCore.Slot(object)
     def _open_chart_identity(self, identity: EquityIdentity) -> None:
@@ -14799,6 +15001,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         self._candidate_scan_started = True
         self.research_workspace_page.begin_candidate_scan()
+        self.decision_cockpit_page.begin_candidate_scan()
         if self._equity_thread is not None:
             self._candidate_scan_pending = True
             return
@@ -14808,13 +15011,24 @@ class MainWindow(QtWidgets.QMainWindow):
     def _candidate_tab_changed(self, _index: int) -> None:
         if (
             not self._candidate_scan_started
-            and self.tabs.currentWidget() is self.research_workspace_page
+            and self.tabs.currentWidget() in {
+                self.research_workspace_page,
+                self.decision_cockpit_page,
+            }
         ):
             self.refresh_candidate_scan()
 
     @QtCore.Slot(str, str)
     def _open_candidate_symbol(self, market: str, symbol: str) -> None:
-        self._request_equity_job("candidate_identity", (market, symbol))
+        self._request_equity_job(
+            "candidate_identity", (market, symbol, "RESEARCH")
+        )
+
+    @QtCore.Slot(str, str)
+    def _open_cockpit_candidate_symbol(self, market: str, symbol: str) -> None:
+        self._request_equity_job(
+            "candidate_identity", (market, symbol, "COCKPIT")
+        )
 
     def search_us_etfs(self, query: str) -> None:
         self._request_us_etf_job("search", query)
@@ -14908,13 +15122,21 @@ class MainWindow(QtWidgets.QMainWindow):
         if action == "global_search" and isinstance(result, EquitySearchView):
             self.global_symbol_switcher.render(result)
         elif action == "candidate_identity" and isinstance(result, EquitySearchView):
-            market, symbol = request
+            market, symbol, *origin_values = request
+            origin = origin_values[0] if origin_values else "RESEARCH"
             matches = tuple(
                 identity for identity in result.matches
                 if identity.market == market and identity.symbol == symbol
             )
             if len(matches) == 1:
                 self._open_research_identity(matches[0])
+            elif origin == "COCKPIT":
+                detail = result.unavailable_reason or "NO_EXACT_LOCAL_MATCH"
+                self.decision_cockpit_page.render_view(
+                    decision_cockpit_identity_unavailable(
+                        f"LOCAL_CANDIDATE_IDENTITY_UNAVAILABLE: {detail}"
+                    )
+                )
             else:
                 self.research_workspace_page.candidate_status.setText(
                     "후보 종목의 정확한 로컬 식별정보를 확인하지 못했습니다."
@@ -14927,6 +15149,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.research_workspace_page.render_series(result)
         elif action == "candidate_scan" and isinstance(result, ExploratoryCandidateView):
             self.research_workspace_page.render_exploratory_candidates(result)
+            self.decision_cockpit_page.render_view(decision_cockpit_view(result))
         elif action == "comparison" and isinstance(result, NormalizedBenchmarkComparisonView):
             self.equity_page.render_comparison(result)
         elif action == "watchlist" and isinstance(result, tuple):

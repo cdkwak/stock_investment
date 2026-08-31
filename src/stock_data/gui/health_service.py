@@ -11,6 +11,16 @@ from stock_data.orchestration.daily_operations import DATASET_UNIVERSE
 HEALTH_RELATIVE_PATH = Path("artifacts/daily_health/universe_data_v2_20260819.json")
 HEALTH_FILTERS = ("OPERATIONAL", "DAILY", "BLOCKED", "RESEARCH/STATIC", "ALL")
 MANAGED_ACCEPTABLE_FRESHNESS = frozenset({"CURRENT", "EXPECTED_LAG"})
+DECISION_HOLD_DEPENDENCY_MAP = {
+    "KOSPI200_BREADTH_DEPENDENCY_FRESHNESS_UNRESOLVED": (
+        "kr_index_constituent_daily",
+        "kr_kospi200_constituent_price_daily",
+        "kr_kospi200_breadth_daily",
+    ),
+}
+DECISION_HOLD_FRESHNESS = frozenset({"STALE", "UNKNOWN"})
+
+
 @dataclass(frozen=True)
 class HealthDatasetRow:
     dataset: str
@@ -54,6 +64,7 @@ def summarize_health_artifact(view: HealthArtifactView) -> dict[str, object]:
             "managed_not_applicable": 0,
             "display_total": 0, "display_stale": 0,
             "display_unknown": 0, "display_gap": 0,
+            "decision_hold_causes": (),
             "source": getattr(view, "source", "local health artifact"),
         }
     freshness = [row.freshness for row in view.rows]
@@ -82,6 +93,14 @@ def summarize_health_artifact(view: HealthArtifactView) -> dict[str, object]:
     display_stale = display_freshness.count("STALE")
     display_unknown = display_freshness.count("UNKNOWN")
     display_gap = display_stale + display_unknown
+    decision_hold_causes = tuple(
+        cause
+        for cause, dataset_ids in DECISION_HOLD_DEPENDENCY_MAP.items()
+        if any(
+            row.dataset in dataset_ids and row.freshness in DECISION_HOLD_FRESHNESS
+            for row in view.rows
+        )
+    )
     overall = (
         "UNKNOWN"
         if not managed_rows
@@ -107,6 +126,7 @@ def summarize_health_artifact(view: HealthArtifactView) -> dict[str, object]:
         "display_stale": display_stale,
         "display_unknown": display_unknown,
         "display_gap": display_gap,
+        "decision_hold_causes": decision_hold_causes,
         "source": view.source,
     }
 

@@ -13,7 +13,9 @@ from stock_data.gui.operations_dashboard import OperationsDashboard
 from stock_data.orchestration.workflow_control.monitoring import (
     EventView, MonitoringSnapshot, MonitoringWarning, RoleView, TaskView,
 )
-from stock_data.orchestration.workflow_control.queue_adapter import QueueSnapshot
+from stock_data.orchestration.workflow_control.queue_adapter import (
+    QueueSnapshot, QueueTaskOwnership,
+)
 
 
 NOW = datetime(2026, 8, 30, 6, 32, tzinfo=timezone.utc)
@@ -44,7 +46,7 @@ def sample_snapshot(*, warning_count: int = 1) -> MonitoringSnapshot:
         tasks=(TaskView(TASK_ID, "active", "P1", "gui", NOW, "작업 내용을 다듬고 있습니다.", "internal-lead", human_title="관제 화면 개선", lead="internal-lead", fix_count=2, last_activity=NOW - timedelta(minutes=1)),),
         events=(EventView("event-1", NOW, "REWORK_REQUESTED", "WORKER", TASK_ID, human_message="수정 요청을 전달했습니다."),),
         warnings=warnings,
-        source_freshness={"queue": NOW},
+        source_freshness={"queue_document": NOW},
         pm_current_decision="진행 중인 화면 개선을 검토합니다.",
         pm_next_action="수정 요청 반영을 확인합니다.",
         goal_summary="내 요청을 화면 개선 목표로 정리했습니다.",
@@ -69,15 +71,17 @@ def test_dashboard_uses_korean_glanceable_priority_and_hides_technical_identifie
     dashboard = _shown(OperationsDashboard(lambda: sample_snapshot(), refresh_interval_ms=None), app)
     try:
         assert dashboard.windowTitle() == "프로젝트 작업 현황"
-        assert dashboard.page_subtitle.text() == "PM이 작업을 나누고 검토하는 현재 흐름입니다"
+        assert dashboard.page_subtitle.text() == "실제 세션과 작업 문서 상태를 구분해 보여줍니다"
         assert dashboard.flow_text.text() == (
-            "요청 → 목표 정리 → 작업 목록 → 작업 관리자 → 담당 리드 → "
-            "작업자 ↔ 검토자 → 담당 리드 → 작업 관리자"
+            "운영 구조 · 대화창 → 목표·문서 계획 → PM → 리드 → "
+            "작업자 ↔ 검토자 → 리드 → PM"
         )
-        assert dashboard.pm_heading.text() == "작업 관리자(PM)"
+        assert dashboard.pm_heading.text() == "Python 작업 관리자(PM)"
         card = dashboard._task_cards[0]
         assert card.title.text() == "관제 화면 개선"
-        assert card.counts.text() == "작업자 1명 ↔ 검토자 1명"
+        assert card.badge.text() == "● 진행 문서"
+        assert card.lead.text() == "문서상 담당: 지정됨 · 실제 리드 세션: 연결됨"
+        assert card.counts.text() == "실제 작업자 1명 ↔ 실제 검토자 1명"
         assert "수정 요청 2회" in card.activity.text()
         visible = "\n".join(label.text() for label in dashboard.findChildren(QtWidgets.QLabel))
         assert TASK_ID not in visible
@@ -170,8 +174,67 @@ def test_five_second_auto_refresh_and_read_only_failure_state(app: QtWidgets.QAp
     try:
         QtTest.QTest.qWait(80)
         assert calls >= 2
-        assert "5초마다 자동 확인" in dashboard.refresh_status.text()
+        assert "5초 간격" in dashboard.refresh_status.text()
         assert [button.text() for button in dashboard.findChildren(QtWidgets.QPushButton)] == ["정보 다시 확인"]
     finally:
         dashboard.close()
     assert not dashboard._refresh_timer.isActive()
+
+
+def test_document_only_state_is_not_presented_as_running_sessions(app: QtWidgets.QApplication) -> None:
+    task_id = "RQ-20260830T063000-UX01"
+    queue = QueueSnapshot(
+        NOW,
+        (("new", 0), ("waiting", 0), ("ready", 0), ("active", 1),
+         ("review", 0), ("blocked", 0), ("done", 0)),
+        (task_id,), 0,
+        (QueueTaskOwnership(
+            task_id, "active", "gui_lead", "gui_lead", None, "gui", NOW,
+            "작업 문서는 있지만 실행 세션은 없는 상태",
+        ),),
+    )
+    snapshot = MonitoringSnapshot(
+        NOW,
+        queue=queue,
+        tasks=(TaskView(
+            task_id, "active", domain="gui", updated_at=NOW,
+            owner="gui_lead", human_title="작업 문서는 있지만 실행 세션은 없는 상태",
+            summary="작업 문서 상태: 진행 문서",
+        ),),
+        warnings=(MonitoringWarning(
+            "PM_SESSION_MISSING", "작업 문건은 있지만 PM 세션이 없습니다.", "error",
+            "PM 세션이 등록되지 않았습니다.", "Python PM을 시작하세요.",
+        ),),
+        source_freshness={"queue_document": NOW},
+        queue_action="작업 문서 상태를 읽었습니다.",
+        proposal_state="문서 상태",
+    )
+    dashboard = _shown(OperationsDashboard(lambda: snapshot, refresh_interval_ms=None), app)
+    try:
+        assert dashboard.pm_badge.text() == "— 미등록"
+        assert dashboard.pm_decision.text() == "세션 상태: 등록되어 작동 중인 PM 세션이 없습니다."
+        assert "PM 실행 연결 없음" in dashboard.pm_assignment.text()
+        assert "실제 활동 확인되지 않음" in dashboard.last_refreshed.text()
+        card = dashboard._task_cards[0]
+        assert card.lead.text() == "문서상 담당: 지정됨 · 실제 리드 세션: 연결되지 않음"
+        assert "실제 활동 확인되지 않음" in card.activity.text()
+        assert "실제 리드 세션: 0/1건 연결" in dashboard.queue_text.text()
+        assert dashboard.event_list.item(0).text() == "— 실제 에이전트 활동 기록이 없습니다."
+        assert "PM 세션이 등록되지 않았습니다" in dashboard.warning_summary.text()
+    finally:
+        dashboard.close()
+
+
+def test_registered_but_stale_pm_is_not_labeled_unregistered(app: QtWidgets.QApplication) -> None:
+    stale_pm = RoleView(
+        "project_manager", "project_manager", "active", 2,
+        NOW - timedelta(minutes=10), None, None, False, True,
+    )
+    snapshot = replace(sample_snapshot(warning_count=0), pm=(stale_pm,))
+    dashboard = _shown(OperationsDashboard(lambda: snapshot, refresh_interval_ms=None), app)
+    try:
+        assert dashboard.pm_badge.text() == "! 갱신 필요"
+        assert "등록되어 있지만" in dashboard.pm_decision.text()
+        assert "미등록" not in dashboard.pm_card.accessibleName()
+    finally:
+        dashboard.close()

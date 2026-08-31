@@ -1,18 +1,22 @@
 # BOK ECOS Korean Treasury publication-finality observation
 
-Status: `ACTIVE / DAILY_1710_SCHEDULER_INSTALLED / FINALITY_OBSERVATION_ONLY / NO_PROMOTION`
+Status: `THREE_BATCH_GATE_REACHED / API_ZERO_OBSERVER_IDLE / NO_PROMOTION`
 
-Current checkpoint: `BATCH_1_OF_3`. The 2026-08-26 17:00-18:00 KST batch
-selected provider-native 2026-08-26 across all six tenors. Its prior-date
-comparison is `PENDING_FIRST_BATCH`; the next batch must start at `20260826`.
+Current checkpoint: `THREE_BATCH_CONSISTENT_REVIEW_REQUIRED` was reconciled and
+reviewed from the retained 2026-08-26, 2026-08-27, and 2026-08-28 batches. Each
+batch selected its same-day provider-native date across all six tenors. The
+second and third batches found the preceding selected date unchanged for every
+field and canonical row byte; all three separate table-information responses
+reported `prvsMrkYn=N` and `brknwsMrkYn=N`.
 
 This active operation is limited to BOK ECOS table `817Y002`, daily 2Y, 3Y,
 5Y, 10Y, 20Y, and 30Y Korean Treasury percent yields. It observes publication
-and next-provider-day revision behavior only. Historical backfill, Normalized or
-Canonical promotion, automatic expected-latest inference, and numeric Dashboard
-use remain prohibited until the review gate closes. The observation scheduler
-itself is active because it writes only immutable diagnostic Landing/state and
-cannot promote either daily dataset.
+and next-provider-day revision behavior only. The reviewed evidence supports
+`BOUNDED_THREE_BATCH_AVAILABILITY_CONFIRMED`, not a permanent provider promise.
+Historical backfill, Normalized or Canonical promotion, automatic expected-
+latest inference, predictive use, and numeric Dashboard use remain prohibited.
+The observation scheduler remains installed but now exits before credentials or
+network at the reached review gate and cannot promote either daily dataset.
 
 The source observation calendar is `PROVIDER_PUBLICATION`. The operation does
 not use XKRX, Treasury futures, or a local business-day calendar to choose the
@@ -84,18 +88,34 @@ same-window API-zero run first reconciles exact state, Landing, ledger, selected
 rows, response hashes, and UI marker, then hash-binds the checkpoint to state.
 A partial retry-zero run is never resumed or adopted.
 
-The first live batch used six `StatisticSearch` calls, one separate official UI
-call, retry zero, and Normalized writes zero. Exact Landing/ledger hashes are
-bound in the versioned state rather than copied into this mutable runbook. An
-offline retained readback and the same-window CLI replay both returned API zero.
-Owning validation passes 23 tests, including the state-first interruption
-counterexample; no provider call is made during either recovery path.
+Each of the three live batches used six `StatisticSearch` calls, one separate
+official UI call, retry zero, and Normalized writes zero. Exact Landing/ledger
+hashes are bound in the versioned state rather than copied into this mutable
+runbook. The 2026-08-29 scheduler last receipt is `PASS / SUCCESS /
+NOOP_REVIEW_GATE_REACHED`, retained batch count 3 to 3, API calls zero, and
+Normalized writes zero. Owning validation covers both complete-Landing recovery
+and the inverse state-first/checkpoint-second interruption without provider
+calls.
 
-## Review gate
+## Reviewed gate decision
 
-Three consistent batches produce only
-`THREE_BATCH_CONSISTENT_REVIEW_REQUIRED`. They do not prove permanent finality.
-The Data owner must review all six availability dates, UI flags, prior-date
-field/byte comparisons, call counts, and Landing hashes before proposing an
-exact daily route. Any inconsistency or incomplete comparison keeps automatic
-expected latest unset and finality `UNKNOWN`.
+The retained gate supports only these bounded claims:
+
+- `BOUNDED_THREE_BATCH_AVAILABILITY_CONFIRMED`: all six tenors shared the
+  provider-native observation date at the 17:10 occurrence on three consecutive
+  provider-publication days.
+- The 2026-08-26 and 2026-08-27 rows were unchanged, field-for-field and
+  canonical-byte-for-byte, when retrieved in the following batch.
+- The table-level UI markers were `N/N` in all three captures; they remain
+  separate table evidence and are not row-level API finality fields.
+- `PERMANENT_FINALITY_UNKNOWN`: three observations do not establish an official
+  publication clock, revision deadline, permanent lag, or predictive vintage.
+
+The exact next daily-route gate is therefore provider-native and fail-closed: a
+separate implementation may request only the bounded range from the last
+accepted provider date through the current date, require one latest date common
+to all six exact tenors, and require the preceding selected date to remain
+unchanged before any descriptive use. It must not infer an XKRX/business-day
+expected date. Any Normalized/Canonical promotion, automated expected-latest
+policy, or Dashboard numeric route requires its own reviewed contract and is
+outside this observation operation.

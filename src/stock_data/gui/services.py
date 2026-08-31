@@ -177,6 +177,158 @@ class RetainedCandidateScanService:
             )
         return view
 
+
+@dataclass(frozen=True)
+class CandidateRecoveryView:
+    """Korean-first recovery copy with optional technical provenance."""
+
+    title: str
+    impact: str
+    next_step: str
+    technical_detail: str
+
+
+@dataclass(frozen=True)
+class DecisionCockpitRow:
+    """One descriptive candidate row; it is never a recommendation or score."""
+
+    market: str
+    symbol: str
+    identity: str
+    observed_evidence: str
+    missing_evidence: str
+    as_of: str
+    provenance: str
+
+
+@dataclass(frozen=True)
+class DecisionCockpitView:
+    """Read-only composition of an accepted retained candidate view."""
+
+    state: str
+    headline: str
+    detail: str
+    rows: tuple[DecisionCockpitRow, ...]
+    provenance: str
+    recovery: CandidateRecoveryView | None = None
+    guided_example: tuple[str, str] | None = None
+
+    @property
+    def displays_candidates(self) -> bool:
+        return self.state == "READY" and bool(self.rows)
+
+
+def candidate_recovery_view(reason: object) -> CandidateRecoveryView:
+    """Translate retained scanner reason codes without discarding provenance."""
+
+    technical = str(reason or "LOCAL_CANDIDATE_INPUT_UNAVAILABLE").strip()
+    code = technical.partition(":")[0]
+    if code == "LOCAL_CANDIDATE_INPUT_MISSING":
+        title = "후보를 만들 로컬 종목 데이터가 준비되지 않았습니다."
+        impact = "현재 관찰 후보와 관련 숫자는 표시하지 않습니다."
+        next_step = "데이터 상태에서 국내 일봉과 종목 목록을 확인한 뒤 다시 확인하세요."
+    elif code == "LOCAL_CANDIDATE_INPUT_EMPTY":
+        title = "로컬 입력은 있으나 검증할 종목 행이 없습니다."
+        impact = "빈 입력을 정상 후보 없음으로 해석하지 않고 판단을 보류합니다."
+        next_step = "데이터 상태에서 최신 국내 일봉과 종목 목록을 확인하세요."
+    elif code == "LOCAL_CANDIDATE_INPUT_STALE":
+        title = "후보 데이터 기준일이 예상 완료일보다 오래되었습니다."
+        impact = "오래된 후보와 숫자는 표시하지 않고 판단을 보류합니다."
+        next_step = "데이터 상태에서 최신 완료일을 확인한 뒤 다시 확인하세요."
+    elif code == "LOCAL_CANDIDATE_IDENTITY_UNAVAILABLE":
+        title = "선택한 후보의 정확한 로컬 종목 정보를 확인하지 못했습니다."
+        impact = "이전에 표시한 후보와 관련 숫자를 지우고 판단을 보류합니다."
+        next_step = "종목 선택에서 다른 로컬 항목을 고르거나 데이터 상태를 확인하세요."
+    else:
+        title = "로컬 후보 입력을 안전하게 확인하지 못했습니다."
+        impact = "검증되지 않은 후보와 숫자는 표시하지 않습니다."
+        next_step = "데이터 상태에서 국내 일봉과 종목 목록을 확인한 뒤 다시 확인하세요."
+    return CandidateRecoveryView(title, impact, next_step, technical)
+
+
+def decision_cockpit_identity_unavailable(reason: object) -> DecisionCockpitView:
+    """Clear a cockpit candidate after exact local-catalog revalidation fails."""
+
+    recovery = candidate_recovery_view(reason)
+    return DecisionCockpitView(
+        state="UNAVAILABLE",
+        headline=recovery.title,
+        detail=f"{recovery.impact} {recovery.next_step}",
+        rows=(),
+        provenance="정확한 로컬 종목 정보 확인 필요 · 숫자 표시 없음",
+        recovery=recovery,
+    )
+
+
+def decision_cockpit_view(view: ExploratoryCandidateView) -> DecisionCockpitView:
+    """Compose accepted candidate evidence without deriving advice or sizing."""
+
+    try:
+        accepted = validate_exploratory_candidate_view(view)
+    except (AttributeError, TypeError, ValueError):
+        recovery = candidate_recovery_view("CANDIDATE_VIEW_VALIDATION_FAILED")
+        return DecisionCockpitView(
+            state="UNAVAILABLE",
+            headline="후보 근거 계약을 확인하지 못했습니다.",
+            detail=f"{recovery.impact} {recovery.next_step}",
+            rows=(),
+            provenance="출처 확인 전 · 숫자 표시 없음",
+            recovery=recovery,
+        )
+    if accepted.availability != "READY":
+        recovery = candidate_recovery_view(accepted.unavailable_reason)
+        return DecisionCockpitView(
+            state="UNAVAILABLE",
+            headline=recovery.title,
+            detail=f"{recovery.impact} {recovery.next_step}",
+            rows=(),
+            provenance="보존된 국내 일봉·종목 목록 확인 필요 · 숫자 표시 없음",
+            recovery=recovery,
+        )
+
+    rows = tuple(
+        DecisionCockpitRow(
+            market=candidate.market,
+            symbol=candidate.symbol,
+            identity=(
+                f"{candidate.name} · {candidate.symbol} · {candidate.market}"
+                if candidate.name else f"{candidate.symbol} · {candidate.market}"
+            ),
+            observed_evidence=f"기술 관찰 · {candidate.technical_state}",
+            missing_evidence=(
+                "현재 PER/PBR 출처 있음 · 실적·상대가치 판단 없음"
+                if candidate.valuation_state == "AVAILABLE_CURRENT_TRAILING"
+                else "실적·상대가치 근거 없음"
+            ),
+            as_of=candidate.as_of,
+            provenance="보존된 원본가격 · 현재 종목 목록",
+        )
+        for candidate in accepted.candidates
+    )
+    if rows:
+        headline = "현재 로컬 관찰 후보를 원자료와 함께 모았습니다."
+        detail = (
+            "표시 순서는 기존 연구 화면의 설명용 순서이며 추천·점수·목표 비중이 아닙니다."
+        )
+        state = "READY"
+        guided_example = (rows[0].market, rows[0].symbol)
+    else:
+        headline = "로컬 읽기는 완료됐지만 현재 조건에 맞는 관찰 후보가 없습니다."
+        detail = "빈 결과를 매수·매도 판단으로 해석하지 않습니다. 종목 선택으로 원자료를 볼 수 있습니다."
+        state = "EMPTY"
+        guided_example = None
+    return DecisionCockpitView(
+        state=state,
+        headline=headline,
+        detail=detail,
+        rows=rows,
+        provenance=(
+            f"보존된 국내 원본가격·현재 종목 목록 · 기준일 {accepted.as_of} · "
+            "실적 상향과 상대가치 판단은 연결되지 않음"
+        ),
+        guided_example=guided_example,
+    )
+
 # This GUI reader has no adapter or transport.  It only selects the exact
 # UR-118 local projection which a separately authorized LS operation may have
 # atomically retained.

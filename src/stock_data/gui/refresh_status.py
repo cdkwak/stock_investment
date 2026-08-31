@@ -8,6 +8,8 @@ from pathlib import Path
 from collections.abc import Callable
 from typing import Mapping
 
+from stock_data.gui.health_service import DECISION_HOLD_DEPENDENCY_MAP
+
 
 CONTRACT_ID = "gui-refresh-status/v1"
 
@@ -261,6 +263,7 @@ def _health_surface(root: Path, health: Mapping[str, object]) -> SurfaceStatus:
     managed_acceptable = health.get("managed_acceptable")
     lag = health.get("managed_expected_lag")
     display_gap = health.get("display_gap", 0)
+    decision_hold_causes = health.get("decision_hold_causes", ())
     last_success, receipt_id = _receipt(
         root,
         "artifacts/scheduler_logs/STOCK_DATA_DAILY_HEALTH_last.json",
@@ -269,6 +272,15 @@ def _health_surface(root: Path, health: Mapping[str, object]) -> SurfaceStatus:
     if type(managed_total) is not int or managed_total <= 0:
         operation, freshness, retained = "UNKNOWN", "UNKNOWN", "SUPPRESSED"
         reasons = ("SOURCE_METADATA_MISSING",)
+    elif (
+        type(decision_hold_causes) is not tuple
+        or any(cause not in DECISION_HOLD_DEPENDENCY_MAP for cause in decision_hold_causes)
+    ):
+        operation, freshness, retained = "UNKNOWN", "UNKNOWN", "SUPPRESSED"
+        reasons = ("SOURCE_METADATA_MISSING",)
+    elif decision_hold_causes:
+        operation, freshness, retained = "PARTIAL_FAILURE", "STALE", "DISPLAYABLE_WITH_WARNING"
+        reasons = ("DECISION_HOLD", *decision_hold_causes, "RETAINED_VALUE_STALE")
     elif managed_acceptable != managed_total:
         operation, freshness, retained = "PARTIAL_FAILURE", "STALE", "DISPLAYABLE_WITH_WARNING"
         reasons = ("PARTIAL_COMPONENTS", "RETAINED_VALUE_STALE")

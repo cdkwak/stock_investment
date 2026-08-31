@@ -1,0 +1,1715 @@
+{
+  "schema": "qt-ux-first-wave/v1",
+  "head": "19503fa65bf91b45a2e363f86489c1b1d4893401",
+  "runtime": {
+    "qt_platform": "windows",
+    "baseline": [
+      1600,
+      900
+    ],
+    "constrained": [
+      1366,
+      768
+    ],
+    "provider_refresh_injected": false,
+    "account_mutation": false,
+    "order_action": false
+  },
+  "surfaces": [
+    {
+      "surface": "Dashboard",
+      "tab": "Dashboard",
+      "before": "artifacts/gui_audits/20260830_qt_ux_first_wave/evidence/Dashboard_1600_before.png",
+      "type": {
+        "available": false,
+        "reason": "no enabled visible text field"
+      },
+      "actions": [
+        {
+          "action": "change nested market tab",
+          "latency_ms": 40.9
+        },
+        {
+          "action": "open and Close screen preferences",
+          "latency_ms": 90.5,
+          "screenshot": "artifacts/gui_audits/20260830_qt_ux_first_wave/evidence/Dashboard_preferences_open.png",
+          "title": "Dashboard 화면 구성",
+          "closed": true
+        }
+      ],
+      "after": "artifacts/gui_audits/20260830_qt_ux_first_wave/evidence/Dashboard_1600_after.png",
+      "keyboard_focus_trail": [
+        {
+          "class": "QComboBox",
+          "object_name": "",
+          "text": "KOSPI",
+          "visible": true,
+          "enabled": true
+        },
+        {
+          "class": "QComboBox",
+          "object_name": "",
+          "text": "120D",
+          "visible": true,
+          "enabled": true
+        },
+        {
+          "class": "QPushButton",
+          "object_name": "",
+          "text": "로컬 새로고침",
+          "visible": true,
+          "enabled": true
+        },
+        {
+          "class": "QPushButton",
+          "object_name": "",
+          "text": "보조지표",
+          "visible": true,
+          "enabled": true
+        },
+        {
+          "class": "PlotWidget",
+          "object_name": "",
+          "text": "PlotWidget",
+          "visible": true,
+          "enabled": true
+        },
+        {
+          "class": "QTabBar",
+          "object_name": "qt_tabwidget_tabbar",
+          "text": "qt_tabwidget_tabbar",
+          "visible": true,
+          "enabled": true
+        },
+        {
+          "class": "QTabBar",
+          "object_name": "qt_tabwidget_tabbar",
+          "text": "qt_tabwidget_tabbar",
+          "visible": true,
+          "enabled": true
+        },
+        {
+          "class": "QPushButton",
+          "object_name": "",
+          "text": "계좌 보기",
+          "visible": true,
+          "enabled": true
+        }
+      ],
+      "clipping_candidates_1600": [
+        {
+          "class": "QLabel",
+          "object_name": "pageSubtitle",
+          "text": "시장 · 수급 · 밸류에이션 · 파생 · 환율/금리",
+          "geometry": [
+            0,
+            26,
+            380,
+            26
+          ],
+          "needed_width": 380,
+          "actual_width": 380
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactMeta",
+          "text": "저장 화면 구성",
+          "geometry": [
+            1054,
+            0,
+            68,
+            13
+          ],
+          "needed_width": 68,
+          "actual_width": 68
+        },
+        {
+          "class": "QLabel",
+          "object_name": "marketSessionText",
+          "text": "<span style=\"color:#179c68\">●</span>&nbsp;KRX 장중 09:00~15:30 · NXT 장중 08:00~20:00",
+          "geometry": [
+            10,
+            0,
+            311,
+            38
+          ],
+          "needed_width": 593,
+          "actual_width": 311
+        },
+        {
+          "class": "QLabel",
+          "object_name": "marketSessionText",
+          "text": "<span style=\"color:#c8d0d9\">●</span>&nbsp;미국 장마감",
+          "geometry": [
+            343,
+            0,
+            88,
+            38
+          ],
+          "needed_width": 370,
+          "actual_width": 88
+        },
+        {
+          "class": "QLabel",
+          "object_name": "sectionTitle",
+          "text": "KOSPI 차트 · 불러오는 중…",
+          "geometry": [
+            10,
+            8,
+            186,
+            41
+          ],
+          "needed_width": 186,
+          "actual_width": 186
+        },
+        {
+          "class": "QLabel",
+          "object_name": "",
+          "text": "시장/지수",
+          "geometry": [
+            345,
+            8,
+            88,
+            41
+          ],
+          "needed_width": 88,
+          "actual_width": 88
+        },
+        {
+          "class": "QLabel",
+          "object_name": "",
+          "text": "기간",
+          "geometry": [
+            647,
+            8,
+            40,
+            41
+          ],
+          "needed_width": 40,
+          "actual_width": 40
+        },
+        {
+          "class": "QLabel",
+          "object_name": "indicatorLabel",
+          "text": "모멘텀 · KOSPI RSI14",
+          "geometry": [
+            0,
+            1,
+            105,
+            30
+          ],
+          "needed_width": 105,
+          "actual_width": 105
+        },
+        {
+          "class": "QLabel",
+          "object_name": "",
+          "text": "표시 불가",
+          "geometry": [
+            408,
+            1,
+            87,
+            30
+          ],
+          "needed_width": 87,
+          "actual_width": 87
+        },
+        {
+          "class": "QLabel",
+          "object_name": "indicatorLabel",
+          "text": "추세 · KOSPI MA60 이격",
+          "geometry": [
+            0,
+            1,
+            121,
+            28
+          ],
+          "needed_width": 121,
+          "actual_width": 121
+        },
+        {
+          "class": "QLabel",
+          "object_name": "",
+          "text": "표시 불가",
+          "geometry": [
+            408,
+            1,
+            87,
+            28
+          ],
+          "needed_width": 87,
+          "actual_width": 87
+        },
+        {
+          "class": "QLabel",
+          "object_name": "indicatorLabel",
+          "text": "공포 · VIX 250D 순위",
+          "geometry": [
+            0,
+            1,
+            105,
+            51
+          ],
+          "needed_width": 105,
+          "actual_width": 105
+        },
+        {
+          "class": "QLabel",
+          "object_name": "",
+          "text": "표시 불가",
+          "geometry": [
+            408,
+            1,
+            87,
+            51
+          ],
+          "needed_width": 87,
+          "actual_width": 87
+        },
+        {
+          "class": "QLabel",
+          "object_name": "indicatorLabel",
+          "text": "공포 · VKOSPI 250D 순위",
+          "geometry": [
+            0,
+            1,
+            125,
+            52
+          ],
+          "needed_width": 125,
+          "actual_width": 125
+        },
+        {
+          "class": "QLabel",
+          "object_name": "",
+          "text": "표시 불가",
+          "geometry": [
+            408,
+            1,
+            87,
+            52
+          ],
+          "needed_width": 87,
+          "actual_width": 87
+        },
+        {
+          "class": "QLabel",
+          "object_name": "unavailableState",
+          "text": "시장 국면 근거 0/3 · 미반영 가격·추세·변동성, KOSPI 밸류에이션, Forward EPS·Revision·ROE 미지원 · 고점·저점 판정 보류",
+          "geometry": [
+            11,
+            216,
+            473,
+            21
+          ],
+          "needed_width": 893,
+          "actual_width": 473
+        },
+        {
+          "class": "QLabel",
+          "object_name": "rateChange",
+          "text": "변동 N/A",
+          "geometry": [
+            169,
+            2,
+            38,
+            18
+          ],
+          "needed_width": 38,
+          "actual_width": 38
+        },
+        {
+          "class": "QLabel",
+          "object_name": "rateChange",
+          "text": "변동 N/A",
+          "geometry": [
+            168,
+            2,
+            38,
+            18
+          ],
+          "needed_width": 38,
+          "actual_width": 38
+        },
+        {
+          "class": "QLabel",
+          "object_name": "rateChange",
+          "text": "변동 N/A",
+          "geometry": [
+            384,
+            2,
+            38,
+            18
+          ],
+          "needed_width": 38,
+          "actual_width": 38
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactValue",
+          "text": "확인 필요",
+          "geometry": [
+            37,
+            2,
+            56,
+            18
+          ],
+          "needed_width": 61,
+          "actual_width": 56
+        },
+        {
+          "class": "QLabel",
+          "object_name": "rateChange",
+          "text": "변동 N/A",
+          "geometry": [
+            97,
+            2,
+            38,
+            18
+          ],
+          "needed_width": 38,
+          "actual_width": 38
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactValue",
+          "text": "확인 필요",
+          "geometry": [
+            37,
+            2,
+            55,
+            18
+          ],
+          "needed_width": 61,
+          "actual_width": 55
+        },
+        {
+          "class": "QLabel",
+          "object_name": "rateChange",
+          "text": "변동 N/A",
+          "geometry": [
+            96,
+            2,
+            38,
+            18
+          ],
+          "needed_width": 38,
+          "actual_width": 38
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactValue",
+          "text": "확인 필요",
+          "geometry": [
+            37,
+            2,
+            56,
+            18
+          ],
+          "needed_width": 61,
+          "actual_width": 56
+        },
+        {
+          "class": "QLabel",
+          "object_name": "rateChange",
+          "text": "변동 N/A",
+          "geometry": [
+            97,
+            2,
+            38,
+            18
+          ],
+          "needed_width": 38,
+          "actual_width": 38
+        },
+        {
+          "class": "QLabel",
+          "object_name": "sectionTitle",
+          "text": "내 계좌",
+          "geometry": [
+            11,
+            5,
+            50,
+            27
+          ],
+          "needed_width": 50,
+          "actual_width": 50
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactTitle",
+          "text": "KOSPI200 선물 Basis",
+          "geometry": [
+            10,
+            7,
+            0,
+            28
+          ],
+          "needed_height": 45,
+          "actual_height": 28
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactValue",
+          "text": "확인 필요",
+          "geometry": [
+            10,
+            36,
+            232,
+            13
+          ],
+          "needed_height": 18,
+          "actual_height": 13
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactTitle",
+          "text": "KOSPI200 옵션 거래량 P/C",
+          "geometry": [
+            10,
+            7,
+            0,
+            28
+          ],
+          "needed_height": 75,
+          "actual_height": 28
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactValue",
+          "text": "확인 필요",
+          "geometry": [
+            10,
+            36,
+            231,
+            13
+          ],
+          "needed_height": 18,
+          "actual_height": 13
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactTitle",
+          "text": "KOSPI200 옵션 OI P/C",
+          "geometry": [
+            10,
+            7,
+            0,
+            28
+          ],
+          "needed_height": 75,
+          "actual_height": 28
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactValue",
+          "text": "확인 필요",
+          "geometry": [
+            10,
+            36,
+            232,
+            13
+          ],
+          "needed_height": 18,
+          "actual_height": 13
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactTitle",
+          "text": "Call / Put 최대 OI",
+          "geometry": [
+            10,
+            7,
+            0,
+            28
+          ],
+          "needed_height": 75,
+          "actual_height": 28
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactValue",
+          "text": "확인 필요",
+          "geometry": [
+            10,
+            36,
+            231,
+            13
+          ],
+          "needed_height": 18,
+          "actual_height": 13
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactValue",
+          "text": "확인 필요",
+          "geometry": [
+            10,
+            36,
+            232,
+            13
+          ],
+          "needed_height": 18,
+          "actual_height": 13
+        }
+      ],
+      "constrained": "artifacts/gui_audits/20260830_qt_ux_first_wave/evidence/Dashboard_1366x768.png",
+      "clipping_candidates_1366": [
+        {
+          "class": "QLabel",
+          "object_name": "pageSubtitle",
+          "text": "시장 · 수급 · 밸류에이션 · 파생 · 환율/금리",
+          "geometry": [
+            0,
+            26,
+            380,
+            26
+          ],
+          "needed_width": 380,
+          "actual_width": 380
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactMeta",
+          "text": "저장 화면 구성",
+          "geometry": [
+            820,
+            0,
+            68,
+            13
+          ],
+          "needed_width": 68,
+          "actual_width": 68
+        },
+        {
+          "class": "QLabel",
+          "object_name": "marketSessionText",
+          "text": "<span style=\"color:#179c68\">●</span>&nbsp;KRX 장중 09:00~15:30 · NXT 장중 08:00~20:00",
+          "geometry": [
+            10,
+            0,
+            311,
+            38
+          ],
+          "needed_width": 593,
+          "actual_width": 311
+        },
+        {
+          "class": "QLabel",
+          "object_name": "marketSessionText",
+          "text": "<span style=\"color:#c8d0d9\">●</span>&nbsp;미국 장마감",
+          "geometry": [
+            343,
+            0,
+            88,
+            38
+          ],
+          "needed_width": 370,
+          "actual_width": 88
+        },
+        {
+          "class": "QLabel",
+          "object_name": "sectionTitle",
+          "text": "KOSPI 차트 · 불러오는 중…",
+          "geometry": [
+            10,
+            8,
+            186,
+            41
+          ],
+          "needed_width": 186,
+          "actual_width": 186
+        },
+        {
+          "class": "QLabel",
+          "object_name": "",
+          "text": "시장/지수",
+          "geometry": [
+            198,
+            8,
+            88,
+            41
+          ],
+          "needed_width": 88,
+          "actual_width": 88
+        },
+        {
+          "class": "QLabel",
+          "object_name": "",
+          "text": "기간",
+          "geometry": [
+            491,
+            8,
+            40,
+            41
+          ],
+          "needed_width": 40,
+          "actual_width": 40
+        },
+        {
+          "class": "QLabel",
+          "object_name": "indicatorLabel",
+          "text": "모멘텀 · KOSPI RSI14",
+          "geometry": [
+            0,
+            1,
+            105,
+            30
+          ],
+          "needed_width": 105,
+          "actual_width": 105
+        },
+        {
+          "class": "QLabel",
+          "object_name": "",
+          "text": "표시 불가",
+          "geometry": [
+            330,
+            1,
+            87,
+            30
+          ],
+          "needed_width": 87,
+          "actual_width": 87
+        },
+        {
+          "class": "QLabel",
+          "object_name": "indicatorLabel",
+          "text": "추세 · KOSPI MA60 이격",
+          "geometry": [
+            0,
+            1,
+            121,
+            28
+          ],
+          "needed_width": 121,
+          "actual_width": 121
+        },
+        {
+          "class": "QLabel",
+          "object_name": "",
+          "text": "표시 불가",
+          "geometry": [
+            330,
+            1,
+            87,
+            28
+          ],
+          "needed_width": 87,
+          "actual_width": 87
+        },
+        {
+          "class": "QLabel",
+          "object_name": "indicatorLabel",
+          "text": "공포 · VIX 250D 순위",
+          "geometry": [
+            0,
+            1,
+            105,
+            51
+          ],
+          "needed_width": 105,
+          "actual_width": 105
+        },
+        {
+          "class": "QLabel",
+          "object_name": "",
+          "text": "표시 불가",
+          "geometry": [
+            330,
+            1,
+            87,
+            51
+          ],
+          "needed_width": 87,
+          "actual_width": 87
+        },
+        {
+          "class": "QLabel",
+          "object_name": "indicatorLabel",
+          "text": "공포 · VKOSPI 250D 순위",
+          "geometry": [
+            0,
+            1,
+            125,
+            52
+          ],
+          "needed_width": 125,
+          "actual_width": 125
+        },
+        {
+          "class": "QLabel",
+          "object_name": "",
+          "text": "표시 불가",
+          "geometry": [
+            330,
+            1,
+            87,
+            52
+          ],
+          "needed_width": 87,
+          "actual_width": 87
+        },
+        {
+          "class": "QLabel",
+          "object_name": "unavailableState",
+          "text": "시장 국면 근거 0/3 · 미반영 가격·추세·변동성, KOSPI 밸류에이션, Forward EPS·Revision·ROE 미지원 · 고점·저점 판정 보류",
+          "geometry": [
+            11,
+            216,
+            395,
+            21
+          ],
+          "needed_width": 893,
+          "actual_width": 395
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactValue",
+          "text": "확인 필요",
+          "geometry": [
+            65,
+            2,
+            61,
+            18
+          ],
+          "needed_width": 61,
+          "actual_width": 61
+        },
+        {
+          "class": "QLabel",
+          "object_name": "rateChange",
+          "text": "변동 N/A",
+          "geometry": [
+            130,
+            2,
+            38,
+            18
+          ],
+          "needed_width": 38,
+          "actual_width": 38
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactValue",
+          "text": "확인 필요",
+          "geometry": [
+            64,
+            2,
+            61,
+            18
+          ],
+          "needed_width": 61,
+          "actual_width": 61
+        },
+        {
+          "class": "QLabel",
+          "object_name": "rateChange",
+          "text": "변동 N/A",
+          "geometry": [
+            129,
+            2,
+            38,
+            18
+          ],
+          "needed_width": 38,
+          "actual_width": 38
+        },
+        {
+          "class": "QLabel",
+          "object_name": "rateChange",
+          "text": "변동 N/A",
+          "geometry": [
+            306,
+            2,
+            38,
+            18
+          ],
+          "needed_width": 38,
+          "actual_width": 38
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactValue",
+          "text": "확인 필요",
+          "geometry": [
+            37,
+            2,
+            34,
+            18
+          ],
+          "needed_width": 61,
+          "actual_width": 34
+        },
+        {
+          "class": "QLabel",
+          "object_name": "rateChange",
+          "text": "변동 N/A",
+          "geometry": [
+            75,
+            2,
+            34,
+            18
+          ],
+          "needed_width": 38,
+          "actual_width": 34
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactValue",
+          "text": "확인 필요",
+          "geometry": [
+            37,
+            2,
+            33,
+            18
+          ],
+          "needed_width": 61,
+          "actual_width": 33
+        },
+        {
+          "class": "QLabel",
+          "object_name": "rateChange",
+          "text": "변동 N/A",
+          "geometry": [
+            74,
+            2,
+            34,
+            18
+          ],
+          "needed_width": 38,
+          "actual_width": 34
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactValue",
+          "text": "확인 필요",
+          "geometry": [
+            37,
+            2,
+            34,
+            18
+          ],
+          "needed_width": 61,
+          "actual_width": 34
+        },
+        {
+          "class": "QLabel",
+          "object_name": "rateChange",
+          "text": "변동 N/A",
+          "geometry": [
+            75,
+            2,
+            34,
+            18
+          ],
+          "needed_width": 38,
+          "actual_width": 34
+        },
+        {
+          "class": "QLabel",
+          "object_name": "sectionTitle",
+          "text": "내 계좌",
+          "geometry": [
+            11,
+            5,
+            50,
+            27
+          ],
+          "needed_width": 50,
+          "actual_width": 50
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactTitle",
+          "text": "KOSPI200 선물 Basis",
+          "geometry": [
+            10,
+            7,
+            0,
+            28
+          ],
+          "needed_height": 45,
+          "actual_height": 28
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactValue",
+          "text": "확인 필요",
+          "geometry": [
+            10,
+            36,
+            193,
+            13
+          ],
+          "needed_height": 18,
+          "actual_height": 13
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactTitle",
+          "text": "KOSPI200 옵션 거래량 P/C",
+          "geometry": [
+            10,
+            7,
+            0,
+            28
+          ],
+          "needed_height": 75,
+          "actual_height": 28
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactValue",
+          "text": "확인 필요",
+          "geometry": [
+            10,
+            36,
+            192,
+            13
+          ],
+          "needed_height": 18,
+          "actual_height": 13
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactTitle",
+          "text": "KOSPI200 옵션 OI P/C",
+          "geometry": [
+            10,
+            7,
+            0,
+            28
+          ],
+          "needed_height": 75,
+          "actual_height": 28
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactValue",
+          "text": "확인 필요",
+          "geometry": [
+            10,
+            36,
+            193,
+            13
+          ],
+          "needed_height": 18,
+          "actual_height": 13
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactTitle",
+          "text": "Call / Put 최대 OI",
+          "geometry": [
+            10,
+            7,
+            0,
+            28
+          ],
+          "needed_height": 75,
+          "actual_height": 28
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactValue",
+          "text": "확인 필요",
+          "geometry": [
+            10,
+            36,
+            192,
+            13
+          ],
+          "needed_height": 18,
+          "actual_height": 13
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactValue",
+          "text": "확인 필요",
+          "geometry": [
+            10,
+            36,
+            193,
+            13
+          ],
+          "needed_height": 18,
+          "actual_height": 13
+        }
+      ],
+      "qt_messages_after_action": []
+    },
+    {
+      "surface": "Research_Workspace",
+      "tab": "Research Workspace",
+      "before": "artifacts/gui_audits/20260830_qt_ux_first_wave/evidence/Research_Workspace_1600_before.png",
+      "type": {
+        "available": true,
+        "widget": "QLineEdit",
+        "object_name": "",
+        "typed": "005930",
+        "verified_value": "005930",
+        "restored": false
+      },
+      "actions": [
+        {
+          "action": "toggle 왼쪽 pane",
+          "latency_ms": 32.9
+        },
+        {
+          "action": "toggle 오른쪽 pane",
+          "latency_ms": 46.1
+        },
+        {
+          "action": "local candidate reread",
+          "latency_ms": 39.6,
+          "button_enabled_after": true
+        }
+      ],
+      "after": "artifacts/gui_audits/20260830_qt_ux_first_wave/evidence/Research_Workspace_1600_after.png",
+      "keyboard_focus_trail": [
+        {
+          "class": "QLineEdit",
+          "object_name": "",
+          "text": "005930",
+          "visible": true,
+          "enabled": true
+        },
+        {
+          "class": "QPushButton",
+          "object_name": "",
+          "text": "프리셋 저장",
+          "visible": true,
+          "enabled": true
+        },
+        {
+          "class": "QPushButton",
+          "object_name": "",
+          "text": "기본값 복원",
+          "visible": true,
+          "enabled": true
+        },
+        {
+          "class": "QComboBox",
+          "object_name": "",
+          "text": "차트",
+          "visible": true,
+          "enabled": true
+        },
+        {
+          "class": "QCheckBox",
+          "object_name": "",
+          "text": "표시",
+          "visible": true,
+          "enabled": true
+        },
+        {
+          "class": "QSpinBox",
+          "object_name": "",
+          "text": "720 px",
+          "visible": true,
+          "enabled": true
+        },
+        {
+          "class": "QPushButton",
+          "object_name": "",
+          "text": "왼쪽",
+          "visible": true,
+          "enabled": true
+        },
+        {
+          "class": "QPushButton",
+          "object_name": "",
+          "text": "오른쪽",
+          "visible": true,
+          "enabled": true
+        }
+      ],
+      "clipping_candidates_1600": [
+        {
+          "class": "QAbstractButton",
+          "object_name": "qt_tableview_cornerbutton",
+          "text": "qt_tableview_cornerbutton",
+          "geometry": [
+            2,
+            2,
+            0,
+            53
+          ],
+          "needed_width": 243,
+          "actual_width": 0
+        },
+        {
+          "class": "QTableWidget",
+          "object_name": "",
+          "text": "header:거래량",
+          "column": 5,
+          "needed_width": 84,
+          "actual_width": 64
+        }
+      ],
+      "constrained": "artifacts/gui_audits/20260830_qt_ux_first_wave/evidence/Research_Workspace_1366x768.png",
+      "clipping_candidates_1366": [
+        {
+          "class": "QAbstractButton",
+          "object_name": "qt_tableview_cornerbutton",
+          "text": "qt_tableview_cornerbutton",
+          "geometry": [
+            2,
+            2,
+            0,
+            53
+          ],
+          "needed_width": 243,
+          "actual_width": 0
+        },
+        {
+          "class": "QTableWidget",
+          "object_name": "",
+          "text": "header:거래량",
+          "column": 5,
+          "needed_width": 84,
+          "actual_width": 64
+        }
+      ],
+      "qt_messages_after_action": []
+    },
+    {
+      "surface": "Data_Status",
+      "tab": "Data Status",
+      "before": "artifacts/gui_audits/20260830_qt_ux_first_wave/evidence/Data_Status_1600_before.png",
+      "type": {
+        "available": true,
+        "widget": "QLineEdit",
+        "object_name": "",
+        "typed": "CURRENT",
+        "verified_value": "CURRENT",
+        "restored": false
+      },
+      "actions": [
+        {
+          "action": "reset status filters and search",
+          "latency_ms": 34.4
+        },
+        {
+          "action": "open/select first visible status row",
+          "selected": true
+        },
+        {
+          "action": "local lifecycle reread",
+          "latency_ms": 56.6
+        }
+      ],
+      "after": "artifacts/gui_audits/20260830_qt_ux_first_wave/evidence/Data_Status_1600_after.png",
+      "keyboard_focus_trail": [
+        {
+          "class": "MetricCard",
+          "object_name": "card",
+          "text": "card",
+          "visible": true,
+          "enabled": true
+        },
+        {
+          "class": "MetricCard",
+          "object_name": "card",
+          "text": "card",
+          "visible": true,
+          "enabled": true
+        },
+        {
+          "class": "MetricCard",
+          "object_name": "card",
+          "text": "card",
+          "visible": true,
+          "enabled": true
+        },
+        {
+          "class": "QGroupBox",
+          "object_name": "",
+          "text": "통합 갱신 상태",
+          "visible": true,
+          "enabled": true
+        },
+        {
+          "class": "QTableWidget",
+          "object_name": "",
+          "text": "QTableWidget",
+          "visible": true,
+          "enabled": true
+        },
+        {
+          "class": "QTableWidget",
+          "object_name": "",
+          "text": "QTableWidget",
+          "visible": true,
+          "enabled": true
+        },
+        {
+          "class": "QTableWidget",
+          "object_name": "",
+          "text": "QTableWidget",
+          "visible": true,
+          "enabled": true
+        },
+        {
+          "class": "QTableWidget",
+          "object_name": "",
+          "text": "QTableWidget",
+          "visible": true,
+          "enabled": true
+        }
+      ],
+      "clipping_candidates_1600": [
+        {
+          "class": "QLabel",
+          "object_name": "compactMeta",
+          "text": "확인되지 않은 갱신 상태가 있습니다.",
+          "geometry": [
+            11,
+            259,
+            168,
+            39
+          ],
+          "needed_width": 168,
+          "actual_width": 168
+        },
+        {
+          "class": "QLabel",
+          "object_name": "",
+          "text": "보기",
+          "geometry": [
+            12,
+            631,
+            40,
+            41
+          ],
+          "needed_width": 40,
+          "actual_width": 40
+        },
+        {
+          "class": "QLabel",
+          "object_name": "",
+          "text": "영역",
+          "geometry": [
+            227,
+            631,
+            40,
+            41
+          ],
+          "needed_width": 40,
+          "actual_width": 40
+        },
+        {
+          "class": "QLabel",
+          "object_name": "",
+          "text": "검색",
+          "geometry": [
+            419,
+            631,
+            40,
+            41
+          ],
+          "needed_width": 40,
+          "actual_width": 40
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactMeta",
+          "text": "준비됨 · empty fixture health",
+          "geometry": [
+            1441,
+            631,
+            131,
+            41
+          ],
+          "needed_width": 131,
+          "actual_width": 131
+        },
+        {
+          "class": "QAbstractButton",
+          "object_name": "qt_tableview_cornerbutton",
+          "text": "qt_tableview_cornerbutton",
+          "geometry": [
+            2,
+            2,
+            38,
+            53
+          ],
+          "needed_width": 243,
+          "actual_width": 38
+        },
+        {
+          "class": "QAbstractButton",
+          "object_name": "qt_tableview_cornerbutton",
+          "text": "qt_tableview_cornerbutton",
+          "geometry": [
+            2,
+            2,
+            0,
+            53
+          ],
+          "needed_width": 243,
+          "actual_width": 0
+        }
+      ],
+      "constrained": "artifacts/gui_audits/20260830_qt_ux_first_wave/evidence/Data_Status_1366x768.png",
+      "clipping_candidates_1366": [
+        {
+          "class": "QLabel",
+          "object_name": "compactMeta",
+          "text": "확인되지 않은 갱신 상태가 있습니다.",
+          "geometry": [
+            11,
+            259,
+            168,
+            39
+          ],
+          "needed_width": 168,
+          "actual_width": 168
+        },
+        {
+          "class": "QLabel",
+          "object_name": "",
+          "text": "보기",
+          "geometry": [
+            12,
+            633,
+            40,
+            41
+          ],
+          "needed_width": 40,
+          "actual_width": 40
+        },
+        {
+          "class": "QLabel",
+          "object_name": "",
+          "text": "영역",
+          "geometry": [
+            227,
+            633,
+            40,
+            41
+          ],
+          "needed_width": 40,
+          "actual_width": 40
+        },
+        {
+          "class": "QLabel",
+          "object_name": "",
+          "text": "검색",
+          "geometry": [
+            419,
+            633,
+            40,
+            41
+          ],
+          "needed_width": 40,
+          "actual_width": 40
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactMeta",
+          "text": "준비됨 · empty fixture health",
+          "geometry": [
+            1207,
+            633,
+            131,
+            41
+          ],
+          "needed_width": 131,
+          "actual_width": 131
+        },
+        {
+          "class": "QAbstractButton",
+          "object_name": "qt_tableview_cornerbutton",
+          "text": "qt_tableview_cornerbutton",
+          "geometry": [
+            2,
+            2,
+            38,
+            53
+          ],
+          "needed_width": 243,
+          "actual_width": 38
+        },
+        {
+          "class": "QAbstractButton",
+          "object_name": "qt_tableview_cornerbutton",
+          "text": "qt_tableview_cornerbutton",
+          "geometry": [
+            2,
+            2,
+            0,
+            53
+          ],
+          "needed_width": 243,
+          "actual_width": 0
+        }
+      ],
+      "qt_messages_after_action": []
+    },
+    {
+      "surface": "Account_Net_Worth",
+      "tab": "계좌·순자산",
+      "before": "artifacts/gui_audits/20260830_qt_ux_first_wave/evidence/Account_Net_Worth_1600_before.png",
+      "type": {
+        "available": false,
+        "reason": "surface has no safe text-entry contract"
+      },
+      "actions": [
+        {
+          "action": "visit read-only account and net-worth tabs",
+          "visited": [
+            "계좌·보유",
+            "순자산·증감"
+          ]
+        },
+        {
+          "action": "toggle privacy in memory and restore before capture",
+          "toggled": true,
+          "restored": true
+        }
+      ],
+      "after": "artifacts/gui_audits/20260830_qt_ux_first_wave/evidence/Account_Net_Worth_1600_after.png",
+      "keyboard_focus_trail": [
+        {
+          "class": null,
+          "text": null
+        },
+        {
+          "class": null,
+          "text": null
+        },
+        {
+          "class": null,
+          "text": null
+        },
+        {
+          "class": null,
+          "text": null
+        },
+        {
+          "class": null,
+          "text": null
+        },
+        {
+          "class": null,
+          "text": null
+        },
+        {
+          "class": null,
+          "text": null
+        },
+        {
+          "class": null,
+          "text": null
+        }
+      ],
+      "clipping_candidates_1600": [
+        {
+          "class": "QLabel",
+          "object_name": "compactTitle",
+          "text": "표시 범위",
+          "geometry": [
+            975,
+            93,
+            48,
+            41
+          ],
+          "needed_width": 48,
+          "actual_width": 48
+        },
+        {
+          "class": "QLabel",
+          "object_name": "sectionTitle",
+          "text": "계좌 시각화",
+          "geometry": [
+            0,
+            0,
+            80,
+            41
+          ],
+          "needed_width": 80,
+          "actual_width": 80
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactMeta",
+          "text": "표시 통화",
+          "geometry": [
+            1427,
+            0,
+            44,
+            41
+          ],
+          "needed_width": 44,
+          "actual_width": 44
+        },
+        {
+          "class": "QLabel",
+          "object_name": "sectionTitle",
+          "text": "Synthetic account",
+          "geometry": [
+            13,
+            9,
+            125,
+            20
+          ],
+          "needed_width": 125,
+          "actual_width": 125
+        },
+        {
+          "class": "QLabel",
+          "object_name": "sectionTitle",
+          "text": "Synthetic USD account",
+          "geometry": [
+            13,
+            9,
+            160,
+            20
+          ],
+          "needed_width": 160,
+          "actual_width": 160
+        }
+      ],
+      "constrained": "artifacts/gui_audits/20260830_qt_ux_first_wave/evidence/Account_Net_Worth_1366x768.png",
+      "clipping_candidates_1366": [
+        {
+          "class": "QLabel",
+          "object_name": "compactTitle",
+          "text": "표시 범위",
+          "geometry": [
+            741,
+            93,
+            48,
+            41
+          ],
+          "needed_width": 48,
+          "actual_width": 48
+        },
+        {
+          "class": "QLabel",
+          "object_name": "sectionTitle",
+          "text": "계좌 시각화",
+          "geometry": [
+            0,
+            0,
+            80,
+            41
+          ],
+          "needed_width": 80,
+          "actual_width": 80
+        },
+        {
+          "class": "QLabel",
+          "object_name": "compactMeta",
+          "text": "표시 통화",
+          "geometry": [
+            1193,
+            0,
+            44,
+            41
+          ],
+          "needed_width": 44,
+          "actual_width": 44
+        },
+        {
+          "class": "QLabel",
+          "object_name": "sectionTitle",
+          "text": "Synthetic account",
+          "geometry": [
+            13,
+            9,
+            125,
+            20
+          ],
+          "needed_width": 125,
+          "actual_width": 125
+        },
+        {
+          "class": "QLabel",
+          "object_name": "sectionTitle",
+          "text": "Synthetic USD account",
+          "geometry": [
+            13,
+            9,
+            160,
+            20
+          ],
+          "needed_width": 160,
+          "actual_width": 160
+        },
+        {
+          "class": "QTableWidget",
+          "object_name": "",
+          "text": "header:계좌 · 출처",
+          "column": 11,
+          "needed_width": 122,
+          "actual_width": 101
+        }
+      ],
+      "qt_messages_after_action": []
+    },
+    {
+      "surface": "Backtest",
+      "tab": "Backtest",
+      "before": "artifacts/gui_audits/20260830_qt_ux_first_wave/evidence/Backtest_1600_before.png",
+      "type": {
+        "available": false,
+        "reason": "surface has no safe text-entry contract"
+      },
+      "actions": [
+        {
+          "action": "reload validated local backtest bundle",
+          "latency_ms": 41.8
+        },
+        {
+          "action": "toggle details panel",
+          "changed": true
+        }
+      ],
+      "after": "artifacts/gui_audits/20260830_qt_ux_first_wave/evidence/Backtest_1600_after.png",
+      "keyboard_focus_trail": [
+        {
+          "class": null,
+          "text": null
+        },
+        {
+          "class": null,
+          "text": null
+        },
+        {
+          "class": null,
+          "text": null
+        },
+        {
+          "class": null,
+          "text": null
+        },
+        {
+          "class": null,
+          "text": null
+        },
+        {
+          "class": null,
+          "text": null
+        },
+        {
+          "class": null,
+          "text": null
+        },
+        {
+          "class": null,
+          "text": null
+        }
+      ],
+      "clipping_candidates_1600": [],
+      "constrained": "artifacts/gui_audits/20260830_qt_ux_first_wave/evidence/Backtest_1366x768.png",
+      "clipping_candidates_1366": [],
+      "qt_messages_after_action": []
+    }
+  ],
+  "qt_messages": [],
+  "managed_workers_before_close": 0,
+  "closed_cleanly": true
+}

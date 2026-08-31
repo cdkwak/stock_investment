@@ -28,7 +28,7 @@ def _snapshot() -> MonitoringSnapshot:
         NOW, (role,), (), (), (), queue,
         (TaskView("RQ-20260830T010101-AB12", "active", domain="gui", human_title="화면 상태 확인", summary="현재 작업을 확인하고 있습니다."),),
         (EventView("event", NOW, "TASK_TRANSITION", "SYSTEM", human_message="작업 상태가 바뀌었습니다."),),
-        (), {"queue": NOW},
+        (), {"queue_document": NOW},
     )
 
 

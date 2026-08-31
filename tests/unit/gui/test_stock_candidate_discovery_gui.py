@@ -10,12 +10,21 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from PySide6 import QtCore, QtTest, QtWidgets
 
-from stock_data.gui.main_window import MainWindow, ResearchWorkspacePage
+from stock_data.gui.main_window import (
+    DecisionCockpitPage,
+    MainWindow,
+    ResearchWorkspacePage,
+)
 from stock_data.gui.research_workspace_preferences import (
     DEFAULT_PREFERENCES,
     LocalResearchWorkspacePreferencesStore,
 )
-from stock_data.gui.services import RetainedCandidateScanService
+from stock_data.gui.services import (
+    EquitySearchView,
+    RetainedCandidateScanService,
+    candidate_recovery_view,
+    decision_cockpit_view,
+)
 from stock_research.candidate_discovery import (
     CandidateAxisEvidence,
     StockCandidateEvidence,
@@ -97,6 +106,8 @@ def test_research_workspace_starts_with_nonblocking_partial_axis_loading(tmp_pat
     assert "실적 축 N/A" in page.candidate_axis_status.text()
     assert page.candidate_table.rowCount() == 0
     assert page.candidate_scan_button.isEnabled() is False
+    assert not hasattr(page, "candidate_select_button")
+    assert not hasattr(page, "candidate_data_status_button")
     page.close()
 
 
@@ -236,12 +247,15 @@ def test_candidate_scan_pending_is_not_overwritten_by_general_equity_request():
         _equity_worker=object(),
         _equity_pending=("search", "005930"),
         research_workspace_page=SimpleNamespace(
-            begin_candidate_scan=lambda: began.append(True),
+            begin_candidate_scan=lambda: began.append("research"),
+        ),
+        decision_cockpit_page=SimpleNamespace(
+            begin_candidate_scan=lambda: began.append("cockpit"),
         ),
         _request_equity_job=lambda *args: requested.append(args),
     )
     MainWindow.refresh_candidate_scan(fake)
-    assert began == [True]
+    assert began == ["research", "cockpit"]
     assert fake._candidate_scan_pending is True
     assert requested == []
 
@@ -391,9 +405,11 @@ def test_candidate_refresh_repeats_after_typed_failure_and_valid_empty(tmp_path)
     ).scan()
     page.render_exploratory_candidates(missing)
     assert page.candidate_scan_button.isEnabled()
-    assert "LOCAL_CANDIDATE_INPUT_MISSING" in page.candidate_status.text()
-    assert "recovery=" in page.candidate_status.text()
-    assert "입력 오류" in page.candidate_status.accessibleName()
+    assert "로컬 종목 데이터가 준비되지 않았습니다" in page.candidate_status.text()
+    assert "LOCAL_CANDIDATE_INPUT_MISSING" not in page.candidate_status.text()
+    assert "recovery=" not in page.candidate_status.text()
+    assert "숫자 표시 없음" in page.candidate_status.accessibleName()
+    assert "LOCAL_CANDIDATE_INPUT_MISSING" in page.candidate_status.toolTip()
 
     QtTest.QTest.mouseClick(page.candidate_scan_button, QtCore.Qt.LeftButton)
     assert requests == ["refresh"]
@@ -411,3 +427,118 @@ def test_candidate_refresh_repeats_after_typed_failure_and_valid_empty(tmp_path)
     assert not page.candidate_scan_button.isEnabled()
     page.close()
     app.processEvents()
+
+
+def test_decision_cockpit_composes_accepted_candidate_without_advice_or_scores():
+    view = decision_cockpit_view(
+        exploratory_view(as_of="2026-08-28", with_candidate=True)
+    )
+
+    assert view.state == "READY"
+    assert view.displays_candidates
+    assert view.guided_example == ("KOSPI", "005930")
+    assert len(view.rows) == 1
+    assert view.rows[0].identity == "삼성전자 · 005930 · KOSPI"
+    assert view.rows[0].observed_evidence == "기술 관찰 · 과매도"
+    assert view.rows[0].missing_evidence == "실적·상대가치 근거 없음"
+    assert "70000" not in repr(view.rows)
+    assert "28.5" not in repr(view.rows)
+
+
+def test_decision_cockpit_unavailable_is_numeric_free_and_human_first(tmp_path):
+    unavailable = RetainedCandidateScanService(tmp_path).unavailable(
+        "LOCAL_PRICE_DATASET_MISSING"
+    )
+
+    view = decision_cockpit_view(unavailable)
+
+    assert view.state == "UNAVAILABLE"
+    assert view.rows == ()
+    assert view.guided_example is None
+    assert "로컬 종목 데이터가 준비되지 않았습니다" in view.headline
+    assert "LOCAL_CANDIDATE" not in view.headline + view.detail + view.provenance
+    assert view.recovery is not None
+    assert view.recovery.technical_detail.startswith("LOCAL_CANDIDATE_INPUT_MISSING")
+
+
+def test_decision_cockpit_page_opens_catalog_candidate_and_existing_surfaces():
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    page = DecisionCockpitPage()
+    page.render_view(decision_cockpit_view(
+        exploratory_view(as_of="2026-08-28", with_candidate=True)
+    ))
+    candidates = []
+    surfaces = []
+    page.candidate_requested.connect(
+        lambda market, symbol: candidates.append((market, symbol))
+    )
+    page.surface_requested.connect(surfaces.append)
+
+    QtTest.QTest.mouseClick(page.example_button, QtCore.Qt.LeftButton)
+    QtTest.QTest.mouseClick(page.data_status_button, QtCore.Qt.LeftButton)
+    page.candidate_table.itemActivated.emit(page.candidate_table.item(0, 0))
+
+    assert candidates == [("KOSPI", "005930"), ("KOSPI", "005930")]
+    assert surfaces == ["DATA_STATUS"]
+    assert page.candidate_table.rowCount() == 1
+    assert all(
+        button.accessibleName().strip()
+        for button in (
+            page.market_button, page.research_button, page.account_button,
+            page.backtest_button, page.example_button, page.select_button,
+            page.data_status_button, page.refresh_button,
+        )
+    )
+    page.close()
+    app.processEvents()
+
+
+def test_main_window_candidate_identity_failure_clears_originating_cockpit():
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    cockpit = DecisionCockpitPage()
+    cockpit.render_view(decision_cockpit_view(
+        exploratory_view(as_of="2026-08-28", with_candidate=True)
+    ))
+    assert cockpit.candidate_table.rowCount() == 1
+    assert cockpit.example_button.isEnabled()
+    fake = SimpleNamespace(
+        _closing=False,
+        decision_cockpit_page=cockpit,
+        research_workspace_page=SimpleNamespace(
+            candidate_status=QtWidgets.QLabel("기존 Research 상태"),
+        ),
+    )
+
+    MainWindow._equity_loaded(
+        fake,
+        "candidate_identity",
+        ("KOSPI", "005930", "COCKPIT"),
+        EquitySearchView(
+            "005930", (), "종목 식별정보를 읽거나 검증할 수 없습니다."
+        ),
+    )
+
+    visible = " ".join((
+        cockpit.status_title.text(),
+        cockpit.status_detail.text(),
+        cockpit.provenance.text(),
+    ))
+    assert cockpit.candidate_table.rowCount() == 0
+    assert not cockpit.example_button.isEnabled()
+    assert "정확한 로컬 종목 정보를 확인하지 못했습니다" in visible
+    assert "숫자 표시 없음" in visible
+    assert "LOCAL_CANDIDATE" not in visible
+    assert "LOCAL_CANDIDATE_IDENTITY_UNAVAILABLE" in cockpit.provenance.toolTip()
+    assert fake.research_workspace_page.candidate_status.text() == "기존 Research 상태"
+    cockpit.close()
+    app.processEvents()
+
+
+def test_candidate_recovery_copy_keeps_technical_id_out_of_primary_text():
+    recovery = candidate_recovery_view(
+        "LOCAL_CANDIDATE_INPUT_STALE: retained_as_of=2026-08-25"
+    )
+
+    assert "기준일" in recovery.title
+    assert "LOCAL_CANDIDATE" not in recovery.title + recovery.impact + recovery.next_step
+    assert recovery.technical_detail.startswith("LOCAL_CANDIDATE_INPUT_STALE")
