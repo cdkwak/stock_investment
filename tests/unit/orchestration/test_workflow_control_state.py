@@ -26,12 +26,100 @@ from stock_data.orchestration.workflow_control import (
     stable_fingerprint,
 )
 from stock_data.orchestration.workflow_control.state import WorkflowStateError
+from stock_data.orchestration.workflow_control.registry import (
+    RoleIdentity,
+    RoleKind,
+    RoleRegistry,
+    RoleState,
+    StaleRoleGeneration,
+)
 
 
 UTC = timezone.utc
 T0 = datetime(2026, 8, 28, 12, 0, tzinfo=UTC)
 TASK_A = "RQ-20260829T003900-24A5"
 TASK_B = "RQ-20260829T003912-025B"
+
+
+def test_app_coordination_lead_replacement_is_generation_fenced_and_preserves_assignment(
+    tmp_path: Path,
+) -> None:
+    registry = RoleRegistry(tmp_path / "roles.sqlite3")
+    registry.claim(
+        RoleIdentity(
+            "project_manager", RoleKind.PROJECT_MANAGER, "pm-session",
+            "transport-disabled", "stock-investment-rev1-main", None,
+            "codex-cli-owned-v1",
+        ),
+        observed_at=T0, lease_until=T0 + timedelta(hours=1),
+    )
+    original = registry.claim(
+        RoleIdentity(
+            "lead_infra", RoleKind.DOMAIN_LEAD, "app-session-old",
+            "transport-disabled", "stock-investment-rev1-main", None,
+            "codex-app-local", active_task_id=TASK_A,
+            active_dispatch_id="dispatch-a", parent_role_key="project_manager",
+        ),
+        observed_at=T0, lease_until=T0 + timedelta(hours=1),
+    )
+    replacement = registry.replace_app_coordination_lead_session(
+        "lead_infra", expected_generation=original.generation,
+        expected_session_id="app-session-old", replacement_session_id="app-session-new",
+        expected_task_id=TASK_A, expected_dispatch_id="dispatch-a",
+        expected_parent_role_key="project_manager",
+        expected_runtime_id="codex-app-local",
+        expected_worktree_id="stock-investment-rev1-main",
+        observed_at=T0 + timedelta(minutes=1), lease_until=T0 + timedelta(hours=2),
+    )
+    assert replacement.generation == original.generation + 1
+    assert replacement.identity.active_task_id == TASK_A
+    assert replacement.identity.active_dispatch_id == "dispatch-a"
+    assert replacement.identity.parent_role_key == "project_manager"
+    assert replacement.identity.codex_session_id == "app-session-new"
+    assert replacement.state is RoleState.ACTIVE
+    with pytest.raises(StaleRoleGeneration):
+        registry.replace_app_coordination_lead_session(
+            "lead_infra", expected_generation=original.generation,
+            expected_session_id="app-session-old", replacement_session_id="app-session-next",
+            expected_task_id=TASK_A, expected_dispatch_id="dispatch-a",
+            expected_parent_role_key="project_manager",
+            expected_runtime_id="codex-app-local",
+            expected_worktree_id="stock-investment-rev1-main",
+            observed_at=T0 + timedelta(minutes=2), lease_until=T0 + timedelta(hours=3),
+        )
+    with sqlite3.connect(registry.path) as connection:
+        connection.execute(
+            "UPDATE role_registry SET parent_role_key = 'changed_parent' WHERE role_key = 'lead_infra'"
+        )
+    with pytest.raises(StaleRoleGeneration, match="replacement identity changed"):
+        registry.replace_app_coordination_lead_session(
+            "lead_infra", expected_generation=replacement.generation,
+            expected_session_id="app-session-new", replacement_session_id="app-session-after-parent-race",
+            expected_task_id=TASK_A, expected_dispatch_id="dispatch-a",
+            expected_parent_role_key="project_manager",
+            expected_runtime_id="codex-app-local",
+            expected_worktree_id="stock-investment-rev1-main",
+            observed_at=T0 + timedelta(minutes=3), lease_until=T0 + timedelta(hours=4),
+        )
+    assert registry.get("lead_infra").identity.codex_session_id == "app-session-new"
+    cli_owned = registry.claim(
+        RoleIdentity(
+            "lead_cli", RoleKind.DOMAIN_LEAD, "cli-session-old",
+            "transport-disabled", "stock-investment-rev1-main", None,
+            "codex-cli-owned-v1", active_task_id=TASK_B,
+            active_dispatch_id="dispatch-cli", parent_role_key="project_manager",
+        ), observed_at=T0, lease_until=T0 + timedelta(hours=1),
+    )
+    with pytest.raises(StaleRoleGeneration, match="replacement identity changed"):
+        registry.replace_app_coordination_lead_session(
+            "lead_cli", expected_generation=cli_owned.generation,
+            expected_session_id="cli-session-old", replacement_session_id="app-session-newer",
+            expected_task_id=TASK_B, expected_dispatch_id="dispatch-cli",
+            expected_parent_role_key="project_manager",
+            expected_runtime_id="codex-app-local",
+            expected_worktree_id="stock-investment-rev1-main",
+            observed_at=T0 + timedelta(minutes=2), lease_until=T0 + timedelta(hours=3),
+        )
 
 
 def transition(
@@ -490,3 +578,39 @@ def test_queue_adapter_failure_does_not_expose_subprocess_stderr(tmp_path: Path)
         RequestQueueStatusAdapter(tmp_path, runner=runner).read_snapshot(observed_at=T0)
 
     assert "DO-NOT-LEAK" not in str(captured.value)
+
+
+def test_queue_adapter_reads_bounded_human_title_from_current_document(tmp_path: Path) -> None:
+    script = tmp_path / "scripts" / "request_queue.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("# fixture", encoding="utf-8")
+    task_dir = (
+        tmp_path / "artifacts" / "request_queue" / "active"
+        / f"P1-{TASK_A}-operations-dashboard"
+    )
+    task_dir.mkdir(parents=True)
+    (task_dir / "META.json").write_text(json.dumps({
+        "id": TASK_A,
+        "state": "active",
+        "owner": "gui_lead",
+        "lead_owner": "gui_lead",
+        "domain": "gui",
+        "title": "실제 세션과 작업 문서 상태를 구분합니다",
+        "updated_at": T0.isoformat(),
+    }), encoding="utf-8")
+
+    def runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            command, 0,
+            stdout=(
+                "new=0 waiting=0 ready=0 active=1 review=0 blocked=0 done=0 compacted=0\n"
+                f"active=P1-{TASK_A}-operations-dashboard\n"
+            ),
+            stderr="",
+        )
+
+    snapshot = RequestQueueStatusAdapter(tmp_path, runner=runner).read_snapshot(
+        observed_at=T0,
+    )
+
+    assert snapshot.current_tasks[0].title == "실제 세션과 작업 문서 상태를 구분합니다"

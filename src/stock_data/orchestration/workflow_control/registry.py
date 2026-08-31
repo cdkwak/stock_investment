@@ -458,6 +458,182 @@ class RoleRegistry:
             connection.commit()
         return self.get(identity.role_key)
 
+    def migrate_coordination_session(
+        self,
+        role_key: str,
+        *,
+        expected_generation: int,
+        expected_session_id: str,
+        cli_session_id: str,
+        observed_at: datetime,
+        lease_until: datetime,
+    ) -> RoleRecord:
+        """Replace one exact app coordination identity with a CLI-owned route.
+
+        The app session is never resumed by this operation.  Every legacy
+        marker, generation, and raw session identity must match before the one
+        registry update; unknown or already-migrated rows fail byte-identically.
+        """
+
+        _require_match(role_key, _ROLE_KEY, "role key")
+        _require_match(expected_session_id, _IDENTIFIER, "expected session id")
+        _require_match(cli_session_id, _IDENTIFIER, "CLI session id")
+        if expected_session_id == cli_session_id:
+            raise RoleRegistryError("coordination and CLI sessions must differ")
+        if (
+            isinstance(expected_generation, bool)
+            or not isinstance(expected_generation, int)
+            or expected_generation < 1
+        ):
+            raise RoleRegistryError("expected generation must be positive")
+        heartbeat_text, lease_text = _validated_window(observed_at, lease_until)
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM role_registry WHERE role_key = ?", (role_key,)
+            ).fetchone()
+            if row is None:
+                connection.rollback()
+                raise RoleRegistryError("coordination role is not registered")
+            record = _record_from_row(row)
+            if (
+                record.generation != expected_generation
+                or record.identity.codex_session_id != expected_session_id
+                or record.identity.runtime_id != "codex-app-local"
+                or record.identity.orca_run_id != "transport-disabled"
+                or record.identity.worktree_id != "stock-investment-rev1-main"
+                or record.identity.terminal_handle is not None
+                or record.state not in {RoleState.ACTIVE, RoleState.IDLE}
+            ):
+                connection.rollback()
+                raise StaleRoleGeneration(
+                    "coordination role migration identity changed"
+                )
+            try:
+                updated = connection.execute(
+                    "UPDATE role_registry SET codex_session_id = ?, runtime_id = ?, "
+                    "heartbeat_at = ?, lease_until = ?, generation = generation + 1 "
+                    "WHERE role_key = ? AND generation = ? AND codex_session_id = ? "
+                    "AND runtime_id = ?",
+                    (
+                        cli_session_id,
+                        "codex-cli-owned-v1",
+                        heartbeat_text,
+                        lease_text,
+                        role_key,
+                        expected_generation,
+                        expected_session_id,
+                        "codex-app-local",
+                    ),
+                )
+            except sqlite3.IntegrityError as error:
+                connection.rollback()
+                raise RoleClaimConflict(
+                    "CLI session is already assigned to another role"
+                ) from error
+            if updated.rowcount != 1:
+                connection.rollback()
+                raise StaleRoleGeneration(
+                    "coordination role migration identity changed"
+                )
+            connection.commit()
+        return self.get(role_key)
+
+    def replace_app_coordination_lead_session(
+        self,
+        role_key: str,
+        *,
+        expected_generation: int,
+        expected_session_id: str,
+        replacement_session_id: str,
+        expected_task_id: str,
+        expected_dispatch_id: str,
+        expected_parent_role_key: str,
+        expected_runtime_id: str,
+        expected_worktree_id: str,
+        observed_at: datetime,
+        lease_until: datetime,
+    ) -> RoleRecord:
+        """CAS-replace one exact app-owned active Lead coordination session.
+
+        The update intentionally changes only the session, lease heartbeat, and
+        generation.  Role hierarchy, Queue assignment, dispatch and retry
+        history are retained by the existing row.  CLI-owned, stopped,
+        taskless/ambiguous, or changed rows reject before mutation.
+        """
+
+        _require_match(role_key, _ROLE_KEY, "role key")
+        for value, label in (
+            (expected_session_id, "expected session id"),
+            (replacement_session_id, "replacement session id"),
+            (expected_dispatch_id, "expected dispatch id"),
+            (expected_parent_role_key, "expected parent role key"),
+            (expected_runtime_id, "expected runtime id"),
+            (expected_worktree_id, "expected worktree id"),
+        ):
+            _require_match(value, _IDENTIFIER, label)
+        _require_match(expected_task_id, _TASK_ID, "expected task id")
+        if expected_session_id == replacement_session_id:
+            raise RoleRegistryError("replacement session must differ")
+        if (
+            isinstance(expected_generation, bool)
+            or not isinstance(expected_generation, int)
+            or expected_generation < 1
+        ):
+            raise RoleRegistryError("expected generation must be positive")
+        heartbeat_text, lease_text = _validated_window(observed_at, lease_until)
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM role_registry WHERE role_key = ?", (role_key,)
+            ).fetchone()
+            if row is None:
+                connection.rollback()
+                raise RoleRegistryError("coordination lead is not registered")
+            record = _record_from_row(row)
+            if (
+                record.identity.role_kind is not RoleKind.DOMAIN_LEAD
+                or record.generation != expected_generation
+                or record.identity.codex_session_id != expected_session_id
+                or record.identity.runtime_id != expected_runtime_id
+                or record.identity.worktree_id != expected_worktree_id
+                or record.identity.runtime_id != "codex-app-local"
+                or record.identity.orca_run_id != "transport-disabled"
+                or record.identity.terminal_handle is not None
+                or record.identity.active_task_id is None
+                or record.identity.active_dispatch_id is None
+                or record.identity.active_task_id != expected_task_id
+                or record.identity.active_dispatch_id != expected_dispatch_id
+                or record.identity.parent_role_key != expected_parent_role_key
+                or record.state is not RoleState.ACTIVE
+            ):
+                connection.rollback()
+                raise StaleRoleGeneration("coordination lead replacement identity changed")
+            try:
+                changed = connection.execute(
+                    "UPDATE role_registry SET codex_session_id = ?, heartbeat_at = ?, "
+                    "lease_until = ?, generation = generation + 1 "
+                    "WHERE role_key = ? AND generation = ? AND codex_session_id = ? "
+                    "AND active_task_id = ? AND active_dispatch_id = ? "
+                    "AND parent_role_key = ? "
+                    "AND runtime_id = ? AND worktree_id = ? AND state = ?",
+                    (
+                        replacement_session_id, heartbeat_text, lease_text,
+                        role_key, expected_generation, expected_session_id,
+                        expected_task_id, expected_dispatch_id,
+                        expected_parent_role_key,
+                        expected_runtime_id, expected_worktree_id, RoleState.ACTIVE.value,
+                    ),
+                )
+            except sqlite3.IntegrityError as error:
+                connection.rollback()
+                raise RoleClaimConflict("replacement session is already assigned") from error
+            if changed.rowcount != 1:
+                connection.rollback()
+                raise StaleRoleGeneration("coordination lead replacement identity changed")
+            connection.commit()
+        return self.get(role_key)
+
     def get(self, role_key: str) -> RoleRecord:
         _require_match(role_key, _ROLE_KEY, "role key")
         with self._connect() as connection:

@@ -105,6 +105,57 @@ def test_project_manager_heartbeat_renews_lease_with_generation_fence(tmp_path: 
         )
 
 
+def test_coordination_session_migration_is_exact_and_generation_fenced(
+    tmp_path: Path,
+) -> None:
+    registry = RoleRegistry(tmp_path / "registry.sqlite3")
+    coordination = RoleIdentity(
+        role_key="project_manager",
+        role_kind=RoleKind.PROJECT_MANAGER,
+        codex_session_id="app-coordination-session",
+        orca_run_id="transport-disabled",
+        worktree_id="stock-investment-rev1-main",
+        terminal_handle=None,
+        runtime_id="codex-app-local",
+    )
+    claimed = registry.claim(
+        coordination, observed_at=T0, lease_until=T0 + timedelta(minutes=5)
+    )
+
+    with pytest.raises(StaleRoleGeneration, match="migration identity"):
+        registry.migrate_coordination_session(
+            "project_manager",
+            expected_generation=claimed.generation,
+            expected_session_id="wrong-app-session",
+            cli_session_id="cli-session-one",
+            observed_at=T0 + timedelta(minutes=1),
+            lease_until=T0 + timedelta(hours=1),
+        )
+    assert registry.get("project_manager") == claimed
+
+    migrated = registry.migrate_coordination_session(
+        "project_manager",
+        expected_generation=claimed.generation,
+        expected_session_id=coordination.codex_session_id,
+        cli_session_id="cli-session-one",
+        observed_at=T0 + timedelta(minutes=1),
+        lease_until=T0 + timedelta(hours=1),
+    )
+    assert migrated.identity.codex_session_id == "cli-session-one"
+    assert migrated.identity.runtime_id == "codex-cli-owned-v1"
+    assert migrated.generation == claimed.generation + 1
+
+    with pytest.raises(StaleRoleGeneration, match="migration identity"):
+        registry.migrate_coordination_session(
+            "project_manager",
+            expected_generation=claimed.generation,
+            expected_session_id=coordination.codex_session_id,
+            cli_session_id="cli-session-two",
+            observed_at=T0 + timedelta(minutes=2),
+            lease_until=T0 + timedelta(hours=1),
+        )
+
+
 def test_domain_lead_settles_to_idle_and_accepts_a_fresh_assignment(
     tmp_path: Path,
 ) -> None:

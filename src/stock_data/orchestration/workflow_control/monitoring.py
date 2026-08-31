@@ -1,9 +1,8 @@
-"""Immutable, read-only projection of workflow control state for the GUI.
+"""Immutable, read-only projection of Python-only workflow state for the GUI.
 
-This module deliberately has no Qt dependency.  Its default composition reads
-the canonical Python-PM root (``data/runtime/python_pm``) plus the sanitized
-workflow JSONL ledger.  A retained Orca-era role registry may be supplied as
-an explicit, read-only compatibility input, but is never a default authority.
+The adapter keeps three different facts separate: Queue document ownership,
+registered role sessions, and observed execution activity.  A Queue document
+never becomes evidence that a PM, Lead, Worker, or Reviewer is running.
 """
 from __future__ import annotations
 
@@ -111,13 +110,19 @@ class MonitoringSnapshotAdapter:
                  service_db: Path | None = None,
                  control_root: Path | None = None,
                  queue_adapter: Any | None = None, stale_after_seconds: float = 120.0,
-                 max_events: int = 25) -> None:
+        max_events: int = 25) -> None:
         root = Path(repository_root or Path.cwd())
-        state_root = Path(control_root) if control_root else root / "data" / "runtime" / "python_pm"
+        if control_root is not None:
+            state_root = Path(control_root)
+        elif workflow_db is not None:
+            # An explicitly injected workflow DB defines one coherent fixture
+            # or alternate read-only state root.  Never mix it with the live
+            # repository role registry merely because ``role_db`` was omitted.
+            state_root = Path(workflow_db).parent
+        else:
+            state_root = root / "data" / "runtime" / "python_pm"
         self.workflow_db = Path(workflow_db or state_root / "workflow_state.sqlite3")
-        # ``role_db`` deliberately has no default.  It is an explicitly named
-        # compatibility projection for a legacy registry, not Python-PM truth.
-        self.role_db = None if role_db is None else Path(role_db)
+        self.role_db = Path(role_db or state_root / "role_registry.sqlite3")
         self.event_log = Path(event_log or state_root / "workflow_events.jsonl")
         self.execution_source = Path(execution_source or service_db or state_root / "workflow_controller_service.sqlite3")
         self.queue = queue_adapter or RequestQueueStatusAdapter(root)
@@ -135,12 +140,12 @@ class MonitoringSnapshotAdapter:
         except Exception:  # source failures are data, not fatal GUI errors
             warnings.append(MonitoringWarning("QUEUE_UNREADABLE", "Queue 상태를 읽을 수 없습니다."))
         roles: list[RoleView] = []
-        if self.role_db is not None and self.role_db.exists():
+        if self.role_db.exists():
             try:
                 roles = self._read_roles()
             except Exception:
                 warnings.append(MonitoringWarning("ROLE_SOURCE_UNREADABLE", "역할 상태 저장소를 읽을 수 없습니다."))
-        elif self.role_db is not None:
+        else:
             warnings.append(MonitoringWarning("ROLE_SOURCE_MISSING", "역할 상태 저장소가 없습니다."))
         fresh_keys: set[str] = set()
         for role in roles:
@@ -150,35 +155,27 @@ class MonitoringSnapshotAdapter:
                 warnings.append(MonitoringWarning("STALE_HEARTBEAT", f"{role.role_key} heartbeat가 오래되었습니다."))
         roles = [RoleView(r.role_key, r.role_kind, r.state, r.generation, r.heartbeat_at,
                           r.lease_until, r.active_task_id, r.role_key in fresh_keys, r.active) for r in roles]
-        pm = tuple(r for r in roles if r.role_kind == "project_manager")
-        leads = tuple(r for r in roles if r.role_kind == "domain_lead")
-        workers = tuple(r for r in roles if r.role_kind == "worker")
-        reviewers = tuple(r for r in roles if r.role_kind == "reviewer")
         tasks = self._read_tasks(warnings)
         execution_roles = self._read_execution_roles(warnings, now)
-        pm = tuple(r for r in (*pm, *execution_roles) if r.role_kind == "project_manager")
-        leads = tuple(r for r in (*leads, *execution_roles) if r.role_kind == "domain_lead")
-        workers = tuple(r for r in (*workers, *execution_roles) if r.role_kind == "worker")
-        reviewers = tuple(r for r in (*reviewers, *execution_roles) if r.role_kind == "reviewer")
+        # Operation activity is the freshest view for a role kind.  Fall back
+        # to the persistent session registry only when that kind has no
+        # execution record, so the same PM is not rendered twice.
+        def current_roles(role_kind: str) -> tuple[RoleView, ...]:
+            observed = tuple(r for r in execution_roles if r.role_kind == role_kind)
+            connected_observed = tuple(r for r in observed if self._is_connected(r))
+            registered = tuple(r for r in roles if r.role_kind == role_kind)
+            return connected_observed or registered or observed
+
+        pm = current_roles("project_manager")
+        leads = current_roles("domain_lead")
+        workers = current_roles("worker")
+        reviewers = current_roles("reviewer")
         if queue is not None and queue.current_tasks:
-            queue_pm, queue_leads, queue_reviewers = self._project_queue_roles(queue)
-            # A live working controller remains the PM authority.  Its idle or
-            # settled database is not evidence that the canonical Queue is
-            # idle, so current Queue activity supplies the visible PM state.
-            if not any(
-                role.active and role.state.casefold() in {"active", "working", "reviewing", "stalled"}
-                and role.state.casefold() != "idle"
-                for role in pm
-            ):
-                pm = (queue_pm,)
-            current_ids = {item.task_id for item in queue.current_tasks}
-            leads = tuple(role for role in leads if role.active_task_id not in current_ids) + queue_leads
-            reviewers = tuple(role for role in reviewers if role.active_task_id not in current_ids) + queue_reviewers
             queue_tasks = {
                 item.task_id: TaskView(
                     item.task_id, item.state, domain=item.domain,
                     updated_at=item.updated_at, owner=item.owner,
-                    reviewer=item.reviewer,
+                    reviewer=item.reviewer, human_title=item.title,
                 )
                 for item in queue.current_tasks
             }
@@ -190,24 +187,47 @@ class MonitoringSnapshotAdapter:
                     key=lambda task: task.task_id,
                 )
             )
-        # ``OperationActivity`` uses working/idle/reviewing/stalled/stopped,
-        # while the optional legacy registry used ``active``.  Both sources
-        # carry an explicit active flag in the normalized view; a stopped PM
-        # must never be counted as a competing live writer.
+        # A stopped or stale row is history, not a connected session.
         active_pm = [
             r for r in pm
-            if r.active and r.state.casefold() in {"active", "working", "idle", "reviewing", "stalled"}
+            if self._is_connected(r)
         ]
         if len(active_pm) > 1:
             warnings.append(MonitoringWarning("DUPLICATE_PM_GENERATION", "활성 PM 세대가 둘 이상입니다.", "error"))
-        if queue and queue.active_task_ids:
-            assigned = {
-                r.active_task_id
-                for r in leads
-                if r.role_kind == "domain_lead" and r.active and r.active_task_id
-            }
-            for task_id in set(queue.active_task_ids) - assigned:
-                warnings.append(MonitoringWarning("OWNERSHIP_CONFLICT", f"{task_id} Queue 소유자가 없습니다.", "error"))
+        if queue and queue.current_tasks and not active_pm:
+            warnings.append(MonitoringWarning(
+                "PM_SESSION_MISSING",
+                "작업 문건은 있지만 연결된 Python PM 세션이 없습니다.",
+                "error",
+                "PM 세션이 등록되지 않았습니다.",
+                "Python PM을 시작하고 역할 저장소 등록 상태를 확인하세요.",
+            ))
+        connected_lead_tasks = {
+            role.active_task_id for role in leads
+            if self._is_connected(role) and role.active_task_id
+        }
+        connected_reviewer_tasks = {
+            role.active_task_id for role in reviewers
+            if self._is_connected(role) and role.active_task_id
+        }
+        if queue:
+            for item in queue.current_tasks:
+                if item.task_id not in connected_lead_tasks:
+                    warnings.append(MonitoringWarning(
+                        "LEAD_SESSION_MISSING",
+                        f"{item.task_id} 문건에 연결된 Lead 세션이 없습니다.",
+                        "error",
+                        "문서상 담당자와 실제 Lead 세션이 연결되지 않았습니다.",
+                        "PM이 문건을 실제 Lead 세션에 배정했는지 확인하세요.",
+                    ))
+                if item.state == "review" and item.task_id not in connected_reviewer_tasks:
+                    warnings.append(MonitoringWarning(
+                        "REVIEWER_SESSION_MISSING",
+                        f"{item.task_id} 검토 문건에 연결된 Reviewer 세션이 없습니다.",
+                        "error",
+                        "검토 문건에 실제 Reviewer 세션이 없습니다.",
+                        "Lead가 Reviewer 세션을 깨워 검토를 요청했는지 확인하세요.",
+                    ))
         by_task: dict[str, list[RoleView]] = {}
         for role in (*leads, *workers, *reviewers):
             if role.active_task_id:
@@ -219,40 +239,33 @@ class MonitoringSnapshotAdapter:
             exclusive_leads = [owner for owner in owners if owner.role_kind == "domain_lead" and owner.active]
             if len(exclusive_leads) > 1:
                 warnings.append(MonitoringWarning("OWNERSHIP_CONFLICT", f"{task_id} 소유자가 중복되었습니다.", "error"))
+            if not exclusive_leads and any(owner.role_kind in {"worker", "reviewer"} for owner in owners):
+                warnings.append(MonitoringWarning(
+                    "OWNERSHIP_CONFLICT", f"{task_id} 실행 구성에 Lead 세션이 없습니다.", "error",
+                ))
         events = self._read_events(warnings)
         tasks = self._enrich_task_display(tasks, events)
         events = self._enrich_event_display(events)
         freshness_data = {
-            "queue": queue.observed_at if queue else None,
+            "queue_document": queue.observed_at if queue else None,
+            "role_registry": max((r.heartbeat_at for r in roles if r.heartbeat_at), default=None),
             "execution": max((r.heartbeat_at for r in execution_roles if r.heartbeat_at), default=None),
             "events": events[-1].occurred_at if events else None,
         }
-        if self.role_db is not None:
-            freshness_data["legacy_roles"] = max((r.heartbeat_at for r in roles if r.heartbeat_at), default=None)
         freshness = MappingProxyType(freshness_data)
-        active_task = next(
-            (task for task in tasks if task.state in {"active", "review"}),
-            None,
-        )
-        pm_decision = (
-            "검토 요청을 확인하고 있습니다."
-            if active_task is not None and active_task.state == "review"
-            else "진행 중인 작업의 상태를 확인하고 있습니다."
-            if active_task is not None
-            else "다음으로 맡길 일을 정리하고 있습니다."
-        )
-        queue_action = (
-            "작업 목록에 반영됨" if active_task is not None
-            else "시작 대기 작업을 확인 중"
-        )
         return MonitoringSnapshot(
             now, pm, leads, workers, reviewers, queue, tasks, events,
             tuple(warnings), freshness,
-            pm_current_decision=pm_decision,
-            pm_next_action="작업 목록과 최근 활동을 다시 확인합니다.",
-            goal_summary="내 요청을 실행 가능한 작업으로 정리하는 중입니다.",
-            queue_action=queue_action,
-            proposal_state="확인 중",
+            queue_action="작업 문서 상태를 읽었습니다." if queue is not None else None,
+            proposal_state="문서 상태" if queue is not None else None,
+        )
+
+    @staticmethod
+    def _is_connected(role: RoleView) -> bool:
+        return (
+            role.active
+            and role.fresh
+            and role.state.casefold() not in {"stopped", "recovery_required"}
         )
 
     @staticmethod
@@ -274,17 +287,17 @@ class MonitoringSnapshotAdapter:
             rework = sum(event.kind == "REWORK_REQUESTED" for event in task_events)
             last_activity = max(
                 (event.occurred_at for event in task_events),
-                default=task.updated_at,
+                default=None,
             )
             title = task.human_title or domain_names.get(
-                str(task.domain or "").casefold(), "현재 작업",
+                str(task.domain or "").casefold(), "제목이 없는 Queue 문건",
             )
-            summary = task.summary or "작업 내용을 확인하고 있습니다."
+            state_names = {"active": "진행 문서", "review": "검토 문서"}
+            summary = task.summary or f"작업 문서 상태: {state_names.get(task.state, task.state)}"
             result.append(replace(
                 task,
                 human_title=title,
                 summary=summary,
-                lead=task.lead or task.owner,
                 fix_count=max(0, task.fix_count, rework),
                 last_activity=task.last_activity or last_activity,
             ))
@@ -309,43 +322,9 @@ class MonitoringSnapshotAdapter:
             ),
         ) for event in events)
 
-    def _project_queue_roles(
-        self, queue: QueueSnapshot,
-    ) -> tuple[RoleView, tuple[RoleView, ...], tuple[RoleView, ...]]:
-        """Project declared Queue ownership, without guessing Worker activity."""
-        current = queue.current_tasks
-        primary = min(
-            current,
-            key=lambda item: (item.state != "active", item.task_id),
-        )
-        heartbeat = max(item.updated_at for item in current)
-        pm_state = "working" if any(item.state == "active" for item in current) else "reviewing"
-        pm = RoleView(
-            "canonical-queue-pm", "project_manager", pm_state, 0, heartbeat,
-            None, primary.task_id, True, True,
-        )
-        leads = tuple(
-            RoleView(
-                item.lead_owner, "domain_lead",
-                "working" if item.state == "active" else "reviewing",
-                0, item.updated_at, None, item.task_id, True, True,
-            )
-            for item in current
-        )
-        reviewers = tuple(
-            RoleView(
-                item.reviewer, "reviewer", "reviewing", 0,
-                item.updated_at, None, item.task_id, True, True,
-            )
-            for item in current
-            if item.state == "review" and item.reviewer is not None
-        )
-        return pm, leads, reviewers
-
     read_snapshot = snapshot
 
     def _read_roles(self) -> list[RoleView]:
-        assert self.role_db is not None
         uri = "file:" + str(self.role_db.resolve()).replace("\\", "/") + "?mode=ro"
         with sqlite3.connect(uri, uri=True) as db:
             db.row_factory = sqlite3.Row
@@ -357,7 +336,8 @@ class MonitoringSnapshotAdapter:
             state = str(row["state"])
             result.append(RoleView(
                 row["role_key"], row["role_kind"], state, int(row["generation"]), hb,
-                lease, row["active_task_id"], active=state.casefold() in {"active", "working", "reviewing", "stalled"},
+                lease, row["active_task_id"],
+                active=state.casefold() not in {"stopped", "recovery_required"},
             ))
         return result
 

@@ -53,6 +53,8 @@ from stock_data.orchestration.workflow_control.session_runner import (
     InjectedSessionRunner,
     LocalFakeSessionBoundary,
 )
+from stock_data.orchestration.workflow_control.service import WorkflowControllerService
+import stock_data.orchestration.workflow_control.service as service_module
 from stock_data.orchestration.workflow_control.state import WorkflowStateStore
 from stock_data.orchestration.workflow_control.watchdog import (
     RecoveryProposal,
@@ -2101,5 +2103,173 @@ def test_legacy_multi_worker_null_reviewer_mapping_fails_closed(tmp_path: Path) 
         WorkflowController(
             WorkflowStateStore(tmp_path / "state.sqlite3", tmp_path / "events.jsonl"),
             InjectedDirectRunner(LocalFakeDirectBoundary()),
-            tmp_path / "controller.sqlite3",
+        tmp_path / "controller.sqlite3",
+    )
+
+
+def _phase_boundary_inputs(contract: TaskContract) -> dict[str, object]:
+    return {
+        "task_id": contract.task_id,
+        "expected_queue_generation": "b" * 64,
+        "expected_prior_contract_digest": contract.contract_digest,
+        "expected_phase_a_candidate_digest": "c" * 64,
+        "expected_phase_a_review_digest": "d" * 64,
+        "expected_prior_state": "assigned",
+        "reason_code": "phase_a_pass_requires_phase_b_contract",
+        "pm_role_key": "project_manager",
+    }
+
+
+def test_pm_phase_boundary_is_exact_idempotent_and_enables_fresh_contract(
+    tmp_path: Path,
+) -> None:
+    instance, sessions = _hierarchy_controller(tmp_path)
+    contract = _task_contract("RQ-20260831T080429-5516", "a" * 64)
+    pm = instance.role_registry.get("project_manager")
+    instance.dispatch_task_contract(contract, pm_generation=pm.generation)
+    inputs = _phase_boundary_inputs(contract) | {"pm_generation": pm.generation}
+
+    preflight = instance.preflight_task_replan_ready(**inputs)
+    with sqlite3.connect(instance.receipt_path) as connection:
+        assert connection.execute(
+            "SELECT state FROM hierarchy_task WHERE task_id = ?", (contract.task_id,)
+        ).fetchone() == ("assigned",)
+        assert connection.execute("SELECT COUNT(*) FROM phase_boundary_receipt").fetchone() == (0,)
+    receipt = instance.mark_task_replan_ready(**inputs)
+    assert receipt == preflight
+    assert receipt.task_id == contract.task_id
+    assert receipt.prior_queue_generation == contract.queue_generation
+    assert receipt.queue_generation == "b" * 64
+    assert receipt.next_state == "replan_required"
+    assert instance.mark_task_replan_ready(**inputs) == receipt
+    assert instance.inspect_phase_boundary_receipt(task_id=contract.task_id) == receipt
+    assert sessions.calls == 0
+    with sqlite3.connect(instance.receipt_path) as connection:
+        assert connection.execute(
+            "SELECT state FROM hierarchy_task WHERE task_id = ?", (contract.task_id,)
+        ).fetchone() == ("replan_required",)
+        assert connection.execute("SELECT COUNT(*) FROM phase_boundary_receipt").fetchone() == (1,)
+        assert connection.execute("SELECT COUNT(*) FROM role_mailbox").fetchone() == (1,)
+        assert connection.execute("SELECT COUNT(*) FROM role_wake_outbox").fetchone() == (0,)
+
+    fresh = _task_contract(contract.task_id, "b" * 64)
+    delivered = instance.dispatch_task_contract(fresh, pm_generation=pm.generation)
+    assert delivered.queue_generation == fresh.queue_generation
+    with pytest.raises(MailboxConflict, match="rebound"):
+        WorkflowController.preflight_task_replan_ready_at(
+            instance.receipt_path, **inputs
         )
+
+
+def test_static_phase_boundary_preflight_is_read_only(tmp_path: Path) -> None:
+    instance, _ = _hierarchy_controller(tmp_path)
+    contract = _task_contract("RQ-20260831T080429-5516", "a" * 64)
+    pm = instance.role_registry.get("project_manager")
+    instance.dispatch_task_contract(contract, pm_generation=pm.generation)
+    inputs = _phase_boundary_inputs(contract) | {"pm_generation": pm.generation}
+    registry_path = instance.receipt_path.with_name("role_registry.sqlite3")
+    before = (instance.receipt_path.read_bytes(), registry_path.read_bytes())
+
+    receipt = WorkflowController.preflight_task_replan_ready_at(
+        instance.receipt_path, **inputs
+    )
+
+    assert receipt == instance.preflight_task_replan_ready(**inputs)
+    assert (instance.receipt_path.read_bytes(), registry_path.read_bytes()) == before
+
+
+def test_static_phase_boundary_preflight_supports_legacy_absent_receipt_table(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    instance, _ = _hierarchy_controller(tmp_path)
+    contract = _task_contract("RQ-20260831T080429-5516", "a" * 64)
+    pm = instance.role_registry.get("project_manager")
+    instance.dispatch_task_contract(contract, pm_generation=pm.generation)
+    inputs = _phase_boundary_inputs(contract) | {"pm_generation": pm.generation}
+    registry_path = instance.receipt_path.with_name("role_registry.sqlite3")
+    with sqlite3.connect(instance.receipt_path) as connection:
+        connection.execute("DROP TABLE phase_boundary_receipt")
+    before = (instance.receipt_path.read_bytes(), registry_path.read_bytes())
+
+    monkeypatch.setattr(service_module, "verify_phase_a_queue_evidence", lambda *_args, **_kwargs: None)
+    preflight = WorkflowControllerService.preflight_task_replan_ready_at(
+        tmp_path, instance.receipt_path, **inputs
+    )
+
+    assert (instance.receipt_path.read_bytes(), registry_path.read_bytes()) == before
+    with sqlite3.connect(instance.receipt_path) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' "
+            "AND name = 'phase_boundary_receipt'"
+        ).fetchone() == (0,)
+
+    writable = WorkflowController(
+        WorkflowStateStore(tmp_path / "state.sqlite3", tmp_path / "events.jsonl"),
+        InjectedDirectRunner(LocalFakeDirectBoundary()),
+        instance.receipt_path,
+    )
+    assert writable.mark_task_replan_ready(**inputs) == preflight
+    with sqlite3.connect(instance.receipt_path) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM phase_boundary_receipt"
+        ).fetchone() == (1,)
+        assert connection.execute(
+            "SELECT state FROM hierarchy_task WHERE task_id = ?", (contract.task_id,)
+        ).fetchone() == ("replan_required",)
+
+
+@pytest.mark.parametrize(
+    "changed",
+    (
+        {"expected_prior_contract_digest": "e" * 64},
+        {"expected_prior_state": "working"},
+        {"reason_code": "other_reason"},
+        {"pm_generation": 2},
+    ),
+)
+def test_phase_boundary_rejects_changed_pins_or_pm_before_mutation(
+    tmp_path: Path,
+    changed: dict[str, object],
+) -> None:
+    instance, sessions = _hierarchy_controller(tmp_path)
+    contract = _task_contract("RQ-20260831T080429-5516", "a" * 64)
+    pm = instance.role_registry.get("project_manager")
+    instance.dispatch_task_contract(contract, pm_generation=pm.generation)
+    inputs = _phase_boundary_inputs(contract) | {"pm_generation": pm.generation} | changed
+
+    with pytest.raises((WorkflowControllerError, StaleQueueGeneration, StaleRoleGeneration)):
+        instance.mark_task_replan_ready(**inputs)
+    assert sessions.calls == 0
+    with sqlite3.connect(instance.receipt_path) as connection:
+        assert connection.execute(
+            "SELECT state FROM hierarchy_task WHERE task_id = ?", (contract.task_id,)
+        ).fetchone() == ("assigned",)
+        assert connection.execute("SELECT COUNT(*) FROM phase_boundary_receipt").fetchone() == (0,)
+        assert connection.execute("SELECT COUNT(*) FROM role_wake_outbox").fetchone() == (0,)
+
+
+def test_phase_boundary_rejects_non_pm_and_rebound_replay(tmp_path: Path) -> None:
+    instance, _ = _hierarchy_controller(tmp_path)
+    contract = _task_contract("RQ-20260831T080429-5516", "a" * 64)
+    pm = instance.role_registry.get("project_manager")
+    instance.dispatch_task_contract(contract, pm_generation=pm.generation)
+    inputs = _phase_boundary_inputs(contract) | {"pm_generation": pm.generation}
+    receipt = instance.mark_task_replan_ready(**inputs)
+
+    with pytest.raises(RoleRegistryError, match="kind"):
+        instance.mark_task_replan_ready(
+            **(inputs | {
+                "pm_role_key": "lead_data",
+                "pm_generation": instance.role_registry.get("lead_data").generation,
+            })
+        )
+    with pytest.raises(MailboxConflict, match="rebound"):
+        instance.mark_task_replan_ready(
+            **(inputs | {"expected_phase_a_candidate_digest": "e" * 64})
+        )
+    with pytest.raises(MailboxConflict, match="rebound"):
+        instance.mark_task_replan_ready(
+            **(inputs | {"expected_phase_a_review_digest": "e" * 64})
+        )
+    assert instance.inspect_phase_boundary_receipt(task_id=contract.task_id) == receipt

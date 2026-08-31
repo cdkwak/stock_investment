@@ -10,7 +10,7 @@ runbook, checkpoint, or retained evidence.
 | Field | Current value |
 |---|---|
 | Selected domain | `DATA_PRIMARY / PARALLEL_ENGINEERING_ACTIVE` |
-| Current phase | `CANONICAL_BASELINE_V1 / PERSISTENT_PYTHON_PM_CONTROL_VALIDATED / AUTONOMOUS_DATA_AND_READONLY_ACCOUNT_OPERATIONS / GUI_BACKTEST_FEATURE_ENGINEERING_ACTIVE / FINAL_HOLDOUT_SEALED / FINANCIAL_MUTATIONS_DISABLED` |
+| Current phase | `CANONICAL_BASELINE_V1 / PERSISTENT_PYTHON_PM_CONTROL_VALIDATED / UNATTENDED_PYTHON_PM_RUNNER_RECOVERY_PENDING / AUTONOMOUS_DATA_AND_READONLY_ACCOUNT_OPERATIONS / GUI_BACKTEST_FEATURE_ENGINEERING_ACTIVE / FINAL_HOLDOUT_SEALED / FINANCIAL_MUTATIONS_DISABLED` |
 | Next domain | No phase handoff required for ordinary in-scope engineering |
 | Exact next action | Observe the next natural KR bundle v5 sequence at 09:10 and 20:30 after the source-width/publication-boundary recovery, require the 13-lane receipt plus 39/39 Health, and continue the separate BOK 17:10 three-batch finality observation |
 | Real external blockers | Exact future provider publication/session windows, unavailable secret/entitlement, rejected protected-resource escalation, or a user-only financial/legal/access action |
@@ -44,8 +44,16 @@ authority.
   lifecycle, replay/tamper/stale-generation safety, SQLite current state,
   sanitized append-only JSONL and the read-only Korean Qt projection. Orca is
   denied legacy migration/history only and is never runtime or fallback. The
-  current host is event-driven and one-shot; an unattended Queue polling
-  scheduler is not installed.
+  first bounded live event-runner wake timed out, was publicly reconciled, and
+  its failed `f4885fa...` generation was preserved as recovered evidence. Exact
+  scheduler reinstall/readback is retained, and fresh `a2f370...` PM plus routed
+  Lead direct wake receipts settled successfully. The final post-recovery
+  material generation settled with runner pending `0`, controller writer idle,
+  and boundary pending `0`. A Queue heartbeat-only `updated_at` refresh is
+  excluded from material detection, preventing a metadata self-wake loop. New
+  Queue discovery or triage count transitions remain material and begin a
+  fresh bounded PM/Lead wake; current public runner/controller status, not a
+  historical material digest, defines whether pending work exists.
 - Documentation uses the bounded [Documentation Router](../README.md). Current
   domain Status files contain only routing facts, blockers, support boundaries,
   and exact next actions; pre-compaction snapshots and terminal operation detail

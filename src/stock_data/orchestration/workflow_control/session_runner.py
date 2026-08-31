@@ -169,6 +169,7 @@ class InjectedSessionRunner:
         role_generation: int,
         session_id: str,
         provenance: str,
+        reconciliation_binding: str | None = None,
     ) -> SessionReceipt:
         if not isinstance(action, SessionAction):
             raise SessionRunnerError("action must use SessionAction")
@@ -183,6 +184,11 @@ class InjectedSessionRunner:
             raise SessionRunnerError("role generation must be positive")
         if not isinstance(provenance, str) or _DIGEST.fullmatch(provenance) is None:
             raise SessionRunnerError("session provenance must be a SHA-256 digest")
+        if reconciliation_binding is not None and (
+            not isinstance(reconciliation_binding, str)
+            or _DIGEST.fullmatch(reconciliation_binding) is None
+        ):
+            raise SessionRunnerError("session reconciliation binding must be a SHA-256 digest")
         material: dict[str, object] = {
             "action": action.value,
             "provenance": provenance,
@@ -191,6 +197,8 @@ class InjectedSessionRunner:
             "session_id": session_id,
             "execution_profile_digest": self.execution_metadata.profile_digest,
         }
+        if reconciliation_binding is not None:
+            material["reconciliation_binding"] = reconciliation_binding
         operation_id = "session-op-" + _digest(material)
         request = {key: str(value) for key, value in material.items()}
         request["operation_id"] = operation_id

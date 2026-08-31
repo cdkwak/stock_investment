@@ -1,7 +1,7 @@
 # Persistent Python Agent Pipeline
 
 updated_at: 2026-08-31
-status: Python-only persistent control plane active; console scheduler absent
+status: Python-only persistent control plane active; exact unattended `pythonw` task installed/read back; f488 terminal failure recovered, current material ledger pending-zero/idle, and Queue Doctor currently passes.
 
 This document defines runtime persistence and restart behavior. Queue business
 rules remain in [README.md](README.md); the concise role flow is
@@ -151,6 +151,62 @@ Historical Orca Run/Task/Dispatch/terminal fields are denied migration/history
 evidence only. They are never liveness proof and never participate in these
 steps. Historical reset or deletion is a separate destructive operation.
 
+## Unattended material-event runner
+
+`scripts/maintenance/workflow_controller.py event-run-once` is the only
+supported no-console runner entrypoint. The exact Windows definition invokes
+that subcommand through the project `.venv\Scripts\pythonw.exe` once per minute,
+uses `IgnoreNew`, a fifteen-minute task limit around its ten-minute direct wake
+boundary, current-user limited privileges, and an exact ownership marker. Each
+invocation wakes at most one stored role, so process timeout, process-tree reap,
+and durable settlement fit inside the parent task limit. A PM+Lead generation
+therefore settles across at most two successful ticks; `IgnoreNew` prevents
+overlap and unchanged generations do not acquire another PM writer.
+
+App-created Codex task IDs remain coordination identities only. They are never
+passed to `codex exec resume`. `bootstrap-role` launches a separate
+Python/CLI-owned persistent session whose bootstrap turn exits, then replaces
+only an exact fingerprint- and generation-bound coordination registry row.
+Bootstrap attempts are bounded to 1 through 9, and every allowed attempt uses
+the same initialization-only prompt. A malformed or out-of-range bootstrap
+event is rejected before process launch or control-plane construction.
+The Codex boundary proves the session came from a completed direct CLI launch
+before the event runner may target it. PM migrates before Lead. Pending runner
+targets are rebound from the exact old generation/fingerprint to the new
+CLI-owned identity without settling the material generation.
+
+Before CLI migration, an exact stale app-owned active Lead may be replaced only
+through the PM-owned `replace-app-coordination-lead` boundary. It CAS-pins the
+current PM generation plus the Lead generation, current and replacement session
+identities, app runtime and worktree; then it increments only the Lead generation
+while retaining its parent, Queue task, Dispatch and retry history. CLI-owned,
+stopped, taskless, duplicate-session or changed rows fail before mutation. A Lead
+never invokes its own replacement.
+
+Unknown ownership, an active writer, changed generation/session, mismatched
+migration receipt, missing parent, or incomplete pending ledger fails closed
+before a wake. The runner validates every PM/Lead target before the first
+resume, retains only session fingerprints and receipt digests in its local
+SQLite ledger, and keeps interrupted generations pending for exact replay.
+`status` publishes only hashed boundary and generation evidence. If a dead
+writer still owns one pending operation, `recover-stranded --preflight-only`
+uses the OS mutex as its liveness oracle and exact public recovery fences that
+pending operation and writer without terminating a process. If the original
+one-shot instead exits naturally and already leaves writer idle, generation
+history terminal, the exact session operation failed, and boundary pending
+zero, `reconcile-terminal --preflight-only` verifies the prior owner,
+generation, operation, request, workspace profile, error code, release reason,
+latest history row and available OS mutex. Its mutation form writes only a
+sanitized reconciliation receipt; it does not rewrite the failed operation or
+generation. `event-recover-generation` accepts exactly one of those durable
+public proofs plus the exact failed-attempt digest, requires the controller to
+remain idle with boundary pending zero, preserves the old generation as
+recovered, and rotates a fresh material epoch. Pin, terminal-state, profile,
+liveness or replay mismatch has zero wake, session and Queue effects.
+Live activation is incomplete until the exact PM and routed Lead have both
+produced direct, `orca_used=false` wake receipts, the pending count is zero,
+and the installed task passes exact readback.
+
 ## Queue lifecycle and recovery
 
 Canonical business lifecycle is `new -> ready -> active -> review -> done`.
@@ -163,6 +219,15 @@ escalation, stale lease or Queue generation change may enqueue one stable wake.
 No healthy role is continuously polled. Missing or unreadable Queue state,
 unknown session identity and transport failure fail closed; none authorizes a
 replacement agent or second writer.
+
+The failed revision-3 PT2M generation remains immutable evidence. Its exact
+public terminal-reconciliation proof recovered material generation `f4885fa...`;
+the installed task then produced durable direct PM and Lead wake receipts for
+`a2f370...` and later material generations. Queue heartbeat timestamps are not
+material inputs, so a lease-only metadata refresh cannot create another wake
+generation. New Queue discovery or triage count changes are material and may
+start a fresh bounded PM/Lead wake; public runner/controller status, rather
+than a stale document pin, is authoritative for its live state.
 
 ## Read-only Korean Qt projection
 

@@ -8,7 +8,7 @@ remain test-only and cannot be selected by this service or its CLI.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 import hashlib
 import json
@@ -16,6 +16,8 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+import subprocess
+import sys
 from typing import BinaryIO, Callable, Iterable, Mapping
 
 from stock_data.orchestration.workflow_control.controller import (
@@ -23,19 +25,27 @@ from stock_data.orchestration.workflow_control.controller import (
     HierarchyResumeReceipt,
     MailboxAcknowledgement,
     MailboxEnvelope,
+    PhaseBoundaryReceipt,
     PumpReceipt,
     ReviewDecision,
     ReviewLoopReceipt,
     WorkflowController,
 )
-from stock_data.orchestration.workflow_control.codex_boundary import CodexCliBoundary
+from stock_data.orchestration.workflow_control.codex_boundary import (
+    CodexBoundaryOperationPin,
+    CodexBoundaryTerminalOperationMapping,
+    CodexBoundaryTerminalOperation,
+    CodexCliBoundary,
+)
 from stock_data.orchestration.workflow_control.events import canonical_event_json
 from stock_data.orchestration.workflow_control.listener_gateway import (
     MailboxEnvelope as ListenerMailboxEnvelope,
     PMMailboxIdentity,
 )
 from stock_data.orchestration.workflow_control.contracts import WorkflowEvent, utc_text
-from stock_data.orchestration.workflow_control.registry import RoleIdentity, RoleRecord
+from stock_data.orchestration.workflow_control.registry import (
+    RoleIdentity, RoleKind, RoleRecord, RoleState,
+)
 from stock_data.orchestration.workflow_control.routing import TaskContract
 from stock_data.orchestration.workflow_control.runner import (
     ExecutionMetadata,
@@ -49,12 +59,100 @@ _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _TASK_ID = re.compile(r"^RQ-\d{8}T\d{6}-[A-Z0-9]{4}$")
 _OPERATION_STATES = frozenset({"working", "idle", "reviewing", "stalled", "stopped"})
 _ROLE_KINDS = frozenset({"project_manager", "domain_lead", "worker", "reviewer"})
+_TERMINAL_CODE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 _PYTHON_PM_SERVICE_KEY = "python_pm"
 _LEGACY_GENERATION_DIGEST = "0" * 64
+_WORKSPACE_PROFILE_DIGEST = ExecutionMetadata(
+    "codex_workspace_write", True, None
+).profile_digest
+_MAX_PHASE_A_HANDOFF_BYTES = 16 * 1024
 
 
 class ControllerServiceError(RuntimeError):
     """Raised for invalid service use or an incomplete control-plane setup."""
+
+
+def verify_phase_a_queue_evidence(
+    repository_root: Path,
+    *,
+    task_id: str,
+    expected_queue_generation: str,
+    expected_candidate_digest: str,
+    expected_review_digest: str,
+) -> None:
+    """Read only the canonical Queue evidence required by a phase boundary."""
+
+    root = Path(repository_root).resolve()
+    if (
+        _TASK_ID.fullmatch(task_id) is None
+        or any(
+            _DIGEST.fullmatch(value) is None
+            for value in (
+                expected_queue_generation,
+                expected_candidate_digest,
+                expected_review_digest,
+            )
+        )
+    ):
+        raise ControllerServiceError("phase-boundary Queue evidence pins are invalid")
+    active_root = root / "artifacts" / "request_queue" / "active"
+    directory_name = re.compile(
+        rf"^P[0-3]-{re.escape(task_id)}-[a-z0-9][a-z0-9-]*$"
+    )
+    candidates = [
+        path for path in active_root.iterdir()
+        if path.is_dir() and not path.is_symlink() and directory_name.fullmatch(path.name)
+    ] if active_root.is_dir() and not active_root.is_symlink() else []
+    if len(candidates) != 1:
+        raise ControllerServiceError("canonical Queue phase-boundary handoff is unavailable")
+    completed = subprocess.run(
+        [sys.executable, str(root / "scripts" / "request_queue.py"), "status", "--lead-owner", "queue_orchestration_lead"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+        timeout=10,
+    )
+    if completed.returncode != 0:
+        raise ControllerServiceError("canonical Queue status could not be verified")
+
+    def field(line: str, name: str) -> str | None:
+        values = re.findall(rf"(?<!\S){re.escape(name)}=([^\s]+)", line)
+        return values[0] if len(values) == 1 else None
+
+    matches = [
+        line for line in completed.stdout.splitlines()
+        if field(line, "task") == candidates[0].name
+    ]
+    if len(matches) != 1 or any(
+        field(matches[0], name) != expected
+        for name, expected in (
+            ("state", "active"),
+            ("generation", expected_queue_generation),
+            ("phase", "phase_a_pass"),
+        )
+    ):
+        raise ControllerServiceError("canonical Queue phase-boundary status changed")
+    handoff_path = candidates[0] / "HANDOFF.md"
+    try:
+        if handoff_path.is_symlink() or handoff_path.stat().st_size > _MAX_PHASE_A_HANDOFF_BYTES:
+            raise OSError("handoff bounds")
+        handoff = handoff_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        raise ControllerServiceError("canonical Queue phase-boundary handoff is unavailable") from error
+    if not (
+        re.search(r"(?m)^phase:\s*phase_a_pass\s*$", handoff)
+        and re.search(
+            rf"(?<![A-Za-z0-9_-])candidate\s+{expected_candidate_digest}(?![A-Za-z0-9_-])",
+            handoff,
+        )
+        and re.search(
+            rf"(?<![A-Za-z0-9_-])reviewed\s+PASS\s+{expected_review_digest}(?![A-Za-z0-9_-])",
+            handoff,
+        )
+    ):
+        raise ControllerServiceError("canonical Queue Phase-A evidence changed")
 
 
 class WriterLeaseConflict(ControllerServiceError):
@@ -150,6 +248,290 @@ class ControllerServiceStatus:
     pending_boundary_operations: int = 0
     completed_boundary_operations: int = 0
     failed_boundary_operations: int = 0
+    pending_boundary_operation_pins: tuple[CodexBoundaryOperationPin, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class EventReconciliationReceipt:
+    """Bounded read-only composition for one failed event-runner attempt."""
+
+    material_generation: str
+    attempt_receipt_digest: str
+    generation_sequence: int
+    generation_digest: str
+    boundary_operation_id: str
+    boundary_request_digest: str
+    boundary_error_code: str
+    execution_profile_digest: str
+    process_event_receipt_digest: str
+    preflight_digest: str
+
+    def __post_init__(self) -> None:
+        if (
+            _DIGEST.fullmatch(self.material_generation) is None
+            or _DIGEST.fullmatch(self.attempt_receipt_digest) is None
+            or not isinstance(self.generation_sequence, int)
+            or isinstance(self.generation_sequence, bool)
+            or self.generation_sequence < 1
+            or any(
+                _DIGEST.fullmatch(value) is None
+                for value in (
+                    self.generation_digest,
+                    self.boundary_request_digest,
+                    self.execution_profile_digest,
+                    self.process_event_receipt_digest,
+                    self.preflight_digest,
+                )
+            )
+            or not self.boundary_operation_id.startswith(("op-", "session-op-"))
+            or _TERMINAL_CODE.fullmatch(self.boundary_error_code) is None
+        ):
+            raise ControllerServiceError("event reconciliation receipt is invalid")
+
+
+@dataclass(frozen=True, slots=True)
+class StrandedRecoveryPreflight:
+    """Exact public liveness decision for one stranded writer/boundary pair."""
+
+    ready: bool
+    process_live: bool
+    owner_id: str
+    generation_sequence: int
+    generation_digest: str
+    boundary_operation_id: str
+    boundary_request_digest: str
+    reason: str
+    preflight_digest: str = ""
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.ready, bool)
+            or not isinstance(self.process_live, bool)
+            or _IDENTIFIER.fullmatch(self.owner_id) is None
+            or self.generation_sequence < 1
+            or _DIGEST.fullmatch(self.generation_digest) is None
+            or not self.boundary_operation_id.startswith(("op-", "session-op-"))
+            or _DIGEST.fullmatch(self.boundary_request_digest) is None
+            or self.reason not in {"ready", "writer_process_live"}
+        ):
+            raise ControllerServiceError("stranded recovery preflight is invalid")
+        expected = _digest(self.to_dict(include_digest=False))
+        if self.preflight_digest and self.preflight_digest != expected:
+            raise ControllerServiceError("stranded recovery preflight digest mismatch")
+        object.__setattr__(self, "preflight_digest", expected)
+
+    def to_dict(self, *, include_digest: bool = True) -> dict[str, object]:
+        value: dict[str, object] = {
+            "ready": self.ready,
+            "process_live": self.process_live,
+            "owner_id": self.owner_id,
+            "generation_sequence": self.generation_sequence,
+            "generation_digest": self.generation_digest,
+            "boundary_operation_id": self.boundary_operation_id,
+            "boundary_request_digest": self.boundary_request_digest,
+            "reason": self.reason,
+        }
+        if include_digest:
+            value["preflight_digest"] = self.preflight_digest
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class StrandedRecoveryReceipt:
+    owner_id: str
+    generation_sequence: int
+    generation_digest: str
+    boundary_operation_id: str
+    boundary_request_digest: str
+    boundary_recovery_proof: str
+    recovery_proof: str = ""
+
+    def __post_init__(self) -> None:
+        if (
+            _IDENTIFIER.fullmatch(self.owner_id) is None
+            or self.generation_sequence < 1
+            or _DIGEST.fullmatch(self.generation_digest) is None
+            or not self.boundary_operation_id.startswith(("op-", "session-op-"))
+            or _DIGEST.fullmatch(self.boundary_request_digest) is None
+            or _DIGEST.fullmatch(self.boundary_recovery_proof) is None
+        ):
+            raise ControllerServiceError("stranded recovery receipt is invalid")
+        expected = _digest(self.to_dict(include_digest=False))
+        if self.recovery_proof and self.recovery_proof != expected:
+            raise ControllerServiceError("stranded recovery receipt digest mismatch")
+        object.__setattr__(self, "recovery_proof", expected)
+
+    def to_dict(self, *, include_digest: bool = True) -> dict[str, object]:
+        value: dict[str, object] = {
+            "owner_id": self.owner_id,
+            "generation_sequence": self.generation_sequence,
+            "generation_digest": self.generation_digest,
+            "boundary_operation_id": self.boundary_operation_id,
+            "boundary_request_digest": self.boundary_request_digest,
+            "boundary_recovery_proof": self.boundary_recovery_proof,
+        }
+        if include_digest:
+            value["recovery_proof"] = self.recovery_proof
+        return value
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, object]) -> "StrandedRecoveryReceipt":
+        if set(value) != {
+            "owner_id", "generation_sequence", "generation_digest",
+            "boundary_operation_id", "boundary_request_digest",
+            "boundary_recovery_proof", "recovery_proof",
+        }:
+            raise ControllerServiceError("stranded recovery receipt is malformed")
+        return cls(
+            owner_id=str(value["owner_id"]),
+            generation_sequence=int(value["generation_sequence"]),
+            generation_digest=str(value["generation_digest"]),
+            boundary_operation_id=str(value["boundary_operation_id"]),
+            boundary_request_digest=str(value["boundary_request_digest"]),
+            boundary_recovery_proof=str(value["boundary_recovery_proof"]),
+            recovery_proof=str(value["recovery_proof"]),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class TerminalReconciliationPreflight:
+    """Exact zero-effect proof that a naturally terminal writer is quiescent."""
+
+    owner_id: str
+    generation_sequence: int
+    generation_digest: str
+    generation_terminal_proof: str
+    release_reason: str
+    boundary_operation_id: str
+    boundary_request_digest: str
+    boundary_error_code: str
+    execution_profile_digest: str
+    ready: bool = True
+    process_live: bool = False
+    reason: str = "ready"
+    preflight_digest: str = ""
+
+    def __post_init__(self) -> None:
+        if (
+            _IDENTIFIER.fullmatch(self.owner_id) is None
+            or self.generation_sequence < 1
+            or _DIGEST.fullmatch(self.generation_digest) is None
+            or _DIGEST.fullmatch(self.generation_terminal_proof) is None
+            or _TERMINAL_CODE.fullmatch(self.release_reason) is None
+            or not self.boundary_operation_id.startswith(("op-", "session-op-"))
+            or _DIGEST.fullmatch(self.boundary_request_digest) is None
+            or _TERMINAL_CODE.fullmatch(self.boundary_error_code) is None
+            or _DIGEST.fullmatch(self.execution_profile_digest) is None
+            or self.ready is not True
+            or self.process_live is not False
+            or self.reason != "ready"
+        ):
+            raise ControllerServiceError(
+                "terminal reconciliation preflight is invalid"
+            )
+        expected = _digest(self.to_dict(include_digest=False))
+        if self.preflight_digest and self.preflight_digest != expected:
+            raise ControllerServiceError(
+                "terminal reconciliation preflight digest mismatch"
+            )
+        object.__setattr__(self, "preflight_digest", expected)
+
+    def to_dict(self, *, include_digest: bool = True) -> dict[str, object]:
+        value: dict[str, object] = {
+            "owner_id": self.owner_id,
+            "generation_sequence": self.generation_sequence,
+            "generation_digest": self.generation_digest,
+            "generation_terminal_proof": self.generation_terminal_proof,
+            "release_reason": self.release_reason,
+            "boundary_operation_id": self.boundary_operation_id,
+            "boundary_request_digest": self.boundary_request_digest,
+            "boundary_error_code": self.boundary_error_code,
+            "execution_profile_digest": self.execution_profile_digest,
+            "ready": self.ready,
+            "process_live": self.process_live,
+            "reason": self.reason,
+        }
+        if include_digest:
+            value["preflight_digest"] = self.preflight_digest
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class TerminalReconciliationReceipt:
+    """Durable sanitized receipt for an already-terminal failed generation."""
+
+    owner_id: str
+    generation_sequence: int
+    generation_digest: str
+    generation_terminal_proof: str
+    release_reason: str
+    boundary_operation_id: str
+    boundary_request_digest: str
+    boundary_error_code: str
+    execution_profile_digest: str
+    reconciliation_proof: str = ""
+
+    def __post_init__(self) -> None:
+        TerminalReconciliationPreflight(
+            owner_id=self.owner_id,
+            generation_sequence=self.generation_sequence,
+            generation_digest=self.generation_digest,
+            generation_terminal_proof=self.generation_terminal_proof,
+            release_reason=self.release_reason,
+            boundary_operation_id=self.boundary_operation_id,
+            boundary_request_digest=self.boundary_request_digest,
+            boundary_error_code=self.boundary_error_code,
+            execution_profile_digest=self.execution_profile_digest,
+        )
+        expected = _digest(self.to_dict(include_digest=False))
+        if self.reconciliation_proof and self.reconciliation_proof != expected:
+            raise ControllerServiceError(
+                "terminal reconciliation receipt digest mismatch"
+            )
+        object.__setattr__(self, "reconciliation_proof", expected)
+
+    def to_dict(self, *, include_digest: bool = True) -> dict[str, object]:
+        value: dict[str, object] = {
+            "owner_id": self.owner_id,
+            "generation_sequence": self.generation_sequence,
+            "generation_digest": self.generation_digest,
+            "generation_terminal_proof": self.generation_terminal_proof,
+            "release_reason": self.release_reason,
+            "boundary_operation_id": self.boundary_operation_id,
+            "boundary_request_digest": self.boundary_request_digest,
+            "boundary_error_code": self.boundary_error_code,
+            "execution_profile_digest": self.execution_profile_digest,
+        }
+        if include_digest:
+            value["reconciliation_proof"] = self.reconciliation_proof
+        return value
+
+    @classmethod
+    def from_dict(
+        cls, value: Mapping[str, object]
+    ) -> "TerminalReconciliationReceipt":
+        if set(value) != {
+            "owner_id", "generation_sequence", "generation_digest",
+            "generation_terminal_proof", "release_reason",
+            "boundary_operation_id", "boundary_request_digest",
+            "boundary_error_code", "execution_profile_digest",
+            "reconciliation_proof",
+        }:
+            raise ControllerServiceError(
+                "terminal reconciliation receipt is malformed"
+            )
+        return cls(
+            owner_id=str(value["owner_id"]),
+            generation_sequence=int(value["generation_sequence"]),
+            generation_digest=str(value["generation_digest"]),
+            generation_terminal_proof=str(value["generation_terminal_proof"]),
+            release_reason=str(value["release_reason"]),
+            boundary_operation_id=str(value["boundary_operation_id"]),
+            boundary_request_digest=str(value["boundary_request_digest"]),
+            boundary_error_code=str(value["boundary_error_code"]),
+            execution_profile_digest=str(value["execution_profile_digest"]),
+            reconciliation_proof=str(value["reconciliation_proof"]),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -496,6 +878,16 @@ class WorkflowControllerService:
                 "activity_digest TEXT PRIMARY KEY, operation_id TEXT NOT NULL, "
                 "payload TEXT NOT NULL, recorded_at TEXT NOT NULL)"
             )
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS stranded_recovery_receipt("
+                "recovery_proof TEXT PRIMARY KEY, payload TEXT NOT NULL, "
+                "recorded_at TEXT NOT NULL)"
+            )
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS terminal_reconciliation_receipt("
+                "reconciliation_proof TEXT PRIMARY KEY, payload TEXT NOT NULL, "
+                "recorded_at TEXT NOT NULL)"
+            )
 
     @staticmethod
     def inspect(control_root: Path, *, service_key: str = "python_pm") -> ControllerServiceStatus:
@@ -510,6 +902,7 @@ class WorkflowControllerService:
                 boundary.pending_operations,
                 boundary.completed_operations,
                 boundary.failed_operations,
+                boundary.pending_operation_pins,
             )
         with sqlite3.connect(database, timeout=30) as connection:
             connection.row_factory = sqlite3.Row
@@ -541,6 +934,90 @@ class WorkflowControllerService:
             pending_boundary_operations=boundary.pending_operations,
             completed_boundary_operations=boundary.completed_operations,
             failed_boundary_operations=boundary.failed_operations,
+            pending_boundary_operation_pins=boundary.pending_operation_pins,
+        )
+
+    @classmethod
+    def event_reconciliation_status(
+        cls,
+        repository_root: Path,
+        *,
+        material_generation: str,
+        attempt_receipt_digest: str,
+    ) -> EventReconciliationReceipt:
+        """Compose singular runner, controller, and boundary evidence read-only."""
+
+        if (
+            _DIGEST.fullmatch(material_generation) is None
+            or _DIGEST.fullmatch(attempt_receipt_digest) is None
+        ):
+            raise ControllerServiceError("event reconciliation pins are invalid")
+        from stock_data.orchestration.workflow_control.event_runner import WorkflowEventRunner
+        from stock_data.orchestration.workflow_control.production import (
+            canonical_control_root,
+            canonical_repository_root,
+        )
+
+        root = canonical_repository_root(Path(repository_root))
+        control_root = canonical_control_root(root)
+        event = WorkflowEventRunner(
+            root, owner_id="event-reconciliation-status",
+        ).reconciliation_status(
+            material_generation=material_generation,
+            expected_attempt_receipt_digest=attempt_receipt_digest,
+        )
+        if event.state != "pending_failed":
+            raise ControllerServiceError("event reconciliation attempt is stale or nonterminal")
+        status = cls.inspect(control_root)
+        if (
+            status.active
+            or status.writer_state != "idle"
+            or status.pending_boundary_operations != 0
+        ):
+            raise ControllerServiceError("event reconciliation has a pending mutation")
+        database = control_root / "workflow_controller_service.sqlite3"
+        if not database.is_file():
+            raise ControllerServiceError("event reconciliation terminal history is absent")
+        try:
+            with sqlite3.connect(database, timeout=30) as connection:
+                connection.row_factory = sqlite3.Row
+                rows = connection.execute(
+                    "SELECT generation_sequence, generation_digest, owner_id, release_reason "
+                    "FROM generation_history WHERE released_at IS NOT NULL "
+                    "ORDER BY generation_sequence DESC LIMIT 1"
+                ).fetchall()
+        except sqlite3.Error as error:
+            raise ControllerServiceError("event reconciliation terminal history is unavailable") from error
+        if len(rows) != 1 or rows[0]["release_reason"] != "stopped":
+            raise ControllerServiceError("event reconciliation terminal history is stale or nonterminal")
+        history = rows[0]
+        mapping: CodexBoundaryTerminalOperationMapping = (
+            CodexCliBoundary.lookup_terminal_operation_mapping(
+                control_root / "codex_boundary.sqlite3",
+                reconciliation_binding=material_generation,
+            )
+        )
+        preflight = cls.preflight_terminal_reconciliation(
+            control_root,
+            owner_id=str(history["owner_id"]),
+            generation_sequence=int(history["generation_sequence"]),
+            generation_digest=str(history["generation_digest"]),
+            boundary_operation_id=mapping.operation_id,
+            boundary_request_digest=mapping.request_digest,
+            boundary_error_code=mapping.error_code,
+            release_reason="stopped",
+        )
+        return EventReconciliationReceipt(
+            material_generation=material_generation,
+            attempt_receipt_digest=attempt_receipt_digest,
+            generation_sequence=preflight.generation_sequence,
+            generation_digest=preflight.generation_digest,
+            boundary_operation_id=mapping.operation_id,
+            boundary_request_digest=mapping.request_digest,
+            boundary_error_code=mapping.error_code,
+            execution_profile_digest=mapping.execution_profile_digest,
+            process_event_receipt_digest=mapping.process_event_receipt_digest,
+            preflight_digest=preflight.preflight_digest,
         )
 
     def start(self) -> ControlGeneration:
@@ -745,6 +1222,643 @@ class WorkflowControllerService:
         finally:
             mutex.release()
         return cls.inspect(root, service_key=service_key)
+
+    @classmethod
+    def preflight_stranded_recovery(
+        cls,
+        control_root: Path,
+        *,
+        owner_id: str,
+        generation_sequence: int,
+        generation_digest: str,
+        boundary_operation_id: str,
+        boundary_request_digest: str,
+    ) -> StrandedRecoveryPreflight:
+        """Prove the exact stranded pins and observe OS-held process liveness.
+
+        The OS mutex is the liveness oracle.  A held mutex reports a live
+        writer and makes this method return a zero-effect blocked receipt.
+        Every identity mismatch raises before recovery can be attempted.
+        """
+
+        if (
+            _IDENTIFIER.fullmatch(owner_id) is None
+            or generation_sequence < 1
+            or _DIGEST.fullmatch(generation_digest) is None
+            or _DIGEST.fullmatch(boundary_request_digest) is None
+        ):
+            raise ControllerServiceError("stranded recovery pins are invalid")
+        root = Path(control_root)
+        database = root / "workflow_controller_service.sqlite3"
+        if not database.is_file():
+            raise ControllerServiceError("stranded writer state is absent")
+        with sqlite3.connect(database, timeout=30) as connection:
+            connection.row_factory = sqlite3.Row
+            lease = connection.execute(
+                "SELECT owner_id, generation_sequence, generation_digest "
+                "FROM writer_lease WHERE service_key = ?",
+                (_PYTHON_PM_SERVICE_KEY,),
+            ).fetchone()
+        if (
+            lease is None
+            or lease["owner_id"] != owner_id
+            or int(lease["generation_sequence"]) != generation_sequence
+            or lease["generation_digest"] != generation_digest
+        ):
+            raise WriterLeaseConflict("stranded writer generation no longer matches")
+        boundary = CodexCliBoundary.inspect(root / "codex_boundary.sqlite3")
+        pins = boundary.pending_operation_pins
+        if (
+            len(pins) != 1
+            or pins[0].operation_id != boundary_operation_id
+            or pins[0].request_digest != boundary_request_digest
+            or pins[0].execution_profile_digest != _WORKSPACE_PROFILE_DIGEST
+        ):
+            raise ControllerServiceError("uncertain boundary operation pin changed")
+        mutex = _ControllerMutex(root / "workflow_controller_service.lock")
+        mutex_available = mutex.acquire(create=False)
+        if mutex_available:
+            mutex.release()
+        process_live = not mutex_available
+        return StrandedRecoveryPreflight(
+            ready=not process_live,
+            process_live=process_live,
+            owner_id=owner_id,
+            generation_sequence=generation_sequence,
+            generation_digest=generation_digest,
+            boundary_operation_id=boundary_operation_id,
+            boundary_request_digest=boundary_request_digest,
+            reason="writer_process_live" if process_live else "ready",
+        )
+
+    @classmethod
+    def recover_stranded(
+        cls,
+        control_root: Path,
+        *,
+        owner_id: str,
+        generation_sequence: int,
+        generation_digest: str,
+        boundary_operation_id: str,
+        boundary_request_digest: str,
+    ) -> StrandedRecoveryReceipt:
+        """Fence one dead writer and its exact uncertain boundary operation.
+
+        No process is terminated.  The transition is allowed only while this
+        method holds the same OS mutex that the writer would hold.  A durable
+        receipt makes a crash-safe exact replay idempotent.
+        """
+
+        if (
+            _IDENTIFIER.fullmatch(owner_id) is None
+            or generation_sequence < 1
+            or _DIGEST.fullmatch(generation_digest) is None
+            or _DIGEST.fullmatch(boundary_request_digest) is None
+        ):
+            raise ControllerServiceError("stranded recovery pins are invalid")
+        root = Path(control_root)
+        mutex = _ControllerMutex(root / "workflow_controller_service.lock")
+        if not mutex.acquire(create=False):
+            raise WriterLeaseConflict(
+                "recovery refused while the exact writer process is live"
+            )
+        database = root / "workflow_controller_service.sqlite3"
+        try:
+            if not database.is_file():
+                raise ControllerServiceError("stranded writer state is absent")
+            with sqlite3.connect(database, timeout=30) as connection:
+                connection.row_factory = sqlite3.Row
+                connection.execute(
+                    "CREATE TABLE IF NOT EXISTS stranded_recovery_receipt("
+                    "recovery_proof TEXT PRIMARY KEY, payload TEXT NOT NULL, "
+                    "recorded_at TEXT NOT NULL)"
+                )
+                stored_rows = connection.execute(
+                    "SELECT payload FROM stranded_recovery_receipt"
+                ).fetchall()
+                for stored_row in stored_rows:
+                    try:
+                        stored_value = json.loads(str(stored_row["payload"]))
+                        stored = StrandedRecoveryReceipt.from_dict(stored_value)
+                    except (TypeError, ValueError, json.JSONDecodeError) as error:
+                        raise ControllerServiceError(
+                            "stranded recovery receipt is corrupt"
+                        ) from error
+                    if (
+                        stored.owner_id == owner_id
+                        and stored.generation_sequence == generation_sequence
+                        and stored.generation_digest == generation_digest
+                        and stored.boundary_operation_id == boundary_operation_id
+                        and stored.boundary_request_digest == boundary_request_digest
+                    ):
+                        return stored
+                lease = connection.execute(
+                    "SELECT owner_id, generation_sequence, generation_digest "
+                    "FROM writer_lease WHERE service_key = ?",
+                    (_PYTHON_PM_SERVICE_KEY,),
+                ).fetchone()
+            if (
+                lease is None
+                or lease["owner_id"] != owner_id
+                or int(lease["generation_sequence"]) != generation_sequence
+                or lease["generation_digest"] != generation_digest
+            ):
+                raise WriterLeaseConflict(
+                    "stranded writer generation no longer matches"
+                )
+            boundary_status = CodexCliBoundary.inspect(
+                root / "codex_boundary.sqlite3"
+            )
+            pins = boundary_status.pending_operation_pins
+            if (
+                len(pins) != 1
+                or pins[0].operation_id != boundary_operation_id
+                or pins[0].request_digest != boundary_request_digest
+                or pins[0].execution_profile_digest != _WORKSPACE_PROFILE_DIGEST
+            ):
+                raise ControllerServiceError(
+                    "uncertain boundary operation pin changed"
+                )
+            boundary = CodexCliBoundary(
+                root / "codex_boundary.sqlite3",
+                cwd=root.parents[2],
+                sandbox_mode="workspace-write",
+            )
+            boundary_proof = boundary.recover_uncertain_operation(
+                operation_id=boundary_operation_id,
+                request_digest=boundary_request_digest,
+            )
+            receipt = StrandedRecoveryReceipt(
+                owner_id=owner_id,
+                generation_sequence=generation_sequence,
+                generation_digest=generation_digest,
+                boundary_operation_id=boundary_operation_id,
+                boundary_request_digest=boundary_request_digest,
+                boundary_recovery_proof=boundary_proof,
+            )
+            with sqlite3.connect(database, timeout=30, isolation_level=None) as connection:
+                connection.row_factory = sqlite3.Row
+                connection.execute("BEGIN IMMEDIATE")
+                current = connection.execute(
+                    "SELECT owner_id, generation_sequence, generation_digest "
+                    "FROM writer_lease WHERE service_key = ?",
+                    (_PYTHON_PM_SERVICE_KEY,),
+                ).fetchone()
+                if (
+                    current is None
+                    or current["owner_id"] != owner_id
+                    or int(current["generation_sequence"]) != generation_sequence
+                    or current["generation_digest"] != generation_digest
+                ):
+                    connection.rollback()
+                    raise WriterLeaseConflict(
+                        "stranded writer generation changed during recovery"
+                    )
+                cls._settle_active_activities_in_transaction(
+                    connection,
+                    generation_sequence=generation_sequence,
+                    generation_digest=generation_digest,
+                )
+                connection.execute(
+                    "DELETE FROM writer_lease WHERE service_key = ? AND owner_id = ? "
+                    "AND generation_sequence = ? AND generation_digest = ?",
+                    (
+                        _PYTHON_PM_SERVICE_KEY, owner_id,
+                        generation_sequence, generation_digest,
+                    ),
+                )
+                connection.execute(
+                    "UPDATE generation_history SET released_at = ?, "
+                    "release_reason = 'uncertain_boundary_recovered' "
+                    "WHERE generation_sequence = ? AND generation_digest = ? "
+                    "AND owner_id = ? AND released_at IS NULL",
+                    (
+                        _now_text(), generation_sequence,
+                        generation_digest, owner_id,
+                    ),
+                )
+                connection.execute(
+                    "INSERT INTO stranded_recovery_receipt("
+                    "recovery_proof, payload, recorded_at) VALUES (?, ?, ?)",
+                    (
+                        receipt.recovery_proof,
+                        _canonical(receipt.to_dict()),
+                        _now_text(),
+                    ),
+                )
+                connection.commit()
+            return receipt
+        finally:
+            mutex.release()
+
+    @classmethod
+    def assert_stranded_recovery(
+        cls, control_root: Path, *, recovery_proof: str
+    ) -> StrandedRecoveryReceipt:
+        """Validate one durable recovery proof without constructing a boundary."""
+
+        if _DIGEST.fullmatch(recovery_proof) is None:
+            raise ControllerServiceError("stranded recovery proof is invalid")
+        database = Path(control_root) / "workflow_controller_service.sqlite3"
+        if not database.is_file():
+            raise ControllerServiceError("stranded recovery receipt is absent")
+        with sqlite3.connect(database, timeout=30) as connection:
+            table = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+                "AND name = 'stranded_recovery_receipt'"
+            ).fetchone()
+            if table is None:
+                raise ControllerServiceError("stranded recovery receipt is absent")
+            row = connection.execute(
+                "SELECT payload FROM stranded_recovery_receipt "
+                "WHERE recovery_proof = ?",
+                (recovery_proof,),
+            ).fetchone()
+        if row is None:
+            raise ControllerServiceError("stranded recovery receipt is absent")
+        try:
+            value = json.loads(str(row[0]))
+            receipt = StrandedRecoveryReceipt.from_dict(value)
+        except (TypeError, ValueError, json.JSONDecodeError) as error:
+            raise ControllerServiceError("stranded recovery receipt is corrupt") from error
+        if receipt.recovery_proof != recovery_proof:
+            raise ControllerServiceError("stranded recovery receipt is corrupt")
+        return receipt
+
+    @staticmethod
+    def _validate_terminal_reconciliation_pins(
+        *,
+        owner_id: str,
+        generation_sequence: int,
+        generation_digest: str,
+        boundary_operation_id: str,
+        boundary_request_digest: str,
+        boundary_error_code: str,
+        release_reason: str,
+    ) -> None:
+        if (
+            _IDENTIFIER.fullmatch(owner_id) is None
+            or generation_sequence < 1
+            or _DIGEST.fullmatch(generation_digest) is None
+            or _DIGEST.fullmatch(boundary_request_digest) is None
+            or _TERMINAL_CODE.fullmatch(boundary_error_code) is None
+            or _TERMINAL_CODE.fullmatch(release_reason) is None
+            or not boundary_operation_id.startswith(("op-", "session-op-"))
+        ):
+            raise ControllerServiceError(
+                "terminal reconciliation pins are invalid"
+            )
+
+    @classmethod
+    def _terminal_reconciliation_preflight_locked(
+        cls,
+        control_root: Path,
+        *,
+        owner_id: str,
+        generation_sequence: int,
+        generation_digest: str,
+        boundary_operation_id: str,
+        boundary_request_digest: str,
+        boundary_error_code: str,
+        release_reason: str,
+    ) -> TerminalReconciliationPreflight:
+        root = Path(control_root)
+        database = root / "workflow_controller_service.sqlite3"
+        if not database.is_file():
+            raise ControllerServiceError("terminal writer history is absent")
+        with sqlite3.connect(database, timeout=30) as connection:
+            connection.row_factory = sqlite3.Row
+            lease = connection.execute(
+                "SELECT owner_id, generation_sequence, generation_digest "
+                "FROM writer_lease WHERE service_key = ?",
+                (_PYTHON_PM_SERVICE_KEY,),
+            ).fetchone()
+            if lease is not None:
+                raise WriterLeaseConflict(
+                    "terminal reconciliation requires an idle writer"
+                )
+            row = connection.execute(
+                "SELECT generation_sequence, generation_digest, owner_id, "
+                "acquired_at, released_at, release_reason "
+                "FROM generation_history WHERE generation_sequence = ?",
+                (generation_sequence,),
+            ).fetchone()
+        if (
+            row is None
+            or row["owner_id"] != owner_id
+            or row["generation_digest"] != generation_digest
+            or row["released_at"] is None
+            or row["release_reason"] != release_reason
+        ):
+            raise ControllerServiceError(
+                "terminal generation history pin changed"
+            )
+        boundary_path = root / "codex_boundary.sqlite3"
+        boundary_status = CodexCliBoundary.inspect(boundary_path)
+        if boundary_status.pending_operations != 0:
+            raise ControllerServiceError(
+                "terminal reconciliation requires zero pending boundary operations"
+            )
+        terminal: CodexBoundaryTerminalOperation = (
+            CodexCliBoundary.inspect_terminal_operation(
+                boundary_path, operation_id=boundary_operation_id
+            )
+        )
+        if (
+            terminal.request_kind != "session"
+            or terminal.request_digest != boundary_request_digest
+            or terminal.execution_profile_digest != _WORKSPACE_PROFILE_DIGEST
+            or terminal.error_code != boundary_error_code
+        ):
+            raise ControllerServiceError(
+                "terminal boundary operation pin changed"
+            )
+        generation_terminal_proof = _digest({
+            "owner_id": owner_id,
+            "generation_sequence": generation_sequence,
+            "generation_digest": generation_digest,
+            "acquired_at": str(row["acquired_at"]),
+            "released_at": str(row["released_at"]),
+            "release_reason": release_reason,
+        })
+        return TerminalReconciliationPreflight(
+            owner_id=owner_id,
+            generation_sequence=generation_sequence,
+            generation_digest=generation_digest,
+            generation_terminal_proof=generation_terminal_proof,
+            release_reason=release_reason,
+            boundary_operation_id=boundary_operation_id,
+            boundary_request_digest=boundary_request_digest,
+            boundary_error_code=boundary_error_code,
+            execution_profile_digest=terminal.execution_profile_digest,
+        )
+
+    @classmethod
+    def preflight_terminal_reconciliation(
+        cls,
+        control_root: Path,
+        *,
+        owner_id: str,
+        generation_sequence: int,
+        generation_digest: str,
+        boundary_operation_id: str,
+        boundary_request_digest: str,
+        boundary_error_code: str,
+        release_reason: str,
+    ) -> TerminalReconciliationPreflight:
+        """Prove exact natural terminal settlement with no persistent write."""
+
+        cls._validate_terminal_reconciliation_pins(
+            owner_id=owner_id,
+            generation_sequence=generation_sequence,
+            generation_digest=generation_digest,
+            boundary_operation_id=boundary_operation_id,
+            boundary_request_digest=boundary_request_digest,
+            boundary_error_code=boundary_error_code,
+            release_reason=release_reason,
+        )
+        root = Path(control_root)
+        mutex_path = root / "workflow_controller_service.lock"
+        if not mutex_path.is_file():
+            raise ControllerServiceError(
+                "terminal reconciliation liveness mutex is absent"
+            )
+        mutex = _ControllerMutex(mutex_path)
+        if not mutex.acquire(create=False):
+            raise WriterLeaseConflict(
+                "terminal reconciliation refused while a writer process is live"
+            )
+        try:
+            return cls._terminal_reconciliation_preflight_locked(
+                root,
+                owner_id=owner_id,
+                generation_sequence=generation_sequence,
+                generation_digest=generation_digest,
+                boundary_operation_id=boundary_operation_id,
+                boundary_request_digest=boundary_request_digest,
+                boundary_error_code=boundary_error_code,
+                release_reason=release_reason,
+            )
+        finally:
+            mutex.release()
+
+    @classmethod
+    def reconcile_terminal(
+        cls,
+        control_root: Path,
+        *,
+        owner_id: str,
+        generation_sequence: int,
+        generation_digest: str,
+        boundary_operation_id: str,
+        boundary_request_digest: str,
+        boundary_error_code: str,
+        release_reason: str,
+    ) -> TerminalReconciliationReceipt:
+        """Persist one exact receipt without rewriting terminal source state."""
+
+        cls._validate_terminal_reconciliation_pins(
+            owner_id=owner_id,
+            generation_sequence=generation_sequence,
+            generation_digest=generation_digest,
+            boundary_operation_id=boundary_operation_id,
+            boundary_request_digest=boundary_request_digest,
+            boundary_error_code=boundary_error_code,
+            release_reason=release_reason,
+        )
+        root = Path(control_root)
+        database = root / "workflow_controller_service.sqlite3"
+
+        def stored_receipt() -> TerminalReconciliationReceipt | None:
+            if not database.is_file():
+                return None
+            with sqlite3.connect(database, timeout=30) as connection:
+                connection.row_factory = sqlite3.Row
+                table = connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+                    "AND name = 'terminal_reconciliation_receipt'"
+                ).fetchone()
+                if table is None:
+                    return None
+                rows = connection.execute(
+                    "SELECT payload FROM terminal_reconciliation_receipt"
+                ).fetchall()
+            for stored_row in rows:
+                try:
+                    value = json.loads(str(stored_row["payload"]))
+                    receipt = TerminalReconciliationReceipt.from_dict(value)
+                except (TypeError, ValueError, json.JSONDecodeError) as error:
+                    raise ControllerServiceError(
+                        "terminal reconciliation receipt is corrupt"
+                    ) from error
+                if (
+                    receipt.owner_id == owner_id
+                    and receipt.generation_sequence == generation_sequence
+                    and receipt.generation_digest == generation_digest
+                    and receipt.boundary_operation_id == boundary_operation_id
+                    and receipt.boundary_request_digest == boundary_request_digest
+                    and receipt.boundary_error_code == boundary_error_code
+                    and receipt.release_reason == release_reason
+                ):
+                    return receipt
+                if (
+                    receipt.generation_sequence == generation_sequence
+                    or receipt.boundary_operation_id == boundary_operation_id
+                ):
+                    raise ControllerServiceError(
+                        "terminal reconciliation replay pins changed"
+                    )
+            return None
+
+        replay = stored_receipt()
+        if replay is not None:
+            return replay
+        mutex_path = root / "workflow_controller_service.lock"
+        if not mutex_path.is_file():
+            raise ControllerServiceError(
+                "terminal reconciliation liveness mutex is absent"
+            )
+        mutex = _ControllerMutex(mutex_path)
+        if not mutex.acquire(create=False):
+            raise WriterLeaseConflict(
+                "terminal reconciliation refused while a writer process is live"
+            )
+        try:
+            replay = stored_receipt()
+            if replay is not None:
+                return replay
+            preflight = cls._terminal_reconciliation_preflight_locked(
+                root,
+                owner_id=owner_id,
+                generation_sequence=generation_sequence,
+                generation_digest=generation_digest,
+                boundary_operation_id=boundary_operation_id,
+                boundary_request_digest=boundary_request_digest,
+                boundary_error_code=boundary_error_code,
+                release_reason=release_reason,
+            )
+            receipt = TerminalReconciliationReceipt(
+                owner_id=preflight.owner_id,
+                generation_sequence=preflight.generation_sequence,
+                generation_digest=preflight.generation_digest,
+                generation_terminal_proof=preflight.generation_terminal_proof,
+                release_reason=preflight.release_reason,
+                boundary_operation_id=preflight.boundary_operation_id,
+                boundary_request_digest=preflight.boundary_request_digest,
+                boundary_error_code=preflight.boundary_error_code,
+                execution_profile_digest=preflight.execution_profile_digest,
+            )
+            with sqlite3.connect(database, timeout=30, isolation_level=None) as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                connection.execute(
+                    "CREATE TABLE IF NOT EXISTS terminal_reconciliation_receipt("
+                    "reconciliation_proof TEXT PRIMARY KEY, payload TEXT NOT NULL, "
+                    "recorded_at TEXT NOT NULL)"
+                )
+                connection.execute(
+                    "INSERT INTO terminal_reconciliation_receipt("
+                    "reconciliation_proof, payload, recorded_at) VALUES (?, ?, ?)",
+                    (
+                        receipt.reconciliation_proof,
+                        _canonical(receipt.to_dict()),
+                        _now_text(),
+                    ),
+                )
+                connection.commit()
+            return receipt
+        finally:
+            mutex.release()
+
+    @classmethod
+    def assert_terminal_reconciliation(
+        cls, control_root: Path, *, reconciliation_proof: str
+    ) -> TerminalReconciliationReceipt:
+        """Validate one durable terminal proof without changing source state."""
+
+        if _DIGEST.fullmatch(reconciliation_proof) is None:
+            raise ControllerServiceError(
+                "terminal reconciliation proof is invalid"
+            )
+        database = Path(control_root) / "workflow_controller_service.sqlite3"
+        if not database.is_file():
+            raise ControllerServiceError(
+                "terminal reconciliation receipt is absent"
+            )
+        with sqlite3.connect(database, timeout=30) as connection:
+            table = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+                "AND name = 'terminal_reconciliation_receipt'"
+            ).fetchone()
+            if table is None:
+                raise ControllerServiceError(
+                    "terminal reconciliation receipt is absent"
+                )
+            row = connection.execute(
+                "SELECT payload FROM terminal_reconciliation_receipt "
+                "WHERE reconciliation_proof = ?",
+                (reconciliation_proof,),
+            ).fetchone()
+        if row is None:
+            raise ControllerServiceError(
+                "terminal reconciliation receipt is absent"
+            )
+        try:
+            value = json.loads(str(row[0]))
+            receipt = TerminalReconciliationReceipt.from_dict(value)
+        except (TypeError, ValueError, json.JSONDecodeError) as error:
+            raise ControllerServiceError(
+                "terminal reconciliation receipt is corrupt"
+            ) from error
+        if receipt.reconciliation_proof != reconciliation_proof:
+            raise ControllerServiceError(
+                "terminal reconciliation receipt is corrupt"
+            )
+        return receipt
+
+    @classmethod
+    def assert_event_recovery_proof(
+        cls, control_root: Path, *, recovery_proof: str
+    ) -> StrandedRecoveryReceipt | TerminalReconciliationReceipt:
+        """Accept exactly one public stranded or natural-terminal proof."""
+
+        if _DIGEST.fullmatch(recovery_proof) is None:
+            raise ControllerServiceError("event recovery proof is invalid")
+        database = Path(control_root) / "workflow_controller_service.sqlite3"
+        if not database.is_file():
+            raise ControllerServiceError("event recovery receipt is absent")
+        with sqlite3.connect(database, timeout=30) as connection:
+            tables = {
+                str(row[0]) for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table' "
+                    "AND name IN ('stranded_recovery_receipt', "
+                    "'terminal_reconciliation_receipt')"
+                )
+            }
+            stranded = (
+                connection.execute(
+                    "SELECT 1 FROM stranded_recovery_receipt "
+                    "WHERE recovery_proof = ?", (recovery_proof,),
+                ).fetchone()
+                if "stranded_recovery_receipt" in tables else None
+            )
+            terminal = (
+                connection.execute(
+                    "SELECT 1 FROM terminal_reconciliation_receipt "
+                    "WHERE reconciliation_proof = ?", (recovery_proof,),
+                ).fetchone()
+                if "terminal_reconciliation_receipt" in tables else None
+            )
+        if stranded is not None and terminal is not None:
+            raise ControllerServiceError("event recovery proof is ambiguous")
+        if stranded is not None:
+            return cls.assert_stranded_recovery(
+                control_root, recovery_proof=recovery_proof
+            )
+        if terminal is not None:
+            return cls.assert_terminal_reconciliation(
+                control_root, reconciliation_proof=recovery_proof
+            )
+        raise ControllerServiceError("event recovery receipt is absent")
 
     def report_activity(self, activity: OperationActivity) -> OperationActivity:
         """Persist a latest activity card and immutable receipt for monitoring.
@@ -955,6 +2069,50 @@ class WorkflowControllerService:
             identity, observed_at=observed_at, lease_until=lease_until
         )
 
+    def replace_app_coordination_lead_session(
+        self,
+        *,
+        pm_role_key: str,
+        expected_pm_generation: int,
+        role_key: str,
+        expected_generation: int,
+        expected_session_id: str,
+        replacement_session_id: str,
+        expected_task_id: str,
+        expected_dispatch_id: str,
+        expected_runtime_id: str,
+        expected_worktree_id: str,
+    ) -> RoleRecord:
+        """PM-fenced CAS replacement for one app-owned active Lead session."""
+
+        self._require_started()
+        pm = self.controller.role_registry.get(pm_role_key)
+        if (
+            self.owner_id != pm_role_key
+            or pm.identity.role_key != pm_role_key
+            or pm.identity.role_kind is not RoleKind.PROJECT_MANAGER
+            or pm.generation != expected_pm_generation
+            or pm.state is not RoleState.ACTIVE
+        ):
+            raise ControllerServiceError("PM role generation changed")
+        lead = self.controller.role_registry.get(role_key)
+        if lead.identity.parent_role_key != pm_role_key:
+            raise ControllerServiceError("Lead is not owned by the fenced PM role")
+        observed_at = datetime.now(UTC)
+        return self.controller.role_registry.replace_app_coordination_lead_session(
+            role_key,
+            expected_generation=expected_generation,
+            expected_session_id=expected_session_id,
+            replacement_session_id=replacement_session_id,
+            expected_task_id=expected_task_id,
+            expected_dispatch_id=expected_dispatch_id,
+            expected_parent_role_key=pm_role_key,
+            expected_runtime_id=expected_runtime_id,
+            expected_worktree_id=expected_worktree_id,
+            observed_at=observed_at,
+            lease_until=observed_at + timedelta(hours=24),
+        )
+
     def resume_session_hierarchy(
         self, root_role_key: str = "project_manager"
     ) -> HierarchyResumeReceipt:
@@ -1022,6 +2180,85 @@ class WorkflowControllerService:
             contract, pm_generation=pm_generation
         )
 
+    def mark_task_replan_ready(
+        self,
+        *,
+        repository_root: Path,
+        task_id: str,
+        expected_queue_generation: str,
+        expected_prior_contract_digest: str,
+        expected_phase_a_candidate_digest: str,
+        expected_phase_a_review_digest: str,
+        expected_prior_state: str,
+        reason_code: str,
+        pm_role_key: str,
+        pm_generation: int,
+    ) -> PhaseBoundaryReceipt:
+        """Public PM-only phase-boundary operation without a service writer lease."""
+
+        verify_phase_a_queue_evidence(
+            repository_root,
+            task_id=task_id,
+            expected_queue_generation=expected_queue_generation,
+            expected_candidate_digest=expected_phase_a_candidate_digest,
+            expected_review_digest=expected_phase_a_review_digest,
+        )
+        return self.controller.mark_task_replan_ready(
+            task_id=task_id,
+            expected_queue_generation=expected_queue_generation,
+            expected_prior_contract_digest=expected_prior_contract_digest,
+            expected_phase_a_candidate_digest=expected_phase_a_candidate_digest,
+            expected_phase_a_review_digest=expected_phase_a_review_digest,
+            expected_prior_state=expected_prior_state,
+            reason_code=reason_code,
+            pm_role_key=pm_role_key,
+            pm_generation=pm_generation,
+        )
+
+    @staticmethod
+    def preflight_task_replan_ready_at(
+        repository_root: Path,
+        receipt_path: Path,
+        *,
+        task_id: str,
+        expected_queue_generation: str,
+        expected_prior_contract_digest: str,
+        expected_phase_a_candidate_digest: str,
+        expected_phase_a_review_digest: str,
+        expected_prior_state: str,
+        reason_code: str,
+        pm_role_key: str,
+        pm_generation: int,
+    ) -> PhaseBoundaryReceipt:
+        """Read-only public preflight without constructing a service instance."""
+
+        verify_phase_a_queue_evidence(
+            repository_root,
+            task_id=task_id,
+            expected_queue_generation=expected_queue_generation,
+            expected_candidate_digest=expected_phase_a_candidate_digest,
+            expected_review_digest=expected_phase_a_review_digest,
+        )
+        return WorkflowController.preflight_task_replan_ready_at(
+            receipt_path,
+            task_id=task_id,
+            expected_queue_generation=expected_queue_generation,
+            expected_prior_contract_digest=expected_prior_contract_digest,
+            expected_phase_a_candidate_digest=expected_phase_a_candidate_digest,
+            expected_phase_a_review_digest=expected_phase_a_review_digest,
+            expected_prior_state=expected_prior_state,
+            reason_code=reason_code,
+            pm_role_key=pm_role_key,
+            pm_generation=pm_generation,
+        )
+
+    def inspect_phase_boundary_receipt(
+        self, *, task_id: str
+    ) -> PhaseBoundaryReceipt:
+        """Read one sanitized phase-boundary receipt without a writer lease."""
+
+        return self.controller.inspect_phase_boundary_receipt(task_id=task_id)
+
     def dispatch_workers(
         self,
         *,
@@ -1081,6 +2318,7 @@ class WorkflowControllerService:
         expected_generation: int,
         expected_session_id: str,
         message_id: str | None = None,
+        source_event_id: str | None = None,
     ) -> str:
         """Wake one exact persisted Codex role through the controller outbox."""
 
@@ -1090,6 +2328,7 @@ class WorkflowControllerService:
             expected_generation=expected_generation,
             expected_session_id=expected_session_id,
             message_id=message_id,
+            source_event_id=source_event_id,
         )
 
     def review_worker_candidate(

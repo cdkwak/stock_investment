@@ -46,6 +46,7 @@ class QueueTaskOwnership:
     reviewer: str | None
     domain: str | None
     updated_at: datetime
+    title: str | None = None
 
     def __post_init__(self) -> None:
         if _EXACT_TASK_ID.fullmatch(self.task_id) is None:
@@ -59,6 +60,16 @@ class QueueTaskOwnership:
             raise WorkflowContractError("queue reviewer identity is invalid")
         if self.domain is not None and _OWNER_ID.fullmatch(self.domain) is None:
             raise WorkflowContractError("queue ownership domain is invalid")
+        if self.title is not None:
+            if not isinstance(self.title, str):
+                raise WorkflowContractError("queue task title is invalid")
+            normalized_title = self.title.strip()
+            if (
+                not normalized_title
+                or len(normalized_title) > 160
+                or any(ord(character) < 32 for character in normalized_title)
+            ):
+                raise WorkflowContractError("queue task title is invalid")
         utc_text(self.updated_at)
 
 
@@ -234,6 +245,7 @@ class RequestQueueStatusAdapter:
                 lead_owner = item.get("lead_owner") or owner
                 reviewer = item.get("reviewer") if state == "review" else None
                 domain = item.get("domain")
+                title = item.get("title")
                 updated_at = item.get("updated_at")
                 if not isinstance(owner, str) or not isinstance(lead_owner, str):
                     raise QueueAdapterError("Queue current task owner is missing")
@@ -243,12 +255,14 @@ class RequestQueueStatusAdapter:
                     raise QueueAdapterError("Queue review task reviewer is missing")
                 if domain is not None and not isinstance(domain, str):
                     raise QueueAdapterError("Queue current task domain is invalid")
+                if title is not None and not isinstance(title, str):
+                    raise QueueAdapterError("Queue current task title is invalid")
                 if not isinstance(updated_at, str):
                     raise QueueAdapterError("Queue current task update time is missing")
                 try:
                     result.append(QueueTaskOwnership(
                         task_id, state, owner, lead_owner, reviewer, domain,
-                        parse_utc(updated_at),
+                        parse_utc(updated_at), title.strip() if title is not None else None,
                     ))
                 except (ValueError, WorkflowContractError) as error:
                     raise QueueAdapterError("Queue current task metadata failed validation") from error

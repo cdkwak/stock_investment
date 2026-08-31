@@ -1111,8 +1111,10 @@ def test_reconcile_restart_replay_safety_parts_1_to_10_persistent_control_plane(
     assert {item.task_id for item in snapshot.tasks} == {TASK_ID}
     assert snapshot.queue is not None and snapshot.queue.count("done") == 1
     assert len(snapshot.events) == 5
-    assert snapshot.pm_current_decision == "다음으로 맡길 일을 정리하고 있습니다."
-    assert snapshot.pm_next_action == "작업 목록과 최근 활동을 다시 확인합니다."
+    # Monitoring reports only persisted PM statements.  Queue/task state must
+    # never be rewritten as synthetic PM speech.
+    assert snapshot.pm_current_decision is None
+    assert snapshot.pm_next_action is None
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     dashboard = OperationsDashboard(lambda: snapshot, refresh_interval_ms=None)

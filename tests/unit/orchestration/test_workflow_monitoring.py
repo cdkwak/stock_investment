@@ -161,7 +161,7 @@ def test_worker_membership_without_an_exclusive_lead_is_unowned(tmp_path):
     )
 
 
-def test_queue_ownership_projects_idle_controller_without_inventing_workers(tmp_path):
+def test_queue_ownership_does_not_invent_pm_lead_reviewer_or_worker(tmp_path):
     now = datetime(2026, 8, 30, tzinfo=timezone.utc)
     workflow, _role, events = _sources(tmp_path, now)
     service = _activity_source(
@@ -176,6 +176,7 @@ def test_queue_ownership_projects_idle_controller_without_inventing_workers(tmp_
         (task_id,), 0,
         (QueueTaskOwnership(
             task_id, "active", "queue_owner", "queue_lead", None, "gui", now,
+            "운영 화면의 상태 표시를 바로잡습니다",
         ),),
     )
 
@@ -191,18 +192,13 @@ def test_queue_ownership_projects_idle_controller_without_inventing_workers(tmp_
         queue_adapter=OwnedQueue(),
     ).snapshot(observed_at=now)
 
-    assert [(role.role_key, role.state) for role in snapshot.pm] == [
-        ("canonical-queue-pm", "working"),
-    ]
-    assert [(role.role_key, role.active_task_id) for role in snapshot.leads] == [
-        ("queue_lead", task_id),
-    ]
+    assert len(snapshot.pm) == 1 and snapshot.pm[0].state == "idle"
+    assert snapshot.leads == ()
+    assert snapshot.reviewers == ()
     assert snapshot.workers == ()
     assert snapshot.tasks[0].owner == "queue_owner"
-    assert not any(
-        warning.code == "OWNERSHIP_CONFLICT" and "없습니다" in warning.message
-        for warning in snapshot.warnings
-    )
+    assert snapshot.tasks[0].human_title == "운영 화면의 상태 표시를 바로잡습니다"
+    assert any(warning.code == "LEAD_SESSION_MISSING" for warning in snapshot.warnings)
 
 
 def test_service_activity_roles_are_read_only(tmp_path):
@@ -217,7 +213,7 @@ def test_service_activity_roles_are_read_only(tmp_path):
     before = service.read_bytes()
     snapshot = MonitoringSnapshotAdapter(workflow_db=workflow, role_db=role, event_log=events, service_db=service, queue_adapter=FakeQueue(now)).snapshot(observed_at=now)
     assert len(snapshot.workers) == 1 and len(snapshot.reviewers) == 1
-    assert any(w.code == "DUPLICATE_PM_GENERATION" for w in snapshot.warnings)
+    assert not any(w.code == "DUPLICATE_PM_GENERATION" for w in snapshot.warnings)
     assert any(w.code == "OWNERSHIP_CONFLICT" and "없습니다" in w.message for w in snapshot.warnings)
     assert service.read_bytes() == before
 
@@ -235,6 +231,14 @@ def test_default_adapter_uses_canonical_python_pm_paths_not_legacy_registry(tmp_
         canonical, now,
         ("op-canonical-pm", "project_manager", None, "working", True),
         ("op-canonical-lead", "domain_lead", "RQ-20260830T120000-AB12", "working", True),
+    )
+    canonical_registry = RoleRegistry(canonical / "role_registry.sqlite3")
+    canonical_registry.claim(
+        RoleIdentity(
+            "project_manager", RoleKind.PROJECT_MANAGER, "pm-session",
+            "python-only", "workspace", None, "runtime",
+        ),
+        observed_at=now, lease_until=now + timedelta(minutes=1),
     )
     legacy = tmp_path / ".codex" / "workflow"
     legacy.mkdir(parents=True)
@@ -274,6 +278,24 @@ def test_default_adapter_projects_only_live_generation_then_one_latest_settled_p
     settled = MonitoringSnapshotAdapter(tmp_path, queue_adapter=FakeQueue(now)).snapshot(observed_at=now + timedelta(seconds=3))
     assert [(role.generation, role.state, role.active) for role in settled.pm] == [(2, "stopped", False)]
     assert not settled.leads and not settled.workers and not settled.reviewers
+
+
+def test_settled_operation_history_does_not_hide_registered_pm_session(tmp_path):
+    now = datetime(2026, 8, 30, tzinfo=timezone.utc)
+    workflow, role, events = _sources(tmp_path, now)
+    service = _activity_source(
+        tmp_path, now,
+        ("old-pm-operation", "project_manager", None, "stopped", False),
+    )
+
+    snapshot = MonitoringSnapshotAdapter(
+        workflow_db=workflow, role_db=role, event_log=events,
+        service_db=service, queue_adapter=FakeQueue(now),
+    ).snapshot(observed_at=now)
+
+    assert [(item.role_key, item.active) for item in snapshot.pm] == [
+        ("project_manager", True),
+    ]
 
 
 def test_canonical_projection_cap_never_trims_the_live_pm(tmp_path):
@@ -332,9 +354,9 @@ def test_snapshot_adds_safe_human_defaults_without_inventing_execution_roles(tmp
         workflow_db=workflow, role_db=role, event_log=events,
         queue_adapter=FakeQueue(now),
     ).snapshot(observed_at=now)
-    assert snapshot.pm_current_decision
-    assert snapshot.pm_next_action
-    assert snapshot.goal_summary
+    assert snapshot.pm_current_decision is None
+    assert snapshot.pm_next_action is None
+    assert snapshot.goal_summary is None
     assert snapshot.queue_action
     assert snapshot.proposal_state
     assert all(task.human_title and task.summary for task in snapshot.tasks)
@@ -342,3 +364,40 @@ def test_snapshot_adds_safe_human_defaults_without_inventing_execution_roles(tmp
     assert all(event.human_message for event in snapshot.events)
     # Display enrichment reads existing state only; no absent worker is made up.
     assert not snapshot.workers
+
+
+def test_queue_document_update_is_not_reported_as_agent_activity(tmp_path):
+    now = datetime(2026, 8, 30, tzinfo=timezone.utc)
+    task_id = "RQ-20260830T120000-AB12"
+    queue = QueueSnapshot(
+        now,
+        (("new", 0), ("waiting", 0), ("ready", 0), ("active", 1),
+         ("review", 0), ("blocked", 0), ("done", 0)),
+        (task_id,), 0,
+        (QueueTaskOwnership(
+            task_id, "active", "queue_owner", "queue_lead", None, "gui", now,
+            "문서만 있고 실행 세션은 없는 작업",
+        ),),
+    )
+
+    class DocumentOnlyQueue:
+        def read_snapshot(self, *, observed_at):
+            return QueueSnapshot(
+                observed_at, queue.state_counts, queue.active_task_ids,
+                queue.compacted_count, queue.current_tasks,
+            )
+
+    snapshot = MonitoringSnapshotAdapter(
+        workflow_db=tmp_path / "missing-workflow.sqlite3",
+        role_db=tmp_path / "missing-roles.sqlite3",
+        event_log=tmp_path / "missing-events.jsonl",
+        service_db=tmp_path / "missing-service.sqlite3",
+        queue_adapter=DocumentOnlyQueue(),
+    ).snapshot(observed_at=now)
+
+    assert snapshot.pm == snapshot.leads == snapshot.workers == snapshot.reviewers == ()
+    assert snapshot.tasks[0].last_activity is None
+    assert snapshot.tasks[0].updated_at == now
+    assert {warning.code for warning in snapshot.warnings} >= {
+        "PM_SESSION_MISSING", "LEAD_SESSION_MISSING",
+    }

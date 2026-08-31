@@ -315,6 +315,81 @@ class ReviewLoopReceipt:
         object.__setattr__(self, "receipt_digest", expected)
 
 
+@dataclass(frozen=True, slots=True)
+class PhaseBoundaryReceipt:
+    """Sanitized PM-only bridge from an accepted phase to a fresh contract."""
+
+    task_id: str
+    queue_generation: str
+    prior_queue_generation: str
+    prior_contract_digest: str
+    phase_a_candidate_digest: str
+    phase_a_review_digest: str
+    pm_role_key: str
+    pm_generation: int
+    prior_state: str
+    next_state: str
+    reason_code: str
+    receipt_digest: str = ""
+
+    def __post_init__(self) -> None:
+        if (
+            _TASK_ID.fullmatch(self.task_id) is None
+            or any(
+                _DIGEST.fullmatch(value) is None
+                for value in (
+                    self.queue_generation,
+                    self.prior_queue_generation,
+                    self.prior_contract_digest,
+                    self.phase_a_candidate_digest,
+                    self.phase_a_review_digest,
+                )
+            )
+            or _ROLE_KEY.fullmatch(self.pm_role_key) is None
+            or not isinstance(self.pm_generation, int)
+            or isinstance(self.pm_generation, bool)
+            or self.pm_generation < 1
+            or self.prior_state != "assigned"
+            or self.next_state != "replan_required"
+            or self.reason_code != "phase_a_pass_requires_phase_b_contract"
+        ):
+            raise WorkflowControllerError("phase-boundary receipt is invalid")
+        expected = _digest(self.to_dict(include_digest=False))
+        if self.receipt_digest and self.receipt_digest != expected:
+            raise WorkflowControllerError("phase-boundary receipt digest mismatch")
+        object.__setattr__(self, "receipt_digest", expected)
+
+    def to_dict(self, *, include_digest: bool = True) -> dict[str, object]:
+        value: dict[str, object] = {
+            "task_id": self.task_id,
+            "queue_generation": self.queue_generation,
+            "prior_queue_generation": self.prior_queue_generation,
+            "prior_contract_digest": self.prior_contract_digest,
+            "phase_a_candidate_digest": self.phase_a_candidate_digest,
+            "phase_a_review_digest": self.phase_a_review_digest,
+            "pm_role_key": self.pm_role_key,
+            "pm_generation": self.pm_generation,
+            "prior_state": self.prior_state,
+            "next_state": self.next_state,
+            "reason_code": self.reason_code,
+        }
+        if include_digest:
+            value["receipt_digest"] = self.receipt_digest
+        return value
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, object]) -> "PhaseBoundaryReceipt":
+        expected = {
+            "task_id", "queue_generation", "prior_queue_generation",
+            "prior_contract_digest", "phase_a_candidate_digest",
+            "phase_a_review_digest", "pm_role_key", "pm_generation",
+            "prior_state", "next_state", "reason_code", "receipt_digest",
+        }
+        if not isinstance(value, Mapping) or set(value) != expected:
+            raise WorkflowControllerError("phase-boundary receipt fields changed")
+        return cls(**dict(value))  # type: ignore[arg-type]
+
+
 class WorkflowController:
     """Consume ordered workflow facts and drive only an injected direct runner."""
 
@@ -556,6 +631,10 @@ class WorkflowController:
                 "CREATE TABLE IF NOT EXISTS review_receipt("
                 "operation_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, queue_generation TEXT NOT NULL, "
                 "worker_role_key TEXT NOT NULL, reviewer_role_key TEXT NOT NULL, payload TEXT NOT NULL)"
+            )
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS phase_boundary_receipt("
+                "task_id TEXT PRIMARY KEY, payload TEXT NOT NULL)"
             )
             connection.execute(
                 "CREATE TABLE IF NOT EXISTS role_wake_outbox("
@@ -1703,6 +1782,431 @@ class WorkflowController:
             ),
         )
 
+    def mark_task_replan_ready(
+        self,
+        *,
+        task_id: str,
+        expected_queue_generation: str,
+        expected_prior_contract_digest: str,
+        expected_phase_a_candidate_digest: str,
+        expected_phase_a_review_digest: str,
+        expected_prior_state: str,
+        reason_code: str,
+        pm_role_key: str,
+        pm_generation: int,
+        ) -> PhaseBoundaryReceipt:
+        """CAS one PM-approved accepted phase into the replan state.
+
+        The caller must separately verify the Queue-held Phase-A evidence before
+        invoking this controller method.  This durable receipt binds every
+        verified digest so a later contract cannot silently substitute it.
+        """
+
+        if (
+            _TASK_ID.fullmatch(task_id) is None
+            or any(
+                _DIGEST.fullmatch(value) is None
+                for value in (
+                    expected_queue_generation,
+                    expected_prior_contract_digest,
+                    expected_phase_a_candidate_digest,
+                    expected_phase_a_review_digest,
+                )
+            )
+            or expected_prior_state != "assigned"
+            or reason_code != "phase_a_pass_requires_phase_b_contract"
+        ):
+            raise WorkflowControllerError("phase-boundary pins are invalid")
+        pm = self._require_role(
+            pm_role_key,
+            pm_generation,
+            action=RoleAction.REPLAN,
+            expected_kind=RoleKind.PROJECT_MANAGER,
+        )
+        return self._run_generation_bound(
+            pm,
+            action=RoleAction.REPLAN,
+            expected_kind=RoleKind.PROJECT_MANAGER,
+            operation=lambda: self._mark_task_replan_ready_unlocked(
+                task_id=task_id,
+                expected_queue_generation=expected_queue_generation,
+                expected_prior_contract_digest=expected_prior_contract_digest,
+                expected_phase_a_candidate_digest=expected_phase_a_candidate_digest,
+                expected_phase_a_review_digest=expected_phase_a_review_digest,
+                expected_prior_state=expected_prior_state,
+                reason_code=reason_code,
+                pm_role_key=pm.identity.role_key,
+                pm_generation=pm.generation,
+            ),
+        )
+
+    def preflight_task_replan_ready(
+        self,
+        *,
+        task_id: str,
+        expected_queue_generation: str,
+        expected_prior_contract_digest: str,
+        expected_phase_a_candidate_digest: str,
+        expected_phase_a_review_digest: str,
+        expected_prior_state: str,
+        reason_code: str,
+        pm_role_key: str,
+        pm_generation: int,
+    ) -> PhaseBoundaryReceipt:
+        """Read-only exact proof for one subsequent PM phase-boundary CAS."""
+
+        if (
+            _TASK_ID.fullmatch(task_id) is None
+            or any(
+                _DIGEST.fullmatch(value) is None
+                for value in (
+                    expected_queue_generation,
+                    expected_prior_contract_digest,
+                    expected_phase_a_candidate_digest,
+                    expected_phase_a_review_digest,
+                )
+            )
+            or expected_prior_state != "assigned"
+            or reason_code != "phase_a_pass_requires_phase_b_contract"
+        ):
+            raise WorkflowControllerError("phase-boundary pins are invalid")
+        pm = self._require_role(
+            pm_role_key,
+            pm_generation,
+            action=RoleAction.REPLAN,
+            expected_kind=RoleKind.PROJECT_MANAGER,
+        )
+        return self._run_generation_bound(
+            pm,
+            action=RoleAction.REPLAN,
+            expected_kind=RoleKind.PROJECT_MANAGER,
+            operation=lambda: self._preflight_task_replan_ready_unlocked(
+                task_id=task_id,
+                expected_queue_generation=expected_queue_generation,
+                expected_prior_contract_digest=expected_prior_contract_digest,
+                expected_phase_a_candidate_digest=expected_phase_a_candidate_digest,
+                expected_phase_a_review_digest=expected_phase_a_review_digest,
+                expected_prior_state=expected_prior_state,
+                reason_code=reason_code,
+                pm_role_key=pm.identity.role_key,
+                pm_generation=pm.generation,
+            ),
+        )
+
+    @staticmethod
+    def preflight_task_replan_ready_at(
+        receipt_path: Path,
+        *,
+        task_id: str,
+        expected_queue_generation: str,
+        expected_prior_contract_digest: str,
+        expected_phase_a_candidate_digest: str,
+        expected_phase_a_review_digest: str,
+        expected_prior_state: str,
+        reason_code: str,
+        pm_role_key: str,
+        pm_generation: int,
+    ) -> PhaseBoundaryReceipt:
+        """Read-only PM preflight without constructing a writable service."""
+
+        if (
+            _TASK_ID.fullmatch(task_id) is None
+            or any(
+                _DIGEST.fullmatch(value) is None
+                for value in (
+                    expected_queue_generation,
+                    expected_prior_contract_digest,
+                    expected_phase_a_candidate_digest,
+                    expected_phase_a_review_digest,
+                )
+            )
+            or expected_prior_state != "assigned"
+            or reason_code != "phase_a_pass_requires_phase_b_contract"
+            or not isinstance(pm_generation, int)
+            or isinstance(pm_generation, bool)
+            or pm_generation < 1
+        ):
+            raise WorkflowControllerError("phase-boundary pins are invalid")
+        path = Path(receipt_path)
+        registry_path = path.with_name("role_registry.sqlite3")
+        if not path.is_file() or not registry_path.is_file():
+            raise WorkflowControllerError("phase-boundary preflight is unavailable")
+        try:
+            with sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True) as connection:
+                connection.row_factory = sqlite3.Row
+                receipt_table = connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+                    "AND name = 'phase_boundary_receipt'"
+                ).fetchone()
+                existing = (
+                    connection.execute(
+                        "SELECT payload FROM phase_boundary_receipt WHERE task_id = ?",
+                        (task_id,),
+                    ).fetchone()
+                    if receipt_table is not None
+                    else None
+                )
+                task = connection.execute(
+                    "SELECT queue_generation, contract_digest, state FROM hierarchy_task "
+                    "WHERE task_id = ?", (task_id,)
+                ).fetchone()
+            with sqlite3.connect(registry_path.resolve().as_uri() + "?mode=ro", uri=True) as connection:
+                connection.row_factory = sqlite3.Row
+                pm = connection.execute(
+                    "SELECT role_kind, state, generation FROM role_registry WHERE role_key = ?",
+                    (pm_role_key,),
+                ).fetchone()
+        except sqlite3.Error as error:
+            raise WorkflowControllerError("phase-boundary preflight is unavailable") from error
+        if pm is None:
+            raise RoleRegistryError("role key is not registered")
+        if pm["generation"] != pm_generation:
+            raise StaleRoleGeneration("role generation changed")
+        if pm["state"] not in {RoleState.ACTIVE.value, RoleState.IDLE.value}:
+            raise RoleRegistryError("role is not available for mailbox work")
+        if pm["role_kind"] != RoleKind.PROJECT_MANAGER.value:
+            raise RoleRegistryError("role kind does not match the requested operation")
+        if existing is not None:
+            try:
+                receipt = PhaseBoundaryReceipt.from_dict(json.loads(str(existing["payload"])))
+            except (TypeError, ValueError, json.JSONDecodeError) as error:
+                raise MailboxConflict("phase-boundary receipt integrity failed") from error
+            expected = PhaseBoundaryReceipt(
+                task_id=task_id,
+                queue_generation=expected_queue_generation,
+                prior_queue_generation=receipt.prior_queue_generation,
+                prior_contract_digest=expected_prior_contract_digest,
+                phase_a_candidate_digest=expected_phase_a_candidate_digest,
+                phase_a_review_digest=expected_phase_a_review_digest,
+                pm_role_key=pm_role_key,
+                pm_generation=pm_generation,
+                prior_state=expected_prior_state,
+                next_state="replan_required",
+                reason_code=reason_code,
+            )
+            if (
+                receipt.to_dict() != expected.to_dict()
+                or task is None
+                or task["state"] != "replan_required"
+            ):
+                raise MailboxConflict("phase-boundary receipt rebound")
+            return receipt
+        if (
+            task is None
+            or task["contract_digest"] != expected_prior_contract_digest
+            or task["state"] != expected_prior_state
+            or _DIGEST.fullmatch(str(task["queue_generation"])) is None
+        ):
+            raise StaleQueueGeneration("phase-boundary task pins changed")
+        return PhaseBoundaryReceipt(
+            task_id=task_id,
+            queue_generation=expected_queue_generation,
+            prior_queue_generation=str(task["queue_generation"]),
+            prior_contract_digest=expected_prior_contract_digest,
+            phase_a_candidate_digest=expected_phase_a_candidate_digest,
+            phase_a_review_digest=expected_phase_a_review_digest,
+            pm_role_key=pm_role_key,
+            pm_generation=pm_generation,
+            prior_state=expected_prior_state,
+            next_state="replan_required",
+            reason_code=reason_code,
+        )
+
+    def _preflight_task_replan_ready_unlocked(
+        self,
+        *,
+        task_id: str,
+        expected_queue_generation: str,
+        expected_prior_contract_digest: str,
+        expected_phase_a_candidate_digest: str,
+        expected_phase_a_review_digest: str,
+        expected_prior_state: str,
+        reason_code: str,
+        pm_role_key: str,
+        pm_generation: int,
+    ) -> PhaseBoundaryReceipt:
+        uri = self.receipt_path.resolve().as_uri() + "?mode=ro"
+        try:
+            with sqlite3.connect(uri, uri=True) as connection:
+                connection.row_factory = sqlite3.Row
+                existing = connection.execute(
+                    "SELECT payload FROM phase_boundary_receipt WHERE task_id = ?",
+                    (task_id,),
+                ).fetchone()
+                task = connection.execute(
+                    "SELECT queue_generation, contract_digest, state FROM hierarchy_task "
+                    "WHERE task_id = ?", (task_id,)
+                ).fetchone()
+        except sqlite3.Error as error:
+            raise WorkflowControllerError("phase-boundary preflight is unavailable") from error
+        if existing is not None:
+            try:
+                receipt = PhaseBoundaryReceipt.from_dict(json.loads(str(existing["payload"])))
+            except (TypeError, ValueError, json.JSONDecodeError) as error:
+                raise MailboxConflict("phase-boundary receipt integrity failed") from error
+            expected = PhaseBoundaryReceipt(
+                task_id=task_id,
+                queue_generation=expected_queue_generation,
+                prior_queue_generation=receipt.prior_queue_generation,
+                prior_contract_digest=expected_prior_contract_digest,
+                phase_a_candidate_digest=expected_phase_a_candidate_digest,
+                phase_a_review_digest=expected_phase_a_review_digest,
+                pm_role_key=pm_role_key,
+                pm_generation=pm_generation,
+                prior_state=expected_prior_state,
+                next_state="replan_required",
+                reason_code=reason_code,
+            )
+            if receipt != expected or task is None or task["state"] != "replan_required":
+                raise MailboxConflict("phase-boundary receipt was rebound")
+            return receipt
+        if (
+            task is None
+            or task["contract_digest"] != expected_prior_contract_digest
+            or task["state"] != expected_prior_state
+            or _DIGEST.fullmatch(str(task["queue_generation"])) is None
+        ):
+            raise StaleQueueGeneration("phase-boundary task pins changed")
+        return PhaseBoundaryReceipt(
+            task_id=task_id,
+            queue_generation=expected_queue_generation,
+            prior_queue_generation=str(task["queue_generation"]),
+            prior_contract_digest=expected_prior_contract_digest,
+            phase_a_candidate_digest=expected_phase_a_candidate_digest,
+            phase_a_review_digest=expected_phase_a_review_digest,
+            pm_role_key=pm_role_key,
+            pm_generation=pm_generation,
+            prior_state=expected_prior_state,
+            next_state="replan_required",
+            reason_code=reason_code,
+        )
+
+    def _mark_task_replan_ready_unlocked(
+        self,
+        *,
+        task_id: str,
+        expected_queue_generation: str,
+        expected_prior_contract_digest: str,
+        expected_phase_a_candidate_digest: str,
+        expected_phase_a_review_digest: str,
+        expected_prior_state: str,
+        reason_code: str,
+        pm_role_key: str,
+        pm_generation: int,
+    ) -> PhaseBoundaryReceipt:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                existing = connection.execute(
+                    "SELECT payload FROM phase_boundary_receipt WHERE task_id = ?",
+                    (task_id,),
+                ).fetchone()
+                if existing is not None:
+                    try:
+                        receipt = PhaseBoundaryReceipt.from_dict(
+                            json.loads(str(existing["payload"]))
+                        )
+                    except (TypeError, ValueError, json.JSONDecodeError) as error:
+                        raise MailboxConflict(
+                            "phase-boundary receipt integrity failed"
+                        ) from error
+                    if receipt.to_dict() != PhaseBoundaryReceipt(
+                        task_id=task_id,
+                        queue_generation=expected_queue_generation,
+                        prior_queue_generation=receipt.prior_queue_generation,
+                        prior_contract_digest=expected_prior_contract_digest,
+                        phase_a_candidate_digest=expected_phase_a_candidate_digest,
+                        phase_a_review_digest=expected_phase_a_review_digest,
+                        pm_role_key=pm_role_key,
+                        pm_generation=pm_generation,
+                        prior_state=expected_prior_state,
+                        next_state="replan_required",
+                        reason_code=reason_code,
+                    ).to_dict():
+                        raise MailboxConflict("phase-boundary receipt was rebound")
+                    task = connection.execute(
+                        "SELECT state FROM hierarchy_task WHERE task_id = ?", (task_id,)
+                    ).fetchone()
+                    if task is None or task["state"] != "replan_required":
+                        raise MailboxConflict("phase-boundary state changed")
+                    connection.commit()
+                    return receipt
+
+                task = connection.execute(
+                    "SELECT queue_generation, contract_digest, state FROM hierarchy_task "
+                    "WHERE task_id = ?", (task_id,)
+                ).fetchone()
+                if (
+                    task is None
+                    or task["contract_digest"] != expected_prior_contract_digest
+                    or task["state"] != expected_prior_state
+                    or _DIGEST.fullmatch(str(task["queue_generation"])) is None
+                ):
+                    raise StaleQueueGeneration("phase-boundary task pins changed")
+                receipt = PhaseBoundaryReceipt(
+                    task_id=task_id,
+                    queue_generation=expected_queue_generation,
+                    prior_queue_generation=str(task["queue_generation"]),
+                    prior_contract_digest=expected_prior_contract_digest,
+                    phase_a_candidate_digest=expected_phase_a_candidate_digest,
+                    phase_a_review_digest=expected_phase_a_review_digest,
+                    pm_role_key=pm_role_key,
+                    pm_generation=pm_generation,
+                    prior_state=expected_prior_state,
+                    next_state="replan_required",
+                    reason_code=reason_code,
+                )
+                changed = connection.execute(
+                    "UPDATE hierarchy_task SET state = 'replan_required' "
+                    "WHERE task_id = ? AND state = ? AND contract_digest = ?",
+                    (task_id, expected_prior_state, expected_prior_contract_digest),
+                ).rowcount
+                if changed != 1:
+                    raise StaleQueueGeneration("phase-boundary task changed before transition")
+                connection.execute(
+                    "INSERT INTO phase_boundary_receipt(task_id, payload) VALUES (?, ?)",
+                    (
+                        task_id,
+                        _canonical(receipt.to_dict()),
+                    ),
+                )
+                connection.commit()
+                return receipt
+            except BaseException:
+                connection.rollback()
+                raise
+
+    def inspect_phase_boundary_receipt(
+        self, *, task_id: str
+    ) -> PhaseBoundaryReceipt:
+        return self.inspect_phase_boundary_receipt_at(self.receipt_path, task_id=task_id)
+
+    @staticmethod
+    def inspect_phase_boundary_receipt_at(
+        receipt_path: Path, *, task_id: str
+    ) -> PhaseBoundaryReceipt:
+        """Read a phase-boundary receipt through a SQLite read-only handle."""
+
+        if _TASK_ID.fullmatch(task_id) is None:
+            raise WorkflowControllerError("phase-boundary task id is invalid")
+        path = Path(receipt_path)
+        if not path.is_file():
+            raise WorkflowControllerError("phase-boundary receipt is absent")
+        try:
+            with sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True) as connection:
+                connection.row_factory = sqlite3.Row
+                row = connection.execute(
+                    "SELECT payload FROM phase_boundary_receipt WHERE task_id = ?", (task_id,)
+                ).fetchone()
+        except sqlite3.Error as error:
+            raise WorkflowControllerError("phase-boundary receipt is unavailable") from error
+        if row is None:
+            raise WorkflowControllerError("phase-boundary receipt is absent")
+        try:
+            return PhaseBoundaryReceipt.from_dict(json.loads(str(row["payload"])))
+        except (TypeError, ValueError, json.JSONDecodeError) as error:
+            raise MailboxConflict("phase-boundary receipt integrity failed") from error
+
     def _dispatch_task_contract_unlocked(
         self,
         contract: TaskContract,
@@ -2828,6 +3332,7 @@ class WorkflowController:
         expected_generation: int,
         expected_session_id: str,
         message_id: str | None = None,
+        source_event_id: str | None = None,
     ) -> str:
         """Resume one exact durable role through a retry-safe wake outbox.
 
@@ -2844,12 +3349,15 @@ class WorkflowController:
             raise StaleRoleGeneration("role generation or session changed")
         if message_id is not None and _IDENTIFIER.fullmatch(message_id) is None:
             raise WorkflowControllerError("wake message id is invalid")
+        if source_event_id is not None and _DIGEST.fullmatch(source_event_id) is None:
+            raise WorkflowControllerError("wake source event id is invalid")
         wake_id = "wake-" + _digest(
             {
                 "message_id": message_id,
                 "role_generation": expected_generation,
                 "role_key": role_key,
                 "session_id": expected_session_id,
+                "source_event_id": source_event_id,
             }
         )
         provenance = _digest({"wake_id": wake_id})
@@ -2989,6 +3497,7 @@ class WorkflowController:
                 role_generation=expected_generation,
                 session_id=expected_session_id,
                 provenance=provenance,
+                reconciliation_binding=source_event_id,
             )
             with self._connect() as connection:
                 connection.execute("BEGIN IMMEDIATE")

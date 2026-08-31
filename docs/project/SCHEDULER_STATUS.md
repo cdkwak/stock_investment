@@ -2,7 +2,7 @@
 
 상태: `현재 / 실환경 정의 확인 / 일부 운영 확인 대기`
 
-확인 시각: `2026-08-27 23:51 KST`
+확인 시각: `2026-08-31 14:46 KST`
 
 이 문서는 설치된 Windows 작업 스케줄러 정의, 실행 주기, 정의 불일치와
 통합 방향만 관리하는 짧은 현재 상태 문서다.
@@ -20,7 +20,8 @@
 ## 현재 요약
 
 관련 작업 정의는 **17개**다. **16개가 활성**, **1개가 비활성 과거 작업**이며,
-활성 작업은 Data 13개, 프로젝트 상태 동기화 1개, Telegram 2개다.
+활성 작업은 Data 13개, 프로젝트 상태 동기화 1개, Telegram 2개다. 실패한
+Python PM 이벤트 러너 작업은 containment를 위해 제거되어 이 수치에 없다.
 
 80개 Dataset Universe 가운데 **39개 자동화 활성 데이터셋이 19개 논리 레인에
 모두 연결**돼 있다. Windows Data 작업 수는 13개로 유지했고, 한국장 일별
@@ -129,6 +130,40 @@ transient 재시도 뒤 공급자 오류가 반복됐다. 이전 정상 데이�
 BOK 관찰 종료 뒤에는 8개까지 줄이는 것이다. 이 목표는 제안 상태이며,
 이번 변경에서는 데이터별 실패 격리와 발표 시각을 보존하기 위해 Windows
 작업 정의를 추가·삭제하지 않았다.
+
+## Python PM 이벤트 러너
+
+`STOCK_PROJECT_PYTHON_PM_EVENT_RUNNER`의 revision-4 정의는 프로젝트
+`pythonw.exe`로
+`scripts/maintenance/workflow_controller.py event-run-once`를 1분마다 한 번
+실행하고, `IgnoreNew`, 10분 wake 경계보다 긴 15분 작업 제한, 현재 사용자
+제한 권한과 정확한 소유권 표식을 사용한다. 콘솔 창, Orca, 공급자, 계좌,
+브로커 호출이나 Queue 파일 직접 변경 경로는 없다.
+
+이전 PT2M 실행은 부모 제한이 Codex wake 경계보다 짧아 실패했지만, 정확한
+terminal pin 공개 조정 proof로 `f4885fa...` generation은 recovered로 보존됐다.
+revision-4 Windows 작업은 `Install`=`PYTHON_PM_TASK_INSTALLED`,
+`Check`=`PYTHON_PM_TASK_OK`로 정확히 설치·readback 됐다. 이어진
+`a2f370...` material generation은 PM과 routed Lead의 direct wake receipt를
+모두 보존해 woken으로 완료됐다. 이어진 proof-bound replay도 PM/Lead receipt와
+pending 0으로 정산됐다. Queue lease heartbeat의 `updated_at`만 변한 경우는
+material key에서 제외하므로 새 wake generation을 만들지 않는다.
+
+Codex 앱 작업 ID는 조정 식별자로만 남고 무인 실행 대상으로 쓰지 않는다.
+PM과 라우팅 Lead는 별도 CLI 소유 세션으로 정확히 이관됐으며, 보류된
+material generation은 새 generation/session fingerprint로 재결합하되 완료
+처리하지 않는다. pending operation이 남은 dead-writer 상태는 기존
+`recover-stranded`를 그대로 사용한다. 현재처럼 자연 종료가 operation까지
+terminal failed로 정리한 상태는 공개 `reconcile-terminal --preflight-only`로
+exact prior generation/operation/request/profile/error/release pin, writer idle,
+boundary pending 0, OS mutex available을 먼저 확인하고, 같은 공개 명령의
+reconciliation receipt만 생성한다. 그 proof로 `event-recover-generation`이
+기존 실패를 보존하고 fresh generation을 연다. 이 절차와 revision-4 task의
+exact readback은 완료됐으며 PM/Lead receipt와 pending-zero/idle receipt도
+보존됐다. 이후 실제 Queue 또는 Listener material 변화만 새 bounded wake를
+시작한다. 새 Queue discovery 또는 triage count 변화가 live generation을 만들 수
+있으므로, pending-zero/idle은 매번 현재 공개 runner/controller status에서만
+주장한다.
 
 ## 읽기 전용 확인
 

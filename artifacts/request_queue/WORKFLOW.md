@@ -122,6 +122,71 @@ controller, injected direct Codex boundary, durable session runner and the
 canonical Queue manager. There is no console-dependent scheduler path and no
 transport fallback.
 
+The unattended extension observes only durable Queue/Listener generations.
+Its Windows task runs `workflow_controller.py event-run-once` under `pythonw`,
+so a scheduler tick has no visible console and exits after one bounded attempt.
+The task's fifteen-minute limit contains a ten-minute direct wake boundary and
+leaves time for durable settlement.
+Each invocation resumes at most one role. A two-role PM+Lead material
+generation uses two non-overlapping successful ticks, retaining the first wake
+receipt while the generation remains pending for the second.
+It never adopts an app-created Codex task as an execution target. Exact
+`bootstrap-role` migration replaces a coordination-only PM/Lead identity with
+a separately launched CLI-owned persistent session, preserves the outstanding
+material generation, and proves CLI ownership before any resume. Unknown,
+stale, active-writer, or mismatched identities have zero wake and Queue effects.
+Before that migration, only PM may CAS-replace one exact stale app-owned active
+Lead, pinned to the current PM/Lead generations, session identities, runtime and
+worktree. The replacement retains hierarchy and Queue/Dispatch assignment while
+advancing the Lead generation; the Lead cannot replace itself.
+Bootstrap attempts 1 through 9 are initialization-only; malformed or
+out-of-range attempt events fail before process launch.
+An uncertain operation exposes an exact hashed pin through public status.
+`recover-stranded --preflight-only` uses the writer OS mutex as process-liveness
+evidence and has zero effects while the process is live. After natural exit,
+exact public recovery fences the boundary operation and writer; only its
+durable recovery proof can preserve the failed generation and rotate a fresh
+material epoch. When natural exit has already terminally failed the exact
+session operation, released the latest service generation, cleared the writer
+lease, and left boundary pending zero, `reconcile-terminal --preflight-only`
+instead verifies the exact owner/generation, request, workspace profile, error
+code, release reason and available OS mutex. The public reconciliation writes
+only its sanitized idempotent receipt. Event recovery accepts either exact
+public proof, preserves the original failed attempt, and rejects any stale pin,
+state, profile or liveness mismatch. Direct database edits, process
+termination, and replay of the failed operation remain unsupported.
+Future terminal Codex process failures cross a separate fail-closed diagnostic
+boundary at process execution. The boundary streams and hashes all stdout and
+stderr bytes, retains only a bounded process-local parser prefix, and durably
+stores only a versioned receipt pinned to the exact operation, request, role
+generation and execution profile. The receipt exposes an allowlisted reason,
+full-stream byte length and digest, parser/truncation flags and its own digest;
+it never stores or returns raw JSONL, stdout, stderr, prompts, responses,
+transcripts, session IDs, paths, hooks, secrets or account data. Only an
+explicit structured `model_capacity` failure code classifies as
+`model_capacity`; malformed, oversized, mixed, missing or unsupported evidence
+is `unknown_failure`, and timeout is never inferred from output text. Public
+`process-event-status` is read-only and exact-replay idempotent; changed bytes,
+pins, profile or receipt digest fail closed with no wake, session, Queue,
+scheduler or recovery effect. The pre-receipt failed generation `f4885fa...`
+was subsequently reconciled through its exact public terminal pins and retained
+as recovered evidence; it is not pending and is not retrospectively classified.
+When an accepted Queue Phase-A checkpoint must authorize a different immutable
+TaskContract, the public PM-only `mark-task-replan-ready` boundary first reads
+the canonical active Queue status and its bounded Phase-A handoff evidence. It
+then CASes only the matching hierarchy task from `assigned` to
+`replan_required`, retaining a sanitized receipt pinned to the Queue generation,
+prior contract, candidate and review digests, PM generation, and one fixed
+reason code. Exact replay returns that receipt; a changed caller, state, pin,
+reason, Queue record, or Phase-A handoff fails before mutation. The boundary
+does not alter Queue files, role sessions or generations, assignments, mailbox,
+wake outbox, event ledger, service writer, scheduler, or process output. Only a
+subsequent fresh PM TaskContract can leave the replan state.
+Live PM+Lead wake receipts and exact task readback are retained with zero
+pending generations. Queue heartbeat timestamps are excluded from the material
+generation key; a later true Queue or Listener change is required for another
+wake.
+
 Orca appears only in denied legacy migration/history: historical locator fields
 may be retained as inert identifiers while old receipts are migrated or read,
 but they are never executed, queried for liveness, used for wake/recovery, or
