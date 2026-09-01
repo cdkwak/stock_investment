@@ -5482,24 +5482,37 @@ class DashboardPreferencesDialog(QtWidgets.QDialog):
 class MarketSummaryCard(QtWidgets.QFrame):
     """Consumer-facing group of already-gated market observations."""
 
+    details_requested = QtCore.Signal()
+
     def __init__(self, title: str, parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("marketSummaryCard")
         self.setAccessibleName(title)
         self.setMinimumWidth(0)
-        self.setMinimumHeight(104)
+        self.setMinimumHeight(118)
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(12, 9, 12, 9)
         layout.setSpacing(3)
+        header = QtWidgets.QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
         self.title = QtWidgets.QLabel(title)
         self.title.setObjectName("marketSummaryTitle")
+        self.details_button = QtWidgets.QToolButton()
+        self.details_button.setText("세부 근거")
+        self.details_button.setObjectName("marketSummaryDetails")
+        self.details_button.setAccessibleName(f"{title} 세부 근거 펼치기")
+        self.details_button.setFocusPolicy(QtCore.Qt.StrongFocus)
+        self.details_button.clicked.connect(self.details_requested)
+        header.addWidget(self.title)
+        header.addStretch()
+        header.addWidget(self.details_button)
         self.body = QtWidgets.QLabel("확인 가능한 최신 값 없음")
         self.body.setObjectName("marketSummaryValue")
         self.body.setWordWrap(True)
         self.meta = QtWidgets.QLabel("최신 완료 세션 확인 중")
         self.meta.setObjectName("compactMeta")
         self.meta.setWordWrap(True)
-        layout.addWidget(self.title)
+        layout.addLayout(header)
         layout.addWidget(self.body, 1)
         layout.addWidget(self.meta)
 
@@ -5511,8 +5524,8 @@ class MarketSummaryCard(QtWidgets.QFrame):
 
 
 class DashboardPage(QtWidgets.QScrollArea):
-    COMPACT_MARKET_CARD_HEIGHT = 112
-    DETAIL_MARKET_CARD_HEIGHT = 112
+    COMPACT_MARKET_CARD_HEIGHT = 136
+    DETAIL_MARKET_CARD_HEIGHT = 148
     """Visual-acceptance layout; all numeric inputs remain typed and gated."""
 
     market_chart_requested = QtCore.Signal(str, str)
@@ -5523,6 +5536,18 @@ class DashboardPage(QtWidgets.QScrollArea):
         ("GOLD", "GOLD"), ("WTI", "WTI"), ("BITCOIN", "BITCOIN"),
         ("USD_KRW_60M", "USD/KRW"),
     )
+    MARKET_SUMMARY_GROUPS = {
+        "KOREA": (("KOSPI", "KOSPI"), ("KOSDAQ", "KOSDAQ")),
+        "US_RISK": (
+            ("SP500", "S&P 500"), ("NQ_FUTURES", "Nasdaq 100 선물"),
+            ("NASDAQ", "Nasdaq"), ("SOXX", "SOXX"),
+        ),
+        "FX_COMMODITIES": (
+            ("USD_KRW_60M", "USD/KRW"), ("GOLD", "금 선물"),
+            ("WTI", "WTI 선물"),
+        ),
+        "DIGITAL": (("BITCOIN", "Bitcoin"),),
+    }
     CHART_METRICS = {
         "KOSPI": "KOSPI", "KOSDAQ": "KOSDAQ",
         "Nasdaq 100": "NDX", "Nasdaq 100 Futures": "NQ_FUTURES",
@@ -5629,10 +5654,13 @@ class DashboardPage(QtWidgets.QScrollArea):
         today_layout.setSpacing(6)
         self.today_title = QtWidgets.QLabel("오늘의 판단")
         self.today_title.setObjectName("todayTitle")
+        self.today_title.setAccessibleName("오늘의 판단")
         today_layout.addWidget(self.today_title)
-        today_columns = QtWidgets.QHBoxLayout()
-        self.today_columns = today_columns
-        today_columns.setSpacing(18)
+        self.today_sections_layout = QtWidgets.QGridLayout()
+        self.today_sections_layout.setContentsMargins(0, 0, 0, 0)
+        self.today_sections_layout.setHorizontalSpacing(18)
+        self.today_sections_layout.setVerticalSpacing(10)
+        self.today_section_widgets: list[QtWidgets.QWidget] = []
 
         def add_today_section(heading: str, body: str) -> tuple[QtWidgets.QLabel, QtWidgets.QLabel]:
             section = QtWidgets.QWidget()
@@ -5643,11 +5671,15 @@ class DashboardPage(QtWidgets.QScrollArea):
             title_label.setObjectName("todaySectionTitle")
             body_label = QtWidgets.QLabel(body)
             body_label.setObjectName("todaySectionBody")
+            body_label.setAccessibleName(heading)
             body_label.setWordWrap(True)
             body_label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
             section_layout.addWidget(title_label)
             section_layout.addWidget(body_label, 1)
-            today_columns.addWidget(section, 1)
+            self.today_section_widgets.append(section)
+            self.today_sections_layout.addWidget(
+                section, 0, len(self.today_section_widgets) - 1,
+            )
             return title_label, body_label
 
         self.today_verified_heading, self.today_verified = add_today_section(
@@ -5660,9 +5692,10 @@ class DashboardPage(QtWidgets.QScrollArea):
         self.today_unknown_heading, self.today_unknown = add_today_section(
             "아직 확인할 수 없는 것", "확인되지 않은 숫자는 표시하지 않습니다."
         )
-        today_layout.addLayout(today_columns)
+        today_layout.addLayout(self.today_sections_layout)
         self.expected_date_explanation = QtWidgets.QLabel(
-            "예상일=최신 완료 세션 · 오늘 날짜가 아니라 공급자 계약상 완료 대상일입니다."
+            "예상일은 오늘 날짜가 아니라, 공급자 계약상 가장 최근에 "
+            "완료되었어야 하는 세션을 뜻합니다."
         )
         self.expected_date_explanation.setObjectName("todayFootnote")
         self.expected_date_explanation.setWordWrap(True)
@@ -5688,6 +5721,11 @@ class DashboardPage(QtWidgets.QScrollArea):
         self.market_details_button.setToolTip(
             "국내·미국·환율·원자재·디지털 자산의 개별 로컬 카드를 펼칩니다."
         )
+        self.market_details_button.setFocusPolicy(QtCore.Qt.StrongFocus)
+        for card in self.market_summary_cards.values():
+            card.details_requested.connect(
+                lambda button=self.market_details_button: button.setChecked(True)
+            )
         root.addWidget(self.market_details_button, alignment=QtCore.Qt.AlignLeft)
 
         self.market_cards = {key: CompactMetricCard(label) for key, label in self.TOP_METRICS}
@@ -5714,7 +5752,7 @@ class DashboardPage(QtWidgets.QScrollArea):
             card.title.setSizePolicy(
                 QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred,
             )
-            card.title.setStyleSheet("font-size:10px;")
+            card.title.setStyleSheet("font-size:14px;")
             card.title.setFixedHeight(14)
             card.header_layout.setStretch(0, 1)
             card.header_layout.setStretch(1, 0)
@@ -5723,7 +5761,7 @@ class DashboardPage(QtWidgets.QScrollArea):
             card.meta.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
             card.meta.setMinimumWidth(0)
             card.meta.setMaximumWidth(16_777_215)
-            card.meta.setStyleSheet("font-size:10px;")
+            card.meta.setStyleSheet("font-size:14px;")
             card.meta.show()
             card.badge.hide()
             # Ten market cards must remain readable in one desktop row.  Give
@@ -5732,7 +5770,7 @@ class DashboardPage(QtWidgets.QScrollArea):
             # used by the reference UI.
             card.detail_layout.removeWidget(card.sparkline)
             card.root_layout.addWidget(card.sparkline)
-            card.body.setStyleSheet("font-size:10px;")
+            card.body.setStyleSheet("font-size:14px;")
             card.text_layout.setSpacing(0)
             card.body.setFixedHeight(card.body.fontMetrics().lineSpacing() * 3)
             card.sparkline.setMinimumWidth(0)
@@ -5746,10 +5784,7 @@ class DashboardPage(QtWidgets.QScrollArea):
             top_strip.addWidget(self.market_cards[key], 0, column)
         root.addWidget(self.top_widget)
         self.top_widget.hide()
-        self.market_details_button.toggled.connect(self.top_widget.setVisible)
-        self.market_details_button.toggled.connect(
-            lambda _checked: QtCore.QTimer.singleShot(0, self._apply_dashboard_density)
-        )
+        self.market_details_button.toggled.connect(self._set_market_details_expanded)
 
         body_widget = QtWidgets.QWidget()
         self.body_widget = body_widget
@@ -6197,7 +6232,7 @@ class DashboardPage(QtWidgets.QScrollArea):
             card.setSizePolicy(
                 QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Fixed,
             )
-            card.setFixedHeight(70)
+            card.setFixedHeight(100)
             card.title.setMinimumWidth(0)
             card.title.setWordWrap(True)
             card.title.setSizePolicy(
@@ -6242,6 +6277,8 @@ class DashboardPage(QtWidgets.QScrollArea):
         self.market_chart.addItem(self._crosshair, ignoreBounds=True)
         self._crosshair.hide()
         self._hover_proxy = pg.SignalProxy(self.market_chart.scene().sigMouseMoved, rateLimit=30, slot=self._mouse_moved)
+        self._render_today_decision()
+        self._render_market_summaries()
         self.apply_preferences(DEFAULT_PREFERENCES)
         self.market_details_button.setChecked(False)
         self.top_widget.hide()
@@ -6321,6 +6358,128 @@ class DashboardPage(QtWidgets.QScrollArea):
         self.freshness.setAccessibleName("Dashboard 통합 갱신 상태")
         self.freshness.setToolTip(_refresh_projection_tooltip(projection))
 
+    def _render_today_decision(self) -> None:
+        """Render only the accepted summary boundary, never inferred advice."""
+        self.today_verified.setText(
+            "검증된 오늘 요약이 아직 없습니다. 아래 시장 요약에서 최신 완료 "
+            "세션의 개별 근거를 확인하세요."
+        )
+        self.today_verified.setToolTip(
+            "accepted_summary=NO_OUTPUT\n"
+            "source=로컬 Daily Market Summary 계약\n"
+            "검증된 MARKET_STATE 결과가 선택될 때까지 숫자나 서술형 판단을 만들지 않습니다."
+        )
+        self.today_verified.setAccessibleDescription(
+            "검증된 오늘 요약 없음 · 숫자와 투자 판단 표시 없음"
+        )
+        self.today_account.setText(
+            "시장 변화와 계좌 값은 자동 연결하지 않습니다. 계좌에서 보유 비중을 "
+            "따로 확인하세요."
+        )
+        self.today_account.setToolTip(
+            "계좌 식별자·보유 금액·시장 수치를 결합하거나 투자 의미를 추론하지 않습니다."
+        )
+        self.today_unknown.setText(
+            "시장과 계좌를 잇는 검증 근거가 없어 보유 영향과 다음 행동을 판단하지 "
+            "않습니다. 다음 확인: 시장 상세에서 출처와 기준일을 확인하세요."
+        )
+        self.today_unknown.setToolTip(
+            "검증된 요약 결과가 생기기 전까지 하나의 숫자도 판단 근거로 승격하지 않습니다."
+        )
+
+    @staticmethod
+    def _summary_metric_value(metric: DashboardMetricView | None) -> float | None:
+        """Return a finite value only when visible provenance is complete."""
+        if (
+            metric is None
+            or not metric.displays_value
+            or not metric.as_of
+            or not metric.source
+            or not metric.unit
+        ):
+            return None
+        try:
+            value = float(metric.value)
+        except (TypeError, ValueError):
+            return None
+        return value if np.isfinite(value) else None
+
+    @staticmethod
+    def _summary_change_text(metric: DashboardMetricView) -> str:
+        def finite(value: object) -> float | None:
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                return None
+            return number if np.isfinite(number) else None
+
+        change = finite(metric.change)
+        change_pct = finite(metric.change_pct)
+        if change is not None and change_pct is not None:
+            return f" · {change:+,.2f} ({change_pct:+.2f}%)"
+        if change is not None:
+            return f" · {change:+,.2f}"
+        if change_pct is not None:
+            return f" · {change_pct:+.2f}%"
+        return ""
+
+    def _render_market_summaries(self) -> None:
+        """Group the ten exact cards without weakening their display gates."""
+        for group_id, members in self.MARKET_SUMMARY_GROUPS.items():
+            card = self.market_summary_cards[group_id]
+            primary: tuple[str, DashboardMetricView, float] | None = None
+            detail_lines = []
+            for metric_id, label in members:
+                metric = self._metrics.get(metric_id)
+                value = self._summary_metric_value(metric)
+                if metric is None:
+                    detail_lines.append(
+                        f"{label}: value=N/A; source=N/A; as_of=N/A; "
+                        "freshness=UNKNOWN; reason=로컬 지표 없음"
+                    )
+                    continue
+                display_value = (
+                    f"{value:.5f}" if value is not None and metric.unit == "ratio"
+                    else _fmt(value) if value is not None else "N/A"
+                )
+                detail_lines.append(
+                    f"{label}: value={display_value if value is not None else 'N/A'}"
+                    f"{f' {metric.unit}' if value is not None else ''}; "
+                    f"source={metric.source}; as_of={metric.as_of or 'N/A'}; "
+                    f"expected={metric.expected_as_of or 'N/A'}; "
+                    f"freshness={metric.freshness}; pit={metric.pit_status}; "
+                    f"reason={metric.route if value is not None else metric.unavailable_reason or metric.route}"
+                )
+                if primary is None and value is not None:
+                    primary = (label, metric, value)
+
+            if primary is None:
+                card.set_content(
+                    [], "최신 완료 세션 확인 필요", "\n".join(detail_lines),
+                )
+                continue
+            label, metric, value = primary
+            display_value = f"{value:.5f}" if metric.unit == "ratio" else _fmt(value)
+            card.set_content(
+                [
+                    f"{label} {display_value} {metric.unit}"
+                    f"{self._summary_change_text(metric)}"
+                ],
+                f"{_freshness_label(metric.freshness)} · 최신 완료 세션 {metric.as_of}",
+                "\n".join(detail_lines),
+            )
+
+    def _set_market_details_expanded(self, expanded: bool) -> None:
+        visible_count = len(getattr(self, "_visible_market_card_ids", ()))
+        self.top_widget.setVisible(bool(expanded and visible_count))
+        self.market_details_button.setText(
+            "시장 상세 접기" if expanded else f"시장 상세 {visible_count}개 보기"
+        )
+        self.market_details_button.setAccessibleName(
+            "시장별 상세 카드 접기" if expanded else "시장별 상세 카드 펼치기"
+        )
+        QtCore.QTimer.singleShot(0, self._apply_dashboard_density)
+
     def apply_preferences(self, preferences: DashboardPreferences) -> None:
         """Apply presentation state without reading data or emitting reloads."""
         self._preferences = preferences
@@ -6362,11 +6521,10 @@ class DashboardPage(QtWidgets.QScrollArea):
             card.comparison.setVisible(detail)
             if identifier == "VIX":
                 card.meta.setVisible(detail)
-        self.top_widget.setFixedHeight(card_height if visible_cards else 0)
-        self.top_widget.setVisible(
-            bool(visible_cards) and self.market_details_button.isChecked()
-        )
         self._visible_market_card_ids = tuple(visible_cards)
+        self.top_widget.setFixedHeight(card_height if visible_cards else 0)
+        self.market_details_button.setEnabled(bool(visible_cards))
+        self._set_market_details_expanded(self.market_details_button.isChecked())
         hidden_labels = [
             _DASHBOARD_CARD_LABELS[item]
             for item in preferences.card_order if item in preferences.hidden_cards
@@ -6495,6 +6653,31 @@ class DashboardPage(QtWidgets.QScrollArea):
             market_columns, derivative_columns = 2, 2
             left_stretch, side_stretch = 1, 1
 
+        # The optional legacy detail cards retain the 14 px Korean text floor.
+        # Ten columns are therefore reserved for genuinely ultra-wide windows;
+        # common desktop widths use two readable rows instead of clipping text.
+        market_columns = (
+            10 if layout_width >= 2200 else
+            5 if viewport_width >= 1180 else
+            4 if viewport_width >= 900 else
+            2
+        )
+
+        summary_columns = 4 if viewport_width >= 1180 else 2 if viewport_width >= 700 else 1
+        for card in self.market_summary_cards.values():
+            self.market_summary_layout.removeWidget(card)
+        for index, card in enumerate(self.market_summary_cards.values()):
+            self.market_summary_layout.addWidget(
+                card, index // summary_columns, index % summary_columns,
+            )
+        today_columns = 3 if viewport_width >= 1180 else 1
+        for section in self.today_section_widgets:
+            self.today_sections_layout.removeWidget(section)
+        for index, section in enumerate(self.today_section_widgets):
+            self.today_sections_layout.addWidget(
+                section, index // today_columns, index % today_columns,
+            )
+
         narrow = viewport_width < 900
         self.subtitle.setVisible(not narrow)
         self.preference_status.setVisible(viewport_width >= 1180)
@@ -6503,18 +6686,6 @@ class DashboardPage(QtWidgets.QScrollArea):
             if narrow else QtWidgets.QBoxLayout.LeftToRight
         )
         self.market_session_strip.setFixedHeight(58 if narrow else 38)
-
-        summary_columns = 4 if viewport_width >= 1180 else 2
-        for card in self.market_summary_cards.values():
-            self.market_summary_layout.removeWidget(card)
-        for index, card in enumerate(self.market_summary_cards.values()):
-            self.market_summary_layout.addWidget(
-                card, index // summary_columns, index % summary_columns,
-            )
-        self.today_columns.setDirection(
-            QtWidgets.QBoxLayout.TopToBottom
-            if narrow else QtWidgets.QBoxLayout.LeftToRight
-        )
 
         visible_market_ids = getattr(self, "_visible_market_card_ids", ())
         for card in self.market_cards.values():
@@ -6529,6 +6700,12 @@ class DashboardPage(QtWidgets.QScrollArea):
             if visible_market_ids else 0
         )
         preferences = getattr(self, "_preferences", DEFAULT_PREFERENCES)
+        for card in self.market_cards.values():
+            # Stylesheets materialize their final metrics only after polish.
+            # Recompute the reserved lines on every density pass so 14 px text
+            # and later OS font scaling cannot be clipped by startup metrics.
+            card.title.setFixedHeight(max(14, card.title.fontMetrics().lineSpacing()))
+            card.body.setFixedHeight(card.body.fontMetrics().lineSpacing() * 3)
         card_height = (
             self.DETAIL_MARKET_CARD_HEIGHT
             if preferences.density == "DETAIL"
@@ -6551,7 +6728,7 @@ class DashboardPage(QtWidgets.QScrollArea):
             if visible_derivatives else 0
         )
         derivative_height = (
-            34 + derivative_rows * 70 + max(derivative_rows - 1, 0) * 6
+            34 + derivative_rows * 100 + max(derivative_rows - 1, 0) * 6
             if not self.derivatives_panel.isHidden() else 0
         )
         self.derivatives_panel.setFixedHeight(derivative_height)
@@ -7238,6 +7415,8 @@ class DashboardPage(QtWidgets.QScrollArea):
                 self.rate_rows[row_key].set_treasury_view(
                     rate_view, None, self._series.get(series_key),
                 )
+        self._render_today_decision()
+        self._render_market_summaries()
 
     def render(self, data: dict) -> None:
         self._render_market_session_bar(
@@ -7331,6 +7510,8 @@ class DashboardPage(QtWidgets.QScrollArea):
             key: {"status": metric.freshness, "source": metric.source}
             for key, metric in self._metrics.items()
         }
+        self._render_today_decision()
+        self._render_market_summaries()
 
         flow_views = {
             key: value for key, value in data.get("market_flow_views", {}).items()
@@ -13671,7 +13852,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._candidate_scan_started = False
         self._detached_windows: set[DetachedChartWindow] = set()
         self._closing = False
-        self.setWindowTitle("Stock Investment · Market Overview"); self.resize(1600,900); self.setMinimumSize(900,640)
+        self.setWindowTitle("Stock Investment · 오늘의 시장"); self.resize(1600,900); self.setMinimumSize(900,640)
         tabs = QtWidgets.QTabWidget()
         self.tabs = tabs
         self.decision_cockpit_page = DecisionCockpitPage()
@@ -13724,13 +13905,20 @@ class MainWindow(QtWidgets.QMainWindow):
             tabs.setTabVisible(tabs.indexOf(page), False)
         tabs.setCurrentWidget(self.dashboard)
         self.analysis_tools_button = QtWidgets.QToolButton()
+        self.analysis_tools_button.setObjectName("analysisToolsButton")
         self.analysis_tools_button.setText("분석 도구")
         self.analysis_tools_button.setAccessibleName("분석 도구 메뉴")
         self.analysis_tools_button.setToolTip(
             "판단 근거, 데이터 상태, 리서치, 백테스트를 엽니다."
         )
+        self.analysis_tools_button.setFocusPolicy(QtCore.Qt.StrongFocus)
         self.analysis_tools_button.setPopupMode(QtWidgets.QToolButton.InstantPopup)
         self.analysis_tools_menu = QtWidgets.QMenu(self.analysis_tools_button)
+        self.analysis_tools_action_group = QtGui.QActionGroup(self)
+        self.analysis_tools_action_group.setExclusive(True)
+        self._analysis_tool_entries: list[
+            tuple[str, QtWidgets.QWidget, QtGui.QAction]
+        ] = []
         for label, page in (
             ("판단 근거", self.decision_cockpit_page),
             ("데이터 상태", self.data_status_page),
@@ -13738,11 +13926,16 @@ class MainWindow(QtWidgets.QMainWindow):
             ("백테스트", self.backtest_page),
         ):
             action = self.analysis_tools_menu.addAction(label)
+            action.setCheckable(True)
+            self.analysis_tools_action_group.addAction(action)
             action.triggered.connect(
-                lambda _checked=False, target=page: self.tabs.setCurrentWidget(target)
+                lambda _checked=False, target=page: self._open_analysis_tool(target)
             )
+            self._analysis_tool_entries.append((label, page, action))
         self.analysis_tools_button.setMenu(self.analysis_tools_menu)
         tabs.setCornerWidget(self.analysis_tools_button, QtCore.Qt.TopRightCorner)
+        tabs.currentChanged.connect(self._sync_analysis_tool_navigation)
+        self._sync_analysis_tool_navigation(tabs.currentIndex())
         self.global_symbol_switcher = GlobalSymbolSwitcher(self)
         self.global_symbol_switcher.search_requested.connect(
             lambda query: self._request_equity_job("global_search", query)
@@ -13906,7 +14099,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._close_retry_timer.timeout.connect(self._retry_pending_close)
         tabs.setAccessibleName("주요 화면")
         self.setStyleSheet("""
-            QWidget { background:#f4f7fb; color:#132238; font-size:9.75pt; }
+            QWidget { background:#f4f7fb; color:#152033; font-size:10.5pt; }
             QLabel { background:transparent; }
             QFrame#panel, QFrame#card { background:#ffffff; border:1px solid #d7e0eb; border-radius:9px; }
             QFrame#card { padding:7px; }
@@ -13920,58 +14113,70 @@ class MainWindow(QtWidgets.QMainWindow):
             QLabel#marketSummaryTitle { color:#526177; font-size:14px; font-weight:700; }
             QLabel#marketSummaryValue { color:#152033; font-size:15px; font-weight:700; }
             QFrame#compactCard[pinned="true"] { border:2px solid #2f6fb2; }
+            QFrame#todayPanel { background:#ffffff; border:1px solid #d8e0eb; border-radius:16px; }
+            QLabel#todayTitle { color:#152033; font-size:19px; font-weight:700; }
+            QLabel#todaySectionTitle { color:#245ea8; font-size:14px; font-weight:700; }
+            QLabel#todaySectionBody { color:#526177; font-size:15px; }
+            QLabel#todayFootnote { color:#66758c; font-size:14px; }
+            QFrame#marketSummaryCard { background:#ffffff; border:1px solid #d8e0eb; border-radius:12px; }
+            QLabel#marketSummaryTitle { color:#152033; font-size:16px; font-weight:700; }
+            QLabel#marketSummaryValue { color:#152033; font-size:16px; font-weight:700; }
             QFrame#rateRow { background:#f8fafc; border:1px solid #e0e7f0; border-radius:5px; }
             QFrame#rateGroup { background:#ffffff; border:1px solid #e0e7f0; border-radius:6px; }
             QFrame#indexInfo { background:#ffffff; border:1px solid #d7e0eb; border-radius:7px; }
             QFrame#chartStartCard { background:#f8fafc; border:1px dashed #9eb1c8; border-radius:9px; }
-            QLabel#indexSummary { color:#17375e; font-size:13px; font-weight:750; }
-            QLabel#indexMeta { color:#5e7188; font-size:11px; }
-            QLabel#indexLegend { color:#52677f; background:#eef4fa; border-radius:5px; padding:3px 7px; font-size:11px; }
-            QLabel#rateGroupTitle { color:#31506f; font-size:10px; font-weight:800; }
-            QLabel#rateChange { font-size:9px; font-weight:700; }
+            QLabel#indexSummary { color:#17375e; font-size:16px; font-weight:750; }
+            QLabel#indexMeta { color:#5e7188; font-size:14px; }
+            QLabel#indexLegend { color:#52677f; background:#eef4fa; border-radius:5px; padding:3px 7px; font-size:14px; }
+            QLabel#rateGroupTitle { color:#31506f; font-size:14px; font-weight:800; }
+            QLabel#rateChange { font-size:14px; font-weight:700; }
             QLabel#rateChange[tone="positive"] { color:#176b49; }
             QLabel#rateChange[tone="negative"] { color:#b4493a; }
             QLabel#rateChange[tone="neutral"] { color:#718198; }
             QFrame#unavailablePanel { background:#f8fafc; border:1px dashed #b9c7d8; border-radius:9px; }
-            QLabel#cardTitle { color:#53657b; font-weight:700; font-size:12px; }
-            QLabel#compactTitle { color:#52677f; font-weight:700; font-size:11px; }
-            QLabel#compactValue { color:#10233d; font-weight:800; font-size:14px; }
-            QLabel#compactMeta { color:#718198; font-size:10px; }
+            QLabel#cardTitle { color:#53657b; font-weight:700; font-size:14px; }
+            QLabel#compactTitle { color:#52677f; font-weight:700; font-size:14px; }
+            QLabel#compactValue { color:#10233d; font-weight:800; font-size:16px; }
+            QLabel#compactMeta { color:#718198; font-size:14px; }
             QFrame#marketSessionStrip { background:#ffffff; border:0; border-radius:0; }
-            QLabel#marketSessionText { color:#39414d; font-size:13px; font-weight:650; }
-            QLabel#indicatorLabel { color:#2b4059; font-size:11px; }
-            QLabel#indicatorState { border-radius:7px; padding:1px 6px; font-size:10px; font-weight:700; }
+            QLabel#marketSessionText { color:#39414d; font-size:14px; font-weight:650; }
+            QLabel#indicatorLabel { color:#2b4059; font-size:14px; }
+            QLabel#indicatorState { border-radius:7px; padding:1px 6px; font-size:14px; font-weight:700; }
             QLabel#indicatorState[tone="positive"] { color:#176b49; background:#e7f5ee; }
             QLabel#indicatorState[tone="negative"] { color:#a33f38; background:#fbeceb; }
             QLabel#indicatorState[tone="warning"] { color:#8a5b12; background:#fff3d6; }
             QLabel#indicatorState[tone="neutral"] { color:#42617f; background:#edf3f8; }
             QLabel#indicatorState[tone="unavailable"] { color:#718198; background:#f2f4f7; }
-            QLabel#flowHeader { color:#718198; font-size:9px; font-weight:700; }
-            QLabel#flowInvestor { color:#31506f; font-size:10px; font-weight:700; }
-            QLabel#flowValue { font-size:10px; font-weight:750; }
+            QLabel#flowHeader { color:#718198; font-size:14px; font-weight:700; }
+            QLabel#flowInvestor { color:#31506f; font-size:14px; font-weight:700; }
+            QLabel#flowValue { font-size:14px; font-weight:750; }
             QLabel#flowValue[tone="positive"] { color:#176b49; }
             QLabel#flowValue[tone="negative"] { color:#b4493a; }
             QLabel#flowValue[tone="neutral"] { color:#52677f; }
             QLabel#flowValue[tone="unavailable"] { color:#8a6b32; }
-            QLabel#momentumSummary { color:#17375e; background:#eef4fa; border-radius:7px; padding:6px 8px; font-size:11px; font-weight:700; }
-            QLabel#accountUnavailable { color:#718198; font-size:17px; font-weight:750; }
-            QLabel#statusBadge { background:#eaf1f8; color:#315a84; border-radius:5px; padding:2px 5px; font-size:9px; font-weight:700; }
+            QLabel#momentumSummary { color:#17375e; background:#eef4fa; border-radius:7px; padding:6px 8px; font-size:14px; font-weight:700; }
+            QLabel#accountUnavailable { color:#718198; font-size:19px; font-weight:750; }
+            QLabel#statusBadge { background:#eaf1f8; color:#315a84; border-radius:5px; padding:2px 5px; font-size:14px; font-weight:700; }
             QLabel#unavailableState { color:#755c29; font-size:16px; font-weight:800; }
-            QLabel#pageTitle { font-size:24px; font-weight:800; color:#10233d; }
+            QLabel#pageTitle { font-size:26px; font-weight:800; color:#10233d; }
             QLabel#pageSubtitle { color:#6b7d91; }
-            QLabel#sectionTitle { font-size:15px; font-weight:750; color:#17375e; }
+            QLabel#sectionTitle { font-size:19px; font-weight:750; color:#17375e; }
             QLabel#chartStatus { color:#5e7188; padding:4px; }
             QLabel#freshness { background:#fff8e8; border:1px solid #efd28a; border-radius:6px; padding:7px; color:#805b16; }
             QProgressBar { background:#edf1f6; border:0; border-radius:4px; }
             QProgressBar::chunk { background:#4e7ba9; border-radius:4px; }
-            QPushButton { background:#ffffff; border:1px solid #b9c7d8; border-radius:4px; padding:5px 9px; }
-            QPushButton:hover { background:#edf4fb; }
+            QPushButton, QToolButton { background:#ffffff; border:1px solid #b9c7d8; border-radius:8px; padding:6px 10px; }
+            QPushButton:hover, QToolButton:hover { background:#edf4fb; }
+            QPushButton:pressed, QToolButton:pressed { background:#dfeaf6; }
+            QPushButton:focus, QToolButton:focus { border:2px solid #245ea8; }
+            QToolButton#marketSummaryDetails { color:#245ea8; padding:4px 7px; }
+            QToolButton#analysisToolsButton { color:#245ea8; font-weight:700; }
             QComboBox, QCheckBox { background:#ffffff; border:1px solid #b9c7d8; padding:5px; border-radius:4px; }
-            QComboBox:focus, QCheckBox:focus, QTabBar::tab:focus { border:2px solid #2f6fb2; }
+            QComboBox:focus, QCheckBox:focus, QTabBar::tab:focus { border:2px solid #245ea8; }
             QTabWidget::pane { border:0; }
-            QTabBar::tab { padding:10px 18px; background:#eef3f8; color:#52677f; }
-            QTabBar::tab:selected { background:#ffffff; color:#174f88; font-weight:700; border-bottom:2px solid #2f6fb2; }
-            QTabWidget#marketFlowTabs QTabBar::tab { padding:3px 16px; font-size:10px; }
+            QTabBar::tab { padding:10px 18px; background:#eef3f8; color:#526177; font-size:14px; }
+            QTabBar::tab:selected { background:#ffffff; color:#245ea8; font-weight:700; border-bottom:2px solid #245ea8; }
+            QTabWidget#marketFlowTabs QTabBar::tab { padding:5px 16px; font-size:14px; }
             QHeaderView::section { background:#e8eef5; color:#243b55; padding:6px; border:1px solid #c9d4e1; }
             QTableWidget { background:#ffffff; gridline-color:#d7e0eb; alternate-background-color:#f7f9fc; }
         """)
@@ -13993,6 +14198,34 @@ class MainWindow(QtWidgets.QMainWindow):
         QtCore.QTimer.singleShot(0, self._request_account_snapshot)
         QtCore.QTimer.singleShot(0, self._reload_net_worth)
         QtCore.QTimer.singleShot(0, self.refresh_watchlist_quotes)
+
+    def _open_analysis_tool(self, page: QtWidgets.QWidget) -> None:
+        """Open one hidden advanced page while retaining visible wayfinding."""
+        self.tabs.setCurrentWidget(page)
+        self._sync_analysis_tool_navigation(self.tabs.currentIndex())
+
+    def _sync_analysis_tool_navigation(self, _index: int) -> None:
+        current = self.tabs.currentWidget()
+        selected_label: str | None = None
+        for label, page, action in self._analysis_tool_entries:
+            selected = current is page
+            action.setChecked(selected)
+            if selected:
+                selected_label = label
+        if selected_label is None:
+            self.analysis_tools_button.setText("분석 도구")
+            self.analysis_tools_button.setAccessibleName("분석 도구 메뉴")
+            self.analysis_tools_button.setAccessibleDescription(
+                "데이터 상태, 리서치, 백테스트와 판단 근거를 여는 고급 메뉴"
+            )
+            return
+        self.analysis_tools_button.setText("분석 도구")
+        self.analysis_tools_button.setAccessibleName(
+            f"분석 도구 메뉴 · 현재 {selected_label}"
+        )
+        self.analysis_tools_button.setAccessibleDescription(
+            f"현재 고급 화면은 {selected_label}입니다. 다른 분석 도구로 이동할 수 있습니다."
+        )
 
     def _closest_local_watch_path(self, target: Path) -> Path | None:
         """Return only an existing project-local target or its closest parent."""

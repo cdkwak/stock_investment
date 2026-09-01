@@ -63,19 +63,6 @@ from stock_data.gui.manual_account_store import (
 )
 from stock_data.orchestration.exchange_calendar import ExchangeMarket, ExchangeTradingCalendar
 from stock_data.orchestration.naver_remaining_session_windows import ensure_manifest, is_active
-from stock_data.orchestration.naver_mobile_home_ur191_windows import (
-    MANIFEST_PATH as UR191_MANIFEST_PATH,
-    STATE_PATH as UR191_STATE_PATH,
-    eligible_boundary as ur191_eligible_boundary,
-    manifest_payload as ur191_manifest_payload,
-)
-from stock_data.orchestration.naver_equity_ur199_windows import (
-    MANIFEST_PATH as UR203_MANIFEST_PATH,
-    STATE_PATH as UR203_STATE_PATH,
-    eligible_identities as ur203_eligible_identities,
-    manifest_payload as ur203_manifest_payload,
-)
-from stock_data.orchestration.nasdaq_soxx_ur193_windows import STATE_PATH as UR193_STATE_PATH
 from stock_data.orchestration.account_privacy import MASKED_VALUE
 from stock_data.orchestration.toss_account_snapshot import AccountRefreshTrigger
 from stock_data.providers.tossinvest import normalize_holdings_payload
@@ -275,6 +262,9 @@ def test_main_window_daily_navigation_is_human_first_and_keeps_tools_reachable(
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = MainWindow(tmp_path, toss_runtime_enabled=False)
     window.current_observation_reload_timer.stop()
+    window.resize(900, 640)
+    window.show()
+    app.processEvents()
 
     visible_labels = [
         window.tabs.tabText(index)
@@ -285,12 +275,38 @@ def test_main_window_daily_navigation_is_human_first_and_keeps_tools_reachable(
     assert window.tabs.currentWidget() is window.dashboard
     assert window.analysis_tools_button.text() == "분석 도구"
     assert window.analysis_tools_button.accessibleName() == "분석 도구 메뉴"
+    assert window.analysis_tools_button.focusPolicy() == QtCore.Qt.StrongFocus
     assert [action.text() for action in window.analysis_tools_menu.actions()] == [
         "판단 근거", "데이터 상태", "리서치", "백테스트",
     ]
+    assert all(action.isCheckable() for action in window.analysis_tools_menu.actions())
 
-    window.analysis_tools_menu.actions()[1].trigger()
-    assert window.tabs.currentWidget() is window.data_status_page
+    button_origin = window.analysis_tools_button.mapTo(window, QtCore.QPoint())
+    button_rect = QtCore.QRect(
+        button_origin, window.analysis_tools_button.size(),
+    )
+    assert window.rect().contains(button_rect)
+    assert window.analysis_tools_button.visibleRegion().boundingRect() == (
+        window.analysis_tools_button.rect()
+    )
+    for action, expected_page in zip(
+        window.analysis_tools_menu.actions(),
+        (
+            window.decision_cockpit_page,
+            window.data_status_page,
+            window.research_workspace_page,
+            window.backtest_page,
+        ),
+    ):
+        action.trigger()
+        assert window.tabs.currentWidget() is expected_page
+        assert window.analysis_tools_button.text() == "분석 도구"
+        assert action.text() in window.analysis_tools_button.accessibleName()
+        assert action.isChecked()
+    window.tabs.setCurrentWidget(window.dashboard)
+    assert window.analysis_tools_button.text() == "분석 도구"
+    assert not any(action.isChecked() for action in window.analysis_tools_menu.actions())
+    _drain_main_window_workers(app, window, timeout=30.0)
     window.close()
     app.processEvents()
 
@@ -1333,7 +1349,7 @@ def test_dashboard_has_one_direct_runtime_class_and_unified_chart_selector():
     app.processEvents()
 
 
-def test_dashboard_leads_with_today_decision_grouped_markets_and_plain_date_copy():
+def test_dashboard_leads_with_numeric_free_today_fallback_and_grouped_market_evidence():
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     page = DashboardPage()
 
@@ -1342,7 +1358,8 @@ def test_dashboard_leads_with_today_decision_grouped_markets_and_plain_date_copy
     assert page.today_verified_heading.text() == "확인된 변화"
     assert page.today_account_heading.text() == "내 계좌에 미치는 의미"
     assert page.today_unknown_heading.text() == "아직 확인할 수 없는 것"
-    assert "예상일=최신 완료 세션" in page.expected_date_explanation.text()
+    assert "예상일은" in page.expected_date_explanation.text()
+    assert "가장 최근에 완료되었어야 하는 세션" in page.expected_date_explanation.text()
     assert list(page.market_summary_cards) == [
         "KOREA", "US_RISK", "FX_COMMODITIES", "DIGITAL",
     ]
@@ -1363,16 +1380,90 @@ def test_dashboard_leads_with_today_decision_grouped_markets_and_plain_date_copy
             ),
         },
     })
-    assert "KOSPI" in page.today_verified.text()
-    assert "2026-08-18" in page.today_verified.toolTip()
+    today_copy = " ".join((
+        page.today_verified.text(), page.today_account.text(), page.today_unknown.text(),
+    ))
+    assert "검증된 오늘 요약이 아직 없습니다" in page.today_verified.text()
+    assert "3100" not in today_copy
+    assert "6500" not in today_copy
+    assert "accepted_summary=NO_OUTPUT" in page.today_verified.toolTip()
     assert "자동 연결하지 않습니다" in page.today_account.text()
-    assert "확인할 수 없는 시장 묶음" in page.today_unknown.text()
+    assert "판단하지 않습니다" in page.today_unknown.text()
     assert "KOSPI" in page.market_summary_cards["KOREA"].body.text()
     assert "S&P 500" in page.market_summary_cards["US_RISK"].body.text()
+    assert "최신 완료 세션 2026-08-18" in page.market_summary_cards["KOREA"].meta.text()
+    assert "source=fixture source" in page.market_summary_cards["KOREA"].toolTip()
+    assert "확인 가능한 최신 값 없음" == page.market_summary_cards["FX_COMMODITIES"].body.text()
+    assert "N/A" in page.market_summary_cards["FX_COMMODITIES"].toolTip()
 
-    page.market_details_button.click()
+    page.apply_preferences(page._preferences)
+    assert page.top_widget.isHidden()
+    page.show()
+    page.market_details_button.setFocus()
+    QtTest.QTest.keyClick(page.market_details_button, QtCore.Qt.Key_Space)
     assert not page.top_widget.isHidden()
+    assert page.market_details_button.text() == "시장 상세 접기"
+    assert "value=3,100.00" in page.market_cards["KOSPI"].toolTip()
+    assert "as_of=2026-08-18" in page.market_cards["KOSPI"].toolTip()
+
+    page.render({"dashboard_metrics": {}})
+    assert "KOSPI" not in page.market_summary_cards["KOREA"].body.text()
+    assert "S&P 500" not in page.market_summary_cards["US_RISK"].body.text()
+    assert all(
+        card.body.text() == "확인 가능한 최신 값 없음"
+        for card in page.market_summary_cards.values()
+    )
+    assert "검증된 오늘 요약이 아직 없습니다" in page.today_verified.text()
     page.close()
+    app.processEvents()
+
+
+def test_dashboard_first_slice_reflows_grouped_summaries_at_supported_widths():
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    host = QtWidgets.QMainWindow()
+    page = DashboardPage()
+    host.setCentralWidget(page)
+
+    host.resize(900, 640)
+    host.show()
+    app.processEvents()
+    assert page.horizontalScrollBar().maximum() == 0
+    assert page.verticalScrollBar().maximum() > 0
+    page.market_details_button.click()
+    app.processEvents()
+    assert page.horizontalScrollBar().maximum() == 0
+    assert not page.top_widget.isHidden()
+    page.market_details_button.click()
+    app.processEvents()
+    assert page.market_summary_layout.getItemPosition(
+        page.market_summary_layout.indexOf(page.market_summary_cards["DIGITAL"])
+    )[:2] == (1, 1)
+    assert page.today_sections_layout.getItemPosition(
+        page.today_sections_layout.indexOf(page.today_section_widgets[-1])
+    )[:2] == (2, 0)
+
+    host.resize(1366, 768)
+    app.processEvents()
+    assert page.horizontalScrollBar().maximum() == 0
+    assert page.market_summary_layout.getItemPosition(
+        page.market_summary_layout.indexOf(page.market_summary_cards["DIGITAL"])
+    )[:2] == (0, 3)
+    assert page.today_sections_layout.getItemPosition(
+        page.today_sections_layout.indexOf(page.today_section_widgets[-1])
+    )[:2] == (0, 2)
+
+    host.resize(2560, 1400)
+    app.processEvents()
+    assert page.horizontalScrollBar().maximum() == 0
+    assert page.market_summary_layout.getItemPosition(
+        page.market_summary_layout.indexOf(page.market_summary_cards["DIGITAL"])
+    )[:2] == (0, 3)
+    assert all(
+        card.details_button.accessibleName().strip()
+        and card.details_button.focusPolicy() == QtCore.Qt.StrongFocus
+        for card in page.market_summary_cards.values()
+    )
+    host.close()
     app.processEvents()
 
 
@@ -5828,8 +5919,11 @@ def test_dashboard_visual_acceptance_layout_scrolls_instead_of_clipping():
     page.render({"dashboard_metrics": {}, "dashboard_series": {}})
     page.resize(1600, 900)
     page.show()
+    app.processEvents()
+    assert page.top_widget.isHidden()
     page.market_details_button.click()
     app.processEvents()
+    assert not page.top_widget.isHidden()
     assert all(
         card.meta.isVisible()
         and card.meta.text() == "확인·N/A"
@@ -8075,7 +8169,7 @@ def test_main_window_current_acquisition_keeps_finished_lane_owned_until_destroy
     assert not any(thread.isRunning() for thread in window.findChildren(QtCore.QThread))
 
 
-def test_app_current_observation_runner_requires_active_public_manifest_window(tmp_path):
+def test_app_window_periodic_timer_remains_provider_free(tmp_path):
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = app_module.build_main_window(tmp_path, {})
     assert window.current_observation_runner is None
@@ -8083,256 +8177,6 @@ def test_app_current_observation_runner_requires_active_public_manifest_window(t
     assert not hasattr(app_module, "_dashboard_current_observation_runner")
     window.close()
     app.processEvents()
-
-
-@pytest.mark.skip(reason="retired GUI collector compatibility; Data orchestration owns acquisition")
-def test_app_composes_active_current_routes_serially_and_isolates_failure(tmp_path, monkeypatch):
-    now = datetime.fromisoformat("2026-08-21T14:30:10+09:00")
-    calls: list[str] = []
-    monkeypatch.setattr(app_module, "_ur161_current_observation_runner", lambda _root, *, now: lambda: calls.append("UR161") or {"status": "FAILED_BOUNDED"})
-    monkeypatch.setattr(app_module, "_ur167_current_observation_runner", lambda _root, *, now: lambda: (_ for _ in ()).throw(RuntimeError("synthetic")))
-    monkeypatch.setattr(app_module, "_ur191_current_observation_runner", lambda _root, *, now: lambda: calls.append("UR191") or {"status": "WINDOW_NOT_MANIFESTED", "raw_gets": 0})
-    monkeypatch.setattr(app_module, "_ur193_current_observation_runner", lambda _root, *, now: lambda: calls.append("UR193") or {"status": "NO_REPEAT", "raw_gets": 0, "replay_api_calls": 0})
-    monkeypatch.setattr(app_module, "_ur203_current_observation_runner", lambda _root, *, now: lambda: calls.append("UR203") or {"status": "WINDOW_NOT_MANIFESTED", "raw_gets": 0})
-    runner = app_module._dashboard_current_observation_runner(tmp_path, now=now)
-    assert callable(runner)
-    assert runner() == {
-        "UR161": {"status": "FAILED_BOUNDED"},
-        "UR167": {"status": "FAILED", "safe_code": "RuntimeError"},
-        "UR191": {"status": "WINDOW_NOT_MANIFESTED", "raw_gets": 0},
-        "UR193": {"status": "NO_REPEAT", "raw_gets": 0, "replay_api_calls": 0},
-        "UR203": {"status": "WINDOW_NOT_MANIFESTED", "raw_gets": 0},
-    }
-    assert calls == ["UR161", "UR191", "UR193", "UR203"]
-
-
-@pytest.mark.skip(reason="retired GUI collector compatibility; Data orchestration owns acquisition")
-def test_app_ur203_runner_uses_public_eligibility_and_is_api_zero_when_unavailable(tmp_path, monkeypatch):
-    inactive = datetime.fromisoformat("2026-08-21T17:50:00+09:00")
-    active = datetime.fromisoformat("2026-08-24T09:30:00+09:00")
-    calls: list[tuple[Path, datetime]] = []
-
-    monkeypatch.setattr(app_module, "ur203_eligible_identities", lambda _root, *, now: ())
-    assert app_module._ur203_current_observation_runner(tmp_path, now=inactive) is None
-
-    monkeypatch.setattr(app_module, "ur203_eligible_identities", lambda _root, *, now: ("000660", "005930"))
-    monkeypatch.setattr(
-        app_module,
-        "run_naver_equity_ur199",
-        lambda root, *, now: calls.append((root, now)) or {"status": "WINDOW_NOT_MANIFESTED", "raw_gets": 0},
-    )
-    runner = app_module._ur203_current_observation_runner(tmp_path, now=active)
-    assert callable(runner)
-    assert runner() == {"status": "WINDOW_NOT_MANIFESTED", "raw_gets": 0}
-    assert calls == [(tmp_path, active)]
-
-    monkeypatch.setattr(
-        app_module,
-        "ur203_eligible_identities",
-        lambda _root, *, now: (_ for _ in ()).throw(ValueError("malformed manifest")),
-    )
-    assert app_module._ur203_current_observation_runner(tmp_path, now=active) is None
-    assert calls == [(tmp_path, active)]
-
-
-@pytest.mark.skip(reason="retired GUI collector compatibility; Data orchestration owns acquisition")
-def test_app_ur208_half_open_naver_preflights_bind_only_the_current_boundary(tmp_path, monkeypatch):
-    at_0931 = datetime.fromisoformat("2026-08-24T09:31:00+09:00")
-    at_1000 = datetime.fromisoformat("2026-08-24T10:00:00+09:00")
-    calls: list[tuple[str, datetime]] = []
-
-    # Missing public manifests never inject a callable, so no collector can run.
-    assert app_module._ur191_current_observation_runner(tmp_path, now=at_0931) is None
-    assert app_module._ur203_current_observation_runner(tmp_path, now=at_0931) is None
-
-    for relative_path, payload in (
-        (UR191_MANIFEST_PATH, ur191_manifest_payload()),
-        (UR203_MANIFEST_PATH, ur203_manifest_payload()),
-    ):
-        path = tmp_path / relative_path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload), encoding="utf-8")
-
-    assert ur191_eligible_boundary(tmp_path, now=at_0931) == "2026-08-24T09:30:00+09:00"
-    assert ur203_eligible_identities(tmp_path, now=at_0931) == ("000660", "005930")
-    def fake_ur191(_root, *, now):
-        calls.append(("UR191", now))
-        return {"selected_boundary": ur191_eligible_boundary(tmp_path, now=now), "raw_gets": 0}
-
-    def fake_ur203(_root, *, now):
-        calls.append(("UR203", now))
-        return {"window_id": now.replace(minute=now.minute - now.minute % 30, second=0, microsecond=0).isoformat(), "api_calls": 0}
-
-    monkeypatch.setattr(app_module, "run_naver_mobile_home_ur191", fake_ur191)
-    monkeypatch.setattr(app_module, "run_naver_equity_ur199", fake_ur203)
-    early = app_module._dashboard_current_observation_runner(tmp_path, now=at_0931)
-    assert callable(early)
-    assert early() == {
-        "UR191": {"selected_boundary": "2026-08-24T09:30:00+09:00", "raw_gets": 0},
-        "UR203": {"window_id": "2026-08-24T09:30:00+09:00", "api_calls": 0},
-    }
-    assert calls == [("UR191", at_0931), ("UR203", at_0931)]
-
-    # The 09:30 boundary is expired at 10:00; both app callables receive only
-    # the current 10:00 clock, never a catch-up 09:30 clock.
-    assert ur191_eligible_boundary(tmp_path, now=at_1000) == "2026-08-24T10:00:00+09:00"
-    assert ur203_eligible_identities(tmp_path, now=at_1000) == ("000660", "005930")
-    later = app_module._dashboard_current_observation_runner(tmp_path, now=at_1000)
-    assert callable(later)
-    assert later() == {
-        "UR191": {"selected_boundary": "2026-08-24T10:00:00+09:00", "raw_gets": 0},
-        "UR203": {"window_id": "2026-08-24T10:00:00+09:00", "api_calls": 0},
-    }
-    assert calls[-2:] == [("UR191", at_1000), ("UR203", at_1000)]
-
-    (tmp_path / UR191_STATE_PATH).write_text(json.dumps({
-        "schema_version": 1, "operation_id": "UR-191",
-        "windows": {"2026-08-24T10:00:00+09:00": {"status": "COMPLETE"}},
-    }), encoding="utf-8")
-    (tmp_path / UR203_STATE_PATH).write_text(json.dumps({
-        "schema_version": 1, "operation_id": "UR-199", "windows": {
-            "2026-08-24T10:00:00+09:00": {
-                "000660": {"status": "COMPLETE"}, "005930": {"status": "COMPLETE"},
-            },
-        },
-    }), encoding="utf-8")
-    assert app_module._ur191_current_observation_runner(tmp_path, now=at_1000) is None
-    assert app_module._ur203_current_observation_runner(tmp_path, now=at_1000) is None
-    assert calls[-2:] == [("UR191", at_1000), ("UR203", at_1000)]
-
-    # A malformed ledger remains a preflight failure; no callable is injected.
-    (tmp_path / UR191_STATE_PATH).write_text("{not-json", encoding="utf-8")
-    (tmp_path / UR203_STATE_PATH).write_text("{not-json", encoding="utf-8")
-    assert app_module._ur191_current_observation_runner(tmp_path, now=at_1000) is None
-    assert app_module._ur203_current_observation_runner(tmp_path, now=at_1000) is None
-    assert calls[-2:] == [("UR191", at_1000), ("UR203", at_1000)]
-
-
-@pytest.mark.skip(reason="retired GUI collector compatibility; Data orchestration owns acquisition")
-def test_app_ur193_runner_is_current_window_and_terminal_ledger_fail_closed(tmp_path, monkeypatch):
-    inactive = datetime.fromisoformat("2026-08-21T17:00:00+09:00")
-    active = datetime.fromisoformat("2026-08-21T18:01:00+09:00")
-    calls: list[Path] = []
-    monkeypatch.setattr(
-        app_module, "run_nasdaq_soxx_ur193",
-        lambda root: calls.append(root) or {"status": "NO_REPEAT", "raw_gets": 0, "replay_api_calls": 0},
-    )
-
-    assert app_module._ur193_current_observation_runner(tmp_path, now=inactive) is None
-    runner = app_module._ur193_current_observation_runner(tmp_path, now=active)
-    assert callable(runner)
-    assert runner() == {"status": "NO_REPEAT", "raw_gets": 0, "replay_api_calls": 0}
-    assert calls == [tmp_path]
-
-    state_path = tmp_path / UR193_STATE_PATH
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(json.dumps({
-        "schema_version": 1, "operation_id": "UR-193",
-        "windows": {"2026-08-21T18:00:00+09:00": {"status": "COMPLETE_ACCEPTED"}},
-    }), encoding="utf-8")
-    assert app_module._ur193_current_observation_runner(tmp_path, now=active) is None
-    assert calls == [tmp_path]
-
-
-@pytest.mark.skip(reason="retired GUI collector compatibility; Data orchestration owns acquisition")
-def test_main_window_coalesces_active_ur193_composition_and_closes_cleanly(tmp_path, monkeypatch):
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    now = datetime.fromisoformat("2026-08-21T18:00:00+09:00")
-    started = threading.Event()
-    calls: list[object] = []
-
-    def fake_ur193():
-        calls.append(QtCore.QThread.currentThread())
-        started.set()
-        time.sleep(0.03)
-        return {"status": "NO_REPEAT", "raw_gets": 0, "replay_api_calls": 0}
-
-    monkeypatch.setattr(app_module, "_ur161_current_observation_runner", lambda _root, *, now: None)
-    monkeypatch.setattr(app_module, "_ur167_current_observation_runner", lambda _root, *, now: None)
-    monkeypatch.setattr(app_module, "_ur191_current_observation_runner", lambda _root, *, now: None)
-    monkeypatch.setattr(app_module, "_ur193_current_observation_runner", lambda _root, *, now: fake_ur193)
-    window = MainWindow(
-        tmp_path,
-        current_observation_runner_factory=lambda: app_module._dashboard_current_observation_runner(
-            tmp_path, now=now,
-        ),
-    )
-    _stub_fast_startup_local_reads(window, monkeypatch)
-    window.show()
-    window._request_current_observation_acquisition()
-    for _ in range(100):
-        app.processEvents()
-        if started.is_set():
-            break
-        QtTest.QTest.qWait(5)
-    assert started.is_set()
-    window.current_observation_reload_timer.timeout.emit()
-    window.current_observation_reload_timer.timeout.emit()
-    for _ in range(150):
-        app.processEvents()
-        if len(calls) == 1 and window._current_observation_thread is None:
-            break
-        QtTest.QTest.qWait(5)
-    assert len(calls) == 1 and calls[0] is not app.thread()
-    assert window._current_observation_last_result == {
-        "UR193": {"status": "NO_REPEAT", "raw_gets": 0, "replay_api_calls": 0},
-    }
-    _drain_local_read_workers(app, window)
-    window.close()
-    app.processEvents()
-    assert not window.current_observation_reload_timer.isActive()
-    assert not any(thread.isRunning() for thread in window.findChildren(QtCore.QThread))
-
-
-@pytest.mark.skip(reason="retired GUI collector compatibility; Data orchestration owns acquisition")
-def test_main_window_coalesces_active_ur203_and_closes_cleanly(tmp_path, monkeypatch):
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    now = datetime.fromisoformat("2026-08-24T09:30:00+09:00")
-    started = threading.Event()
-    calls: list[object] = []
-
-    def fake_ur203():
-        calls.append(QtCore.QThread.currentThread())
-        started.set()
-        time.sleep(0.03)
-        return {"status": "WINDOW_NOT_MANIFESTED", "raw_gets": 0}
-
-    monkeypatch.setattr(app_module, "_ur161_current_observation_runner", lambda _root, *, now: None)
-    monkeypatch.setattr(app_module, "_ur167_current_observation_runner", lambda _root, *, now: None)
-    monkeypatch.setattr(app_module, "_ur191_current_observation_runner", lambda _root, *, now: None)
-    monkeypatch.setattr(app_module, "_ur193_current_observation_runner", lambda _root, *, now: None)
-    monkeypatch.setattr(app_module, "_ur203_current_observation_runner", lambda _root, *, now: fake_ur203)
-    window = MainWindow(
-        tmp_path,
-        current_observation_runner_factory=lambda: app_module._dashboard_current_observation_runner(
-            tmp_path, now=now,
-        ),
-    )
-    _stub_fast_startup_local_reads(window, monkeypatch)
-    window.show()
-    window._request_current_observation_acquisition()
-    for _ in range(100):
-        app.processEvents()
-        if started.is_set():
-            break
-        QtTest.QTest.qWait(5)
-    assert started.is_set()
-    window.current_observation_reload_timer.timeout.emit()
-    window.current_observation_reload_timer.timeout.emit()
-    for _ in range(150):
-        app.processEvents()
-        if len(calls) == 1 and window._current_observation_thread is None:
-            break
-        QtTest.QTest.qWait(5)
-    assert len(calls) == 1 and calls[0] is not app.thread()
-    assert window._current_observation_last_result == {
-        "UR203": {"status": "WINDOW_NOT_MANIFESTED", "raw_gets": 0},
-    }
-    _drain_local_read_workers(app, window)
-    window.close()
-    app.processEvents()
-    assert not window.current_observation_reload_timer.isActive()
-    assert not any(thread.isRunning() for thread in window.findChildren(QtCore.QThread))
 
 
 def test_main_window_busy_manual_account_clicks_coalesce_to_one_further_cycle(tmp_path):
@@ -9062,9 +8906,14 @@ def test_dashboard_density_stays_wide_and_compacts_for_scaled_display():
     assert page.account_placeholder.height() <= 60
     assert page.oscillator_panel.height() >= 315
     tenth_card = page.market_cards[page._visible_market_card_ids[9]]
-    assert page.top_strip.getItemPosition(page.top_strip.indexOf(tenth_card))[:2] == (0, 9)
-    assert page.COMPACT_MARKET_CARD_HEIGHT == 112
-    assert page.top_widget.height() == 112
+    assert page.top_strip.getItemPosition(page.top_strip.indexOf(tenth_card))[:2] == (1, 4)
+    assert page.COMPACT_MARKET_CARD_HEIGHT == 136
+    assert page.top_widget.isHidden()
+    page.market_details_button.click()
+    app.processEvents()
+    assert page.top_widget.height() == 278
+    page.market_details_button.click()
+    app.processEvents()
     visible_side = [
         widget for widget in (
             page.oscillator_panel, page.rates_panel, page.account_placeholder,
@@ -9098,13 +8947,14 @@ def test_dashboard_density_stays_wide_and_compacts_for_scaled_display():
     app.processEvents()
     assert page.horizontalScrollBar().maximum() == 0
     assert page.today_panel.isVisible()
+    assert page.verticalScrollBar().maximum() < page.body_widget.height()
     assert page.kospi_panel.geometry().bottom() < page.market_context_tabs.geometry().top()
     page.close()
     app.processEvents()
 
 
 @pytest.mark.parametrize("logical_width", [1280, 1365, 1440])
-def test_dashboard_populated_market_values_fit_one_readable_row_at_common_widths(
+def test_dashboard_expanded_market_values_reflow_without_clipping_at_common_widths(
     logical_width,
 ):
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
@@ -9161,18 +9011,20 @@ def test_dashboard_populated_market_values_fit_one_readable_row_at_common_widths
             for identifier, _label in page.TOP_METRICS
         },
     })
-    page.market_details_button.click()
     app.processEvents()
 
     assert page.horizontalScrollBar().maximum() == 0
+    assert page.top_widget.isHidden()
+    page.market_details_button.click()
+    app.processEvents()
     tenth_card = page.market_cards[page._visible_market_card_ids[9]]
     assert page.top_strip.getItemPosition(
         page.top_strip.indexOf(tenth_card)
-    )[:2] == (0, 9)
-    assert page.top_widget.height() == 112
+    )[:2] == (1, 4)
+    assert page.top_widget.height() == 278
     for identifier in page._visible_market_card_ids:
         card = page.market_cards[identifier]
-        assert card.height() == 112
+        assert card.height() == 136
         for child in (card.title, card.body, card.meta, card.sparkline):
             assert child.isVisible(), (identifier, child.objectName())
             assert child.width() > 0 and child.height() > 0

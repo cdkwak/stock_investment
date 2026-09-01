@@ -16,6 +16,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from stock_data.gui.main_window import DashboardPage, DecisionCockpitPage
 from stock_data.gui.services import DecisionCockpitRow, DecisionCockpitView
 from stock_data.orchestration.release_readiness import (
+    EXPECTED_GUI_PAGES,
     NATIVE_GUI_HEALTH_TIMEOUT_MS,
     assess_native_gui,
     run_native_gui_smoke,
@@ -112,6 +113,9 @@ def test_decision_cockpit_is_laptop_safe_keyboard_reachable_and_qt_clean(
 def test_provider_free_cold_gui_renders_managed_health_within_bound() -> None:
     result = run_native_gui_smoke(PROJECT_ROOT)
 
+    assert result["pages"] == EXPECTED_GUI_PAGES
+    assert tuple(result["page_states"]) == EXPECTED_GUI_PAGES
+    assert all(result["page_states"].values())
     assert result["health_row_count"] > 0
     assert result["health_managed_total"] > 0
     assert result["health_managed_acceptable"] == result["health_managed_total"]

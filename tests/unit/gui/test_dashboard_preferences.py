@@ -457,11 +457,13 @@ def test_dashboard_indicator_panel_is_single_owner_and_persists_display_settings
     )
 
     assert page.market_indicator_panel.settings() == default
+    assert page.market_indicator_panel.isHidden()
     assert all(not hasattr(page, name) for name in (
         "market_volume_toggle", "market_ma60_toggle", "market_rsi_toggle",
         "market_disparity_toggle",
     ))
     page._dashboard_indicator_changed(selected)
+    assert page.market_indicator_panel.isHidden()
     assert window._dashboard_preferences.dashboard_indicators == selected
     assert subject.LocalDashboardPreferencesStore(path).load().preferences.dashboard_indicators == selected
 
@@ -476,6 +478,7 @@ def test_dashboard_indicator_panel_is_single_owner_and_persists_display_settings
     assert restarted._dashboard_preferences.dashboard_indicators == selected
     restored = restarted.dashboard
     assert restored.market_indicator_panel.settings() == selected
+    assert restored.market_indicator_panel.isHidden()
     restarted.resize(1600, 900)
     restarted.show()
     app.processEvents()

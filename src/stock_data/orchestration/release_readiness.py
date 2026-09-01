@@ -176,15 +176,16 @@ EXACT_USER_DATA_PATTERNS = (
     "data/normalized/toss_account_snapshot/**/*",
 )
 EXPECTED_GUI_PAGES = (
-    "Dashboard",
-    "Index Graph",
-    "종목 차트",
-    "미국 ETF",
-    "Research Workspace",
+    "오늘",
+    "시장",
+    "종목",
     "관심종목",
-    "Data Status",
-    "계좌·순자산",
-    "Backtest",
+    "계좌",
+    "판단 근거",
+    "데이터 상태",
+    "리서치",
+    "백테스트",
+    "미국 ETF",
 )
 EXPECTED_GUI_WORKERS = (
     "account",
