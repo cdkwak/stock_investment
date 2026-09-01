@@ -1372,9 +1372,8 @@ def test_kr_scheduler_result_requires_exact_terminal_occurrence_evidence(
 
 def test_native_gui_requires_pages_charts_no_clipping_and_worker_cleanup() -> None:
     assert subject.EXPECTED_GUI_PAGES == (
-        "Dashboard", "Index Graph", "종목 차트", "미국 ETF",
-        "Research Workspace", "관심종목", "Data Status", "계좌·순자산",
-        "Backtest",
+        "오늘", "시장", "종목", "관심종목", "계좌",
+        "판단 근거", "데이터 상태", "리서치", "백테스트", "미국 ETF",
     )
     result = _gui_result()
     assert subject.assess_native_gui(result).status == "PASS"
