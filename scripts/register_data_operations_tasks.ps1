@@ -174,7 +174,7 @@ function Test-AccountTaskDefinition {
 }
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$pythonPath = Join-Path $projectRoot ".venv\Scripts\python.exe"
+$pythonPath = Join-Path $projectRoot ".venv\Scripts\pythonw.exe"
 $runnerPath = Join-Path $PSScriptRoot "maintenance\reconcile_daily_health_artifact.py"
 $corePath = Join-Path $projectRoot "artifacts\daily_health\core_data_20260818.json"
 $universePath = Join-Path $projectRoot "artifacts\daily_health\universe_data_v2_20260819.json"

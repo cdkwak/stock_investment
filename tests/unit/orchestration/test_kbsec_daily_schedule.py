@@ -10,6 +10,7 @@ def test_kb_daily_schedule_is_disabled_provider_free_preflight() -> None:
         encoding="utf-8"
     )
     assert '[string]$Time = "17:00"' in script
+    assert '".venv\\Scripts\\pythonw.exe"' in script
     assert "Monday, Tuesday, Wednesday, Thursday, Friday" in script
     assert "--confirm-live-daily" not in script.split("# The retained", 1)[0]
     assert "--confirm-access-restored" not in script

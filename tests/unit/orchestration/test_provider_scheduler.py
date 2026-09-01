@@ -1,5 +1,6 @@
 from dataclasses import replace
 from datetime import date, datetime, timezone
+import hashlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -400,6 +401,269 @@ def test_current_registry_enables_registered_global_indices(tmp_path: Path) -> N
         "global_indices": "MARKET_SESSION_COMPLETE",
     }
     assert result["api_calls"] == 0
+
+
+def _write_yahoo_index_landing(
+    tmp_path: Path, *, rows: list[dict[str, object]], symbol: str = "SP500",
+) -> Path:
+    ticker = {"SP500": "^GSPC", "NASDAQ_COMPOSITE": "^IXIC", "NASDAQ100": "^NDX"}[symbol]
+    timestamps = [int(pd.Timestamp(row["date"], tz="America/New_York").timestamp()) for row in rows]
+    body = json.dumps({
+        "chart": {"error": None, "result": [{
+            "meta": {"symbol": ticker, "instrumentType": "INDEX", "dataGranularity": "1d"},
+            "timestamp": timestamps,
+            "indicators": {"quote": [{
+                column: [row[column] for row in rows]
+                for column in ("open", "high", "low", "close", "volume")
+            }]},
+        }]},
+    }, separators=(",", ":")).encode()
+    call = tmp_path / "landing/call.json"
+    call.parent.mkdir(parents=True)
+    call.with_name("response.body").write_bytes(body)
+    call.write_text(json.dumps({
+        "request_parameters": {"symbol": symbol},
+        "response_body_sha256": hashlib.sha256(body).hexdigest(),
+    }), encoding="utf-8")
+    return call
+
+
+def _retained_index_frame() -> pd.DataFrame:
+    return pd.DataFrame([{
+        "date": "2026-08-28", "symbol": "SP500", "source_ticker": "^GSPC",
+        "open": 100.0, "high": 103.0, "low": 99.0, "close": 102.0, "volume": 10,
+    }])
+
+
+def _rewrite_yahoo_landing(call: Path, transform) -> None:
+    body_path = call.with_name("response.body")
+    payload = json.loads(body_path.read_text(encoding="utf-8"))
+    transform(payload)
+    body = json.dumps(payload, separators=(",", ":")).encode()
+    body_path.write_bytes(body)
+    record = json.loads(call.read_text(encoding="utf-8"))
+    record["response_body_sha256"] = hashlib.sha256(body).hexdigest()
+    call.write_text(json.dumps(record), encoding="utf-8")
+
+
+def test_global_index_landing_replay_preserves_valid_existing_row_and_accepts_target(
+    tmp_path: Path,
+) -> None:
+    call = _write_yahoo_index_landing(tmp_path, rows=[
+        {"date": "2026-08-28", "open": None, "high": None, "low": None, "close": None, "volume": None},
+        {"date": "2026-08-31", "open": 104.0, "high": 106.0, "low": 103.0, "close": 105.0, "volume": 11},
+    ])
+
+    recovered = scheduler._replay_global_index_landing(
+        _retained_index_frame(), call, symbol="SP500", target=date(2026, 8, 31),
+    )
+
+    retained = recovered.loc[recovered["date"].eq("2026-08-28")].iloc[0]
+    assert retained[["open", "high", "low", "close", "volume"]].tolist() == [
+        100.0, 103.0, 99.0, 102.0, 10,
+    ]
+    assert recovered["date"].tolist() == ["2026-08-28", "2026-08-31"]
+
+
+def test_global_index_landing_replay_rejects_partial_null_row(tmp_path: Path) -> None:
+    call = _write_yahoo_index_landing(tmp_path, rows=[
+        {"date": "2026-08-28", "open": None, "high": 103.0, "low": 99.0, "close": 102.0, "volume": 10},
+        {"date": "2026-08-31", "open": 104.0, "high": 106.0, "low": 103.0, "close": 105.0, "volume": 11},
+    ])
+
+    with pytest.raises(ProviderSchedulerError, match="partial-null"):
+        scheduler._replay_global_index_landing(
+            _retained_index_frame(), call, symbol="SP500", target=date(2026, 8, 31),
+        )
+
+
+def test_global_index_landing_replay_rejects_finite_revision(tmp_path: Path) -> None:
+    call = _write_yahoo_index_landing(tmp_path, rows=[
+        {"date": "2026-08-28", "open": 100.0, "high": 103.0, "low": 99.0, "close": 101.0, "volume": 10},
+        {"date": "2026-08-31", "open": 104.0, "high": 106.0, "low": 103.0, "close": 105.0, "volume": 11},
+    ])
+
+    with pytest.raises(ProviderSchedulerError, match="finite revision"):
+        scheduler._replay_global_index_landing(
+            _retained_index_frame(), call, symbol="SP500", target=date(2026, 8, 31),
+        )
+
+
+def test_global_index_landing_replay_accepts_fill_for_retained_null_field(
+    tmp_path: Path,
+) -> None:
+    existing = _retained_index_frame()
+    existing["volume"] = existing["volume"].astype("Int64")
+    existing.loc[:, "volume"] = pd.NA
+    call = _write_yahoo_index_landing(tmp_path, rows=[
+        {"date": "2026-08-28", "open": 100.0, "high": 103.0, "low": 99.0, "close": 102.0, "volume": 10},
+        {"date": "2026-08-31", "open": 104.0, "high": 106.0, "low": 103.0, "close": 105.0, "volume": 11},
+    ])
+
+    recovered = scheduler._replay_global_index_landing(
+        existing, call, symbol="SP500", target=date(2026, 8, 31),
+    )
+
+    assert recovered.loc[recovered["date"].eq("2026-08-28"), "volume"].item() == 10
+
+
+def test_global_index_landing_replay_rejects_hash_mismatch(tmp_path: Path) -> None:
+    call = _write_yahoo_index_landing(tmp_path, rows=[
+        {"date": "2026-08-28", "open": 100.0, "high": 103.0, "low": 99.0, "close": 102.0, "volume": 10},
+        {"date": "2026-08-31", "open": 104.0, "high": 106.0, "low": 103.0, "close": 105.0, "volume": 11},
+    ])
+    record = json.loads(call.read_text(encoding="utf-8"))
+    record["response_body_sha256"] = "0" * 64
+    call.write_text(json.dumps(record), encoding="utf-8")
+
+    with pytest.raises(ProviderSchedulerError, match="identity/hash"):
+        scheduler._replay_global_index_landing(
+            _retained_index_frame(), call, symbol="SP500", target=date(2026, 8, 31),
+        )
+
+
+def test_global_index_landing_replay_rejects_request_identity_mismatch(tmp_path: Path) -> None:
+    call = _write_yahoo_index_landing(tmp_path, rows=[
+        {"date": "2026-08-28", "open": 100.0, "high": 103.0, "low": 99.0, "close": 102.0, "volume": 10},
+        {"date": "2026-08-31", "open": 104.0, "high": 106.0, "low": 103.0, "close": 105.0, "volume": 11},
+    ])
+    record = json.loads(call.read_text(encoding="utf-8"))
+    record["request_parameters"]["symbol"] = "NASDAQ100"
+    call.write_text(json.dumps(record), encoding="utf-8")
+
+    with pytest.raises(ProviderSchedulerError, match="identity/hash"):
+        scheduler._replay_global_index_landing(
+            _retained_index_frame(), call, symbol="SP500", target=date(2026, 8, 31),
+        )
+
+
+def test_global_index_landing_replay_rejects_provider_identity_mismatch(tmp_path: Path) -> None:
+    call = _write_yahoo_index_landing(tmp_path, rows=[
+        {"date": "2026-08-28", "open": 100.0, "high": 103.0, "low": 99.0, "close": 102.0, "volume": 10},
+        {"date": "2026-08-31", "open": 104.0, "high": 106.0, "low": 103.0, "close": 105.0, "volume": 11},
+    ])
+    _rewrite_yahoo_landing(
+        call, lambda payload: payload["chart"]["result"][0]["meta"].update(symbol="^DJI"),
+    )
+
+    with pytest.raises(ProviderSchedulerError, match="payload differs"):
+        scheduler._replay_global_index_landing(
+            _retained_index_frame(), call, symbol="SP500", target=date(2026, 8, 31),
+        )
+
+
+def test_global_index_landing_replay_rejects_null_target(tmp_path: Path) -> None:
+    call = _write_yahoo_index_landing(tmp_path, rows=[
+        {"date": "2026-08-28", "open": 100.0, "high": 103.0, "low": 99.0, "close": 102.0, "volume": 10},
+        {"date": "2026-08-31", "open": None, "high": None, "low": None, "close": None, "volume": None},
+    ])
+
+    with pytest.raises(ProviderSchedulerError, match="null row has no retained value"):
+        scheduler._replay_global_index_landing(
+            _retained_index_frame(), call, symbol="SP500", target=date(2026, 8, 31),
+        )
+
+
+def test_global_index_landing_replay_rejects_duplicate_date(tmp_path: Path) -> None:
+    call = _write_yahoo_index_landing(tmp_path, rows=[
+        {"date": "2026-08-31", "open": 104.0, "high": 106.0, "low": 103.0, "close": 105.0, "volume": 11},
+        {"date": "2026-08-31", "open": 104.0, "high": 106.0, "low": 103.0, "close": 105.0, "volume": 11},
+    ])
+
+    with pytest.raises(ProviderSchedulerError, match="duplicate dates"):
+        scheduler._replay_global_index_landing(
+            _retained_index_frame(), call, symbol="SP500", target=date(2026, 8, 31),
+        )
+
+
+def test_global_index_landing_replay_rejects_infinite_value(tmp_path: Path) -> None:
+    call = _write_yahoo_index_landing(tmp_path, rows=[
+        {"date": "2026-08-28", "open": 100.0, "high": 103.0, "low": 99.0, "close": 102.0, "volume": 10},
+        {"date": "2026-08-31", "open": 104.0, "high": float("inf"), "low": 103.0, "close": 105.0, "volume": 11},
+    ])
+
+    with pytest.raises(ProviderSchedulerError, match="non-finite row"):
+        scheduler._replay_global_index_landing(
+            _retained_index_frame(), call, symbol="SP500", target=date(2026, 8, 31),
+        )
+
+
+def test_global_index_landing_replay_rejects_missing_target(tmp_path: Path) -> None:
+    call = _write_yahoo_index_landing(tmp_path, rows=[
+        {"date": "2026-08-28", "open": 100.0, "high": 103.0, "low": 99.0, "close": 102.0, "volume": 10},
+    ])
+
+    with pytest.raises(ProviderSchedulerError, match="missed target date"):
+        scheduler._replay_global_index_landing(
+            _retained_index_frame(), call, symbol="SP500", target=date(2026, 8, 31),
+        )
+
+
+def test_global_index_phase_replays_three_symbols_restores_wrapper_and_promotes(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    tickers = {"SP500": "^GSPC", "NASDAQ_COMPOSITE": "^IXIC", "NASDAQ100": "^NDX"}
+    existing = pd.concat([
+        _retained_index_frame().assign(symbol=symbol, source_ticker=ticker)
+        for symbol, ticker in tickers.items()
+    ], ignore_index=True)
+    module = SimpleNamespace()
+
+    def original_fetch(symbol, start, end, *, session, capture_root):
+        _write_yahoo_index_landing(capture_root / symbol, symbol=symbol, rows=[
+            {"date": "2026-08-28", "open": None, "high": None, "low": None, "close": None, "volume": None},
+            {"date": "2026-08-31", "open": 104.0, "high": 106.0, "low": 103.0, "close": 105.0, "volume": 11},
+        ])
+        raise RuntimeError("Yahoo OHLC contains missing or infinite values")
+
+    def prepare_phase(project_root, phase, *, end):
+        frames = [
+            module.fetch_global_index(
+                symbol, date(2026, 8, 28), end, session=object(),
+                capture_root=project_root / "captures",
+            )
+            for symbol in tickers
+        ]
+        assert all(frame["date"].tolist() == ["2026-08-28", "2026-08-31"] for frame in frames)
+        return {
+            "status": "CANDIDATE_REVIEW_REQUIRED", "phase": phase,
+            "max_http_calls": 3, "http_calls": 3, "retry_count": 0,
+            "http_statuses": [200, 200, 200], "run_id": "three-index-run",
+            "approval_digest": "approved",
+            "revision_report": {
+                symbol: {
+                    "source_omitted_existing_dates": 0,
+                    "finite_to_null_cells": 0,
+                    "inserted_rows": 1,
+                }
+                for symbol in tickers
+            },
+        }
+
+    promoted = []
+
+    def promote_phase(project_root, checkpoint_path, *, approval_digest):
+        promoted.append((checkpoint_path, approval_digest))
+        return {"status": "PROMOTED"}
+
+    module.fetch_global_index = original_fetch
+    module.prepare_phase = prepare_phase
+    module.promote_phase = promote_phase
+    monkeypatch.setattr(scheduler, "read_dataset", lambda *args: existing.copy())
+    monkeypatch.setattr(scheduler, "_load_refresh_module", lambda _root: module)
+
+    result = scheduler._run_global_index_phase(
+        tmp_path, "global_indices", date(2026, 8, 31),
+    )
+
+    assert result["status"] == "PROMOTED" and result["http_calls"] == 3
+    assert result["landing_replay_symbols"] == list(tickers)
+    assert result["reason"].endswith("WITH_LANDING_REPLAY")
+    assert module.fetch_global_index is original_fetch
+    assert promoted == [(
+        tmp_path / "data/state/global_current_refresh/three-index-run/checkpoint.json",
+        "approved",
+    )]
 
 
 def test_current_registry_enables_exact_date_market_investor_flow(tmp_path: Path) -> None:

@@ -7,7 +7,7 @@ param(
 )
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$pythonPath = Join-Path $projectRoot ".venv\Scripts\python.exe"
+$pythonPath = Join-Path $projectRoot ".venv\Scripts\pythonw.exe"
 $runnerPath = Join-Path $PSScriptRoot "manual\collect\collect_kbsec_daily_snapshot.py"
 $taskName = "StockInvestmentRev1-KBSecDailySnapshot"
 

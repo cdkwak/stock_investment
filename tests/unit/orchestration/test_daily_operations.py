@@ -79,7 +79,7 @@ AS_OF = datetime(2026, 8, 17, 5, 0, tzinfo=UTC)
 FINAL = datetime(2026, 8, 14, 4, 0, tzinfo=UTC)
 REGISTER_TASKS_SCRIPT = Path(__file__).resolve().parents[3] / "scripts/register_data_operations_tasks.ps1"
 WINDOWS_POWERSHELL = Path(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe")
-KR_EXPECTED_EXECUTE = r"C:\repo\.venv\Scripts\python.exe"
+KR_EXPECTED_EXECUTE = r"C:\repo\.venv\Scripts\pythonw.exe"
 KR_EXPECTED_RUNNER = r'C:\repo\scripts\maintenance\run_provider_scheduler.py'
 KR_EXPECTED_WORKING_DIRECTORY = r"C:\repo"
 
@@ -1202,6 +1202,7 @@ def test_kr_scheduler_dry_run_defines_one_exact_task_per_slot() -> None:
     assert set(tasks) == set(expected)
     for task_name, scheduled_slot in expected.items():
         task = tasks[task_name]
+        assert task["execute"].endswith(r"\.venv\Scripts\pythonw.exe")
         expected_suffix = (
             f"--bundle KR_MARKET_DAILY --scheduled-slot {scheduled_slot}"
         )

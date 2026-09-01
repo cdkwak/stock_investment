@@ -875,6 +875,9 @@ def test_installed_occurrence_window_matches_verified_collection_session() -> No
     )
 
     assert "/ST 09:00 /RI 30 /DU 06:00" in script
+    assert '".venv\\Scripts\\pythonw.exe"' in script
+    assert "New-ScheduledTaskAction" in script
+    assert 'registeredAction.Execute) -ine "pythonw.exe"' in script
     assert "/D MON,TUE,WED,THU,FRI" in script
     assert "schedule=MON-FRI@09:00 repetition=30m duration=6h" in script
     assert "New-TimeSpan -Minutes 25" in script

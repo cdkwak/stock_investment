@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timezone
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -633,6 +634,159 @@ def _run_etf_phase(project_root: Path, phase: str, target: object) -> dict[str, 
             "reason": "VALIDATED_SYMBOL_BOUND_PROMOTION"}
 
 
+_GLOBAL_INDEX_TICKERS = MappingProxyType({
+    "SP500": "^GSPC",
+    "NASDAQ_COMPOSITE": "^IXIC",
+    "NASDAQ100": "^NDX",
+})
+_GLOBAL_INDEX_NUMERIC = ("open", "high", "low", "close", "volume")
+
+
+def _replay_global_index_landing(
+    existing: pd.DataFrame, call_path: Path, *, symbol: str, target: date,
+) -> pd.DataFrame:
+    """Rebuild one Yahoo index response without accepting a null/revised retained row."""
+    if symbol not in _GLOBAL_INDEX_TICKERS:
+        raise ProviderSchedulerError(f"unregistered global index replay symbol: {symbol}")
+    try:
+        record = json.loads(call_path.read_text(encoding="utf-8"))
+        body = call_path.with_name("response.body").read_bytes()
+    except (OSError, json.JSONDecodeError) as error:
+        raise ProviderSchedulerError("global index Landing replay artifact is unreadable") from error
+    if (
+        not isinstance(record, dict)
+        or (record.get("request_parameters") or {}).get("symbol") != symbol
+        or record.get("response_body_sha256") != hashlib.sha256(body).hexdigest()
+    ):
+        raise ProviderSchedulerError("global index Landing replay identity/hash differs")
+    try:
+        payload = json.loads(body)
+        chart = payload["chart"]
+        results = chart["result"]
+        if chart.get("error") is not None or not isinstance(results, list) or len(results) != 1:
+            raise ValueError
+        item = results[0]
+        meta = item["meta"]
+        ticker = _GLOBAL_INDEX_TICKERS[symbol]
+        if (
+            meta.get("symbol") != ticker
+            or str(meta.get("instrumentType", "")).upper() != "INDEX"
+            or meta.get("dataGranularity") != "1d"
+        ):
+            raise ValueError
+        timestamps = item["timestamp"]
+        quote_rows = item["indicators"]["quote"]
+        if not timestamps or not isinstance(quote_rows, list) or len(quote_rows) != 1:
+            raise ValueError
+        values = quote_rows[0]
+        if any(
+            not isinstance(values.get(column), list)
+            or len(values[column]) != len(timestamps)
+            for column in _GLOBAL_INDEX_NUMERIC
+        ):
+            raise ValueError
+    except (KeyError, TypeError, ValueError) as error:
+        raise ProviderSchedulerError("global index Landing replay payload differs") from error
+
+    source = pd.DataFrame({
+        "date": pd.to_datetime(timestamps, unit="s", utc=True)
+        .tz_convert(ZoneInfo("America/New_York")).strftime("%Y-%m-%d"),
+        "symbol": symbol,
+        "source_ticker": ticker,
+        **{column: values[column] for column in _GLOBAL_INDEX_NUMERIC},
+    })
+    if source["date"].duplicated().any():
+        raise ProviderSchedulerError("global index Landing replay contains duplicate dates")
+    retained = existing.loc[existing["symbol"].astype(str).eq(symbol)].copy()
+    if retained.empty or retained["date"].astype(str).duplicated().any():
+        raise ProviderSchedulerError("global index retained identity differs")
+    retained["date"] = retained["date"].astype(str)
+    retained_by_date = retained.set_index("date", drop=False)
+    recovered_rows: list[dict[str, object]] = []
+    for row in source.to_dict("records"):
+        missing = [column for column in _GLOBAL_INDEX_NUMERIC if pd.isna(row[column])]
+        market_date = str(row["date"])
+        if missing:
+            if len(missing) != len(_GLOBAL_INDEX_NUMERIC):
+                raise ProviderSchedulerError(
+                    f"global index Landing replay partial-null row: {symbol} {market_date}"
+                )
+            if market_date == target.isoformat() or market_date not in retained_by_date.index:
+                raise ProviderSchedulerError(
+                    f"global index Landing replay null row has no retained value: {symbol} {market_date}"
+                )
+            recovered_rows.append(retained_by_date.loc[market_date].to_dict())
+            continue
+        numeric = pd.to_numeric(pd.Series(
+            {column: row[column] for column in _GLOBAL_INDEX_NUMERIC}
+        ), errors="coerce")
+        if numeric.isna().any() or numeric.abs().eq(float("inf")).any():
+            raise ProviderSchedulerError(
+                f"global index Landing replay non-finite row: {symbol} {market_date}"
+            )
+        if market_date in retained_by_date.index:
+            old = retained_by_date.loc[market_date]
+            if any(
+                pd.notna(old[column]) and float(old[column]) != float(row[column])
+                for column in _GLOBAL_INDEX_NUMERIC
+            ):
+                raise ProviderSchedulerError(
+                    f"global index Landing replay finite revision: {symbol} {market_date}"
+                )
+            recovered_rows.append(row)
+        else:
+            recovered_rows.append(row)
+    recovered = pd.DataFrame(recovered_rows, columns=GLOBAL_INDEX_PRICE_DAILY.column_names)
+    recovered["date"] = recovered["date"].astype(str)
+    for column in _GLOBAL_INDEX_NUMERIC:
+        recovered[column] = pd.to_numeric(recovered[column], errors="raise")
+    recovered["volume"] = recovered["volume"].astype("Int64")
+    recovered = recovered.sort_values("date", kind="stable").reset_index(drop=True)
+    if target.isoformat() not in set(recovered["date"]):
+        raise ProviderSchedulerError("global index Landing replay missed target date")
+    validate_global_index(recovered)
+    return recovered
+
+
+def _prepare_global_index_with_landing_replay(
+    module: object, project_root: Path, existing: pd.DataFrame, target: date,
+) -> tuple[dict[str, object], list[str]]:
+    original_fetch = module.fetch_global_index
+    replayed: list[str] = []
+
+    def fetch_with_replay(
+        symbol: str, start: date, end: date, *, session: object, capture_root: Path,
+    ) -> pd.DataFrame:
+        before = set(capture_root.rglob("call.json")) if capture_root.exists() else set()
+        try:
+            return original_fetch(
+                symbol, start, end, session=session, capture_root=capture_root,
+            )
+        except RuntimeError as error:
+            calls = []
+            for path in set(capture_root.rglob("call.json")) - before:
+                try:
+                    record = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    continue
+                if (record.get("request_parameters") or {}).get("symbol") == symbol:
+                    calls.append(path)
+            if len(calls) != 1:
+                raise error
+            recovered = _replay_global_index_landing(
+                existing, calls[0], symbol=symbol, target=target,
+            )
+            replayed.append(symbol)
+            return recovered
+
+    module.fetch_global_index = fetch_with_replay
+    try:
+        checkpoint = module.prepare_phase(project_root, "yahoo", end=target)
+    finally:
+        module.fetch_global_index = original_fetch
+    return checkpoint, replayed
+
+
 def _run_global_index_phase(
     project_root: Path, phase: str, target: object,
 ) -> dict[str, object]:
@@ -668,7 +822,9 @@ def _run_global_index_phase(
             f"global index catch-up is not a one-session append: {retained} -> {target}"
         )
     module = _load_refresh_module(project_root)
-    checkpoint = module.prepare_phase(project_root, "yahoo", end=target)
+    checkpoint, landing_replay_symbols = _prepare_global_index_with_landing_replay(
+        module, project_root, existing, target,
+    )
     if checkpoint.get("status") == "NOOP_IDEMPOTENT":
         return {
             "status": "NOOP_IDEMPOTENT", "http_calls": 0, "run_id": None,
@@ -711,7 +867,12 @@ def _run_global_index_phase(
     return {
         "status": "PROMOTED", "http_calls": 3, "run_id": run_id,
         "latest_before": latest_text, "latest_after": after,
-        "reason": "VALIDATED_THREE_INDEX_ATOMIC_PROMOTION",
+        "reason": (
+            "VALIDATED_THREE_INDEX_ATOMIC_PROMOTION_WITH_LANDING_REPLAY"
+            if landing_replay_symbols
+            else "VALIDATED_THREE_INDEX_ATOMIC_PROMOTION"
+        ),
+        "landing_replay_symbols": landing_replay_symbols,
     }
 
 

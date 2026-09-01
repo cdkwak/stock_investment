@@ -6,7 +6,7 @@ param(
 )
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$pythonPath = Join-Path $projectRoot ".venv\Scripts\python.exe"
+$pythonPath = Join-Path $projectRoot ".venv\Scripts\pythonw.exe"
 $runnerPath = Join-Path $projectRoot "scripts\manual\collect\collect_toss_domestic_ur246.py"
 $taskRunnerPath = Join-Path $projectRoot "scripts\manual\collect\run_toss_domestic_ur246_task.ps1"
 $taskCommandPath = Join-Path $projectRoot "scripts\run_toss_domestic_ur246_task.cmd"
@@ -47,16 +47,21 @@ $settings = New-ScheduledTaskSettingsSet `
     -WakeToRun `
     -ExecutionTimeLimit (New-TimeSpan -Minutes 25) `
     -MultipleInstances IgnoreNew
-Set-ScheduledTask -TaskName $TaskName -Settings $settings | Out-Null
+$scheduledAction = New-ScheduledTaskAction `
+    -Execute $pythonPath `
+    -Argument ('"{0}" --project-root "{1}" --confirm-ur246-window' -f $runnerPath, $projectRoot) `
+    -WorkingDirectory $projectRoot
+Set-ScheduledTask -TaskName $TaskName -Action $scheduledAction -Settings $settings | Out-Null
 $registered = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop
 if ($registered.TaskName -ne $TaskName) { throw "UR-246 task name readback mismatch" }
 if (@($registered.Actions).Count -ne 1) { throw "UR-246 task action count readback mismatch" }
 $registeredAction = @($registered.Actions)[0]
-if ([IO.Path]::GetFileName([string]$registeredAction.Execute) -ine "cmd.exe") {
+if ([IO.Path]::GetFileName([string]$registeredAction.Execute) -ine "pythonw.exe") {
     throw "UR-246 task executable readback mismatch"
 }
-if ([string]$registeredAction.Arguments -notlike ('*{0}*' -f $taskCommandPath)) {
-    throw "UR-246 task wrapper action readback mismatch"
+if ([string]$registeredAction.Arguments -notlike ('*{0}*' -f $runnerPath) -or
+    [string]$registeredAction.Arguments -notlike '*--confirm-ur246-window*') {
+    throw "UR-246 task runner action readback mismatch"
 }
 if (@($registered.Triggers).Count -ne 1) { throw "UR-246 task trigger count readback mismatch" }
 $trigger = @($registered.Triggers)[0]
