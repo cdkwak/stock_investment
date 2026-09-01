@@ -130,6 +130,7 @@ def test_top_strip_prepends_korean_indices_and_renders_nine_session_sparklines()
 
     page.render({"dashboard_metrics": metrics, "market_card_sparklines": views})
     page.show()
+    page.market_details_button.click()
     app.processEvents()
 
     assert tuple(page.market_cards) == (

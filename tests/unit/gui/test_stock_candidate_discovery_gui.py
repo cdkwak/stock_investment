@@ -464,9 +464,14 @@ def test_decision_cockpit_unavailable_is_numeric_free_and_human_first(tmp_path):
 def test_decision_cockpit_page_opens_catalog_candidate_and_existing_surfaces():
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     page = DecisionCockpitPage()
+    host = QtWidgets.QMainWindow()
+    host.setCentralWidget(page)
+    host.resize(900, 640)
+    host.show()
     page.render_view(decision_cockpit_view(
         exploratory_view(as_of="2026-08-28", with_candidate=True)
     ))
+    app.processEvents()
     candidates = []
     surfaces = []
     page.candidate_requested.connect(
@@ -481,6 +486,15 @@ def test_decision_cockpit_page_opens_catalog_candidate_and_existing_surfaces():
     assert candidates == [("KOSPI", "005930"), ("KOSPI", "005930")]
     assert surfaces == ["DATA_STATUS"]
     assert page.candidate_table.rowCount() == 1
+    assert page.candidate_table.maximumHeight() > 300
+    assert page.candidate_table.height() > 300
+    assert page.candidate_table.horizontalScrollBar().maximum() == 0
+    assert page.data_status_button.isVisible()
+    assert all(
+        page.candidate_table.item(0, column).toolTip()
+        == page.candidate_table.item(0, column).text()
+        for column in range(page.candidate_table.columnCount())
+    )
     assert all(
         button.accessibleName().strip()
         for button in (
@@ -489,7 +503,7 @@ def test_decision_cockpit_page_opens_catalog_candidate_and_existing_surfaces():
             page.data_status_button, page.refresh_button,
         )
     )
-    page.close()
+    host.close()
     app.processEvents()
 
 

@@ -603,7 +603,8 @@ def test_main_window_registers_combined_account_workspace_and_loads_local_histor
     app.processEvents()
 
     labels = [window.tabs.tabText(index) for index in range(window.tabs.count())]
-    assert labels[-2:] == ["계좌·순자산", "Backtest"]
+    assert labels[:5] == ["오늘", "시장", "종목", "관심종목", "계좌"]
+    assert window.tabs.isTabVisible(window.tabs.indexOf(window.account_workspace_page))
     assert [
         window.account_workspace_tabs.tabText(index)
         for index in range(window.account_workspace_tabs.count())
