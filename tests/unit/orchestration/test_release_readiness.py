@@ -331,6 +331,56 @@ def test_scheduler_missing_disabled_or_nonzero_is_failure() -> None:
     assert "definition_mismatch=1" in check.summary
 
 
+def test_scheduler_policies_require_pythonw_and_direct_toss_action(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path.resolve()
+    policies = subject._scheduler_definition_policies(root)
+    expected_python = str(root / ".venv/Scripts/pythonw.exe")
+
+    assert set(policies) == set(subject.EXPECTED_SCHEDULED_TASKS)
+    for task_name, policy in policies.items():
+        assert policy.get("execute") == expected_python, task_name
+        assert "execute_basename" not in policy, task_name
+
+    toss = policies["STOCK_DATA_TOSS_DOMESTIC_30M"]
+    assert toss["arguments"] == (
+        f'"{root / "scripts/manual/collect/collect_toss_domestic_ur246.py"}" '
+        f'--project-root "{root}" --confirm-ur246-window'
+    )
+    assert toss["working_directory"] == str(root)
+    assert "cmd.exe" not in str(toss["execute"]).casefold()
+    assert ".cmd" not in str(toss["arguments"]).casefold()
+
+
+def test_scheduler_rejects_stale_python_and_toss_wrapper_actions(
+    tmp_path: Path,
+) -> None:
+    rows = list(_scheduler_rows(tmp_path))
+    stale_python = str(tmp_path.resolve() / ".venv/Scripts/python.exe")
+    rows[0] = {**rows[0], "execute": stale_python}
+    check = subject.assess_scheduler(rows, tmp_path)
+    assert check.status == "FAIL"
+    assert "definition_mismatch=1" in check.summary
+
+    rows = list(_scheduler_rows(tmp_path))
+    toss_index = next(
+        index
+        for index, row in enumerate(rows)
+        if row["name"] == "STOCK_DATA_TOSS_DOMESTIC_30M"
+    )
+    wrapper = tmp_path.resolve() / "scripts/run_toss_domestic_ur246_task.cmd"
+    rows[toss_index] = {
+        **rows[toss_index],
+        "execute": "cmd.exe",
+        "arguments": f'/d /c "{wrapper}"',
+        "working_directory": "",
+    }
+    check = subject.assess_scheduler(rows, tmp_path)
+    assert check.status == "FAIL"
+    assert "definition_mismatch=1" in check.summary
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [

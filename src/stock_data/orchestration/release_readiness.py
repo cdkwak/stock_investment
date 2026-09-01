@@ -699,7 +699,7 @@ def assess_local_service(result: Mapping[str, object]) -> tuple[SmokeCheck, Smok
 
 def _scheduler_definition_policies(project_root: Path) -> dict[str, dict[str, object]]:
     root = Path(project_root).resolve()
-    python = root / ".venv/Scripts/python.exe"
+    pythonw = root / ".venv/Scripts/pythonw.exe"
     provider = root / "scripts/maintenance/run_provider_scheduler.py"
 
     def python_daily(
@@ -707,7 +707,7 @@ def _scheduler_definition_policies(project_root: Path) -> dict[str, dict[str, ob
         start_when_available: bool = True,
     ) -> dict[str, object]:
         return {
-            "execute": str(python), "arguments": arguments,
+            "execute": str(pythonw), "arguments": arguments,
             "working_directory": str(root), "trigger_type": "MSFT_TaskDailyTrigger",
             "start_time": start, "days_interval": 1,
             "repetition_interval": "", "repetition_duration": "",
@@ -758,11 +758,14 @@ def _scheduler_definition_policies(project_root: Path) -> dict[str, dict[str, ob
             f'"{provider}" --bundle KR_MARKET_DAILY --scheduled-slot {slot}{allow_latest}',
             slot, "PT30M", start_when_available=slot == "20:30",
         )
-    toss_wrapper = root / "scripts/run_toss_domestic_ur246_task.cmd"
+    toss_runner = root / "scripts/manual/collect/collect_toss_domestic_ur246.py"
     policies["STOCK_DATA_TOSS_DOMESTIC_30M"] = {
-        "execute_basename": "cmd.exe",
-        # schtasks stores the parsed cmd.exe arguments with one quoted wrapper.
-        "arguments": f'/d /c "{toss_wrapper}"', "working_directory": "",
+        "execute": str(pythonw),
+        "arguments": (
+            f'"{toss_runner}" --project-root "{root}" '
+            "--confirm-ur246-window"
+        ),
+        "working_directory": str(root),
         "trigger_type": "MSFT_TaskWeeklyTrigger", "start_time": "09:00",
         "days_of_week_mask": 62, "repetition_interval": "PT30M",
         "repetition_duration": "PT6H", "start_when_available": True,
@@ -772,7 +775,7 @@ def _scheduler_definition_policies(project_root: Path) -> dict[str, dict[str, ob
     }
     yahoo_runner = root / "scripts/maintenance/run_yahoo_market_current.py"
     policies["STOCK_DATA_YAHOO_MARKET_30M"] = {
-        "execute": str(python),
+        "execute": str(pythonw),
         "arguments": f'"{yahoo_runner}" --project-root "{root}"',
         "working_directory": str(root), "trigger_type": "MSFT_TaskTimeTrigger",
         "start_minute_allowed": ("02", "32"), "repetition_interval": "PT30M",
