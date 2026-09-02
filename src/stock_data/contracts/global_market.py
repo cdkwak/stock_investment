@@ -1,6 +1,29 @@
 from dataclasses import dataclass
+from enum import StrEnum
+from types import MappingProxyType
 
 from stock_data.contracts.base import ColumnContract, DatasetContract
+
+
+class EndpointWindowPolicy(StrEnum):
+    """Accepted response-window checks for registered global index symbols."""
+
+    STRICT_EXCHANGE = "strict_exchange"
+    PROVIDER_NATIVE = "provider_native"
+
+
+# Symbols absent from this override registry retain the strict exchange-window
+# policy. DX-Y.NYB is an ICE dollar-index route whose Yahoo daily labels do not
+# share the XNYS cash-calendar endpoints used to bound the request.
+GLOBAL_INDEX_ENDPOINT_WINDOW_OVERRIDES = MappingProxyType({
+    "DOLLAR_INDEX": EndpointWindowPolicy.PROVIDER_NATIVE,
+})
+
+
+def global_index_endpoint_window(symbol: str) -> EndpointWindowPolicy:
+    return GLOBAL_INDEX_ENDPOINT_WINDOW_OVERRIDES.get(
+        symbol, EndpointWindowPolicy.STRICT_EXCHANGE,
+    )
 
 
 @dataclass(frozen=True)

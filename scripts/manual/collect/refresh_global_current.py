@@ -29,9 +29,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from stock_data.contracts.global_market import (  # noqa: E402
+    EndpointWindowPolicy,
     FRED_TREASURY_YIELD_DAILY, FRED_USD_FX_DAILY, FRED_VIX_DAILY,
     GLOBAL_COMMODITY_FUTURES_DAILY, GLOBAL_INDEX_PRICE_DAILY,
-    US_TREASURY_SPREAD_DAILY,
+    US_TREASURY_SPREAD_DAILY, global_index_endpoint_window,
 )
 from stock_data.contracts.global_etf import GLOBAL_ETF_PRICE_DAILY  # noqa: E402
 from stock_data.derived.treasury_spread import (  # noqa: E402
@@ -78,10 +79,44 @@ PHASES = {
 LOCK = Path("data/state/global_current_refresh.lock")
 REPARSE_POINT = 0x400
 YAHOO_PHASES = frozenset({"yahoo", "yahoo_etf", "yahoo_dashboard_futures"})
+PROVIDER_NATIVE_ENDPOINT_TOLERANCE_SESSIONS = 5
 
 
 class RefreshError(RuntimeError):
     pass
+
+
+def _endpoint_window_policy(phase: str, item: str) -> EndpointWindowPolicy:
+    if phase == "yahoo":
+        return global_index_endpoint_window(item)
+    return EndpointWindowPolicy.STRICT_EXCHANGE
+
+
+def _move_us_sessions(anchor: date, count: int) -> date:
+    calendar = ExchangeTradingCalendar(ExchangeMarket.US)
+    result = anchor
+    step = calendar.next_trading_day if count >= 0 else calendar.previous_trading_day
+    for _ in range(abs(count)):
+        result = step(result)
+    return result
+
+
+def _response_covers_endpoint_window(
+    *, policy: EndpointWindowPolicy, observed_start: date, observed_end: date,
+    planned_start: date, planned_end: date,
+) -> bool:
+    if policy is EndpointWindowPolicy.STRICT_EXCHANGE:
+        return observed_start >= planned_start and observed_end == planned_end
+    if policy is EndpointWindowPolicy.PROVIDER_NATIVE:
+        return (
+            observed_start <= _move_us_sessions(
+                planned_start, PROVIDER_NATIVE_ENDPOINT_TOLERANCE_SESSIONS,
+            )
+            and observed_end >= _move_us_sessions(
+                planned_end, -PROVIDER_NATIVE_ENDPOINT_TOLERANCE_SESSIONS,
+            )
+        )
+    raise RefreshError(f"unsupported endpoint-window policy: {policy}")
 
 
 def _select_phase_items(
@@ -1095,7 +1130,22 @@ def prepare_phase(
                 observed_start = date.fromisoformat(str(frame.date.min()))
                 observed_end = date.fromisoformat(str(frame.date.max()))
                 planned_start = date.fromisoformat(item_plan["start"])
-                if observed_start < planned_start or observed_end != end:
+                coverage_policy = (
+                    _endpoint_window_policy(phase, item)
+                    if phase in YAHOO_PHASES else None
+                )
+                covers_window = (
+                    _response_covers_endpoint_window(
+                        policy=coverage_policy,
+                        observed_start=observed_start,
+                        observed_end=observed_end,
+                        planned_start=planned_start,
+                        planned_end=end,
+                    )
+                    if coverage_policy is not None
+                    else observed_start >= planned_start and observed_end == end
+                )
+                if not covers_window:
                     raise RefreshError(f"{item} response does not cover the strict planned endpoint window")
                 retained = (existing.loc[existing.symbol.eq(item), "date"]
                             if phase in {"yahoo", "yahoo_etf", "yahoo_dashboard_futures"}
@@ -1103,8 +1153,17 @@ def prepare_phase(
                 retained_latest = retained.max() if not retained.empty else None
                 if retained_latest is not None and observed_start > date.fromisoformat(str(retained_latest)):
                     raise RefreshError(f"{item} response does not overlap retained coverage")
-                coverage[item] = {"planned_start": item_plan["start"], "planned_end": item_plan["end"],
-                                  "observed_start": observed_start.isoformat(), "observed_end": observed_end.isoformat()}
+                coverage_entry = {
+                    "planned_start": item_plan["start"], "planned_end": item_plan["end"],
+                    "observed_start": observed_start.isoformat(), "observed_end": observed_end.isoformat(),
+                }
+                if coverage_policy is not None:
+                    coverage_entry.update({
+                        "coverage_first": observed_start.isoformat(),
+                        "coverage_last": observed_end.isoformat(),
+                        "coverage_policy": coverage_policy.value,
+                    })
+                coverage[item] = coverage_entry
             if phase in {"yahoo", "yahoo_etf", "yahoo_dashboard_futures"}:
                 incoming = pd.concat(frames, ignore_index=True).sort_values(["date", "symbol"], kind="stable").reset_index(drop=True)
                 validator = (
@@ -1116,7 +1175,14 @@ def prepare_phase(
                 expected_symbols = (
                     set(items)
                 )
-                if set(incoming.symbol) != expected_symbols or incoming.groupby("symbol")["date"].max().ne(end.isoformat()).any():
+                strict_symbols = {
+                    item for item in items
+                    if _endpoint_window_policy(phase, item) is EndpointWindowPolicy.STRICT_EXCHANGE
+                }
+                strict_endpoints = incoming.loc[incoming.symbol.isin(strict_symbols)].groupby("symbol")["date"].max()
+                if (set(incoming.symbol) != expected_symbols
+                        or set(strict_endpoints.index) != strict_symbols
+                        or strict_endpoints.ne(end.isoformat()).any()):
                     raise RefreshError("Yahoo did not reach the explicit completed session for every symbol")
                 if phase == "yahoo_dashboard_futures":
                     endpoint = incoming.loc[incoming["date"].eq(end.isoformat())]

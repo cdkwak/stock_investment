@@ -8,6 +8,15 @@ job을 기록한다. Scheduler가 호출하는 동일 `global_current_refresh` p
 경로를 쓰며, 종목별 1회 호출·retry 0·Landing 우선·전체 데이터셋 CAS 교체를
 유지한다. 완료 세션 범위는 `2025-09-01..2026-09-01`이다.
 
+`DOLLAR_INDEX`는 ICE의 `DX-Y.NYB` 경로이므로 XNYS 현물지수와 같은 endpoint
+label을 강제하지 않는다. 2026-09-02에 보존된 Landing 응답은 요청 범위
+`2025-09-01..2026-09-01`에 대해 실제 `2025-09-02..2026-09-02`를 반환했다.
+Registry의 `provider_native` 정책은 시작 label이 계획 시작의 5개 XNYS session
+이내이고 마지막 label이 계획 종료 5개 XNYS session 전보다 늦은 경우만
+후보를 허용한다. 후보/checkpoint의 symbol별 `coverage_first`, `coverage_last`,
+`coverage_policy`를 promotion 전에 확인한다. 다른 index는 기본
+`strict_exchange` 정책과 정확한 종료 endpoint 검사를 그대로 유지한다.
+
 PowerShell에서 저장소 루트 기준으로 한 번 실행한다. 각 성공 후보의 JSON,
 Landing hash, coverage, revision report를 확인한 뒤 Enter를 눌러 offline
 promotion한다. 한 종목 실패는 `catch` 뒤 다음 종목으로 계속된다.

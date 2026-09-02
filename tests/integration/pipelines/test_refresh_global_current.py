@@ -11,7 +11,9 @@ from scripts.manual.collect.refresh_global_current import (
     BudgetSession, RefreshError, _files_manifest, _finite_latest, _replace_roots_atomically,
     _artifact_fingerprint, _assert_plain_path, _recover_transaction, _series_revision,
 )
-from stock_data.contracts.global_market import GLOBAL_INDEX_PRICE_DAILY
+from stock_data.contracts.global_market import (
+    EndpointWindowPolicy, GLOBAL_INDEX_PRICE_DAILY, global_index_endpoint_window,
+)
 from stock_data.contracts.global_market import (
     FRED_TREASURY_YIELD_DAILY, FRED_VIX_DAILY, US_TREASURY_SPREAD_DAILY,
 )
@@ -223,7 +225,7 @@ def test_prepare_is_nonmutating_tamper_fails_and_offline_promotion_is_atomic(tmp
     production = root / "data/normalized" / GLOBAL_INDEX_PRICE_DAILY.name
     rows = []
     for symbol, ticker in CONFIG.items():
-        for observed, close in (("2026-08-01", 100.0), ("2026-08-02", 101.0)):
+        for observed, close in (("2026-07-23", 100.0), ("2026-08-02", 101.0)):
             rows.append({"date": observed, "symbol": symbol, "source_ticker": ticker,
                          "open": close, "high": close + 1, "low": close - 1,
                          "close": close, "volume": 10})
@@ -292,6 +294,79 @@ def test_prepare_is_nonmutating_tamper_fails_and_offline_promotion_is_atomic(tmp
     restored = read_dataset(production, GLOBAL_INDEX_PRICE_DAILY, validate_global_index)
     assert len(restored) == len(CONFIG) * 3 and restored.date.max() == "2026-08-03"
     assert json.loads(state.read_text())["run_id"] == result["run_id"]
+
+
+def test_provider_native_index_accepts_shifted_endpoints_and_records_coverage(tmp_path, monkeypatch):
+    root = tmp_path / "provider-native"; root.mkdir()
+    production = root / "data/normalized" / GLOBAL_INDEX_PRICE_DAILY.name
+    existing = pd.DataFrame([{
+        "date": "2026-08-05", "symbol": "DOLLAR_INDEX", "source_ticker": "DX-Y.NYB",
+        "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 10,
+    }])
+    existing["volume"] = existing.volume.astype("Int64")
+    write_dataset_atomic(existing, production, GLOBAL_INDEX_PRICE_DAILY, validate_global_index)
+
+    def shifted_fetch(symbol, start, end, *, session, capture_root):
+        params = {"period1": _epoch(start), "period2": _epoch(end + timedelta(days=1)),
+                  "interval": "1d", "events": "history", "includeAdjustedClose": "false"}
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{quote(CONFIG[symbol], safe='')}"
+        response = session.get(url, params=params)
+        capture_public_response(root=capture_root, provider="yahoo", operation="chart",
+                                request_url=url, request_parameters={"symbol": symbol, **params}, response=response)
+        return pd.DataFrame([
+            {"date": observed, "symbol": symbol, "source_ticker": CONFIG[symbol],
+             "open": close, "high": close + 1, "low": close - 1,
+             "close": close, "volume": 10}
+            for observed, close in (("2026-08-05", 101.0), ("2026-08-12", 102.0))
+        ]).astype({"volume": "Int64"})
+
+    monkeypatch.setattr(refresh, "fetch_global_index", shifted_fetch)
+    result = refresh.prepare_phase(
+        root, "yahoo", symbols=("DOLLAR_INDEX",),
+        start=date(2026, 8, 3), end=date(2026, 8, 14), session=Backend(),
+    )
+    assert global_index_endpoint_window("DOLLAR_INDEX") is EndpointWindowPolicy.PROVIDER_NATIVE
+    assert result["coverage"]["DOLLAR_INDEX"] == {
+        "planned_start": "2026-08-03", "planned_end": "2026-08-14",
+        "observed_start": "2026-08-05", "observed_end": "2026-08-12",
+        "coverage_first": "2026-08-05", "coverage_last": "2026-08-12",
+        "coverage_policy": "provider_native",
+    }
+    state = json.loads((root / result["candidate_operational_state"]).read_text())
+    assert state["coverage"] == result["coverage"]
+
+
+def test_strict_index_still_rejects_shifted_endpoint_window(tmp_path, monkeypatch):
+    root = tmp_path / "strict"; root.mkdir()
+    production = root / "data/normalized" / GLOBAL_INDEX_PRICE_DAILY.name
+    existing = pd.DataFrame([{
+        "date": "2026-08-05", "symbol": "SP500", "source_ticker": "^GSPC",
+        "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 10,
+    }])
+    existing["volume"] = existing.volume.astype("Int64")
+    write_dataset_atomic(existing, production, GLOBAL_INDEX_PRICE_DAILY, validate_global_index)
+
+    def shifted_fetch(symbol, start, end, *, session, capture_root):
+        params = {"period1": _epoch(start), "period2": _epoch(end + timedelta(days=1)),
+                  "interval": "1d", "events": "history", "includeAdjustedClose": "false"}
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{quote(CONFIG[symbol], safe='')}"
+        response = session.get(url, params=params)
+        capture_public_response(root=capture_root, provider="yahoo", operation="chart",
+                                request_url=url, request_parameters={"symbol": symbol, **params}, response=response)
+        return pd.DataFrame([
+            {"date": observed, "symbol": symbol, "source_ticker": CONFIG[symbol],
+             "open": close, "high": close + 1, "low": close - 1,
+             "close": close, "volume": 10}
+            for observed, close in (("2026-08-05", 100.0), ("2026-08-12", 102.0))
+        ]).astype({"volume": "Int64"})
+
+    monkeypatch.setattr(refresh, "fetch_global_index", shifted_fetch)
+    assert global_index_endpoint_window("SP500") is EndpointWindowPolicy.STRICT_EXCHANGE
+    with pytest.raises(RefreshError, match="strict planned endpoint window"):
+        refresh.prepare_phase(
+            root, "yahoo", symbols=("SP500",),
+            start=date(2026, 8, 3), end=date(2026, 8, 14), session=Backend(),
+        )
 
 
 def test_fred_yields_end_to_end_promotes_yields_spread_and_both_states(tmp_path, monkeypatch):
