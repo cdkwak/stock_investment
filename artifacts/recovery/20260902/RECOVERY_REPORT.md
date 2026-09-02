@@ -20,6 +20,8 @@ Verified repair commits:
 - `2cb5cf8` records the current Data recovery state.
 - `818f9b8` retains the verified wide and narrow Dashboard renders.
 - `6122723` pins contrast on both white and unavailable-state backgrounds.
+- `ec079aa` pins canonical LF for the byte-bound Phase-1 replay artifacts.
+- `003b021` pins canonical LF for the exact Phase-1 code-identity source families.
 
 ## Measured runtime state
 
@@ -60,6 +62,14 @@ Verified repair commits:
   a fresh worktree; after linking the same read-only runtime inputs, the five
   scheduler dry-runs and one native GUI smoke all passed. This confirms the
   recovery commits do not depend on the 65 uncommitted deletions.
+- The clean-checkout sweep exposed and repaired a separate Windows Git
+  reproducibility defect: CRLF conversion changed both the five-file replay
+  generation and its code-tree digest, so the strict GUI consumer failed closed.
+  In a new post-fix worktree, all five artifact hashes matched the retained
+  generation, code digest `bb85d67f...` matched `experiments.json`, and the two
+  checkout/GUI acceptance regressions passed. PIT clocks, feature/label
+  isolation, and the sealed 1,222-observation holdout were not inspected or
+  changed.
 
 The fresh 2026-09-02 09:50 KST offline read-only release gate returned `FAIL`.
 It made zero external calls and zero Data/scheduler mutations. Data-root, schema,

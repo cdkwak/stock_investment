@@ -12,6 +12,7 @@ detail do not belong here.
 | Domain state | `DOMAIN_PARALLEL_OFFLINE_ENGINEERING_ACTIVE` |
 | Foundation | Accepted deterministic close-proxy five-file generation and typed local GUI consumer |
 | Frozen input | Content-addressed retained artifact, digest `a9229374d82aca29bd792230752ff050f266968c496477223400d1c87b2cc713` |
+| Checkout reproducibility | Windows Git checkouts now force canonical LF for the five byte-bound Phase-1 artifacts and the exact source families used by the experiment code digest. A fresh worktree reproduced all five artifact SHA-256 values, matched code digest `bb85d67f...` to the retained experiment manifest, and restored the typed GUI consumer to `READY`. |
 | Final holdout | 1,222 observations beginning 2021-08-17; sealed and intentionally uninspected; `results_reviewed=false` |
 | New-consumer readiness | Additive provider-free `backtest-input-readiness/v1` binds exact manifest/readback, retained calendar, clocks, split, PIT/finality, and sealed holdout; accepted replay paths are not retrofitted |
 | Network/Data boundary | Backtest is provider-free and may not collect, refresh, or mutate Data artifacts |
