@@ -160,6 +160,17 @@ def _epoch(value: date) -> int:
     return int(datetime.combine(value, time.min, tzinfo=NY).timestamp())
 
 
+def _drop_daily_provider_gaps(
+    frame: pd.DataFrame, price_columns: tuple[str, ...], dataset_label: str,
+) -> tuple[pd.DataFrame, list[str]]:
+    gap_mask = frame[list(price_columns)].isna().all(axis=1)
+    provider_gap_dates = frame.loc[gap_mask, "date"].astype(str).tolist()
+    frame = frame.loc[~gap_mask].reset_index(drop=True)
+    if frame.empty:
+        raise RuntimeError(f"Yahoo returned no {dataset_label} rows after provider gaps")
+    return frame, provider_gap_dates
+
+
 def _expected_60m_starts(
     session_windows: dict[date, tuple[datetime, datetime]],
 ) -> dict[date, tuple[pd.Timestamp, ...]]:
@@ -444,6 +455,9 @@ def fetch_global_index(
         **{column: values[column] for column in ("open","high","low","close","volume")},
     })
     frame["date"] = pd.to_datetime(frame["date"]).dt.strftime("%Y-%m-%d")
+    frame, provider_gap_dates = _drop_daily_provider_gaps(
+        frame, ("open", "high", "low", "close"), "index",
+    )
     for column in ("open","high","low","close","volume"):
         frame[column] = pd.to_numeric(frame[column], errors="coerce")
     numeric = frame[["open","high","low","close"]]
@@ -452,7 +466,9 @@ def fetch_global_index(
     if ((frame.high < frame.low) | ~frame.open.between(frame.low,frame.high) | ~frame.close.between(frame.low,frame.high)).any():
         raise RuntimeError("Yahoo OHLC relationship is invalid")
     frame["volume"] = frame["volume"].astype("Int64")
-    return frame[list(GLOBAL_INDEX_PRICE_DAILY.column_names)]
+    frame = frame[list(GLOBAL_INDEX_PRICE_DAILY.column_names)]
+    frame.attrs["provider_gap_dates"] = provider_gap_dates
+    return frame
 
 
 def fetch_global_etf(
@@ -524,12 +540,16 @@ def fetch_global_etf(
         "adjustment_status": "SOURCE_ADJUSTED_CLOSE_RETAINED_SEPARATELY",
     })
     frame["date"] = pd.to_datetime(frame["date"]).dt.strftime("%Y-%m-%d")
+    frame, provider_gap_dates = _drop_daily_provider_gaps(
+        frame, ("open", "high", "low", "close", "adjusted_close"), "ETF",
+    )
     frame["retrieved_at"] = pd.to_datetime(frame["retrieved_at"], utc=True)
     for column in ("open", "high", "low", "close", "adjusted_close", "volume"):
         frame[column] = pd.to_numeric(frame[column], errors="coerce")
     frame["volume"] = frame["volume"].astype("Int64")
     frame = frame[list(GLOBAL_ETF_PRICE_DAILY.column_names)]
     validate_global_etf(frame)
+    frame.attrs["provider_gap_dates"] = provider_gap_dates
     return frame
 
 
@@ -598,10 +618,15 @@ def fetch_commodity_future(
     frame = frame.loc[frame["date"].between(start.isoformat(), end.isoformat())].reset_index(drop=True)
     if frame.empty:
         raise RuntimeError("Yahoo returned no commodity daily bars inside the requested range")
+    frame, provider_gap_dates = _drop_daily_provider_gaps(
+        frame, ("open", "high", "low", "close"), "commodity daily",
+    )
     for column in ("open", "high", "low", "close", "volume"):
         frame[column] = pd.to_numeric(frame[column], errors="coerce")
     frame["volume"] = frame["volume"].astype("Int64")
     prices = frame[["open", "high", "low", "close"]]
+    if prices.isna().any().any():
+        raise RuntimeError("Yahoo commodity OHLC contains partial or invalid values")
     complete = prices.notna().all(axis=1)
     missing = ~prices.notna().any(axis=1)
     relation = complete & (prices.high.ge(prices.low) & prices.open.between(prices.low, prices.high) & prices.close.between(prices.low, prices.high))
@@ -611,6 +636,7 @@ def fetch_commodity_future(
     frame.loc[relation, "ohlc_status"] = "VALID"
     frame = frame[list(GLOBAL_COMMODITY_FUTURES_DAILY.column_names)]
     validate_global_commodity_futures(frame)
+    frame.attrs["provider_gap_dates"] = provider_gap_dates
     return frame
 
 

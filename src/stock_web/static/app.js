@@ -39,7 +39,7 @@
       <div class="t">내 규칙 기준 점검</div>
       ${(r.rows || []).map((x) => `<div class="row"><span>${esc(x[0])}</span><span class="num"><b>${esc(x[1])}</b> <span style="color:#b5aea4">${esc(x[2] || "")}</span></span></div>`).join("")}
       ${r.warning ? `<div class="warn">${esc(r.warning)}</div>` : ""}
-      <div style="font-size:10px;color:#8a847b;margin-top:4px">${esc(r.source || "")}</div>` : `<div class="t">내 규칙</div><div style="color:#b5aea4;font-size:11px">규칙 파일 없음 · Obsidian 30_규칙/투자 규칙.md</div>`;
+      <div style="font-size:10px;color:#8a847b;margin-top:4px">${esc(r.source || "")}</div>` : `<div class="t">내 규칙</div><div style="color:#b5aea4;font-size:11px">규칙 값 미입력 · Obsidian "투자 규칙.md"의 [채우기] 값을 채우면 표시됩니다</div>`;
   }
 
   // ---- tiles ----------------------------------------------------------------

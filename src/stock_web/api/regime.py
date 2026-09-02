@@ -14,6 +14,30 @@ from stock_data.gui.services import DashboardService
 DEFAULT_RULES_PATH = Path(
     r"C:\Users\k4545\Desktop\Obsidian\Investing\30_규칙\투자 규칙.md"
 )
+WEB_SETTINGS_RELATIVE = Path("artifacts/local_user/web_settings.json")
+
+
+def resolve_rules_path(project_root: Path | None = None) -> Path:
+    """Env var first, then the local (git-ignored) web settings file, then the default.
+
+    The Obsidian vault can move when Google Drive changes sync mode, so the path is
+    never hard-coded in tracked code; a missing file only disables the rules card.
+    """
+    override = os.environ.get("STOCK_WEB_RULES_PATH")
+    if override:
+        return Path(override)
+    if project_root is not None:
+        settings = project_root / WEB_SETTINGS_RELATIVE
+        if settings.is_file():
+            try:
+                import json
+
+                value = json.loads(settings.read_text(encoding="utf-8")).get("rules_path")
+                if isinstance(value, str) and value:
+                    return Path(value)
+            except Exception:
+                pass
+    return DEFAULT_RULES_PATH
 
 
 def oversold_strength(
@@ -159,8 +183,9 @@ def _rules_values(path: Path) -> tuple[dict[str, float], bool]:
 
 def build_rules(
     account: dict[str, object], markets: list[dict[str, object]],
+    project_root: Path | None = None,
 ) -> dict[str, object] | None:
-    path = Path(os.environ.get("STOCK_WEB_RULES_PATH", str(DEFAULT_RULES_PATH)))
+    path = resolve_rules_path(project_root)
     values, has_rows = _rules_values(path)
     if not has_rows or not values:
         return None
@@ -339,7 +364,7 @@ def build_regime(project_root: Path, account: dict[str, object]) -> dict[str, ob
             "evidence": global_evidence,
         },
     ]
-    return {"markets": markets, "rules": build_rules(account, markets)}
+    return {"markets": markets, "rules": build_rules(account, markets, project_root)}
 
 
 __all__ = [

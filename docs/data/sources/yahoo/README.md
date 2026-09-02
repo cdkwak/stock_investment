@@ -35,6 +35,9 @@ web page during GUI rendering.
   daily USD/KRW series.
 - SOXX is not SOX. NQ is not replaced by NDX, and missing Yahoo values are not
   filled from KB or another provider.
+- Daily rows whose complete price tuple is null are omitted as provider gaps and
+  their dates are retained in `provider_gap_dates`; an all-gap response fails closed.
+- A partially null ETF, index, or continuous-futures price bar always fails closed.
 - Retained Yahoo price history is descriptive and remains PIT-blocked where the
   project lacks original availability/vintage evidence.
 

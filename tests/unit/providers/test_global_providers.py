@@ -12,6 +12,7 @@ from stock_data.providers.yahoo import (
 from stock_data.providers.yahoo_15m import fetch_market_15m
 from stock_data.providers.fred import fetch_series
 from stock_data.providers.public_http_capture import PublicHttpCaptureError
+from stock_data.validation.global_market import validate_global_etf, validate_global_index
 
 
 class Response:
@@ -91,6 +92,94 @@ def test_ewy_registry_and_daily_identity_are_validated_offline() -> None:
     assert frame[["symbol", "source_ticker", "currency", "exchange"]].iloc[0].tolist() == [
         "EWY", "EWY", "USD", "PCX",
     ]
+
+
+def _daily_gap_payload(ticker: str, instrument_type: str, gap_kind: str) -> dict:
+    timestamps = [
+        int(pd.Timestamp(day, tz="UTC").timestamp())
+        for day in ("2026-08-26 16:00", "2026-08-27 16:00", "2026-08-28 16:00")
+    ]
+    quote = {
+        "open": [70.0, 71.0, 72.0],
+        "high": [71.0, 72.0, 73.0],
+        "low": [69.0, 70.0, 71.0],
+        "close": [70.5, 71.5, 72.5],
+        "volume": [1000, 1100, 1200],
+    }
+    adjusted = [70.25, 71.25, 72.25]
+    if gap_kind == "middle":
+        for column in ("open", "high", "low", "close"):
+            quote[column][1] = None
+        adjusted[1] = None
+    elif gap_kind == "partial":
+        quote["open"][1] = None
+    elif gap_kind == "all":
+        for column in ("open", "high", "low", "close"):
+            quote[column] = [None, None, None]
+        adjusted = [None, None, None]
+    indicators = {"quote": [quote]}
+    meta = {"symbol": ticker, "instrumentType": instrument_type, "dataGranularity": "1d"}
+    if instrument_type == "ETF":
+        meta.update({"currency": "USD", "exchangeName": "PCX"})
+        indicators["adjclose"] = [{"adjclose": adjusted}]
+    return {"chart": {"error": None, "result": [{
+        "meta": meta, "timestamp": timestamps, "indicators": indicators,
+    }]}}
+
+
+class YahooDailyGapSession:
+    def __init__(self, instrument_type: str, gap_kind: str):
+        self.instrument_type = instrument_type
+        self.gap_kind = gap_kind
+
+    def get(self, url, *args, **kwargs):
+        ticker = url.rsplit("/", 1)[-1].replace("%5E", "^")
+        return Response(_daily_gap_payload(ticker, self.instrument_type, self.gap_kind))
+
+
+@pytest.mark.parametrize(
+    ("instrument_type", "fetcher", "symbol"),
+    (("INDEX", fetch_global_index, "SP500"), ("ETF", fetch_global_etf, "EWY")),
+)
+def test_yahoo_daily_all_null_middle_row_is_recorded_and_dropped(
+    instrument_type, fetcher, symbol,
+) -> None:
+    kwargs = {"session": YahooDailyGapSession(instrument_type, "middle")}
+    if instrument_type == "ETF":
+        kwargs["retrieved_at"] = datetime(2026, 8, 29, tzinfo=timezone.utc)
+    frame = fetcher(symbol, date(2026, 8, 26), date(2026, 8, 28), **kwargs)
+
+    assert frame["date"].tolist() == ["2026-08-26", "2026-08-28"]
+    assert frame.attrs["provider_gap_dates"] == ["2026-08-27"]
+    (validate_global_etf if instrument_type == "ETF" else validate_global_index)(frame)
+
+
+@pytest.mark.parametrize(
+    ("instrument_type", "fetcher", "symbol"),
+    (("INDEX", fetch_global_index, "SP500"), ("ETF", fetch_global_etf, "EWY")),
+)
+def test_yahoo_daily_partial_null_row_still_fails_closed(
+    instrument_type, fetcher, symbol,
+) -> None:
+    kwargs = {"session": YahooDailyGapSession(instrument_type, "partial")}
+    if instrument_type == "ETF":
+        kwargs["retrieved_at"] = datetime(2026, 8, 29, tzinfo=timezone.utc)
+    with pytest.raises((RuntimeError, ValueError), match="missing|invalid"):
+        fetcher(symbol, date(2026, 8, 26), date(2026, 8, 28), **kwargs)
+
+
+@pytest.mark.parametrize(
+    ("instrument_type", "fetcher", "symbol"),
+    (("INDEX", fetch_global_index, "SP500"), ("ETF", fetch_global_etf, "EWY")),
+)
+def test_yahoo_daily_all_null_rows_fail_closed(
+    instrument_type, fetcher, symbol,
+) -> None:
+    kwargs = {"session": YahooDailyGapSession(instrument_type, "all")}
+    if instrument_type == "ETF":
+        kwargs["retrieved_at"] = datetime(2026, 8, 29, tzinfo=timezone.utc)
+    with pytest.raises(RuntimeError, match="provider gaps"):
+        fetcher(symbol, date(2026, 8, 26), date(2026, 8, 28), **kwargs)
 
 
 class Yahoo60mSession:

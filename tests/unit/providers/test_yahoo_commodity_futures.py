@@ -24,6 +24,36 @@ class Session:
         return Response(url.rsplit("/", 1)[-1].replace("%3D", "="))
 
 
+class GapSession(Session):
+    def __init__(self, gap_kind):
+        self.gap_kind = gap_kind
+
+    def get(self, url, *args, **kwargs):
+        response = super().get(url, *args, **kwargs)
+        payload = response.json()
+        item = payload["chart"]["result"][0]
+        item["timestamp"] = [
+            int(pd.Timestamp(day, tz="UTC").timestamp())
+            for day in ("2026-08-26 16:00", "2026-08-27 16:00", "2026-08-28 16:00")
+        ]
+        quote = item["indicators"]["quote"][0]
+        quote.update({
+            "open": [70.0, 71.0, 72.0], "high": [71.0, 72.0, 73.0],
+            "low": [69.0, 70.0, 71.0], "close": [70.5, 71.5, 72.5],
+            "volume": [1000, 1100, 1200],
+        })
+        if self.gap_kind == "middle":
+            for column in ("open", "high", "low", "close"):
+                quote[column][1] = None
+        elif self.gap_kind == "partial":
+            quote["open"][1] = None
+        elif self.gap_kind == "all":
+            for column in ("open", "high", "low", "close"):
+                quote[column] = [None, None, None]
+        response.json = lambda: payload
+        return response
+
+
 def test_bounded_symbols_and_explicit_daily_period_capture(tmp_path):
     assert [ticker for ticker, _ in COMMODITY_CONFIG.values()] == [
         "GC=F", "SI=F", "HG=F", "CL=F", "BZ=F", "NQ=F",
@@ -35,6 +65,33 @@ def test_bounded_symbols_and_explicit_daily_period_capture(tmp_path):
     validate_global_commodity_futures(frame)
     call = next((tmp_path / "yahoo" / "commodity_chart_daily").iterdir())
     assert (call / "response.body").read_bytes() == Response.content
+
+
+def test_futures_all_null_middle_row_is_recorded_and_dropped():
+    frame = fetch_commodity_future(
+        "WTI_CRUDE_OIL", date(2026, 8, 26), date(2026, 8, 28),
+        session=GapSession("middle"),
+    )
+
+    assert frame["date"].tolist() == ["2026-08-26", "2026-08-28"]
+    assert frame.attrs["provider_gap_dates"] == ["2026-08-27"]
+    validate_global_commodity_futures(frame)
+
+
+def test_futures_partial_null_row_still_fails_closed():
+    with pytest.raises(RuntimeError, match="partial or invalid"):
+        fetch_commodity_future(
+            "WTI_CRUDE_OIL", date(2026, 8, 26), date(2026, 8, 28),
+            session=GapSession("partial"),
+        )
+
+
+def test_futures_all_null_rows_fail_closed():
+    with pytest.raises(RuntimeError, match="provider gaps"):
+        fetch_commodity_future(
+            "WTI_CRUDE_OIL", date(2026, 8, 26), date(2026, 8, 28),
+            session=GapSession("all"),
+        )
 
 
 def test_live_forming_futures_bar_is_not_normalized_as_a_completed_duplicate(tmp_path):
