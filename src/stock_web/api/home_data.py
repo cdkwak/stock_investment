@@ -16,6 +16,7 @@ import pandas as pd
 
 from stock_web.api import datasets as dsx
 from stock_web.api.datasets import field
+from stock_web.api.intraday import load_intraday_series
 
 _HOME_CACHE_TTL_SECONDS = 60.0
 _HOME_CACHE: dict[str, tuple[float, dict[str, object]]] = {}
@@ -162,6 +163,7 @@ def _tile_from_series(name: str, symbol: str | None, frame: pd.DataFrame | None,
         "ma20_pct": _nan_to_none((last / ma20 - 1) * 100) if ma20 else None,
         "spark": [round(float(v), 4) for v in values.iloc[-30:]],
         "window": f"{window_label} · {series['date'].iloc[-1]:%m-%d}",
+        "_daily_value": float(last),
     }
     if change_kind == "pct":
         tile["change_pct"] = _nan_to_none((last / prev - 1) * 100)
@@ -204,6 +206,25 @@ def build_tiles(project_root: Path) -> list[dict[str, object]]:
         _tile_from_series("VIX (FRED 마감)", None, vix, "vixcls"),
         _placeholder("한국 3Y · 10Y", "한국은행 확정 검증 후 표시"),
     ]
+    for tile in tiles:
+        intraday = load_intraday_series(project_root, str(tile["name"]))
+        daily_value = tile.pop("_daily_value", None)
+        if intraday is not None and len(intraday["points"]) >= 3:
+            tile["spark"] = intraday["points"]
+            tile["window"] = intraday["window"]
+            tile["spark_kind"] = "intraday"
+            tile["spark_source"] = intraday["source"]
+            latest = intraday["points"][-1]
+            if daily_value is not None and not math.isclose(
+                float(daily_value), float(latest["v"]), rel_tol=0, abs_tol=1e-9,
+            ):
+                tile["latest_intraday"] = {
+                    "value": latest["v"], "time": latest["t"],
+                }
+        else:
+            tile["spark_kind"] = "daily"
+            if tile.get("spark"):
+                tile["window"] = "최근 30일 마감"
     return tiles
 
 

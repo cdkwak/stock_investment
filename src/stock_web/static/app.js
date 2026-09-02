@@ -19,8 +19,9 @@
 
   function sparkline(values, w = 140, h = 22) {
     if (!values || values.length < 2) return "";
-    const lo = Math.min(...values), hi = Math.max(...values), pad = (hi - lo) * 0.1 || 1;
-    const pts = values.map((v, i) => `${(1 + (w - 2) * i / (values.length - 1)).toFixed(1)},${(1 + (h - 2) - (h - 2) * (v - lo + pad) / (hi - lo + 2 * pad)).toFixed(1)}`).join(" ");
+    const numeric = values.map((point) => typeof point === "object" ? Number(point.v) : Number(point));
+    const lo = Math.min(...numeric), hi = Math.max(...numeric), pad = (hi - lo) * 0.1 || 1;
+    const pts = numeric.map((v, i) => `${(1 + (w - 2) * i / (numeric.length - 1)).toFixed(1)},${(1 + (h - 2) - (h - 2) * (v - lo + pad) / (hi - lo + 2 * pad)).toFixed(1)}`).join(" ");
     return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="#1f1d1a" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linejoin="round"></polyline></svg>`;
   }
 
@@ -49,6 +50,7 @@
       <div class="tile" data-symbol="${esc(t.symbol || "")}">
         <div class="n">${esc(t.name)}</div>
         <div class="v"><b class="num">${t.value ?? "—"}</b><span class="num ${cls(t.change_pct)}">${t.change_label ?? pct(t.change_pct)}</span></div>
+        ${t.latest_intraday ? `<div class="muted" style="font-size:10px;margin-top:2px">장중 <span class="num">${fmt(t.latest_intraday.value)}</span> (${asof(t.latest_intraday.time).slice(-5)})</div>` : ""}
         <div class="ma"><span>5일 <span class="num ${cls(t.ma5_pct)}">${pct(t.ma5_pct)}</span></span><span>20일 <span class="num ${cls(t.ma20_pct)}">${pct(t.ma20_pct)}</span></span></div>
         ${t.spark ? `<div class="spark">${sparkline(t.spark)}<small>${esc(t.window || "")}</small></div>` : `<div class="note">${esc(t.note || "표시 불가")}</div>`}
       </div>`).join("");
