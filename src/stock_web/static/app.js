@@ -222,8 +222,17 @@
     renderTiles(s.tiles, (sym) => { $("chart-symbol").value = sym; loadChart(sym, currentRange()); });
     $("sectors").innerHTML = s.sectors ? `<span><b>업종</b></span>` + s.sectors.map((x) => `<span class="muted">${esc(x.name)} <span class="num ${cls(x.change_pct)}">${pct(x.change_pct)}</span></span>`).join("") : "";
     const symbols = (s.chart_symbols || []);
+    const requestedSymbol = (($("home-page") || {}).dataset || {}).initialSymbol || new URLSearchParams(window.location.search).get("symbol") || "";
+    if (requestedSymbol && !symbols.some((item) => item.symbol === requestedSymbol)) {
+      const watch = ((s.watchlist || {}).rows || []).find((item) => item.symbol === requestedSymbol);
+      symbols.push({ symbol: requestedSymbol, name: watch ? `${watch.name} · ${requestedSymbol}` : requestedSymbol });
+    }
     $("chart-symbol").innerHTML = symbols.map((x) => `<option value="${esc(x.symbol)}">${esc(x.name)}</option>`).join("") || `<option value="">차트 없음</option>`;
-    if (symbols.length) loadChart(symbols[0].symbol, currentRange()); else renderChart(null);
+    if (symbols.length) {
+      const initial = requestedSymbol && symbols.some((item) => item.symbol === requestedSymbol) ? requestedSymbol : symbols[0].symbol;
+      $("chart-symbol").value = initial;
+      loadChart(initial, currentRange());
+    } else renderChart(null);
     renderWatchlist(s.watchlist); renderAccount(s.account); renderFlows(s.flows); renderDerivatives(s.derivatives);
     renderSchedule(s.schedule); renderBrief(s.brief); renderScanner(s.scanner); renderSummaryStrip(s);
   }

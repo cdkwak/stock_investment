@@ -41,8 +41,10 @@ def create_app(project_root: Path | None = None) -> FastAPI:
     app.include_router(build_router(root), prefix="/api")
 
     @app.get("/", response_class=HTMLResponse)
-    def home(request: Request) -> HTMLResponse:
-        return templates.TemplateResponse(request, "home.html", {"page": "home"})
+    def home(request: Request, symbol: str = "") -> HTMLResponse:
+        return templates.TemplateResponse(
+            request, "home.html", {"page": "home", "initial_symbol": symbol.strip()},
+        )
 
     @app.get("/data", response_class=HTMLResponse)
     def data_page(request: Request, status: str = "OPERATIONAL") -> HTMLResponse:
@@ -56,9 +58,12 @@ def create_app(project_root: Path | None = None) -> FastAPI:
     def account_page(request: Request) -> HTMLResponse:
         return templates.TemplateResponse(request, "account.html", {"page": "account"})
 
+    @app.get("/stocks", response_class=HTMLResponse)
+    def stocks_page(request: Request) -> HTMLResponse:
+        return templates.TemplateResponse(request, "stocks.html", {"page": "stocks"})
+
     PLACEHOLDER_PAGES = {
         "market": ("시장", "차트 · 파생 · 수급 상세. 홈의 차트를 크게 보고 지표를 더 얹는 화면입니다."),
-        "stocks": ("종목", "관심종목 관리 · 조건 설정 · 과매도 스캐너 전체 목록."),
     }
 
     @app.get("/{page}", response_class=HTMLResponse)

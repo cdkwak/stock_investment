@@ -95,10 +95,15 @@ class ASGITestClient:
     ) -> ASGITestResponse:
         return self._request("POST", url, json_body=json, client_host=client_host)
 
+    def delete(
+        self, url: str, *, json: object, client_host: str = "testclient",
+    ) -> ASGITestResponse:
+        return self._request("DELETE", url, json_body=json, client_host=client_host)
+
 
 def new_temp_root() -> Path:
     """Create an isolated disposable root without pytest's broken 0700 ACL here."""
-    base = Path(__file__).parents[3] / ".tmp/agents/web-dashboard-20260902/fixtures"
+    base = Path(__file__).parents[3] / ".tmp/agents/stocks_page_20260903/fixtures"
     root = base / uuid4().hex
     root.mkdir(parents=True)
     return root
@@ -182,6 +187,61 @@ def make_project(root: Path) -> Path:
         "data/normalized/kr_market_investor_trading_daily/market=KOSPI/year=2026/data.parquet",
         flows,
     )
+
+    equity_dates = pd.date_range(end="2026-09-02", periods=260, freq="B")
+    equity_specs = {
+        ("KOSPI", "005930"): [100.0 + index * 0.1 for index in range(260)],
+        ("KOSPI", "000660"): [100.0 + index * 0.2 for index in range(220)] + [143.8 - index * 2.0 for index in range(40)],
+        ("KOSDAQ", "035720"): [80.0 + index * 0.05 for index in range(260)],
+    }
+    equity_rows = []
+    for (market, symbol), prices in equity_specs.items():
+        for index, (observed, current) in enumerate(zip(equity_dates, prices)):
+            equity_rows.append({
+                "date": observed, "market": market, "symbol": symbol,
+                "open": current - 0.2, "high": current + 0.5, "low": current - 0.5,
+                "close": current, "volume": 2_000_000 if symbol == "000660" and index == 259 else 1_000_000,
+                "source": "fixture", "source_operation": "fixture", "source_date": observed.date().isoformat(),
+            })
+    equity = pd.DataFrame(equity_rows)
+    for (market, year), part in equity.groupby(["market", equity["date"].dt.year]):
+        _write_parquet(
+            root,
+            f"data/normalized/kr_equity_price_daily/market={market}/year={year}/data.parquet",
+            part.reset_index(drop=True),
+        )
+
+    masters = {
+        "KOSPI": [("005930", "삼성전자"), ("000660", "SK하이닉스")],
+        "KOSDAQ": [("035720", "카카오")],
+    }
+    for market, identities in masters.items():
+        _write_parquet(
+            root, f"data/normalized/kr_equity_master/market={market}/data.parquet",
+            pd.DataFrame({
+                "symbol": [item[0] for item in identities],
+                "name": [item[1] for item in identities],
+                "market": market,
+                "isin": [f"KR{index:010d}" for index in range(len(identities))],
+                "listing_date": ["2000-01-01"] * len(identities),
+                "delisting_date": [None] * len(identities),
+                "security_type_name": ["보통주"] * len(identities),
+            }),
+        )
+    universe = pd.DataFrame({
+        "date": pd.Timestamp("2026-09-02"),
+        "market": ["KOSPI", "KOSPI", "KOSDAQ"],
+        "symbol": ["005930", "000660", "035720"],
+        "name": ["삼성전자", "SK하이닉스", "카카오"],
+        "listed_info_present": [True, True, True],
+        "price_present": [True, True, True],
+    })
+    for market, part in universe.groupby("market"):
+        _write_parquet(
+            root,
+            f"data/published/kr_equity_canonical_universe_daily/market={market}/year=2026/data.parquet",
+            part.reset_index(drop=True),
+        )
 
     health = {
         "schema_version": 2,

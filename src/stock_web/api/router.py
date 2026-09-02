@@ -49,6 +49,14 @@ def json_response(payload: object, *, status_code: int = 200) -> Response:
 def build_router(project_root: Path) -> APIRouter:
     router = APIRouter()
 
+    def loopback(request: Request) -> bool:
+        return request.client is not None and request.client.host in {"127.0.0.1", "::1"}
+
+    def clear_home_cache() -> None:
+        from stock_web.api import home_data
+
+        home_data._HOME_CACHE.pop(str(project_root.resolve()), None)
+
     @router.get("/home")
     def home() -> Response:
         from stock_web.api import home_data
@@ -67,6 +75,89 @@ def build_router(project_root: Path) -> APIRouter:
 
         return json_response(build_account_page_data(project_root))
 
+    @router.get("/stocks")
+    def stocks() -> Response:
+        from stock_web.api.stocks_page import build_stocks_page_data
+
+        return json_response(build_stocks_page_data(project_root))
+
+    @router.get("/stocks/search")
+    def stock_search(q: str = "") -> Response:
+        from stock_web.api.stocks_page import search_stocks
+
+        return json_response(search_stocks(project_root, q))
+
+    @router.get("/scanner")
+    def scanner() -> Response:
+        from stock_web.api.scanner import build_scanner
+
+        return json_response(build_scanner(project_root))
+
+    @router.post("/watchlists")
+    async def save_watchlist(request: Request) -> Response:
+        from stock_web.api.stocks_page import StocksInputError, mutate_watchlist
+
+        if not loopback(request):
+            return json_response({"error": "로컬 접속에서만 저장할 수 있습니다."}, status_code=403)
+        try:
+            saved = mutate_watchlist(project_root, await request.json())
+        except (KeyError, ValueError, StocksInputError) as error:
+            return json_response({"error": str(error)}, status_code=400)
+        clear_home_cache()
+        return json_response(saved)
+
+    @router.post("/watchlist/items")
+    async def add_watchlist(request: Request) -> Response:
+        from stock_web.api.stocks_page import StocksInputError, add_watchlist_item
+
+        if not loopback(request):
+            return json_response({"error": "로컬 접속에서만 저장할 수 있습니다."}, status_code=403)
+        try:
+            saved = add_watchlist_item(project_root, await request.json())
+        except (KeyError, ValueError, StocksInputError) as error:
+            return json_response({"error": str(error)}, status_code=400)
+        clear_home_cache()
+        return json_response(saved)
+
+    @router.delete("/watchlist/items")
+    async def delete_watchlist(request: Request) -> Response:
+        from stock_web.api.stocks_page import StocksInputError, remove_watchlist_item
+
+        if not loopback(request):
+            return json_response({"error": "로컬 접속에서만 저장할 수 있습니다."}, status_code=403)
+        try:
+            saved = remove_watchlist_item(project_root, await request.json())
+        except (KeyError, ValueError, StocksInputError) as error:
+            return json_response({"error": str(error)}, status_code=400)
+        clear_home_cache()
+        return json_response(saved)
+
+    @router.post("/watchlist/items/move")
+    async def reorder_watchlist(request: Request) -> Response:
+        from stock_web.api.stocks_page import StocksInputError, move_watchlist_item
+
+        if not loopback(request):
+            return json_response({"error": "로컬 접속에서만 저장할 수 있습니다."}, status_code=403)
+        try:
+            saved = move_watchlist_item(project_root, await request.json())
+        except (KeyError, ValueError, StocksInputError) as error:
+            return json_response({"error": str(error)}, status_code=400)
+        clear_home_cache()
+        return json_response(saved)
+
+    @router.post("/watch-conditions")
+    async def watch_conditions(request: Request) -> Response:
+        from stock_web.api.stocks_page import StocksInputError, save_conditions
+
+        if not loopback(request):
+            return json_response({"error": "로컬 접속에서만 저장할 수 있습니다."}, status_code=403)
+        try:
+            saved = save_conditions(project_root, await request.json())
+        except (ValueError, StocksInputError) as error:
+            return json_response({"error": str(error)}, status_code=400)
+        clear_home_cache()
+        return json_response(saved)
+
     @router.get("/manual/accounts")
     def manual_accounts() -> Response:
         from stock_web.api.account_page import build_manual_account_data
@@ -84,9 +175,7 @@ def build_router(project_root: Path) -> APIRouter:
             saved = save_manual_accounts(project_root, payload)
         except (ValueError, AccountInputError) as error:
             return json_response({"error": str(error)}, status_code=400)
-        from stock_web.api import home_data
-
-        home_data._HOME_CACHE.pop(str(project_root.resolve()), None)
+        clear_home_cache()
         return json_response(saved)
 
     @router.get("/net-worth")
@@ -106,9 +195,7 @@ def build_router(project_root: Path) -> APIRouter:
             saved = save_net_worth(project_root, payload)
         except (ValueError, AccountInputError) as error:
             return json_response({"error": str(error)}, status_code=400)
-        from stock_web.api import home_data
-
-        home_data._HOME_CACHE.pop(str(project_root.resolve()), None)
+        clear_home_cache()
         return json_response(saved)
 
     @router.get("/ping")

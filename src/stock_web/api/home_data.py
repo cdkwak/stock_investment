@@ -34,6 +34,7 @@ INDEX_SOURCES = {
     "WTI": ("data/normalized/global_commodity_futures_daily", "symbol", "WTI_CRUDE_OIL", "WTI 선물"),
     "GOLD": ("data/normalized/global_commodity_futures_daily", "symbol", "GOLD", "금 선물"),
     "SOXX": ("data/normalized/global_etf_price_daily", "symbol", "SOXX", "SOXX (반도체 ETF)"),
+    "EWY": ("data/normalized/global_etf_price_daily", "symbol", "EWY", "iShares MSCI South Korea ETF"),
 }
 
 
@@ -63,15 +64,17 @@ def _ohlcv(project_root: Path, symbol: str) -> tuple[pd.DataFrame | None, str]:
     return None, symbol
 
 
-_NAME_CACHE: dict[str, str] = {}
+_NAME_CACHE: dict[str, dict[str, str]] = {}
 
 
 def _stock_name(project_root: Path, symbol: str) -> str:
-    if not _NAME_CACHE:
+    key = str(project_root.resolve())
+    names = _NAME_CACHE.setdefault(key, {})
+    if not names:
         master = dsx.load(project_root, "data/normalized/kr_equity_master")
         if master is not None and {"symbol", "name"} <= set(master.columns):
-            _NAME_CACHE.update(dict(zip(master["symbol"].astype(str), master["name"].astype(str))))
-    return _NAME_CACHE.get(symbol, symbol)
+            names.update(dict(zip(master["symbol"].astype(str), master["name"].astype(str))))
+    return names.get(symbol, symbol)
 
 
 def _indicators(frame: pd.DataFrame) -> pd.DataFrame:
@@ -720,69 +723,21 @@ def build_brief(project_root: Path) -> dict[str, object] | None:
         return None
 
 
-def build_scanner(project_root: Path) -> dict[str, object] | None:
-    root = project_root / "artifacts"
-    if not root.is_dir():
-        return None
-    paths = [
-        path for path in root.rglob("*scanner*.json")
-        if path.is_file() and "request_queue" not in path.parts
-    ]
-    for path in sorted(paths, key=lambda item: item.stat().st_mtime, reverse=True):
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError):
-            continue
-        contract = payload.get("contract") or payload.get("schema_version")
-        candidates = payload.get("candidates")
-        if contract not in {"stock-exploratory-scanner/v1", 1} or not isinstance(candidates, list):
-            continue
-        top = []
-        for candidate in candidates[:5]:
-            if not isinstance(candidate, dict):
-                continue
-            name = candidate.get("name") or candidate.get("symbol")
-            why = candidate.get("technical_state") or candidate.get("why")
-            if name and why:
-                top.append({"name": str(name), "why": str(why)})
-        return {
-            "as_of": payload.get("as_of"),
-            "count": len(candidates),
-            "rule": payload.get("rule") or "RSI14 ≤ 30 또는 종가/SMA60 ≤ 80%",
-            "top": top,
-        }
-    return None
+def build_scanner(project_root: Path) -> dict[str, object]:
+    from stock_web.api.scanner import build_scanner as build_full_scanner
+
+    result = build_full_scanner(project_root)
+    return {
+        key: result.get(key)
+        for key in ("status", "as_of", "count", "rule", "top", "reason")
+        if key in result
+    }
 
 
 def build_watchlist(project_root: Path) -> dict[str, object]:
-    import json
-    path = project_root / "artifacts/local_user/watchlists.json"
-    if not path.is_file():
-        return {"reason": "관심종목 파일 없음 · 종목 페이지에서 추가"}
-    try:
-        state = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {"reason": "관심종목 파일을 읽을 수 없음"}
-    items = [it for lst in state.get("lists", []) for it in lst.get("items", []) if isinstance(it, dict)]
-    rows = []
-    for it in items[:12]:
-        symbol = str(it.get("symbol") or "")
-        chart = build_chart_payload(project_root, symbol=symbol, range_key="3M") if symbol else {}
-        candles = chart.get("candles") or []
-        last = candles[-1] if candles else None
-        prev = candles[-2] if len(candles) > 1 else None
-        stats = chart.get("stats") or {}
-        rows.append({
-            "name": it.get("name") or symbol, "symbol": symbol, "held": False, "weight_pct": None,
-            "price": f"{last['c']:,.0f}" if last and last.get("c") is not None else None,
-            "change_pct": _nan_to_none((last["c"] / prev["c"] - 1) * 100) if last and prev and prev.get("c") else None,
-            "drawdown_pct": stats.get("drawdown_pct"), "rsi14": stats.get("rsi14"),
-            "flow_foreign": None, "flow_inst": None, "flow_indiv": None,
-            "flag": "RSI 30 이하" if (stats.get("rsi14") or 100) <= 30 else "",
-            "as_of": chart.get("as_of"),
-        })
-    return {"rows": rows, "held_count": 0, "watch_count": len(rows),
-            "note": "보유 비중은 계좌 연결 후 · 종목별 수급은 수집 데이터 없음"}
+    from stock_web.api.stocks_page import build_home_watchlist
+
+    return build_home_watchlist(project_root)
 
 
 def _build_home_payload_uncached(project_root: Path) -> dict[str, object]:
@@ -798,13 +753,11 @@ def _build_home_payload_uncached(project_root: Path) -> dict[str, object]:
     brief = build_brief(project_root)
     if brief is not None:
         sections["brief"] = brief
-    scanner = build_scanner(project_root)
-    if scanner is not None:
-        sections["scanner"] = scanner
+    sections["scanner"] = build_scanner(project_root)
     sections["watchlist"] = build_watchlist(project_root)
     sections["tiles"] = build_tiles(project_root)
     sections["chart_symbols"] = [
-        {"symbol": s, "name": INDEX_SOURCES[s][3]} for s in ("KOSPI", "KOSDAQ", "KOSPI200", "SP500", "NASDAQ", "NDX", "NQF", "SOXX", "WTI", "GOLD")
+        {"symbol": s, "name": INDEX_SOURCES[s][3]} for s in ("KOSPI", "KOSDAQ", "KOSPI200", "SP500", "NASDAQ", "NDX", "NQF", "SOXX", "EWY", "WTI", "GOLD")
         if _ohlcv(project_root, s)[0] is not None
     ]
     sections["flows"] = build_flows(project_root)

@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stock Investment · 종목</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="/static/app.css?v={{ static_version }}">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">Stock Investment</div>
+  <nav class="nav">
+    <a href="/">홈</a><a href="/market">시장</a><a class="on" href="/stocks">종목</a><a href="/account">내 계좌</a><a href="/data">데이터</a>
+  </nav>
+  <div class="topbar-right"><span class="chip dashed">로컬 데이터 · 로컬 설정</span></div>
+</header>
+
+<main class="page stocks-page">
+  <section class="card form-card">
+    <div class="card-head"><b>관심종목 관리</b><span class="muted" id="watchlist-status" role="status" aria-live="polite"></span></div>
+    <div class="watchlist-toolbar">
+      <label class="field"><span>관심목록</span><select id="watchlist-select"></select></label>
+      <label class="field"><span>목록 이름</span><input id="watchlist-name" maxlength="40"></label>
+      <button type="button" class="button" id="rename-watchlist">이름 변경</button>
+      <label class="field"><span>새 목록 이름</span><input id="new-watchlist-name" maxlength="40" placeholder="예: 배당주"></label>
+      <button type="button" class="button" id="create-watchlist">목록 만들기</button>
+    </div>
+    <div class="stock-search-row">
+      <label class="field"><span>종목 검색</span><input id="stock-search" autocomplete="off" placeholder="회사명 · 6자리 코드 · 미국 ETF 티커"></label>
+      <button type="button" class="button primary" id="run-stock-search">검색</button>
+    </div>
+    <div id="stock-search-results" class="search-results"></div>
+    <div id="watchlist-items" class="watchlist-edit-list"></div>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><b>관심종목 표</b><span class="muted">최신 보존 일봉 · 종목별 조건 도달</span></div>
+    <div class="data-table-wrap">
+      <table class="data-table stocks-table">
+        <thead><tr><th>종목명</th><th>코드</th><th>현재가</th><th>등락률</th><th>5일선</th><th>20일선</th><th>60일선</th><th>RSI14</th><th>52주 고점 대비</th><th>20일 거래량 배수</th><th>조건 도달</th><th></th></tr></thead>
+        <tbody id="watchlist-table-rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card form-card">
+    <div class="card-head"><b>조건 설정</b><span class="muted">관심종목 조건은 위 표와 홈에 표시 · 전체시장 조건은 스캐너 후보에 추가</span></div>
+    <div class="data-table-wrap">
+      <table class="data-table condition-table">
+        <thead><tr><th>이름</th><th>지표</th><th>연산</th><th>값</th><th>범위</th><th></th></tr></thead>
+        <tbody id="condition-rows"></tbody>
+      </table>
+    </div>
+    <div class="form-actions"><button type="button" class="button" id="add-condition">조건 추가</button><span class="muted" id="condition-status" role="status" aria-live="polite"></span><button type="button" class="button primary" id="save-conditions">조건 저장</button></div>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><b>과매도 스캐너</b><button type="button" class="button" id="refresh-scanner">결과 확인</button></div>
+    <div class="scanner-summary" id="scanner-summary" role="status" aria-live="polite">로컬 후보를 확인하지 않았습니다.</div>
+    <div class="data-table-wrap">
+      <table class="data-table scanner-table">
+        <thead><tr id="scanner-head"><th>종목명</th><th>시장</th><th>코드</th><th>현재가</th><th>등락률</th><th>RSI14</th><th>60일선</th><th>52주 낙폭</th><th>관찰 근거</th></tr></thead>
+        <tbody id="scanner-rows"></tbody>
+      </table>
+    </div>
+    <p class="muted scanner-boundary">설명용 현재 관찰 목록입니다. 추천·기대수익·적합성·목표비중·주문 신호가 아닙니다. 공급자 원가격의 분할 영향 가능성을 함께 표시합니다.</p>
+  </section>
+
+  <div class="unavailable" id="stocks-safety" role="status" aria-live="assertive"></div>
+</main>
+
+<script src="/static/stocks.js?v={{ static_version }}"></script>
+</body>
+</html>

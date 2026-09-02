@@ -48,7 +48,8 @@ def test_home_payload_is_json_clean_and_missing_sections_explain_why(
     assert len(sections["regime"]["markets"]) == 3
     assert sections["regime"]["rules"] is None
     assert "brief" not in sections
-    assert "scanner" not in sections
+    assert sections["scanner"]["status"] == "READY"
+    assert sections["scanner"]["count"] == 1
     assert sections["flows"]["rows"]
 
 
@@ -119,15 +120,7 @@ def test_optional_local_artifacts_are_projected_without_inventing_content() -> N
         "lines": ["첫 줄", "둘째 줄"], "generated_at": "2026-09-17T08:00:00+09:00",
         "source": "local test",
     }), encoding="utf-8")
-    scanner = root / "artifacts/research/stock_scanner.json"
-    scanner.parent.mkdir(parents=True)
-    scanner.write_text(json.dumps({
-        "contract": "stock-exploratory-scanner/v1", "as_of": "2026-09-17",
-        "candidates": [{"name": "테스트 종목", "technical_state": "RSI14 29"}],
-    }), encoding="utf-8")
-
     assert home_data.build_schedule(root)["items"][0]["what"] == "테스트 일정"
     assert home_data.build_brief(root)["lines"] == ["첫 줄", "둘째 줄"]
-    assert home_data.build_scanner(root)["top"] == [
-        {"name": "테스트 종목", "why": "RSI14 29"},
-    ]
+    assert home_data.build_scanner(root)["status"] == "UNAVAILABLE"
+    assert home_data.build_scanner(root)["top"] == []
