@@ -62,17 +62,8 @@ def create_app(project_root: Path | None = None) -> FastAPI:
     def stocks_page(request: Request) -> HTMLResponse:
         return templates.TemplateResponse(request, "stocks.html", {"page": "stocks"})
 
-    PLACEHOLDER_PAGES = {
-        "market": ("시장", "차트 · 파생 · 수급 상세. 홈의 차트를 크게 보고 지표를 더 얹는 화면입니다."),
-    }
-
-    @app.get("/{page}", response_class=HTMLResponse)
-    def placeholder(request: Request, page: str) -> HTMLResponse:
-        if page not in PLACEHOLDER_PAGES:
-            from fastapi import HTTPException
-
-            raise HTTPException(status_code=404)
-        title, blurb = PLACEHOLDER_PAGES[page]
-        return templates.TemplateResponse(request, "placeholder.html", {"page": page, "title": title, "blurb": blurb})
+    @app.get("/market", response_class=HTMLResponse)
+    def market_page(request: Request) -> HTMLResponse:
+        return templates.TemplateResponse(request, "market.html", {"page": "market"})
 
     return app

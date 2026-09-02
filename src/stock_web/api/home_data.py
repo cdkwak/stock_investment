@@ -746,6 +746,18 @@ def build_watchlist(project_root: Path) -> dict[str, object]:
     return build_home_watchlist(project_root)
 
 
+def build_chart_symbols(project_root: Path) -> list[dict[str, str]]:
+    """Return the exact retained-data symbol list shared by Home and Market."""
+    return [
+        {"symbol": symbol, "name": INDEX_SOURCES[symbol][3]}
+        for symbol in (
+            "KOSPI", "KOSDAQ", "KOSPI200", "SP500", "ESF", "NASDAQ", "NDX",
+            "NQF", "DOW", "YMF", "SOX", "SOXX", "EWY", "DXY", "WTI", "GOLD",
+        )
+        if (_frame := _ohlcv(project_root, symbol)[0]) is not None and not _frame.empty
+    ]
+
+
 def _build_home_payload_uncached(project_root: Path) -> dict[str, object]:
     from stock_web.api.regime import build_regime
 
@@ -762,10 +774,7 @@ def _build_home_payload_uncached(project_root: Path) -> dict[str, object]:
     sections["scanner"] = build_scanner(project_root)
     sections["watchlist"] = build_watchlist(project_root)
     sections["tiles"] = build_tiles(project_root)
-    sections["chart_symbols"] = [
-        {"symbol": s, "name": INDEX_SOURCES[s][3]} for s in ("KOSPI", "KOSDAQ", "KOSPI200", "SP500", "ESF", "NASDAQ", "NDX", "NQF", "DOW", "YMF", "SOX", "SOXX", "EWY", "DXY", "WTI", "GOLD")
-        if (_f := _ohlcv(project_root, s)[0]) is not None and not _f.empty
-    ]
+    sections["chart_symbols"] = build_chart_symbols(project_root)
     sections["flows"] = build_flows(project_root)
     kospi = _ohlcv(project_root, "KOSPI")[0]
     as_of = kospi["date"].iloc[-1].strftime("%Y-%m-%d") if kospi is not None and not kospi.empty else None

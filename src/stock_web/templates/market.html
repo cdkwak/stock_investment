@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stock Investment · 시장</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="/static/app.css?v={{ static_version }}">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">Stock Investment</div>
+  <nav class="nav">
+    <a href="/">홈</a><a class="on" href="/market">시장</a><a href="/stocks">종목</a><a href="/account">내 계좌</a><a href="/data">데이터</a>
+  </nav>
+  <div class="topbar-right"><span class="chip dashed">보존 로컬 데이터 · 읽기 전용</span></div>
+</header>
+
+<main class="page market-page" id="market-page">
+  <section class="card market-chart-card">
+    <div class="toolbar market-chart-toolbar">
+      <select id="market-chart-symbol" class="select" aria-label="차트 종목"></select>
+      <div class="segmented" id="market-chart-interval" aria-label="봉 간격">
+        <button type="button" data-v="1d" class="on">일</button><button type="button" data-v="1w">주</button><button type="button" data-v="1M">월</button>
+      </div>
+      <div class="segmented" id="market-chart-range" aria-label="조회 기간">
+        <button type="button" data-v="3M">3M</button><button type="button" data-v="6M" class="on">6M</button><button type="button" data-v="1Y">1Y</button><button type="button" data-v="3Y">3Y</button><button type="button" data-v="ALL">전체</button>
+      </div>
+      <div class="indicator-picker" id="indicator-picker">
+        <button type="button" class="button indicator-picker-button" id="indicator-picker-button" aria-expanded="false">＋ 지표 추가</button>
+        <div class="indicator-menu" id="indicator-menu" hidden>
+          <div class="indicator-menu-title">오버레이</div>
+          <label><input type="checkbox" value="ma5"> MA5</label>
+          <label><input type="checkbox" value="ma20"> MA20</label>
+          <label><input type="checkbox" value="ma60"> MA60</label>
+          <label><input type="checkbox" value="ma120"> MA120</label>
+          <label><input type="checkbox" value="bollinger"> 볼린저 (20, 2)</label>
+          <div class="indicator-menu-title">아래 패널</div>
+          <label><input type="checkbox" value="volume"> 거래량</label>
+          <label><input type="checkbox" value="rsi14"> RSI14</label>
+          <label><input type="checkbox" value="macd"> MACD (12, 26, 9)</label>
+          <label><input type="checkbox" value="stochastic"> 스토캐스틱 (14, 3)</label>
+        </div>
+      </div>
+      <div class="toolbar-right" id="market-chart-stats"></div>
+    </div>
+    <div class="market-chart-shell">
+      <div id="market-chart" class="market-main-chart"></div>
+      <div id="market-chart-legend" class="market-chart-legend" aria-label="활성 지표"></div>
+    </div>
+  </section>
+
+  <section class="card market-section" id="derivatives-section">
+    <div class="card-head"><b>파생 상세 <span class="muted">· KOSPI200</span></b><span class="muted">60거래일 · 표시 상태 통과분만</span></div>
+    <div id="derivatives-unavailable" class="unavailable"></div>
+    <div class="market-small-grid derivatives-grid">
+      <article class="market-panel"><div class="market-panel-title">선물 Basis</div><div id="basis-meta" class="market-panel-meta"></div><div id="basis-chart" class="market-small-chart"></div></article>
+      <article class="market-panel"><div class="market-panel-title">거래량 PCR</div><div id="volume-pcr-meta" class="market-panel-meta"></div><div id="volume-pcr-chart" class="market-small-chart"></div></article>
+      <article class="market-panel"><div class="market-panel-title">미결제약정 PCR</div><div id="oi-pcr-meta" class="market-panel-meta"></div><div id="oi-pcr-chart" class="market-small-chart"></div></article>
+      <article class="market-panel"><div class="market-panel-title">LS 선물 외국인 순계약</div><div id="ls-flow" class="market-value-block"></div></article>
+    </div>
+    <div class="market-table-block">
+      <div class="market-panel-title">Call / Put Wall · 최근 10거래일</div>
+      <div id="wall-unavailable" class="unavailable"></div>
+      <div class="data-table-wrap"><table class="data-table market-wall-table"><thead><tr><th>기준일</th><th>만기월</th><th>기초자산</th><th>Call Wall</th><th>Call OI</th><th>거리</th><th>Put Wall</th><th>Put OI</th><th>거리</th></tr></thead><tbody id="wall-rows"></tbody></table></div>
+    </div>
+  </section>
+
+  <section class="card market-section" id="flows-section">
+    <div class="card-head"><b>수급 · 잔고 상세</b><span class="muted">순매수 = 매수 − 매도 · 억원</span></div>
+    <div id="flows-unavailable" class="unavailable"></div>
+    <div class="market-small-grid flow-grid">
+      <article class="market-panel"><div class="market-panel-title">KOSPI 투자자 순매수 · 20거래일</div><div id="kospi-flow-meta" class="market-panel-meta"></div><div id="kospi-flow-chart" class="market-balance-chart"></div></article>
+      <article class="market-panel"><div class="market-panel-title">KOSDAQ 투자자 순매수 · 20거래일</div><div id="kosdaq-flow-meta" class="market-panel-meta"></div><div id="kosdaq-flow-chart" class="market-balance-chart"></div></article>
+      <article class="market-panel"><div class="market-panel-title">신용잔고 · 1년</div><div id="credit-meta" class="market-panel-meta"></div><div id="credit-chart" class="market-balance-chart"></div></article>
+      <article class="market-panel" id="lending-panel"><div class="market-panel-title">대차잔고 · 1년</div><div id="lending-meta" class="market-panel-meta"></div><div id="lending-chart" class="market-balance-chart"></div></article>
+    </div>
+    <div class="market-table-block">
+      <div class="market-panel-title">시장 미시구조</div>
+      <div id="micro-unavailable" class="unavailable"></div>
+      <div class="data-table-wrap"><table class="data-table"><thead><tr><th>항목</th><th>시장</th><th>기준일</th><th>값 / 상승</th><th>1일 / 하락</th><th>5일 / 보합</th><th>A/D</th></tr></thead><tbody id="micro-rows"></tbody></table></div>
+    </div>
+  </section>
+
+  <section class="card market-section" id="valuation-section">
+    <div class="card-head"><b>밸류에이션</b><span class="badge dashed">선행 PER·PBR — 소스 검증 전</span></div>
+    <div id="valuation-unavailable" class="unavailable"></div>
+    <div class="market-small-grid valuation-grid">
+      <article class="market-panel"><div class="market-panel-title">KOSPI 가중 PER · PBR · 5년</div><div id="kospi-valuation-meta" class="market-panel-meta"></div><div id="kospi-valuation-chart" class="market-valuation-chart"></div></article>
+      <article class="market-panel"><div class="market-panel-title">KOSDAQ 가중 PER · PBR · 5년</div><div id="kosdaq-valuation-meta" class="market-panel-meta"></div><div id="kosdaq-valuation-chart" class="market-valuation-chart"></div></article>
+    </div>
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
+<script src="/static/market.js?v={{ static_version }}"></script>
+</body>
+</html>

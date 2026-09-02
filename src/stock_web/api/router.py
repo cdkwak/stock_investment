@@ -69,6 +69,24 @@ def build_router(project_root: Path) -> APIRouter:
 
         return json_response(home_data.build_chart_payload(project_root, symbol=symbol, range_key=range))
 
+    @router.get("/market")
+    def market() -> Response:
+        from stock_web.api.market_page import build_market_page_payload
+
+        return json_response(build_market_page_payload(project_root))
+
+    @router.get("/market/chart")
+    def market_chart(
+        symbol: str = "KOSPI", interval: str = "1d", range: str = "6M",
+        indicators: str = "ma5,ma20,ma60,ma120,volume",
+    ) -> Response:
+        from stock_web.api.market_page import build_market_chart_payload
+
+        return json_response(build_market_chart_payload(
+            project_root, symbol=symbol, interval=interval,
+            range_key=range, indicators=indicators,
+        ))
+
     @router.get("/account")
     def account() -> Response:
         from stock_web.api.account_page import build_account_page_data
