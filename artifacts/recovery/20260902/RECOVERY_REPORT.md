@@ -51,11 +51,18 @@ Verified repair commits:
 - `git diff --check`: clean apart from informational line-ending warnings.
 - Status-link check: 91 checked, 0 missing.
 
-The configured full release gate is not claimed as PASS. It correctly remains
-pending because the retained KB scheduled receipt is failed and the one
-Normalized dataset cannot be audited. A broad pytest retry was also interrupted
-by the execution environment; its partial JUnit record contains 151 tests and
-zero failures, but it is not represented as a complete suite result.
+The fresh 2026-09-02 09:50 KST offline read-only release gate returned `FAIL`.
+It made zero external calls and zero Data/scheduler mutations. Data-root, schema,
+backtest bundle, freshness suppression, local cache/chart, required scheduler
+result, native GUI, and user-byte identity checks passed. Exact blockers were
+`HEALTH_RECEIPT_RECONCILIATION`, `SCHEDULER_READ_ONLY_STATUS` with three retained
+nonzero results, and `DUE_OCCURRENCE_OUTCOMES` with 9/10 groups complete. The
+failed KB receipt owns the one due-group failure; the 14:10/20:30 KR slots have
+not yet run naturally. The inaccessible Normalized dataset is a separate
+retained-audit gate that the release script does not enumerate. A broad pytest
+retry was also interrupted by the execution environment; its partial JUnit
+record contains 151 tests and zero failures, but it is not represented as a
+complete suite result.
 
 ## Protected decisions
 
