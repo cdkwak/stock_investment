@@ -26,15 +26,16 @@ class ASGITestResponse:
 
 
 class ASGITestClient:
-    """Small GET-only fallback when the declared httpx2 extra is not installed."""
+    """Small ASGI client fallback when the declared httpx2 extra is unavailable."""
 
     __test__ = False
 
     def __init__(self, app: object):
         self.app = app
 
-    def get(
-        self, url: str, *, params: dict[str, str] | None = None,
+    def _request(
+        self, method: str, url: str, *, params: dict[str, str] | None = None,
+        json_body: object | None = None, client_host: str = "testclient",
     ) -> ASGITestResponse:
         split = urlsplit(url)
         query = split.query
@@ -45,12 +46,13 @@ class ASGITestClient:
         async def request() -> ASGITestResponse:
             messages: list[dict[str, object]] = []
             request_sent = False
+            body = b"" if json_body is None else json.dumps(json_body, ensure_ascii=False).encode("utf-8")
 
             async def receive() -> dict[str, object]:
                 nonlocal request_sent
                 if not request_sent:
                     request_sent = True
-                    return {"type": "http.request", "body": b"", "more_body": False}
+                    return {"type": "http.request", "body": body, "more_body": False}
                 return {"type": "http.disconnect"}
 
             async def send(message: dict[str, object]) -> None:
@@ -58,11 +60,14 @@ class ASGITestClient:
 
             scope = {
                 "type": "http", "asgi": {"version": "3.0"},
-                "http_version": "1.1", "method": "GET", "scheme": "http",
+                "http_version": "1.1", "method": method, "scheme": "http",
                 "path": split.path, "raw_path": split.path.encode("ascii"),
                 "query_string": query.encode("ascii"),
-                "root_path": "", "headers": [(b"host", b"testserver")],
-                "client": ("testclient", 50000), "server": ("testserver", 80),
+                "root_path": "", "headers": [
+                    (b"host", b"testserver"),
+                    *(([(b"content-type", b"application/json")]) if json_body is not None else []),
+                ],
+                "client": (client_host, 50000), "server": ("testserver", 80),
                 "state": {},
             }
             await self.app(scope, receive, send)
@@ -78,6 +83,17 @@ class ASGITestClient:
             return ASGITestResponse(int(start["status"]), body, headers)
 
         return asyncio.run(request())
+
+    def get(
+        self, url: str, *, params: dict[str, str] | None = None,
+        client_host: str = "testclient",
+    ) -> ASGITestResponse:
+        return self._request("GET", url, params=params, client_host=client_host)
+
+    def post(
+        self, url: str, *, json: object, client_host: str = "testclient",
+    ) -> ASGITestResponse:
+        return self._request("POST", url, json_body=json, client_host=client_host)
 
 
 def new_temp_root() -> Path:

@@ -392,11 +392,17 @@ def build_account(project_root: Path) -> dict[str, object]:
         build_account_portfolio_presentation,
     )
     from stock_data.gui.services import EquityChartService, US_ETF_CHART_IDENTITIES
+    from stock_web.api.account_page import build_account_page_data
+
+    account_page = build_account_page_data(project_root)
+    account_summary = account_page["summary"]
+    manual_data = account_page["manual_accounts"]
+    manual_accounts = manual_data.get("accounts", [])
+    invest_total = float(account_summary.get("invest_total_krw") or 0.0)
 
     candidates = (
         ("toss_self", "Toss Securities · 본인", project_root / "data/normalized/toss_account_snapshot/latest.json"),
         ("kb_self", "KB Securities · 본인", project_root / "data/local/account_snapshots/kb_self.json"),
-        ("family_mirae", "미래에셋 가족 명의 ETF · 로컬 수동", project_root / "data/local/account_snapshots/family_mirae_etf.json"),
     )
     sources = []
     for source_id, title, path in candidates:
@@ -406,7 +412,56 @@ def build_account(project_root: Path) -> dict[str, object]:
         if snapshot.displays_values:
             sources.append(LocalAccountSourceSpec(source_id, title, path))
     if not sources:
-        return {"reason": "읽을 수 있는 로컬 계좌 스냅샷이 없습니다."}
+        if not manual_accounts and not account_page["net_worth"].get("exists"):
+            return {
+                "reason": "읽을 수 있는 로컬 계좌 스냅샷이 없습니다.",
+                "sources": account_summary.get("sources", []),
+            }
+        manual_cash = float(manual_data.get("cash_krw") or 0.0)
+        exposure_krw = leveraged_krw = short_treasury_krw = 0.0
+        exposure_unverified: list[str] = []
+        for account in manual_accounts:
+            for holding in account.get("valued_positions", []):
+                value_krw = holding.get("market_value_krw")
+                if value_krw is None:
+                    continue
+                multiple, verified = _leverage_multiple(
+                    str(holding.get("name") or holding.get("ticker") or ""), None,
+                )
+                if not verified:
+                    exposure_unverified.append(str(holding.get("name") or holding.get("ticker")))
+                exposure_krw += float(value_krw) * multiple
+                if multiple > 1.0:
+                    leveraged_krw += float(value_krw)
+                name_upper = f"{holding.get('ticker', '')} {holding.get('name', '')}".upper()
+                if any(token in name_upper for token in ("SGOV", "BIL", "SHV", "단기국채", "SHORT TREASURY")):
+                    short_treasury_krw += float(value_krw)
+        manual_usd_krw = sum(
+            float(account.get("value_krw") or 0.0)
+            for account in manual_accounts if account.get("currency") == "USD"
+        )
+        usdkrw = account_summary.get("fx_krw_per_usd")
+        return {
+            "total_krw": invest_total,
+            "invest_total_krw": invest_total,
+            "net_worth_krw": account_summary.get("net_worth_krw"),
+            "net_worth_as_of": account_summary.get("net_worth_as_of"),
+            "sources": account_summary.get("sources", []),
+            "day_change_pct": None, "day_change_krw": None,
+            "period_label": "3M", "period_pct": None, "kospi_period_pct": None,
+            "ytd_pct": None,
+            "cash_pct": manual_cash / invest_total * 100.0 if invest_total else None,
+            "usd_assets_usd": manual_usd_krw / float(usdkrw) if usdkrw else None,
+            "usd_assets_krw": manual_usd_krw,
+            "usdkrw": usdkrw, "usdkrw_as_of": account_summary.get("fx_as_of"),
+            "fx_effect_pct": None, "equity_effect_pct": None,
+            "effective_exposure_pct": exposure_krw / invest_total * 100.0 if invest_total else None,
+            "leveraged_weight_pct": leveraged_krw / invest_total * 100.0 if invest_total else None,
+            "short_treasury_pct": short_treasury_krw / invest_total * 100.0 if invest_total else None,
+            "exposure_unverified": list(dict.fromkeys(exposure_unverified)),
+            "history": [], "benchmark": [],
+            "footnote": "등락·기간 수익률·레버리지 비중·실효 노출은 투자 자산만 기준 · 수동 계좌는 과거 관측이 없어 수익률을 추정하지 않음",
+        }
 
     portfolio = LocalAccountPortfolioService(
         tuple(sources), history_root=project_root / "data/local/account_value_history",
@@ -509,28 +564,63 @@ def build_account(project_root: Path) -> dict[str, object]:
             ytd_pct = (float(history[-1]["v"]) / ytd_value - 1.0) * 100.0 if ytd_value else None
 
     unique_unverified = list(dict.fromkeys(exposure_unverified))
+    manual_cash_krw = float(manual_data.get("cash_krw") or 0.0)
+    manual_usd_krw = 0.0
+    manual_exposure_krw = 0.0
+    manual_leveraged_krw = 0.0
+    manual_short_treasury_krw = 0.0
+    for account in manual_accounts:
+        if account.get("currency") == "USD":
+            manual_usd_krw += float(account.get("value_krw") or 0.0)
+        for holding in account.get("valued_positions", []):
+            value_krw = holding.get("market_value_krw")
+            if value_krw is None:
+                continue
+            multiple, verified = _leverage_multiple(
+                str(holding.get("name") or holding.get("ticker") or ""), None,
+            )
+            if not verified:
+                unique_unverified.append(str(holding.get("name") or holding.get("ticker")))
+            manual_exposure_krw += float(value_krw) * multiple
+            if multiple > 1.0:
+                manual_leveraged_krw += float(value_krw)
+            name_upper = f"{holding.get('ticker', '')} {holding.get('name', '')}".upper()
+            if any(token in name_upper for token in ("SGOV", "BIL", "SHV", "단기국채", "SHORT TREASURY")):
+                manual_short_treasury_krw += float(value_krw)
+    if manual_accounts:
+        history = []
+        benchmark = []
+        day_change_krw = day_change_pct = fx_effect_pct = equity_effect_pct = None
+        period_pct = ytd_pct = kospi_period_pct = None
+    usd_assets_krw = amounts["USD"] * float(usdkrw or 0.0) + manual_usd_krw
     return {
-        "total_krw": total_krw,
+        "total_krw": invest_total,
+        "invest_total_krw": invest_total,
+        "net_worth_krw": account_summary.get("net_worth_krw"),
+        "net_worth_as_of": account_summary.get("net_worth_as_of"),
+        "sources": account_summary.get("sources", []),
         "day_change_pct": day_change_pct,
         "day_change_krw": day_change_krw,
         "period_label": "3M",
         "period_pct": period_pct,
         "kospi_period_pct": kospi_period_pct,
         "ytd_pct": ytd_pct,
-        "cash_pct": (cash["KRW"] + cash["USD"] * float(usdkrw or 0.0)) / total_krw * 100.0,
-        "usd_assets_usd": amounts["USD"],
-        "usd_assets_krw": amounts["USD"] * float(usdkrw or 0.0),
+        "cash_pct": (
+            cash["KRW"] + cash["USD"] * float(usdkrw or 0.0) + manual_cash_krw
+        ) / invest_total * 100.0 if invest_total else None,
+        "usd_assets_usd": usd_assets_krw / float(usdkrw) if usdkrw else None,
+        "usd_assets_krw": usd_assets_krw,
         "usdkrw": usdkrw,
         "usdkrw_as_of": usdkrw_as_of,
         "fx_effect_pct": fx_effect_pct,
         "equity_effect_pct": equity_effect_pct,
-        "effective_exposure_pct": exposure_krw / total_krw * 100.0,
-        "leveraged_weight_pct": leveraged_krw / total_krw * 100.0,
-        "short_treasury_pct": short_treasury_krw / total_krw * 100.0,
-        "exposure_unverified": unique_unverified,
+        "effective_exposure_pct": (exposure_krw + manual_exposure_krw) / invest_total * 100.0 if invest_total else None,
+        "leveraged_weight_pct": (leveraged_krw + manual_leveraged_krw) / invest_total * 100.0 if invest_total else None,
+        "short_treasury_pct": (short_treasury_krw + manual_short_treasury_krw) / invest_total * 100.0 if invest_total else None,
+        "exposure_unverified": list(dict.fromkeys(unique_unverified)),
         "history": history,
         "benchmark": benchmark,
-        "footnote": "계좌 규모 변화 · 입출금 미분리 · 점선은 같은 시점 KOSPI를 첫 관측 총액에 맞춘 값",
+        "footnote": "등락·기간 수익률·레버리지 비중·실효 노출은 투자 자산만 기준 · 계좌 규모 변화는 입출금 미분리 · 점선은 같은 시점 KOSPI 비교",
     }
 
 

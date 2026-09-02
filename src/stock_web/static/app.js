@@ -6,6 +6,15 @@
   const pct = (v, d = 1) => (v === null || v === undefined) ? "—" : `${v > 0 ? "+" : ""}${Number(v).toFixed(d)}%`;
   const cls = (v) => (v === null || v === undefined) ? "muted" : (v > 0 ? "up" : v < 0 ? "down" : "muted");
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const asof = (value) => {
+    if (!value) return "—";
+    const text = String(value);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text.slice(5);
+    const parsed = new Date(text);
+    if (Number.isNaN(parsed.getTime())) return text;
+    const parts = Object.fromEntries(new Intl.DateTimeFormat("ko-KR", { timeZone: "Asia/Seoul", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(parsed).map((part) => [part.type, part.value]));
+    return `${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
+  };
   const unavailable = (why) => `<div class="unavailable">표시 불가${why ? " · " + esc(why) : ""}</div>`;
 
   function sparkline(values, w = 140, h = 22) {
@@ -106,9 +115,11 @@
   let acctChart, acctSeries, acctBench;
   function renderAccount(sec) {
     const host = $("account");
-    if (!sec || sec.total_krw === undefined) { host.innerHTML = unavailable(sec && sec.reason); return; }
+    const investTotal = sec && sec.invest_total_krw !== undefined ? sec.invest_total_krw : sec && sec.total_krw;
+    if (!sec || investTotal === undefined) { host.innerHTML = unavailable(sec && sec.reason); return; }
     host.innerHTML = `
-      <div class="acct-total"><b class="num">₩ ${fmt(sec.total_krw / 1e8, 2)}억</b><span class="num ${cls(sec.day_change_pct)}">어제 ${pct(sec.day_change_pct)}${sec.day_change_krw !== undefined ? ` (${sec.day_change_krw >= 0 ? "+" : ""}${fmt(sec.day_change_krw / 1e4, 0)}만)` : ""}</span></div>
+      <div class="acct-total"><span class="muted">투자 자산</span><b class="num">₩ ${fmt(investTotal / 1e8, 2)}억</b><span class="num ${cls(sec.day_change_pct)}">어제 ${pct(sec.day_change_pct)}${sec.day_change_krw !== undefined && sec.day_change_krw !== null ? ` (${sec.day_change_krw >= 0 ? "+" : ""}${fmt(sec.day_change_krw / 1e4, 0)}만)` : ""}</span></div>
+      ${sec.net_worth_krw !== undefined && sec.net_worth_krw !== null ? `<div class="acct-net-worth"><span>순자산</span> <b class="num">₩${fmt(sec.net_worth_krw / 1e8, 2)}억</b> <small>(부동산·예금 포함, ${esc(asof(sec.net_worth_as_of))} 기준)</small></div>` : ""}
       <div class="acct-meta">
         ${sec.period_pct !== undefined ? `<span>${esc(sec.period_label || "기간")} <b class="num ${cls(sec.period_pct)}">${pct(sec.period_pct)}</b></span>` : ""}
         ${sec.kospi_period_pct !== undefined ? `<span>KOSPI 동기간 <b class="num ${cls(sec.kospi_period_pct)}">${pct(sec.kospi_period_pct)}</b></span>` : ""}
@@ -125,6 +136,7 @@
       </div>
       <div id="acct-chart" class="acct-chart"></div>
       <div class="acct-foot">${esc(sec.footnote || "계좌 규모 변화 · 점선은 KOSPI 비교")}</div>
+      ${(sec.sources || []).length ? `<div class="acct-foot">${sec.sources.map((source) => `${esc(source.name)} ${esc(asof(source.as_of))}${source.included ? "" : " 제외"}`).join(" · ")}</div>` : ""}
       ${(sec.exposure_unverified || []).length ? `<div class="acct-foot">배수 미확인(1배 처리): ${esc(sec.exposure_unverified.join(", "))}</div>` : ""}`;
     if (window.LightweightCharts && sec.history && sec.history.length > 1) {
       acctChart = LightweightCharts.createChart($("acct-chart"), { layout: { background: { color: "#fff" }, textColor: "#6b6660" }, grid: { vertLines: { visible: false }, horzLines: { color: "#e6e1d8" } }, rightPriceScale: { borderColor: "#d9d3ca" }, timeScale: { borderColor: "#d9d3ca" }, autoSize: true, handleScroll: false, handleScale: false });

@@ -52,10 +52,13 @@ def create_app(project_root: Path | None = None) -> FastAPI:
         context.update({"request": request, "page": "data"})
         return templates.TemplateResponse(request, "data.html", context)
 
+    @app.get("/account", response_class=HTMLResponse)
+    def account_page(request: Request) -> HTMLResponse:
+        return templates.TemplateResponse(request, "account.html", {"page": "account"})
+
     PLACEHOLDER_PAGES = {
         "market": ("시장", "차트 · 파생 · 수급 상세. 홈의 차트를 크게 보고 지표를 더 얹는 화면입니다."),
         "stocks": ("종목", "관심종목 관리 · 조건 설정 · 과매도 스캐너 전체 목록."),
-        "account": ("내 계좌", "계좌별 · 종목별 · 입출금 이력 · 달러 자산 환산."),
     }
 
     @app.get("/{page}", response_class=HTMLResponse)

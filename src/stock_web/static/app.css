@@ -90,6 +90,10 @@ a { color: inherit; text-decoration: none; }
 /* account */
 .acct-total { display: flex; align-items: baseline; gap: 10px; }
 .acct-total b { font-size: 24px; font-weight: 700; }
+.acct-total > span:first-child { font-size: 11px; }
+.acct-net-worth { margin: 2px 0 5px; color: var(--muted); font-size: 11px; }
+.acct-net-worth b { color: var(--ink); font-size: 15px; }
+.acct-net-worth small { font-size: 9.5px; }
 .acct-meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
 .acct-chart { width: 100%; height: 130px; }
 .acct-foot { font-size: 10px; color: var(--muted); }
@@ -116,6 +120,46 @@ a { color: inherit; text-decoration: none; }
 .data-table th { color: var(--muted); font-size: 10px; font-weight: 500; }
 .data-table td:first-child { font-weight: 500; }
 .receipt-table th:nth-child(4), .receipt-table td:nth-child(4) { text-align: right; }
+
+/* account page */
+.account-page { gap: 14px; }
+.account-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); background: var(--ink); color: #f4f2ee; border-radius: 6px; overflow: hidden; }
+.account-headline { padding: 18px 22px; display: grid; grid-template-columns: auto 1fr; align-items: baseline; gap: 4px 14px; }
+.account-headline + .account-headline { border-left: 1px solid #4a463f; }
+.account-headline > span { color: #b5aea4; font-size: 12px; }
+.account-headline b { font-size: 28px; text-align: right; }
+.account-headline small { grid-column: 1 / -1; color: #b5aea4; font-size: 10px; line-height: 1.5; }
+.account-source-table td:nth-child(n+2):not(:last-child), .account-source-table th:nth-child(n+2):not(:last-child) { text-align: right; }
+.account-source-table .source-note { font-size: 9.5px; margin-top: 2px; max-width: 420px; overflow: hidden; text-overflow: ellipsis; }
+.account-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.net-worth-grid { grid-template-columns: 3fr 2fr; }
+.form-card { display: flex; flex-direction: column; gap: 9px; }
+.form-note { margin: 0; font-size: 10.5px; }
+.button { border: 1px solid var(--line); border-radius: 4px; background: #fff; color: var(--ink); padding: 4px 9px; font: inherit; font-size: 11px; cursor: pointer; }
+.button.primary { background: var(--ink); border-color: var(--ink); color: #fff; font-weight: 600; }
+.text-button { border: none; background: none; color: var(--muted); font: inherit; font-size: 10px; cursor: pointer; padding: 3px 4px; }
+.form-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-height: 28px; }
+.field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.field > span { color: var(--muted); font-size: 9.5px; }
+.field input, .field select { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 4px; background: #fff; color: var(--ink); padding: 5px 6px; font: inherit; font-size: 11px; }
+.compact-field { width: min(220px, 100%); }
+.form-grid { display: grid; gap: 7px; }
+.manual-account-fields { grid-template-columns: 2fr 1fr 1fr 1.2fr; }
+.manual-account-editor { border-top: 1px solid var(--grid); padding: 10px 0 4px; }
+.manual-account-editor:first-child { border-top: none; padding-top: 2px; }
+.editor-head, .holding-head, .subform-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
+.holding-head, .subform-head { margin-top: 8px; color: var(--muted); font-size: 10.5px; }
+.holding-rows { display: flex; flex-direction: column; gap: 6px; }
+.holding-row { display: grid; grid-template-columns: 1.2fr 1.6fr .8fr 1fr 1fr auto; gap: 6px; align-items: end; border-radius: 4px; background: #faf9f7; padding: 7px; }
+.holding-warning { grid-column: 1 / -1; color: var(--amber); font-size: 10px; }
+.net-worth-input-row { display: grid; grid-template-columns: 1.35fr 1.25fr 1.1fr 1.15fr repeat(5, 1fr) auto; gap: 6px; align-items: end; padding: 7px 0; border-top: 1px solid var(--grid); overflow-x: auto; }
+.net-worth-input-row .field { min-width: 95px; }
+.net-worth-input-row .field:first-child { min-width: 120px; }
+.net-worth-chart { height: 230px; }
+.breakdown-list { display: flex; flex-direction: column; gap: 5px; }
+.breakdown-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--grid); padding: 7px 0; }
+.breakdown-row i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 7px; background: var(--ink); }
+.breakdown-row i.liability { background: var(--down); }
 
 /* breakpoints ---------------------------------------------------------- */
 @media (min-width: 2200px) {
@@ -155,6 +199,9 @@ a { color: inherit; text-decoration: none; }
   .watch .tr > :nth-child(n+6) { display: none; }
   .watch { grid-template-columns: 7fr 3fr 4fr 3fr 3fr; }
   .brief-card { grid-template-columns: 1fr; }
+  .account-grid, .net-worth-grid { grid-template-columns: 1fr; }
+  .manual-account-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .holding-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 599px) {
   .topbar { flex-wrap: nowrap; }
@@ -164,6 +211,12 @@ a { color: inherit; text-decoration: none; }
   .nav a { flex: 0 0 auto; }
   .topbar-right { flex: 0 0 auto; }
   .topbar-right .chip { max-width: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .account-summary { grid-template-columns: 1fr; }
+  .account-headline + .account-headline { border-left: none; border-top: 1px solid #4a463f; }
+  .account-headline { padding: 14px 16px; }
+  .account-headline b { font-size: 23px; }
+  .manual-account-fields, .holding-row { grid-template-columns: 1fr 1fr; }
+  .data-table { min-width: 720px; }
 }
 
 /* phone: regime band readable */
