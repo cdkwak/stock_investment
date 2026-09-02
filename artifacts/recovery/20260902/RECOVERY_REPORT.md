@@ -5,7 +5,9 @@
 The project is operationally recoverable and the verified repair work is isolated on
 `hermes/retire-python-pm-20260831-224653`. The pre-retirement state is preserved by
 commit `b0647b4` and branch `backup/python-pm-pre-hermes-20260831-224653`. The target
-`master` branch has not been changed.
+`master` branch has not been changed. The clean safety branch
+`codex/recovery-verified-20260902` points to verified recovery commit `7f8261b` and
+does not include the 65 uncommitted retirement deletions.
 
 Verified repair commits:
 
@@ -50,6 +52,8 @@ Verified repair commits:
   scroll, no overlap, and a visible analysis entry point.
 - `git diff --check`: clean apart from informational line-ending warnings.
 - Status-link check: 91 checked, 0 missing.
+- Remaining unit/integration suite collection after the retirement candidate:
+  3,487 tests collected successfully.
 
 The fresh 2026-09-02 09:50 KST offline read-only release gate returned `FAIL`.
 It made zero external calls and zero Data/scheduler mutations. Data-root, schema,
