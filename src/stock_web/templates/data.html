@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stock Investment · 데이터</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">Stock Investment</div>
+  <nav class="nav">
+    <a href="/">홈</a><a href="/market">시장</a><a href="/stocks">종목</a><a href="/account">내 계좌</a><a class="on" href="/data">데이터</a>
+  </nav>
+  <div class="topbar-right">
+    <span class="muted">로컬 보존 데이터</span>
+    <span class="chip{% if health_summary.overall != 'PASS' %} dashed{% endif %}">{{ health_summary.overall }}</span>
+  </div>
+</header>
+
+<main class="page data-page">
+  <section class="card">
+    <div class="card-head">
+      <b>데이터셋 상태</b>
+      <span class="muted">자동화 관리 {{ health_summary.managed_acceptable }}/{{ health_summary.managed_total }}</span>
+    </div>
+    <nav class="filter-chips" aria-label="데이터 상태 필터">
+      {% for item in filters %}<a class="chip{% if item == selected_filter %} on{% endif %}" href="/data?status={{ item }}">{{ item }}</a>{% endfor %}
+    </nav>
+    {% if health_state != 'READY' %}
+      <div class="unavailable">표시 불가 · {{ health_warning or health_state }}</div>
+    {% else %}
+      <div class="data-table-wrap">
+        <table class="data-table">
+          <thead><tr><th>dataset</th><th>freshness</th><th>latest</th><th>expected</th><th>operational</th><th>blocker</th><th>automation</th></tr></thead>
+          <tbody>
+          {% for row in rows %}
+            <tr><td>{{ row.dataset }}</td><td>{{ row.freshness }}</td><td>{{ row.latest }}</td><td>{{ row.expected }}</td><td>{{ row.operational }}</td><td>{{ row.blocker }}</td><td>{{ row.automation }}</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <div class="card-head"><b>최근 스케줄러 영수증</b><span class="muted">*_last.json · 로컬 읽기 전용</span></div>
+    <div class="data-table-wrap">
+      <table class="data-table receipt-table">
+        <thead><tr><th>task</th><th>status</th><th>finished</th><th>api_calls</th></tr></thead>
+        <tbody>
+        {% for row in receipts %}
+          <tr><td>{{ row.task }}</td><td>{{ row.status }}</td><td>{{ row.finished }}</td><td class="num">{{ row.api_calls }}</td></tr>
+        {% else %}
+          <tr><td colspan="4" class="muted">보존된 스케줄러 영수증 없음</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+</body>
+</html>

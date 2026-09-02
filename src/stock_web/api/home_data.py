@@ -6,6 +6,9 @@ absent section (or a ``reason``), never a substituted number.
 from __future__ import annotations
 
 import math
+import json
+import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -13,6 +16,9 @@ import pandas as pd
 
 from stock_web.api import datasets as dsx
 from stock_web.api.datasets import field
+
+_HOME_CACHE_TTL_SECONDS = 60.0
+_HOME_CACHE: dict[str, tuple[float, dict[str, object]]] = {}
 
 RANGE_SESSIONS = {"3M": 63, "6M": 126, "1Y": 252, "3Y": 756, "ALL": None}
 
@@ -219,23 +225,443 @@ def build_flows(project_root: Path) -> dict[str, object]:
     return {"as_of": frame["date"].iloc[-1].strftime("%Y-%m-%d"), "market": "KOSPI", "rows": rows, "balances": balances}
 
 
-def build_health(project_root: Path) -> dict[str, object] | None:
-    import json
-    root = project_root / "artifacts/daily_health"
-    files = sorted(root.glob("universe_data_v2_*.json"), key=lambda p: p.stat().st_mtime) if root.is_dir() else []
-    if not files:
-        return None
+def build_health(project_root: Path) -> dict[str, object]:
+    from stock_data.gui.health_service import (
+        DailyHealthArtifactService,
+        summarize_health_artifact,
+    )
+
+    service = DailyHealthArtifactService(project_root)
+    view = service.load()
+    if view.artifact_state != "READY":
+        return {"reason": f"데이터 상태 파일을 읽을 수 없습니다 · {view.warning or view.artifact_state}"}
+    summary = summarize_health_artifact(view)
+    as_of = None
     try:
-        report = json.loads(files[-1].read_text(encoding="utf-8"))
-    except Exception:
-        return None
-    rows = [r for r in report.get("datasets", []) if isinstance(r, dict) and r.get("automation_enabled") is True]
-    fresh = [str(r.get("freshness")) for r in rows]
+        payload = json.loads(service.artifact_path.read_text(encoding="utf-8"))
+        as_of = payload.get("as_of") or payload.get("generated_at")
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        pass
+    current = int(summary.get("managed_current", 0))
+    lag = int(summary.get("managed_expected_lag", 0))
+    managed = int(summary.get("managed_total", 0))
     return {
-        "current": fresh.count("CURRENT"), "lag": fresh.count("EXPECTED_LAG"),
-        "fail": len([f for f in fresh if f not in ("CURRENT", "EXPECTED_LAG")]),
-        "as_of": report.get("as_of"), "source": files[-1].name,
+        "current": current,
+        "lag": lag,
+        "fail": max(0, managed - current - lag),
+        "as_of": as_of,
+        "overall": summary.get("overall", "UNKNOWN"),
     }
+
+
+def _latest_fx(project_root: Path) -> tuple[pd.DataFrame, float | None, str | None]:
+    from stock_data.gui.query import LocalParquetQuery
+
+    frame = LocalParquetQuery(project_root / "data").tail(
+        "normalized/fred_usd_fx_daily", rows=400,
+        columns=["date", "dexkous"],
+    )
+    if frame.empty:
+        return frame, None, None
+    frame = frame.copy()
+    frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
+    frame["dexkous"] = pd.to_numeric(frame["dexkous"], errors="coerce")
+    frame = frame.dropna(subset=["date", "dexkous"]).sort_values("date")
+    if frame.empty:
+        return frame, None, None
+    return frame, float(frame["dexkous"].iloc[-1]), frame["date"].iloc[-1].date().isoformat()
+
+
+def _leverage_multiple(name: str, style: str | None) -> tuple[float, bool]:
+    text = f"{style or ''} {name}".upper()
+    if "비레버리지" in text:
+        return 1.0, True
+    if any(token in text for token in ("3배", "3X", "ULTRAPRO", "TQQQ", "SOXL", "UPRO")):
+        return 3.0, True
+    if any(token in text for token in ("2배", "2X", "레버리지", "ULTRA ", "QLD")):
+        return 2.0, True
+    return 1.0, bool(style)
+
+
+def _account_history(
+    histories: tuple[object, ...], fx: pd.DataFrame,
+) -> tuple[list[dict[str, object]], list[float | None]]:
+    def day(value: object) -> pd.Timestamp:
+        timestamp = pd.Timestamp(value)
+        if timestamp.tzinfo is not None:
+            timestamp = timestamp.tz_convert("UTC").tz_localize(None)
+        return timestamp.normalize()
+
+    series: list[tuple[str, pd.Series]] = []
+    for index, history in enumerate(histories):
+        points = getattr(history, "points", ())
+        if not points:
+            continue
+        frame = pd.DataFrame({
+            "date": [day(point.date) for point in points],
+            "value": [float(point.total_assets) for point in points],
+        }).sort_values("date").drop_duplicates("date", keep="last")
+        series.append((
+            str(getattr(history, "currency", "")),
+            frame.set_index("date")["value"].rename(f"series_{index}"),
+        ))
+    if not series:
+        return [], []
+    dates = sorted(set().union(*(set(values.index) for _currency, values in series)))
+    table = pd.DataFrame(index=pd.DatetimeIndex(dates))
+    currencies: dict[str, str] = {}
+    for index, (currency, values) in enumerate(series):
+        column = f"series_{index}"
+        table[column] = values.reindex(table.index).ffill()
+        currencies[column] = currency
+    table = table.dropna()
+    if table.empty:
+        return [], []
+
+    fx_values: list[float | None] = []
+    totals: list[float] = []
+    fx_indexed = fx.set_index("date")["dexkous"] if not fx.empty else pd.Series(dtype=float)
+    for date, row in table.iterrows():
+        prior_fx = fx_indexed.loc[fx_indexed.index <= date]
+        rate = float(prior_fx.iloc[-1]) if not prior_fx.empty else None
+        fx_values.append(rate)
+        total = 0.0
+        valid = True
+        for column, value in row.items():
+            currency = currencies[column]
+            if currency == "KRW":
+                total += float(value)
+            elif currency == "USD" and rate is not None:
+                total += float(value) * rate
+            else:
+                valid = False
+                break
+        totals.append(total if valid else float("nan"))
+    history = [
+        {"t": date.date().isoformat(), "v": float(total)}
+        for date, total in zip(table.index, totals) if math.isfinite(total)
+    ][-90:]
+    return history, fx_values[-len(history):] if history else []
+
+
+def _kospi_benchmark(
+    project_root: Path, history: list[dict[str, object]],
+) -> tuple[list[dict[str, object]], float | None]:
+    if not history:
+        return [], None
+    from stock_data.gui.query import LocalParquetQuery
+    from stock_data.gui.services import IndexQueryService
+
+    try:
+        frame = IndexQueryService(
+            LocalParquetQuery(project_root / "data"), project_root,
+        ).series("KOSPI", "1Y")
+    except (KeyError, OSError, PermissionError, TypeError, ValueError):
+        return [], None
+    if frame.empty:
+        return [], None
+    frame = frame.copy()
+    frame["date"] = pd.to_datetime(frame["date"], errors="coerce").dt.normalize()
+    frame["close"] = pd.to_numeric(frame["close"], errors="coerce")
+    frame = frame.dropna(subset=["date", "close"]).sort_values("date")
+    account_dates = pd.DataFrame({
+        "date": pd.to_datetime([point["t"] for point in history]),
+        "value": [float(point["v"]) for point in history],
+    })
+    joined = pd.merge_asof(account_dates, frame[["date", "close"]], on="date")
+    joined = joined.dropna(subset=["close"])
+    if joined.empty or not float(joined["close"].iloc[0]):
+        return [], None
+    scale = float(joined["value"].iloc[0]) / float(joined["close"].iloc[0])
+    benchmark = [
+        {"t": row.date.date().isoformat(), "v": float(row.close) * scale}
+        for row in joined.itertuples(index=False)
+    ]
+    period_pct = (
+        (float(joined["close"].iloc[-1]) / float(joined["close"].iloc[0]) - 1.0) * 100.0
+        if len(joined) > 1 else None
+    )
+    return benchmark, period_pct
+
+
+def build_account(project_root: Path) -> dict[str, object]:
+    from stock_data.gui.account_snapshot_service import (
+        LocalAccountPortfolioService,
+        LocalAccountSnapshotService,
+        LocalAccountSourceSpec,
+        build_account_portfolio_presentation,
+    )
+    from stock_data.gui.services import EquityChartService, US_ETF_CHART_IDENTITIES
+
+    candidates = (
+        ("toss_self", "Toss Securities · 본인", project_root / "data/normalized/toss_account_snapshot/latest.json"),
+        ("kb_self", "KB Securities · 본인", project_root / "data/local/account_snapshots/kb_self.json"),
+        ("family_mirae", "미래에셋 가족 명의 ETF · 로컬 수동", project_root / "data/local/account_snapshots/family_mirae_etf.json"),
+    )
+    sources = []
+    for source_id, title, path in candidates:
+        if not path.is_file():
+            continue
+        snapshot = LocalAccountSnapshotService(path).load()
+        if snapshot.displays_values:
+            sources.append(LocalAccountSourceSpec(source_id, title, path))
+    if not sources:
+        return {"reason": "읽을 수 있는 로컬 계좌 스냅샷이 없습니다."}
+
+    portfolio = LocalAccountPortfolioService(
+        tuple(sources), history_root=project_root / "data/local/account_value_history",
+    ).load()
+    presentation = build_account_portfolio_presentation(portfolio)
+    if not presentation.available:
+        return {"reason": "로컬 계좌 스냅샷이 표시 가능한 상태가 아닙니다."}
+
+    fx, usdkrw, usdkrw_as_of = _latest_fx(project_root)
+    amounts = {"KRW": 0.0, "USD": 0.0}
+    cash = {"KRW": 0.0, "USD": 0.0}
+    as_of_values: list[str] = []
+    for entry in portfolio.entries:
+        snapshot = entry.snapshot
+        if not snapshot.displays_values:
+            continue
+        if snapshot.as_of:
+            as_of_values.append(snapshot.as_of)
+        if snapshot.currency:
+            cash_value = snapshot.cash_balance
+            if cash_value is None:
+                cash_value = snapshot.available_cash
+            cash_value = float(cash_value or 0.0)
+            total = snapshot.total_assets
+            if total is None and snapshot.securities_value is not None:
+                total = float(snapshot.securities_value) + cash_value
+            if snapshot.currency in amounts and total is not None:
+                amounts[snapshot.currency] += float(total)
+                cash[snapshot.currency] += cash_value
+        else:
+            for summary in snapshot.currency_summaries:
+                if summary.currency not in amounts or summary.securities_value is None:
+                    continue
+                cash_value = float(summary.cash_buying_power or 0.0)
+                amounts[summary.currency] += float(summary.securities_value) + cash_value
+                cash[summary.currency] += cash_value
+    if amounts["USD"] and usdkrw is None:
+        return {"reason": "USD 자산은 있으나 보존된 USD/KRW 환율을 확인할 수 없습니다."}
+    total_krw = amounts["KRW"] + amounts["USD"] * float(usdkrw or 0.0)
+    if total_krw <= 0:
+        return {"reason": "로컬 계좌 총액을 안전하게 계산할 수 없습니다."}
+
+    us_identities = {identity.symbol: identity for identity in US_ETF_CHART_IDENTITIES}
+    equity = EquityChartService(project_root)
+    exposure_krw = 0.0
+    leveraged_krw = 0.0
+    short_treasury_krw = 0.0
+    exposure_unverified: list[str] = []
+    for holding in presentation.holdings:
+        if holding.market_value is None or holding.currency not in {"KRW", "USD"}:
+            continue
+        style = None
+        if holding.currency == "USD":
+            identity = us_identities.get(holding.symbol.upper())
+            style = getattr(identity, "leverage_style", None)
+        else:
+            try:
+                matches = equity.search(holding.symbol, limit=5).matches
+                identity = next((item for item in matches if item.symbol == holding.symbol), None)
+                style = getattr(identity, "leverage_style", None)
+            except (KeyError, OSError, PermissionError, TypeError, ValueError):
+                style = None
+        multiple, verified = _leverage_multiple(holding.name, style)
+        if not verified:
+            exposure_unverified.append(holding.name)
+        value_krw = float(holding.market_value) * (float(usdkrw) if holding.currency == "USD" else 1.0)
+        exposure_krw += value_krw * multiple
+        if multiple > 1.0:
+            leveraged_krw += value_krw
+        name_upper = f"{holding.symbol} {holding.name}".upper()
+        if any(token in name_upper for token in ("SGOV", "BIL", "SHV", "단기국채", "SHORT TREASURY")):
+            short_treasury_krw += value_krw
+
+    history, history_fx = _account_history(presentation.histories, fx)
+    if not history and as_of_values:
+        history = [{"t": pd.Timestamp(max(as_of_values)).date().isoformat(), "v": total_krw}]
+    benchmark, kospi_period_pct = _kospi_benchmark(project_root, history)
+    day_change_krw = day_change_pct = fx_effect_pct = equity_effect_pct = None
+    if len(history) >= 2:
+        previous = float(history[-2]["v"])
+        current = float(history[-1]["v"])
+        day_change_krw = current - previous
+        day_change_pct = (current / previous - 1.0) * 100.0 if previous else None
+        if len(history_fx) >= 2 and history_fx[-1] is not None and history_fx[-2] is not None:
+            fx_effect_krw = amounts["USD"] * (float(history_fx[-1]) - float(history_fx[-2]))
+            fx_effect_pct = fx_effect_krw / previous * 100.0 if previous else None
+            equity_effect_pct = day_change_pct - fx_effect_pct if day_change_pct is not None else None
+
+    period_pct = ytd_pct = None
+    if history:
+        history_dates = [pd.Timestamp(point["t"]) for point in history]
+        last_date = history_dates[-1]
+        cutoff = last_date - pd.DateOffset(months=3)
+        start_index = next((i for i, date in enumerate(history_dates) if date >= cutoff), 0)
+        start_value = float(history[start_index]["v"])
+        period_pct = (float(history[-1]["v"]) / start_value - 1.0) * 100.0 if start_value else None
+        ytd_index = next((i for i, date in enumerate(history_dates) if date.year == last_date.year), None)
+        if ytd_index is not None:
+            ytd_value = float(history[ytd_index]["v"])
+            ytd_pct = (float(history[-1]["v"]) / ytd_value - 1.0) * 100.0 if ytd_value else None
+
+    unique_unverified = list(dict.fromkeys(exposure_unverified))
+    return {
+        "total_krw": total_krw,
+        "day_change_pct": day_change_pct,
+        "day_change_krw": day_change_krw,
+        "period_label": "3M",
+        "period_pct": period_pct,
+        "kospi_period_pct": kospi_period_pct,
+        "ytd_pct": ytd_pct,
+        "cash_pct": (cash["KRW"] + cash["USD"] * float(usdkrw or 0.0)) / total_krw * 100.0,
+        "usd_assets_usd": amounts["USD"],
+        "usd_assets_krw": amounts["USD"] * float(usdkrw or 0.0),
+        "usdkrw": usdkrw,
+        "usdkrw_as_of": usdkrw_as_of,
+        "fx_effect_pct": fx_effect_pct,
+        "equity_effect_pct": equity_effect_pct,
+        "effective_exposure_pct": exposure_krw / total_krw * 100.0,
+        "leveraged_weight_pct": leveraged_krw / total_krw * 100.0,
+        "short_treasury_pct": short_treasury_krw / total_krw * 100.0,
+        "exposure_unverified": unique_unverified,
+        "history": history,
+        "benchmark": benchmark,
+        "footnote": "계좌 규모 변화 · 입출금 미분리 · 점선은 같은 시점 KOSPI를 첫 관측 총액에 맞춘 값",
+    }
+
+
+def build_derivatives(project_root: Path) -> dict[str, object]:
+    from stock_data.gui.health_service import DailyHealthArtifactService
+    from stock_data.gui.services import DashboardService
+    from stock_data.gui.us_option_pcr_adapter import current_us_option_pcr_scope_views
+    from stock_data.gui.vix_futures_adapter import build_vix_futures_dashboard_view
+
+    service = DashboardService(project_root)
+    try:
+        metrics = service.dashboard_metrics(DailyHealthArtifactService(project_root).load())
+    except (KeyError, OSError, PermissionError, TypeError, ValueError):
+        metrics = {}
+
+    def display(key: str, pattern: str) -> str:
+        metric = metrics.get(key)
+        if metric is not None and metric.displays_value and metric.value is not None:
+            value = pattern.format(float(metric.value))
+            return f"{value} · {metric.as_of}" if metric.as_of else value
+        return str(getattr(metric, "unavailable_reason", None) or "보존 데이터 없음")
+
+    vix_reason = build_vix_futures_dashboard_view().metric.unavailable_reason
+    cboe_views = current_us_option_pcr_scope_views()
+    cboe_reason = cboe_views[0].reason if cboe_views else "CBOE PCR source unavailable"
+    return {"groups": [
+        {"title": "한국 · KOSPI200", "rows": [
+            ["선물 Basis", display("KOSPI200_BASIS", "{:+.2f}")],
+            ["거래량 PCR", display("VOLUME_PCR", "{:.3f}")],
+            ["미결제약정 PCR", display("OI_PCR", "{:.3f}")],
+            ["LS 선물 외국인 순계약", display("LS_FUTURES_FOREIGN_NET", "{:+,.0f}")],
+        ]},
+        {"title": "미국", "rows": [
+            ["VIX 선물", str(vix_reason)],
+            ["CBOE PCR", str(cboe_reason)],
+        ]},
+    ]}
+
+
+def build_schedule(project_root: Path) -> dict[str, object]:
+    path = project_root / "data/local/calendar/events.json"
+    if not path.is_file():
+        return {"reason": "로컬 일정 파일이 없습니다."}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        items = payload["items"]
+        if not isinstance(items, list):
+            raise ValueError("items")
+        clean = []
+        for item in items:
+            when = item.get("when")
+            what = item.get("what")
+            importance = item.get("importance")
+            if (
+                not isinstance(when, str)
+                or re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d|\d{2}-\d{2}", when) is None
+                or not isinstance(what, str) or not what.strip()
+                or type(importance) is not int or importance not in {1, 2, 3}
+            ):
+                raise ValueError("item")
+            clean.append({"when": when, "what": what.strip(), "importance": importance})
+        return {"items": clean}
+    except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError, ValueError):
+        return {"reason": "로컬 일정 파일 형식이 올바르지 않습니다."}
+
+
+def build_brief(project_root: Path) -> dict[str, object] | None:
+    artifact_root = project_root / "artifacts"
+    if not artifact_root.is_dir():
+        return None
+    paths = {
+        path for pattern in ("*morning*brief*", "*market*brief*")
+        for path in artifact_root.rglob(pattern)
+        if path.is_file() and path.suffix.lower() in {".json", ".txt", ".md"}
+    }
+    if not paths:
+        return None
+    path = max(paths, key=lambda item: item.stat().st_mtime)
+    try:
+        if path.suffix.lower() == ".json":
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            raw_lines = payload.get("lines")
+            if not isinstance(raw_lines, list):
+                text = payload.get("text") or payload.get("content")
+                raw_lines = str(text).splitlines() if isinstance(text, str) else []
+            created = payload.get("generated_at") or payload.get("created_at") or payload.get("as_of")
+            source = payload.get("source") or path.name
+        else:
+            raw_lines = path.read_text(encoding="utf-8").splitlines()
+            created = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
+            source = path.name
+        lines = [str(line).strip().lstrip("-· ") for line in raw_lines if str(line).strip()]
+        if not lines:
+            return None
+        return {"lines": lines, "meta": f"{created or '생성 시각 미상'} · {source}"}
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError):
+        return None
+
+
+def build_scanner(project_root: Path) -> dict[str, object] | None:
+    root = project_root / "artifacts"
+    if not root.is_dir():
+        return None
+    paths = [
+        path for path in root.rglob("*scanner*.json")
+        if path.is_file() and "request_queue" not in path.parts
+    ]
+    for path in sorted(paths, key=lambda item: item.stat().st_mtime, reverse=True):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+        contract = payload.get("contract") or payload.get("schema_version")
+        candidates = payload.get("candidates")
+        if contract not in {"stock-exploratory-scanner/v1", 1} or not isinstance(candidates, list):
+            continue
+        top = []
+        for candidate in candidates[:5]:
+            if not isinstance(candidate, dict):
+                continue
+            name = candidate.get("name") or candidate.get("symbol")
+            why = candidate.get("technical_state") or candidate.get("why")
+            if name and why:
+                top.append({"name": str(name), "why": str(why)})
+        return {
+            "as_of": payload.get("as_of"),
+            "count": len(candidates),
+            "rule": payload.get("rule") or "RSI14 ≤ 30 또는 종가/SMA60 ≤ 80%",
+            "top": top,
+        }
+    return None
 
 
 def build_watchlist(project_root: Path) -> dict[str, object]:
@@ -269,12 +695,23 @@ def build_watchlist(project_root: Path) -> dict[str, object]:
             "note": "보유 비중은 계좌 연결 후 · 종목별 수급은 수집 데이터 없음"}
 
 
-def build_home_payload(project_root: Path) -> dict[str, object]:
+def _build_home_payload_uncached(project_root: Path) -> dict[str, object]:
+    from stock_web.api.regime import build_regime
+
     sections: dict[str, object] = {}
+    account = build_account(project_root)
+    sections["account"] = account
+    sections["regime"] = build_regime(project_root, account)
+    sections["derivatives"] = build_derivatives(project_root)
+    sections["health"] = build_health(project_root)
+    sections["schedule"] = build_schedule(project_root)
+    brief = build_brief(project_root)
+    if brief is not None:
+        sections["brief"] = brief
+    scanner = build_scanner(project_root)
+    if scanner is not None:
+        sections["scanner"] = scanner
     sections["watchlist"] = build_watchlist(project_root)
-    health = build_health(project_root)
-    if health:
-        sections["health"] = health
     sections["tiles"] = build_tiles(project_root)
     sections["chart_symbols"] = [
         {"symbol": s, "name": INDEX_SOURCES[s][3]} for s in ("KOSPI", "KOSDAQ", "KOSPI200", "SP500", "NASDAQ", "NDX", "NQF", "SOXX", "WTI", "GOLD")
@@ -289,3 +726,16 @@ def build_home_payload(project_root: Path) -> dict[str, object]:
         "as_of_label": f"한국장 마감 기준 {as_of}" if as_of else "",
         "sections": sections,
     }
+
+
+def build_home_payload(project_root: Path) -> dict[str, object]:
+    """Build the home document, memoized for 60 seconds per resolved root."""
+    root = Path(project_root).resolve()
+    key = str(root)
+    now = time.monotonic()
+    cached = _HOME_CACHE.get(key)
+    if cached is not None and now - cached[0] < _HOME_CACHE_TTL_SECONDS:
+        return cached[1]
+    payload = _build_home_payload_uncached(root)
+    _HOME_CACHE[key] = (now, payload)
+    return payload

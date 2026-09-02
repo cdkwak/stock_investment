@@ -114,15 +114,18 @@
         ${sec.kospi_period_pct !== undefined ? `<span>KOSPI 동기간 <b class="num ${cls(sec.kospi_period_pct)}">${pct(sec.kospi_period_pct)}</b></span>` : ""}
         ${sec.ytd_pct !== undefined ? `<span>연초 <b class="num ${cls(sec.ytd_pct)}">${pct(sec.ytd_pct)}</b></span>` : ""}
         ${sec.effective_exposure_pct !== undefined ? `<span>실효 노출 <b class="num">${fmt(sec.effective_exposure_pct, 0)}%</b></span>` : ""}
+        ${sec.leveraged_weight_pct !== undefined ? `<span>레버리지 명목 <b class="num">${fmt(sec.leveraged_weight_pct, 0)}%</b></span>` : ""}
         ${sec.cash_pct !== undefined ? `<span>현금 <b class="num">${fmt(sec.cash_pct, 0)}%</b></span>` : ""}
+        ${sec.short_treasury_pct !== undefined ? `<span>단기국채 <b class="num">${fmt(sec.short_treasury_pct, 0)}%</b></span>` : ""}
       </div>
       <div class="acct-meta">
-        ${sec.usd_assets_usd !== undefined ? `<span>달러 자산 <b class="num">$${fmt(sec.usd_assets_usd, 0)} = ${fmt(sec.usd_assets_krw / 1e8, 2)}억</b> (${fmt(sec.usdkrw, 2)}원 환산)</span>` : `<span>달러 자산 —</span>`}
+        ${sec.usd_assets_usd !== undefined ? `<span>달러 자산 <b class="num">$${fmt(sec.usd_assets_usd, 0)} = ${fmt(sec.usd_assets_krw / 1e8, 2)}억</b> (${fmt(sec.usdkrw, 2)}원 · ${esc(sec.usdkrw_as_of || "기준일 미상")})</span>` : `<span>달러 자산 —</span>`}
         ${sec.fx_effect_pct !== undefined ? `<span>환율 효과 어제 <b class="num ${cls(sec.fx_effect_pct)}">${pct(sec.fx_effect_pct)}</b></span>` : ""}
         ${sec.equity_effect_pct !== undefined ? `<span>주식 효과 <b class="num ${cls(sec.equity_effect_pct)}">${pct(sec.equity_effect_pct)}</b></span>` : ""}
       </div>
       <div id="acct-chart" class="acct-chart"></div>
-      <div class="acct-foot">${esc(sec.footnote || "입출금 제외 · 점선은 같은 돈을 KOSPI에 넣었을 때")}</div>`;
+      <div class="acct-foot">${esc(sec.footnote || "계좌 규모 변화 · 점선은 KOSPI 비교")}</div>
+      ${(sec.exposure_unverified || []).length ? `<div class="acct-foot">배수 미확인(1배 처리): ${esc(sec.exposure_unverified.join(", "))}</div>` : ""}`;
     if (window.LightweightCharts && sec.history && sec.history.length > 1) {
       acctChart = LightweightCharts.createChart($("acct-chart"), { layout: { background: { color: "#fff" }, textColor: "#6b6660" }, grid: { vertLines: { visible: false }, horzLines: { color: "#e6e1d8" } }, rightPriceScale: { borderColor: "#d9d3ca" }, timeScale: { borderColor: "#d9d3ca" }, autoSize: true, handleScroll: false, handleScale: false });
       acctSeries = acctChart.addLineSeries({ color: "#1f1d1a", lineWidth: 2, priceLineVisible: false });
@@ -174,7 +177,7 @@
   }
   function renderHealth(h) {
     const chip = $("health-chip");
-    if (!h) { chip.textContent = "데이터 갱신 상태 미확인"; return; }
+    if (!h || h.reason) { chip.textContent = h && h.reason ? `데이터 갱신 상태 미확인 · ${h.reason}` : "데이터 갱신 상태 미확인"; return; }
     chip.textContent = `데이터 갱신: 정상 ${h.current ?? 0} · 지연 ${h.lag ?? 0} · 실패 ${h.fail ?? 0} ▸`;
   }
 

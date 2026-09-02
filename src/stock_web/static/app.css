@@ -106,6 +106,17 @@ a { color: inherit; text-decoration: none; }
 .dots i { display: inline-block; width: 6px; height: 6px; border-radius: 3px; margin-right: 2px; background: var(--line); }
 .dots i.on { background: var(--ink); }
 
+/* data status page */
+.data-page { gap: 14px; }
+.filter-chips { display: flex; gap: 6px; margin: 8px 0 12px; flex-wrap: wrap; }
+.filter-chips .chip.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+.data-table-wrap { overflow-x: auto; }
+.data-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.data-table th, .data-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+.data-table th { color: var(--muted); font-size: 10px; font-weight: 500; }
+.data-table td:first-child { font-weight: 500; }
+.receipt-table th:nth-child(4), .receipt-table td:nth-child(4) { text-align: right; }
+
 /* breakpoints ---------------------------------------------------------- */
 @media (min-width: 2200px) {
   .tiles { grid-template-columns: repeat(16, minmax(0, 1fr)); }
@@ -144,4 +155,13 @@ a { color: inherit; text-decoration: none; }
   .watch .tr > :nth-child(n+6) { display: none; }
   .watch { grid-template-columns: 7fr 3fr 4fr 3fr 3fr; }
   .brief-card { grid-template-columns: 1fr; }
+}
+@media (max-width: 599px) {
+  .topbar { flex-wrap: nowrap; }
+  .brand { flex: 0 0 auto; font-size: 0; }
+  .brand::after { content: "SI"; font-size: 16px; }
+  .nav { min-width: 0; overflow-x: auto; flex-wrap: nowrap; white-space: nowrap; scrollbar-width: thin; }
+  .nav a { flex: 0 0 auto; }
+  .topbar-right { flex: 0 0 auto; }
+  .topbar-right .chip { max-width: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
