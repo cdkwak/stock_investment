@@ -63,6 +63,8 @@ def test_phase1_replay_artifacts_keep_canonical_lf_on_every_checkout() -> None:
         "artifacts/backtest/kospi200_frozen_manifest.json text eol=lf"
         in attributes
     )
+    assert "src/market_backtest/*.py text eol=lf" in attributes
+    assert "src/market_features/*.py text eol=lf" in attributes
 
 
 def test_phase1_code_dependency_manifest_is_explicit_and_fail_closed(
