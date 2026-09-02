@@ -132,6 +132,31 @@ def test_cross_file_commit_rolls_back_all_targets_on_mid_commit_failure(tmp_path
     assert not (root / "data/state/test_atomic.transaction.json").exists()
 
 
+def test_cross_file_commit_prepares_new_target_security_from_parent(tmp_path, monkeypatch):
+    root = tmp_path
+    target = root / "data/new/target.json"
+    staged = root / "data/staging/target.json"
+    staged.parent.mkdir(parents=True)
+    staged.write_text("new", encoding="utf-8")
+    calls = []
+
+    import stock_data.pipelines.canonical_equity_incremental as module
+    monkeypatch.setattr(
+        module,
+        "_copy_windows_security_identity",
+        lambda source, destination: calls.append((source, destination)),
+    )
+
+    _commit_replacements(
+        root,
+        transaction_name="test_new_target_acl",
+        replacements=[(target, staged)],
+    )
+
+    assert target.read_text(encoding="utf-8") == "new"
+    assert calls == [(target.parent, staged)]
+
+
 def test_interrupted_transaction_is_recovered_from_verified_backup(tmp_path):
     import hashlib
     import json

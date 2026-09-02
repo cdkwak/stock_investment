@@ -209,6 +209,7 @@ def _commit_replacements(project_root: Path, *, transaction_name: str,
     backup_root.mkdir(parents=True, exist_ok=False)
     entries = []
     for index, (target, staged) in enumerate(replacements):
+        target.parent.mkdir(parents=True, exist_ok=True)
         before = _sha256(target)
         backup = None
         if before is not None:
@@ -218,6 +219,8 @@ def _commit_replacements(project_root: Path, *, transaction_name: str,
                 raise CanonicalEquityIncrementalError("transaction backup verification failed")
             _copy_windows_security_identity(target, backup)
             _copy_windows_security_identity(target, staged)
+        else:
+            _copy_windows_security_identity(target.parent, staged)
         entries.append({
             "target": str(target.relative_to(project_root)),
             "staged": str(staged.relative_to(project_root)),
