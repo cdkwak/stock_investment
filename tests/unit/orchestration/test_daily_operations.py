@@ -162,6 +162,7 @@ ConvertTo-Json -InputObject @($result) -Compress
         capture_output=True,
         text=True,
         encoding="utf-8",
+        errors="replace",
     )
     payload = json.loads(completed.stdout.strip().splitlines()[-1])
     return [payload] if isinstance(payload, str) else payload
@@ -180,6 +181,7 @@ def _kr_registration_dry_run() -> dict[str, dict[str, str]]:
         capture_output=True,
         text=True,
         encoding="utf-8",
+        errors="replace",
     )
     tasks: dict[str, dict[str, str]] = {}
     current: dict[str, str] | None = None
@@ -1229,6 +1231,7 @@ def test_kr_scheduler_dry_run_rejects_slot_time_override() -> None:
         capture_output=True,
         text=True,
         encoding="utf-8",
+        errors="replace",
     )
     assert completed.returncode != 0
     assert "slots are fixed" in completed.stderr
@@ -1243,7 +1246,7 @@ def test_issue_state_scheduler_dry_run_is_local_bounded_and_disabled_by_default(
             "-File", str(REGISTER_TASKS_SCRIPT), "-Action", "DryRun",
             "-Target", "IssueState",
         ],
-        check=True, capture_output=True, text=True, encoding="utf-8",
+        check=True, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     values = dict(
         line.partition("=")[::2] for line in completed.stdout.splitlines() if "=" in line
@@ -1260,7 +1263,7 @@ def test_issue_state_scheduler_dry_run_is_local_bounded_and_disabled_by_default(
             "-File", str(REGISTER_TASKS_SCRIPT), "-Action", "DryRun",
             "-Target", "IssueState", "-EnableIssueState",
         ],
-        check=True, capture_output=True, text=True, encoding="utf-8",
+        check=True, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     enabled_values = dict(
         line.partition("=")[::2] for line in enabled.stdout.splitlines() if "=" in line
@@ -1286,7 +1289,7 @@ def test_toss_account_scheduler_dry_run_is_exact_daily_read_only_route() -> None
             "-File", str(REGISTER_TASKS_SCRIPT), "-Action", "DryRun",
             "-Target", "TossAccount",
         ],
-        check=True, capture_output=True, text=True, encoding="utf-8",
+        check=True, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     values = dict(
         line.partition("=")[::2]
@@ -1318,7 +1321,7 @@ def test_toss_account_scheduler_rejects_time_override() -> None:
             "-File", str(REGISTER_TASKS_SCRIPT), "-Action", "DryRun",
             "-Target", "TossAccount", "-TossAccountTime", "08:00",
         ],
-        check=False, capture_output=True, text=True, encoding="utf-8",
+        check=False, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     assert completed.returncode != 0
     assert "fixed at 07:00" in completed.stderr
@@ -1333,7 +1336,7 @@ def test_kb_account_scheduler_dry_run_is_exact_daily_read_only_route() -> None:
             "-File", str(REGISTER_TASKS_SCRIPT), "-Action", "DryRun",
             "-Target", "KbAccount",
         ],
-        check=True, capture_output=True, text=True, encoding="utf-8",
+        check=True, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     values = dict(
         line.partition("=")[::2]
@@ -1366,7 +1369,7 @@ def test_kb_account_scheduler_rejects_time_override() -> None:
             "-File", str(REGISTER_TASKS_SCRIPT), "-Action", "DryRun",
             "-Target", "KbAccount", "-KbAccountTime", "08:00",
         ],
-        check=False, capture_output=True, text=True, encoding="utf-8",
+        check=False, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     assert completed.returncode != 0
     assert "fixed at 07:10" in completed.stderr
@@ -1381,7 +1384,7 @@ def test_bok_treasury_scheduler_dry_run_is_exact_window_observation_only() -> No
             "-File", str(REGISTER_TASKS_SCRIPT), "-Action", "DryRun",
             "-Target", "BokTreasury",
         ],
-        check=True, capture_output=True, text=True, encoding="utf-8",
+        check=True, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     values = dict(
         line.partition("=")[::2]
@@ -1411,7 +1414,7 @@ def test_bok_treasury_scheduler_rejects_time_override() -> None:
             "-File", str(REGISTER_TASKS_SCRIPT), "-Action", "DryRun",
             "-Target", "BokTreasury", "-BokTreasuryTime", "18:10",
         ],
-        check=False, capture_output=True, text=True, encoding="utf-8",
+        check=False, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     assert completed.returncode != 0
     assert "fixed at 17:10" in completed.stderr
