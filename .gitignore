@@ -36,3 +36,6 @@ htmlcov/
 /scripts/manual/build/promote_kr_index_daily_landing.py
 /artifacts/test_tmp/
 /artifacts/daily_health/universe_data_v2_20260819.json
+
+# Recovery scan lists (paths only; the JSON report is kept)
+/artifacts/recovery/acl_denied_dirs.txt

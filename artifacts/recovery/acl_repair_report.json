@@ -1,0 +1,2744 @@
+{
+  "observed_at": "2026-09-02T22:06:21.9880738+09:00",
+  "elevated": true,
+  "repaired": 456,
+  "total": 456,
+  "entries": [
+    {
+      "path": "C:\\Users\\k4545\\AppData\\Local\\Temp\\pytest-of-k4545",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "708 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\AppData\\Local\\Temp\\stock_rev1_completion_audit_b9c41e05821d4638a139049808990e94",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "230 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\RQ-20260828T115727-F3C6\\pytest-cas",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "54 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\RQ-20260828T115727-F3C6\\pytest-cas-2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "54 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\RQ-20260828T115727-F3C6\\pytest-focused",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "54 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\RQ-20260828T115727-F3C6\\pytest-focused-2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "72 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\RQ-20260828T115727-F3C6\\pytest-full",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1566 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\RQ-20260828T115727-F3C6\\pytest-full-2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1584 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\RQ-20260828T115727-F3C6\\pytest-full-cas",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1585 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\backtest-input-readiness-promotion\\pytest-core",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "7 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\backtest-input-readiness-promotion\\pytest-integration",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "14 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\backtest-input-readiness-promotion\\pytest-replay",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "600 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\canonical-baseline-v1-20260827-2238\\pytest-backtest-receipt",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "458 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\canonical-baseline-v1-20260827-2238\\pytest-data-contract-fix",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "457 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\canonical-baseline-v1-20260827-2238\\pytest-final-integration",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "6027 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\canonical-baseline-v1-20260827-2238\\pytest-final-integration-rerun",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "6027 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\canonical-baseline-v1-20260827-2238\\pytest-final-regression",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "3299 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\canonical-baseline-v1-20260827-2238\\pytest-final-unit",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "11736 파일을 처리했으며 4 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\canonical-baseline-v1-20260827-2238\\pytest-final-unit-rerun",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "11736 파일을 처리했으며 4 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\canonical-baseline-v1-20260827-2238\\pytest-g02",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1400 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\canonical-baseline-v1-20260827-2238\\pytest-g02-pass",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1398 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\canonical-baseline-v1-20260827-2238\\pytest-g02-r",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1398 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\canonical-baseline-v1-20260827-2238\\pytest-group03",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "113 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\canonical-baseline-v1-20260827-2238\\pytest-group06",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "311 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\canonical-baseline-v1-20260827-2238\\pytest-group07",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "8275 파일을 처리했으며 4 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\canonical-baseline-v1-20260827-2238\\pytest-group08",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1865 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\canonical-baseline-v1-20260827-2238\\pytest-group09",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "7542 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\canonical-baseline-v1-20260827-2238\\pytest-group10",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "2374 파일을 처리했으며 4 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\canonical-baseline-v1-20260827-2238\\pytest-group11",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1954 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\canonical-baseline-v1-20260827-2238\\pytest-group12",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1177 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\canonical-baseline-v1-20260827-2238\\pytest-group12-diagnose",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "796 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\canonical-baseline-v1-20260827-2238\\pytest-group12-final",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "849 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\canonical-baseline-v1-20260827-2238\\pytest-group12-gui-retry",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "19 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\canonical-baseline-v1-20260827-2238\\pytest-group13",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1397 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\canonical-baseline-v1-20260827-2238\\pytest-group14",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "2229 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\canonical-baseline-v1-20260827-2238\\pytest-group15-final",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1500 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\canonical-baseline-v1-20260827-2238\\pytest-group15-final2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1500 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\canonical-baseline-v1-20260827-2238\\pytest-gui-close-1",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "19 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\canonical-baseline-v1-20260827-2238\\pytest-gui-close-2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "19 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\canonical-baseline-v1-20260827-2238\\pytest-gui-close-3",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "19 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\canonical-baseline-v1-20260827-2238\\pytest-gui-contract-fix",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1794 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\canonical-baseline-v1-20260827-2238\\pytest-gui-final",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "3747 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\canonical-baseline-v1-20260827-2238\\pytest-gui-unit-rerun",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1954 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_account_atomic_reviewer2_20260827\\pytest_account",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "786 파일을 처리했으며 4 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_account_atomic_reviewer2_20260827\\pytest_gui",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "35 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_account_atomic_reviewer2_20260827\\pytest_restore_failure",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "12 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_account_atomic_reviewer3_20260827\\pytest-account-full",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "817 파일을 처리했으며 4 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_account_atomic_reviewer3_20260827\\pytest-gui-focus",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "35 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_account_atomic_reviewer_20260827\\pytest",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "35 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_account_atomic_reviewer_20260827\\pytest_probe",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "16 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_account_atomic_reviewer_20260827\\pytest_probe2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "32 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_account_atomic_worker_20260827\\pytest",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "35 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_account_atomic_worker_20260827\\pytest-account-full",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "817 파일을 처리했으며 4 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_account_atomic_worker_20260827\\pytest-gui-focus",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "35 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_account_atomic_worker_20260827\\pytest-runtime",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "152 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_account_atomic_worker_20260827\\pytest-runtime-resume",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "152 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_account_cli_reviewer_20260827\\pytest-account",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "831 파일을 처리했으며 4 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_account_cli_reviewer_20260827\\pytest-account-rs",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "831 파일을 처리했으며 4 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_account_cli_reviewer_20260827\\pytest-cli",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "14 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_account_cli_reviewer_20260827\\pytest-gui",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "222 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_account_cli_worker_20260827\\pytest\\account",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "830 파일을 처리했으며 4 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_account_cli_worker_20260827\\pytest\\account_final",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "830 파일을 처리했으며 4 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_account_cli_worker_20260827\\pytest\\gui",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "222 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_account_cli_worker_20260827\\pytest\\runtime",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "165 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_gui_c7d0_a\\pytest-foundation",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "5 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_gui_c7d0_a\\pytest-store",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "5 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_gui_c938_a\\pytest-gui-account",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "57 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_gui_c938_a\\pytest-gui-account-rerun",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "57 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_gui_c938_a\\pytest-services-account",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "31 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_gui_c938_a\\reopen-services-baseline",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "31 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_gui_c938_a\\reopen-widget-baseline",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "57 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_gui_c938_a\\rework-services",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "31 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_gui_c938_a\\rework-widgets",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "57 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest-0e3a-review-1335",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "408 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest-0e68-final\\pytest-of-k4545",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "7 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest-0e68-focused\\pytest-of-k4545",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "63 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest-0e68-rework-full\\pytest-of-k4545",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "940 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest-0e68-rework\\pytest-of-k4545",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "36 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest-0e68-service\\pytest-of-k4545",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "936 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest-1c38",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "91 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest-4631-observe\\pytest-of-k4545",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "8 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest-9db8-baseline-1344",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "199 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest-b400-observe\\pytest-of-k4545",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "5 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest-b798-1324",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "98 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest-backtest\\pytest-of-k4545",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "646 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest-cf1c-review-1332",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1271 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest-cf1c-review-1341",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1318 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest-concurrency-a",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "4 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest-concurrency-b",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "4 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest-concurrency3",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "4 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest-f640-broad",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1211 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest-f640-final",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1209 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest-issue-state",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "22 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest-issue-state-full",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "46 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest-issue-state-regression",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "84 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest-issue-state-regression2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "83 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest-issue-state2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "31 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest-of-k4545",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "2361 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest-services\\pytest-of-k4545",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "931 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest\\0290_review_20260826_0140",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "78 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest\\391a-focused",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "22 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest\\391a-full",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "576 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest\\76a1_gui_20260826_0218",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "556 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest\\76a1_services_20260826_0215",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "871 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest\\76a1_target_20260826_0200",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "17 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest\\76a1_target_20260826_0208",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "17 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest\\b1eb-core-a",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "125 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest\\b1eb-core-b",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "148 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest\\b1eb-fix",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "8 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest\\b1eb-full-a",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "425 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest\\b1eb-full-final",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "425 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest\\b1eb-gui-impact",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "21 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest\\b1eb-scheduler",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "254 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest\\b1eb-scheduler-2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "254 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest\\b1eb-scheduler-3",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "255 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest\\b1eb_final_core",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "425 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest\\b1eb_resubmit_20260826_0130",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "425 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest\\b1eb_review_core_20260826_0123",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "425 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest\\f6d5_20260826_0150",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "78 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest\\usdkrw_91ba_20260826_0147",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "21 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_0cdc_be31dccf19034648b41a75146936a01d",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "307 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_0cdc_branch_coverage_ad3729a2a65c4c019f39db2d6c87ec59",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "415 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_0cdc_broader",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "538 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_0cdc_exactslot_508d7aa0adf647c189bc2c3f8487d192",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "344 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_0cdc_exactslot_retry_d06d3bf32f5243d6a04429b67092d407",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "344 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_0cdc_failclosed_pointer_394f06a8c82946658a8cc38b0ebf8418",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "385 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_0cdc_final",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "487 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_0cdc_invariants_353cb4c718a4404c9df8525d4830b2f5",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "327 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_0cdc_pointer_1f7a19c41d8544349928648971d47a96",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "369 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_0cdc_post_natural",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "487 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_0cdc_readback_1541b5cbb329461b89df07ac55fa1d9e",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "337 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_0cdc_regression_6029a3875de74f2797f58869573bd0bb",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "387 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_0cdc_replay_e1ce59a60e68475ea985a6dc8d7b46da",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "353 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_149e_full_review",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "572 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_149e_review_2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "30 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_1c38_final",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "40 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_6d4b_e48a5398bc7d4306912f5d4569bded13",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "21 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_6d4b_final_549c599cf3184b2680139960706f290a",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "21 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_716f_review_31a6ea44786d4aa5a17dd501cbe246bc",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "363 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_9db8_final",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "607 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_9db8_target",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "439 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_9db8_unit2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "433 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_9db8_unit3",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "439 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_bea4_0c63b8be1a94498e816ca0e076c65c50",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "14 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_cache",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "8 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_d1ad_20260826105246829",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "123 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_d1ad_final_20260826105425848",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "123 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_d1ad_rework_20260826112147411",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "123 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_e084_20260826105542135",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "900 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_e084_rework_20260826113211756",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "905 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_e694_reopen_repro",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "12 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_e694_review_0326",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "18 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_e9c6_027db52a2f394589a7b282897f673af5",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "38 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_e9c6_retry_99328edfd10d4b029d4034fd7e69ae93",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "38 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_f2b9_focus",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "76 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_f2b9_focus2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "76 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_f2b9_gate",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "3 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_f2b9_owning",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "687 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_f363",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "976 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_f640_final_20260826113051013",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "173 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_f640_full_20260826112915508",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "173 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_f640_review_20260826112411097",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "109 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_f640_rework_20260826112850102",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "136 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_market_flow_full",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "661 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_market_flow_restore",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "40 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\pytest_market_flow_restore_final",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "40 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\codex_root\\temp\\pytest-of-k4545",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "942 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\derivative-dashboard-metadata-20260826-c1e7\\pytest",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "13 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\derivative-dashboard-metadata-20260826-c1e7\\pytest-final-regression",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1013 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\derivative-dashboard-metadata-20260826-c1e7\\pytest-final-regression-rerun",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1013 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\derivative-dashboard-metadata-20260826-c1e7\\pytest-full",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "958 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\derivative_catchup_impl\\pytest",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "302 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\derivative_catchup_impl\\pytest-after-hardening",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "302 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\derivative_catchup_impl\\pytest-final",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "302 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\derivative_catchup_impl\\pytest-final2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "303 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\derivative_catchup_impl\\pytest-rerun",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "302 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\derivative_catchup_impl\\pytest-scheduler",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "310 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\derivative_catchup_impl\\pytest-scheduler-derivatives",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "3 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\derivative_catchup_impl\\pytest-scheduler-derivatives2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "3 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\derivative_final_regression_20260826\\pytest",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "338 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\derivative_scheduler_impl\\pytest",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "364 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\derivative_scheduler_impl\\pytest_cutover",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "121 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\derivative_scheduler_impl\\pytest_final_regression_20260826",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1363 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\derivative_scheduler_impl\\pytest_metadata",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "60 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\derivative_scheduler_impl\\pytest_provider",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "305 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\derivative_scheduler_impl\\pytest_provider2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "305 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\fresh-review-canonical-v1-20260828\\integration_pytest",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "6027 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\fresh-review-canonical-v1-20260828\\regression_pytest",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "3299 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\fresh-review-canonical-v1-20260828\\unit_failures_rerun_pytest",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "19 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\fresh-review-canonical-v1-20260828\\unit_full_rerun_pytest",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "11736 파일을 처리했으며 4 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\fresh-review-canonical-v1-20260828\\unit_pytest",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "11736 파일을 처리했으며 4 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_freshness_audit_20260826\\pytest-kospi200",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "70 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_freshness_audit_20260826\\pytest-kospi200-final",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "124 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_freshness_audit_20260826\\pytest-kospi200-finalset",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1418 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_freshness_audit_20260826\\pytest-kospi200-full",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1418 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_freshness_audit_20260826\\pytest-kospi200-gui",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "31 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_freshness_audit_20260826\\pytest-kospi200-handoff",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "110 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_freshness_audit_20260826\\pytest-kospi200-health",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "409 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_freshness_audit_20260826\\pytest-kospi200-rerun",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "70 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_freshness_audit_20260826\\pytest-kospi200-scheduler",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "173 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_freshness_audit_20260826\\pytest-kospi200-unit2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "409 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_freshness_audit_20260826\\pytest-kospi200-unit3",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "409 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_freshness_audit_20260826\\pytest_data",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "155 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_freshness_audit_20260826\\pytest_final",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1091 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_freshness_audit_20260826\\pytest_gui_health",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "40 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_freshness_audit_20260826\\pytest_issue",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "162 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_freshness_audit_20260826\\pytest_issue_policy_guard",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "116 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_freshness_audit_20260826\\pytest_issue_policy_v2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "162 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_freshness_audit_20260826\\pytest_market_flow",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "21 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_freshness_audit_20260826\\pytest_release_after_probe",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "980 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_freshness_audit_20260826\\pytest_release_unit",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "941 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_freshness_audit_20260826\\pytest_runtime_probe",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "9 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_freshness_audit_20260826\\pytest_scheduler",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "51 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_freshness_audit_20260826\\pytest_scheduler_boundary",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "53 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-04ca-review",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "60 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-2152",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "65 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-38f9",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "88 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-38f9-final",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "149 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-38f9-postfix",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "111 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-38f9-receipts",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "233 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-38f9-receipts-exact",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "40 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-38f9-receipts-final",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "253 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-38f9-transaction",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "21 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-63dc",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "174 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-63dc-fresh",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "232 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-744e",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "209 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-744e-recheck",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "227 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-936a",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "58 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-936a-focused",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "25 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-936a-full",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "37 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-936a-health",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "31 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-a97c-focused",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1112 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-d4d5",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1317 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-d4d5-final",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "61 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-d4d5-final14",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "141 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-d4d5-rework",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1474 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-d4d5-unit",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1317 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-df53",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "41 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-df53-review2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "136 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-df53-review3",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "155 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-f2b9-close-1",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "19 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-f2b9-close-2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "19 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-f2b9-close-3",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "19 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-f2b9-close-4",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "19 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-f2b9-close-5",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "19 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-f2b9-close-6",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "19 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-f2b9-core2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "345 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-f2b9-final-full",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1019 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-f2b9-final-race-1",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "30 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-f2b9-final-race-2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "30 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-f2b9-final-race-3",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "30 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-f2b9-final-race-4",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "30 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-f2b9-final-race-5",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "30 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-f2b9-final-race-6",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "30 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-f2b9-full",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "996 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-f2b9-gui",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "55 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-f2b9-rereview-full",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1014 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-fc62",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "65 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-fc62-r2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "65 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-fc62-r3",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "65 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-fc62-recheck",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "65 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-fc74",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "203 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-fc74-recheck",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "215 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest-scheduler-boundary",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "53 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_0cdc_final_review",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "487 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_0cdc_prereview",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "487 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_0cdc_prereview2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "487 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_0cdc_recheck",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "487 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_0cdc_review",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "415 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_0e3a",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "408 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_1c38",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "58 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_2eaa",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "826 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_2eaa_181",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "826 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_2eaa_fresh",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "826 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_2eaa_tests",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "531 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_3082",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "277 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_3082_fresh",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "301 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_39e1_r2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1015 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_39e1_run",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "853 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_3aa4",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "52 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_3aa4_final",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "52 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_3aa4_review",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "831 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_4631",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "290 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_4631_fresh",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "290 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_5467_focused",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "27 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_5467_full",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1077 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_9b9f",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "788 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_9b9f_second",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "788 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_9db8_review_unit",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "736 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_9db8_rework_unit",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "607 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_9db8_unit",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "313 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_b798",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "153 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_cf1c",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1351 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_cf1c_post",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1319 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_cf1c_r2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1269 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_cf1c_r3",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1286 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_d1ad",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "123 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_d1ad_fresh",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "123 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_df53",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "142 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_f640",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "109 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_f640_192",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "181 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_f640_final",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "181 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_f640_fresh",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "173 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_inbox_review\\pytest_f640_r3",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "181 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_yahoo_treasury_20260827\\pytest",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "79 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_yahoo_treasury_20260827\\pytest2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "79 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_yahoo_treasury_20260827\\pytest3",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "79 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_yahoo_treasury_20260827\\pytest5",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "3340 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\goal_yahoo_treasury_20260827\\pytest7",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1584 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\queue-v2-root\\pytest-final",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1531 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\queue-v2-root\\pytest-focused",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "83 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\queue-v2-root\\pytest-full",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1531 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\queue-v2-root\\pytest-live-fence",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1531 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\queue-v21-root\\pytest",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "84 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\queue-v21-root\\pytest-callers",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "137 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\queue-v21-root\\pytest-full",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1626 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\queue_block_audit\\pytest-focused",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "123 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\queue_block_audit\\pytest-full",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1359 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\queue_block_audit\\pytest-targeted",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "61 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\r1_data_krfund\\pytest",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "190 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\r1_data_krfund\\pytest-verify",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "190 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\r1_test_topology\\focused_pytest",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "2045 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\r1_test_topology\\historical_pytest",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "110 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root-derivatives-daily-20260826-b3f1\\pytest\\combined",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1321 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root-derivatives-daily-20260826-b3f1\\pytest\\derivatives-live",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "303 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root-derivatives-daily-20260826-b3f1\\pytest\\derivatives-live2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "322 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root-derivatives-daily-20260826-b3f1\\pytest\\derivatives-live3",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "338 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root-derivatives-daily-20260826-b3f1\\pytest\\release",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "952 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root-derivatives-daily-20260826-b3f1\\pytest\\release2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "952 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root-gui-data-autonomy-20260826\\pytest-health-final",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "68 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root-gui-data-autonomy-20260826\\pytest-queue",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "41 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root-gui-data-autonomy-20260826\\pytest-queue-full",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1399 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root-gui-data-autonomy-20260826\\pytest-release-unit-final",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "941 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root-gui-data-autonomy-20260826\\pytest-telegram-final",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "17 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root-gui-data-autonomy-20260826\\pytest-unit",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "983 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\3aa4_baseline\\pytest",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "46 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\e694_gui\\pytest",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "465 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\e694_gui_x\\pytest",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "346 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\e694_service\\pytest",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "878 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\e694_single\\pytest",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "12 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "235 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-04ca",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "60 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-0cdc-cli-recheck",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "237 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-0cdc-readiness-recheck",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "179 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-0e3a-baseline",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "40 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-3aa4-baseline",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "58 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-3aa4-reconcile-baseline",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "9 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-a97c-focused",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "952 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-a97c-focused2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "996 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-account-adversarial",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "30 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-account-adversarial2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "30 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-account-focused",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "71 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-account-focused-1",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "71 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-account-focused-2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "71 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-account-focused-3",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "71 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-account-focused-4",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "71 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-canonical",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "319 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-e694-diagnose",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "12 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-e694-independent",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "17 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-f2b9-final",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1014 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-f2b9-final2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1019 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-f2b9-full",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "406 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-f640-queue-baseline",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1109 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-fc62",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "29 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-gui-retention",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "149 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-gui-retention-fc74",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "215 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-gui-retention-final",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "149 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-gui-retention-reclose",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "253 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-gui-trace",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "670 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-local-stack",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "6 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-of-k4545",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "2191 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-race-1",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "30 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-race-10",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "30 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-race-2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "30 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-race-3",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "30 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-race-4",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "30 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-race-5",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "30 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-race-6",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "30 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-race-7",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "30 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-race-8",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "30 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-race-9",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "30 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-telegram",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "5 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-telegram-dashboard-summary",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "11 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-telegram-readable",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "11 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-telegram-report-diagnostic",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "11 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-telegram-reports",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1121 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-telegram-request",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "5 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-telegram-request-suite",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1116 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-telegram-send-fix",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1120 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-telegram-source-format",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "11 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-telegram-suite",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1114 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-telegram-targets",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1121 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-ur246-all",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1127 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-yahoo",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1317 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-yahoo-baseline",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "209 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-yahoo-final",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1317 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-yahoo-final2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1474 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-yahoo-review-fix",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1344 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-yahoo-review-fix2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1414 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-yahoo-rework",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1474 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-yahoo-route-scope",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "157 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest-yahoo-typed-counts",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "141 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest_5467_baseline",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1046 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest_consumer_triads_baseline",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "46 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest_e694",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "17 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest_gui_coalesce_recheck",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "7 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest_historical_full_baseline",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "772 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest_integration_full_baseline",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "5413 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest_regression_full_baseline",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "3174 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest_toss_baseline",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "146 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\pytest_unit_full_baseline",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "7776 파일을 처리했으며 4 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\temp\\pytest-of-k4545",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1359 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\watchlist_flow\\pytest_final",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "22 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\watchlist_flow\\pytest_final2",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "51 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\watchlist_flow\\pytest_pair",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "11 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\watchlist_flow\\pytest_regression",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "46 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\root\\watchlist_flow\\pytest_single",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "6 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\scheduler-expansion-20260827\\pytest",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "2801 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\scheduler-expansion-20260827\\pytest-coverage",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "993 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\scheduler-expansion-20260827\\pytest-final",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "2823 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\scheduler-expansion-20260827\\pytest-final-clean",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "2823 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\scheduler-expansion-20260827\\pytest-final-fix",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "2201 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\scheduler-expansion-20260827\\pytest-health",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "17 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\scheduler-expansion-20260827\\pytest-health-fix",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "23 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\scheduler_morning_20260827\\pytest",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1261 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\scheduler_morning_20260827\\pytest-kb-scheduler",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "2313 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\scheduler_morning_20260827\\pytest-kb-scheduler-rerun",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "2313 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\scheduler_morning_20260827\\pytest_consolidated",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1514 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\scheduler_morning_20260827\\pytest_coverage",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1261 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\scheduler_morning_20260827\\pytest_fallback",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "431 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\scheduler_morning_20260827\\pytest_full",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1529 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\scheduler_morning_20260827\\pytest_health31",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1380 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\scheduler_morning_20260827\\pytest_health31_retry",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1380 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\scheduler_morning_20260827\\pytest_issue",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "205 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\scheduler_morning_20260827\\pytest_kb_daily",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "477 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\scheduler_morning_20260827\\pytest_kb_daily_retry",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "477 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\scheduler_morning_20260827\\pytest_provider_cli31",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "326 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\scheduler_morning_20260827\\pytest_release_account_gate",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1341 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\scheduler_morning_20260827\\pytest_release_independent_groups",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1341 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\scheduler_morning_20260827\\pytest_scheduler_combined_after_gate",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1811 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\scheduler_morning_20260827\\pytest_spread",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1464 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\scheduler_morning_20260827\\pytest_spread_retry",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1464 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\scheduler_morning_20260827\\pytest_yahoo_diagnostics",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1895 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\task_1209aa5375cf\\pytest",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1585 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\task_1209aa5375cf\\pytest-focused",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "54 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\task_2f93e9584e71\\pytest\\focused-maintenance-bridges",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "47 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\task_2f93e9584e71\\pytest\\focused-request-queue",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "84 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\task_2f93e9584e71\\pytest\\request-queue-suite",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1625 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\task_2f93e9584e71\\pytest\\request-queue-suite-final",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1628 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\task_2f93e9584e71\\pytest\\workflow-doctor",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "24 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\task_789940b49893\\pytest",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1584 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\task_87a2f3f1f455\\pytest",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "36 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\task_f0e219d6533f\\pytest\\lead",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "1765 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\telegram-system-review-20260827\\pytest",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "17 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\.tmp\\agents\\telegram-system-review-20260827\\pytest-compact",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "20 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    },
+    {
+      "path": "C:\\Users\\k4545\\Desktop\\stock_investment_rev1\\data\\normalized\\kr_kospi200_futures_investor_net_purchase_daily",
+      "repaired": true,
+      "takeown_ok": true,
+      "icacls_tail": "57 파일을 처리했으며 0 파일은 처리하지 못했습니다."
+    }
+  ]
+}
