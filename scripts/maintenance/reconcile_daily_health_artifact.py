@@ -31,26 +31,40 @@ def _freshness(row: dict[str, object]) -> str:
 
 
 _PRE_DAILY_OCCURRENCE_KST = {
-    "fred_treasury_yield_daily": time(6, 0),
-    "us_treasury_spread_daily": time(6, 0),
-    "global_etf_price_daily": time(6, 10),
-    "global_index_price_daily": time(6, 20),
+    "fred_treasury_yield_daily": (time(6, 0), ExchangeMarket.US),
+    "us_treasury_spread_daily": (time(6, 0), ExchangeMarket.US),
+    "global_etf_price_daily": (time(6, 10), ExchangeMarket.US),
+    "global_index_price_daily": (time(6, 20), ExchangeMarket.US),
+    "kr_index_constituent_daily": (time(20, 30), ExchangeMarket.KR),
+    "kr_kospi200_constituent_price_daily": (time(20, 30), ExchangeMarket.KR),
+    "kr_kospi200_breadth_daily": (time(20, 30), ExchangeMarket.KR),
+    "kr_credit_balance_daily": (time(20, 30), ExchangeMarket.KR),
+    "kr_kospi200_futures_daily": (time(20, 30), ExchangeMarket.KR),
+    "kr_kospi200_futures_nearest_listed_daily": (time(20, 30), ExchangeMarket.KR),
+    "kr_kospi200_futures_provider_bridge_daily": (time(20, 30), ExchangeMarket.KR),
+    "kr_kospi200_option_pcr_daily": (time(20, 30), ExchangeMarket.KR),
+    "kr_kospi200_option_walls_daily": (time(20, 30), ExchangeMarket.KR),
+    "kr_kospi200_options_daily": (time(20, 30), ExchangeMarket.KR),
+    "kr_kospi200_options_provider_bridge_daily": (time(20, 30), ExchangeMarket.KR),
+    "kr_market_liquidity_daily": (time(20, 30), ExchangeMarket.KR),
+    "kr_treasury_yield_daily": (time(20, 30), ExchangeMarket.KR),
 }
 
 
 def _awaiting_scheduled_occurrence(
     dataset_id: str, *, actual: object, expected: object, as_of: datetime,
 ) -> bool:
-    cutoff = _PRE_DAILY_OCCURRENCE_KST.get(dataset_id)
-    if cutoff is None:
+    schedule = _PRE_DAILY_OCCURRENCE_KST.get(dataset_id)
+    if schedule is None:
         return False
+    cutoff, market = schedule
     local = as_of.astimezone(ZoneInfo("Asia/Seoul"))
     if local.time() >= cutoff or not isinstance(actual, str) or not isinstance(expected, str):
         return False
     try:
         actual_date = datetime.fromisoformat(actual).date()
         expected_date = datetime.fromisoformat(expected).date()
-        calendar = ExchangeTradingCalendar(ExchangeMarket.US)
+        calendar = ExchangeTradingCalendar(market)
         return calendar.next_trading_day(actual_date) == expected_date
     except ValueError:
         return False

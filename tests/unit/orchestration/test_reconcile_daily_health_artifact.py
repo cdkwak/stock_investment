@@ -222,6 +222,75 @@ def test_universe_health_treats_one_session_as_expected_lag_before_daily_task():
     assert after_row["freshness"] == "STALE"
 
 
+def test_kr_post_close_outputs_wait_for_2030_occurrence_before_stale(
+    tmp_path, monkeypatch,
+):
+    cases = {
+        "kr_index_constituent_daily": ("2026-08-31", "2026-09-01"),
+        "kr_kospi200_constituent_price_daily": ("2026-08-31", "2026-09-01"),
+        "kr_kospi200_breadth_daily": ("2026-08-31", "2026-09-01"),
+        "kr_credit_balance_daily": ("2026-09-01", "2026-09-02"),
+        "kr_kospi200_futures_daily": ("2026-08-31", "2026-09-01"),
+        "kr_kospi200_futures_nearest_listed_daily": ("2026-08-31", "2026-09-01"),
+        "kr_kospi200_futures_provider_bridge_daily": ("2026-08-31", "2026-09-01"),
+        "kr_kospi200_option_pcr_daily": ("2026-08-31", "2026-09-01"),
+        "kr_kospi200_option_walls_daily": ("2026-08-31", "2026-09-01"),
+        "kr_kospi200_options_daily": ("2026-08-31", "2026-09-01"),
+        "kr_kospi200_options_provider_bridge_daily": ("2026-08-31", "2026-09-01"),
+        "kr_market_liquidity_daily": ("2026-09-01", "2026-09-02"),
+        "kr_treasury_yield_daily": ("2026-08-31", "2026-09-01"),
+    }
+    rows = [{
+        "dataset_id": dataset_id,
+        "actual_latest": cases[dataset_id][0] if dataset_id in cases else None,
+        "expected_latest": None,
+        "freshness_status": "UNKNOWN",
+    } for dataset_id in MODULE.DATASET_OPERATIONS]
+    monkeypatch.setattr(
+        MODULE,
+        "validated_runtime_coverage",
+        lambda _root: SimpleNamespace(
+            latest={dataset: actual for dataset, (actual, _expected) in cases.items()},
+            failures={},
+        ),
+    )
+
+    before = MODULE.reconcile_universe({
+        "run_id": "pre-kospi200-occurrence",
+        "as_of": "2026-09-02T17:45:00+09:00",
+        "datasets": rows,
+    }, project_root=tmp_path)
+    after = MODULE.reconcile_universe({
+        "run_id": "post-kospi200-occurrence",
+        "as_of": "2026-09-02T20:31:00+09:00",
+        "datasets": rows,
+    }, project_root=tmp_path)
+
+    before_rows = {
+        row["dataset"]: row for row in before["datasets"]
+        if row["dataset"] in cases
+    }
+    after_rows = {
+        row["dataset"]: row for row in after["datasets"]
+        if row["dataset"] in cases
+    }
+    assert set(before_rows) == set(cases)
+    assert all(
+        before_rows[dataset]["expected"] == expected
+        for dataset, (_actual, expected) in cases.items()
+    )
+    assert {
+        dataset: (row["latest"], row["freshness"])
+        for dataset, row in before_rows.items()
+    } == {
+        dataset: (actual, "EXPECTED_LAG")
+        for dataset, (actual, _expected) in cases.items()
+    }
+    assert {
+        dataset: row["freshness"] for dataset, row in after_rows.items()
+    } == {dataset: "STALE" for dataset in cases}
+
+
 def test_universe_health_prefers_contract_validated_runtime_coverage(tmp_path, monkeypatch):
     rows = [{
         "dataset_id": dataset_id, "actual_latest": None,
