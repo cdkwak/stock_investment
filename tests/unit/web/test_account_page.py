@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from stock_data.gui.manual_account_store import (
     LocalManualAccountStore,
@@ -12,7 +13,8 @@ from stock_data.gui.manual_account_store import (
     ManualAccountRegistry,
 )
 from stock_data.gui.net_worth_service import LocalNetWorthHistoryStore
-from stock_web.api import home_data
+from stock_web.api import account_page, home_data
+from stock_web.api.account_page import calculate_return_metrics
 from stock_web.app import create_app
 from tests.unit.web import ASGITestClient, new_temp_root
 
@@ -156,6 +158,10 @@ def test_account_totals_use_local_prices_fx_and_exclude_unpriced_holdings() -> N
     assert payload["summary"]["fx_krw_per_usd"] == 1_300
     assert payload["summary"]["fx_as_of"] == "2026-09-01"
     assert payload["summary"]["fx_as_of_label"] == "09-01"
+    assert payload["summary"]["broker_reported_pnl_krw"] == 500
+    assert set(payload["return_metrics"]) == {"1M", "3M", "YTD", "ALL"}
+    assert payload["cash_flows"]["entries"] == []
+    assert payload["total_asset_history"]
     assert next(row for row in payload["rows"] if row["name"] == "Toss")["as_of_label"] == "09-02 07:00"
     assert payload["manual_accounts"]["unpriced_count"] == 1
     unpriced = next(
@@ -189,7 +195,11 @@ def test_account_posts_are_loopback_only_and_pages_and_get_apis_render() -> None
     assert (root / "artifacts/local_user/manual_accounts.json").read_bytes() == original
     assert not (root / "data/local/net_worth_history").exists()
     assert client.get("/account").status_code == 200
-    assert "투자 자산" in client.get("/account").text
+    account_page_html = client.get("/account").text
+    assert "투자 자산" in account_page_html
+    assert "입출금 기록" in account_page_html
+    assert "lightweight-charts" not in account_page_html
+    assert '/static/app.js' in account_page_html
     assert client.get("/api/manual/accounts").status_code == 200
     assert client.get("/api/net-worth").status_code == 200
 
@@ -212,7 +222,153 @@ def test_home_account_keeps_total_alias_and_adds_split_fields() -> None:
     assert account["net_worth_as_of"] == "2026-08-15"
     assert account["net_worth_as_of_label"] == "08-15"
     assert account["day_change_pct"] is None
-    assert "투자 자산만 기준" in account["footnote"]
+    assert account["footnote"] == "입출금은 내 계좌 페이지에서 기록 · 기록이 없으면 변동 전체를 손익으로 간주"
     assert {source["name"] for source in account["sources"]} >= {
         "Toss", "KB", "미래에셋", "미국 수동", "부동산", "예금·현금", "주택담보대출",
+    }
+
+
+def test_modified_dietz_and_twr_match_hand_calculated_cash_flow_example() -> None:
+    history = [
+        {"t": "2026-01-01", "v": 100.0, "partial": False},
+        {"t": "2026-01-06", "v": 150.0, "partial": False},
+        {"t": "2026-01-11", "v": 165.0, "partial": False},
+    ]
+    flows = [{
+        "id": "flow_mid", "date": "2026-01-06", "amount_krw": 50,
+        "account": "현금", "memo": "중간 입금",
+    }]
+
+    metric = calculate_return_metrics(
+        history, flows, broker_reported_pnl_krw=-10.0,
+    )["ALL"]
+
+    assert metric["net_flows_krw"] == 50
+    assert metric["true_pnl_krw"] == 15
+    # Dietz: 15 / (100 + 0.5*50) = 12%; TWR: 1.0 * 165/150 - 1 = 10%.
+    assert metric["return_pct_modified_dietz"] == 12.0
+    assert metric["return_pct_twr"] == pytest.approx(10.0)
+    assert metric["broker_reported_pnl_krw"] == -10.0
+
+
+def test_return_window_without_a_pre_start_observation_has_korean_reason() -> None:
+    metrics = calculate_return_metrics(
+        [
+            {"t": "2026-08-26", "v": 100.0, "partial": False},
+            {"t": "2026-09-03", "v": 110.0, "partial": False},
+        ],
+        [],
+        broker_reported_pnl_krw=None,
+    )
+
+    assert metrics["1M"] == {
+        "window": "1M", "reason": "관측 시작 08-26 이후만 계산 가능",
+    }
+    assert metrics["ALL"]["true_pnl_krw"] == 10.0
+
+
+def test_total_asset_series_forward_fills_and_marks_sources_stale_after_three_days() -> None:
+    combined = account_page._combine_total_asset_series(
+        [{
+            "source_id": "toss_self:KRW", "currency": "KRW",
+            "points": [{"date": "2026-09-01", "value": 100}, {"date": "2026-09-06", "value": 110}],
+        }, {
+            "source_id": "manual:mirae", "currency": "KRW",
+            "points": [{"date": "2026-09-02", "value": 50}],
+        }],
+        [],
+    )
+
+    assert combined[0] == {
+        "t": "2026-09-01", "v": 100.0, "total_invest_krw": 100.0,
+        "partial": True, "observed": True,
+    }
+    assert next(point for point in combined if point["t"] == "2026-09-04")["partial"] is False
+    assert combined[-1]["v"] == 160.0
+    assert combined[-1]["partial"] is True
+
+
+def test_twr_defers_a_flow_until_the_next_genuine_valuation() -> None:
+    history = [
+        {"t": "2026-01-01", "v": 100.0, "partial": False, "observed": True},
+        {"t": "2026-01-02", "v": 100.0, "partial": False, "observed": False},
+        {"t": "2026-01-03", "v": 100.0, "partial": False, "observed": False},
+        {"t": "2026-01-04", "v": 100.0, "partial": False, "observed": False},
+        {"t": "2026-01-05", "v": 165.0, "partial": False, "observed": True},
+    ]
+    flows = [{
+        "id": "flow_mid", "date": "2026-01-03", "amount_krw": 50,
+        "account": "현금", "memo": "중간 입금",
+    }]
+
+    metric = calculate_return_metrics(
+        history, flows, broker_reported_pnl_krw=None,
+    )["ALL"]
+
+    assert metric["true_pnl_krw"] == 15.0
+    assert metric["return_pct_twr"] == pytest.approx(10.0)
+    assert account_page._daily_true_change(history, flows) is None
+
+
+def test_cash_flow_crud_is_atomic_newest_first_and_loopback_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _account_project()
+    client = ASGITestClient(create_app(root))
+    flow_path = root / "artifacts/local_user/cash_flows.json"
+    real_replace = account_page.os.replace
+    replacements: list[tuple[Path, Path]] = []
+
+    def observed_replace(source: object, target: object) -> None:
+        replacements.append((Path(source), Path(target)))
+        real_replace(source, target)
+
+    monkeypatch.setattr(account_page.os, "replace", observed_replace)
+    entry = {
+        "date": "2026-09-01", "amount_krw": 50_000_000,
+        "account": "Toss", "memo": "투자금 입금",
+    }
+    assert client.post("/api/cash-flows", json=entry).status_code == 403
+    assert not flow_path.exists()
+
+    created = client.post(
+        "/api/cash-flows", json=entry, client_host="127.0.0.1",
+    )
+    assert created.status_code == 200
+    flow_id = created.json()["entries"][0]["id"]
+    assert replacements[-1][1] == flow_path
+    assert replacements[-1][0].parent == flow_path.parent
+    assert not list(flow_path.parent.glob("*.tmp"))
+
+    edited = client.post(
+        "/api/cash-flows",
+        json={**entry, "id": flow_id, "amount_krw": -10_000_000, "date": "2026-09-02"},
+        client_host="::1",
+    )
+    assert edited.status_code == 200
+    assert edited.json()["entries"] == [{
+        **entry, "id": flow_id, "amount_krw": -10_000_000, "date": "2026-09-02",
+    }]
+    assert edited.json()["monthly_subtotals"] == [{"month": "2026-09", "amount_krw": -10_000_000}]
+
+    second = client.post(
+        "/api/cash-flows",
+        json={"date": "2026-10-01", "amount_krw": 2_000_000, "account": "KB", "memo": "추가 입금"},
+        client_host="127.0.0.1",
+    )
+    assert second.status_code == 200
+    second_id = second.json()["entries"][0]["id"]
+    assert [row["date"] for row in second.json()["entries"]] == ["2026-10-01", "2026-09-02"]
+
+    assert client.delete("/api/cash-flows", json={"id": flow_id}).status_code == 403
+    deleted = client.delete(
+        "/api/cash-flows", json={"id": flow_id}, client_host="127.0.0.1",
+    )
+    assert deleted.status_code == 200
+    assert [row["id"] for row in deleted.json()["entries"]] == [second_id]
+    assert client.delete(
+        "/api/cash-flows", json={"id": second_id}, client_host="127.0.0.1",
+    ).status_code == 200
+    assert json.loads(flow_path.read_text(encoding="utf-8")) == {
+        "schema_version": 1, "entries": [],
     }

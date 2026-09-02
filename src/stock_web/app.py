@@ -1,9 +1,9 @@
 """FastAPI application factory for the local read-only dashboard.
 
-Boundaries (same as the PySide6 app): never calls a provider, never writes
-market or account data, reads only retained local artifacts under the project
-root. Presentation lives in templates/static; data access goes through the
-typed services in ``stock_web.api``.
+Boundaries (same as the PySide6 app): never calls a provider and never writes
+retained market/account datasets. Explicit loopback-only user inputs use their
+local atomic stores. Presentation lives in templates/static; data access goes
+through the typed services in ``stock_web.api``.
 """
 from __future__ import annotations
 

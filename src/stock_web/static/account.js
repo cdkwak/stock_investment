@@ -5,6 +5,9 @@
   const esc = (value) => String(value ?? "").replace(/[&<>\"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const money = (value) => value === null || value === undefined ? "—" : `₩${Math.round(Number(value)).toLocaleString("ko-KR")}`;
   const compactMoney = (value) => value === null || value === undefined ? "—" : `₩${(Number(value) / 1e8).toLocaleString("ko-KR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}억`;
+  const signedMoney = (value) => value === null || value === undefined ? "—" : `${Number(value) > 0 ? "+" : Number(value) < 0 ? "−" : ""}₩${Math.abs(Math.round(Number(value))).toLocaleString("ko-KR")}`;
+  const pct = (value) => value === null || value === undefined ? "—" : `${Number(value) > 0 ? "+" : ""}${Number(value).toFixed(2)}%`;
+  const valueClass = (value) => value === null || value === undefined ? "muted" : Number(value) > 0 ? "up" : Number(value) < 0 ? "down" : "muted";
   const shortDate = (value) => {
     if (!value) return "—";
     const text = String(value);
@@ -27,7 +30,7 @@
   let manualAccounts = [];
   let assetRows = [];
   let liabilityRows = [];
-  let timelineChart = null;
+  let selectedReturnWindow = "3M";
 
   function sourceAsOf(rows, kinds) {
     return (rows || []).filter((row) => kinds.includes(row.kind)).map((row) => `${row.name} ${row.as_of_label || shortDate(row.as_of)}${row.included ? "" : " 제외"}`).join(" · ");
@@ -54,6 +57,49 @@
       <td class="num">${esc(row.as_of_label || shortDate(row.as_of))}</td>
       <td><span class="chip ${row.included ? "" : "dashed"}">${row.included ? (row.partial ? "부분 포함" : "포함") : "제외"}</span></td>
     </tr>`).join("") : `<tr><td colspan="6" class="unavailable">표시할 계좌나 자산이 없습니다.</td></tr>`;
+  }
+
+  function renderPerformance() {
+    const metric = ((payload || {}).return_metrics || {})[selectedReturnWindow] || {};
+    const label = selectedReturnWindow === "ALL" ? "전체" : selectedReturnWindow;
+    $("return-metrics").innerHTML = metric.reason ? `<div class="unavailable">${esc(metric.reason)}</div>` : `
+      <div class="return-metric"><span>${esc(label)} 진짜 손익</span><b class="num ${valueClass(metric.true_pnl_krw)}">${signedMoney(metric.true_pnl_krw)}</b></div>
+      <div class="return-metric"><span>순입출금</span><b class="num ${valueClass(metric.net_flows_krw)}">${signedMoney(metric.net_flows_krw)}</b></div>
+      <div class="return-metric" title="입출금 시점을 반영해 내가 실제 투입한 돈 대비 수익률입니다."><span>돈 가중(내 실제 수익률)</span><b class="num ${valueClass(metric.return_pct_modified_dietz)}">${pct(metric.return_pct_modified_dietz)}</b></div>
+      <div class="return-metric" title="입출금 영향을 잘라내고 운용 성과만 이어 붙인 수익률입니다."><span>시간 가중(운용 실력)</span><b class="num ${valueClass(metric.return_pct_twr)}">${pct(metric.return_pct_twr)}</b></div>
+      <div class="return-metric"><span>KOSPI 동기간</span><b class="num ${valueClass(metric.kospi_return_pct)}">${pct(metric.kospi_return_pct)}</b></div>
+      <div class="return-metric"><span>증권사 표시 손익</span><b class="num ${valueClass(metric.broker_reported_pnl_krw)}">${signedMoney(metric.broker_reported_pnl_krw)}</b></div>
+      ${metric.partial ? '<div class="return-metric"><span>관측 품질</span><b class="badge dashed">부분 관측 포함</b></div>' : ""}`;
+    const history = payload.total_asset_history || [];
+    const benchmark = payload.benchmark || [];
+    const shownHistory = metric.start_date ? history.filter((point) => point.t >= metric.start_date) : history;
+    const shownBenchmark = metric.start_date ? benchmark.filter((point) => point.t >= metric.start_date) : benchmark;
+    window.SIChart.renderLineChart($("total-asset-chart"), shownHistory, {
+      benchmark: shownBenchmark, ariaLabel: "총 투자자산과 KOSPI 동기간 추이",
+      emptyMessage: "총 투자자산 관측이 2개 이상이면 선이 표시됩니다.",
+    });
+  }
+
+  function resetCashFlowForm() {
+    $("cash-flow-id").value = "";
+    $("cash-flow-date").value = today();
+    $("cash-flow-amount").value = "";
+    $("cash-flow-account").value = "";
+    $("cash-flow-memo").value = "";
+    $("cancel-cash-flow").hidden = true;
+  }
+
+  function renderCashFlows() {
+    const flows = payload.cash_flows || {};
+    const entries = flows.entries || [];
+    $("cash-flow-rows").innerHTML = entries.length ? entries.map((entry) => `<tr>
+      <td class="num">${esc(entry.date)}</td><td class="num ${valueClass(entry.amount_krw)}">${signedMoney(entry.amount_krw)}</td>
+      <td>${esc(entry.account)}</td><td>${esc(entry.memo || "")}</td>
+      <td><button type="button" class="text-button edit-cash-flow" data-flow-id="${esc(entry.id)}">수정</button><button type="button" class="text-button delete-cash-flow" data-flow-id="${esc(entry.id)}">삭제</button></td>
+    </tr>`).join("") : `<tr><td colspan="5" class="unavailable">기록된 입출금이 없습니다.</td></tr>`;
+    const monthly = flows.monthly_subtotals || [];
+    $("cash-flow-monthly").innerHTML = monthly.length ? monthly.map((row) => `<div class="breakdown-row"><span>${esc(row.month)}</span><b class="num ${valueClass(row.amount_krw)}">${signedMoney(row.amount_krw)}</b></div>`).join("") : `<div class="unavailable">월별 합계가 없습니다.</div>`;
+    if (flows.reason) $("cash-flow-status").textContent = flows.reason;
   }
 
   function manualAccountHtml(account, accountIndex) {
@@ -146,23 +192,10 @@
     const host = $("net-worth-chart");
     const points = (payload.net_worth.timeline || []).filter((point) => point.v !== null && point.v !== undefined);
     $("timeline-note").textContent = payload.net_worth.timeline_note || "";
-    if (timelineChart) { timelineChart.remove(); timelineChart = null; }
-    if (!window.LightweightCharts || points.length < 2) {
-      host.innerHTML = `<div class="unavailable">실제 순자산 관측이 2개 이상이면 선이 표시됩니다.${points.length === 1 ? ` · 현재 ${money(points[0].v)}` : ""}</div>`;
-      return;
-    }
-    host.innerHTML = "";
-    timelineChart = LightweightCharts.createChart(host, {
-      layout: { background: { color: "#fff" }, textColor: "#6b6660", fontFamily: "IBM Plex Sans KR, system-ui" },
-      grid: { vertLines: { visible: false }, horzLines: { color: "#e6e1d8" } },
-      rightPriceScale: { borderColor: "#d9d3ca" }, timeScale: { borderColor: "#d9d3ca" }, autoSize: true,
+    window.SIChart.renderLineChart(host, points, {
+      benchmark: payload.net_worth.benchmark || [], ariaLabel: "순자산과 KOSPI 동기간 추이",
+      emptyMessage: `실제 순자산 관측이 2개 이상이면 선이 표시됩니다.${points.length === 1 ? ` · 현재 ${money(points[0].v)}` : ""}`,
     });
-    const series = timelineChart.addLineSeries({
-      color: "#1f1d1a", lineWidth: 2, priceLineVisible: false,
-      priceFormat: { type: "custom", minMove: 1e5, formatter: (value) => `${(value / 1e8).toFixed(2)}억` },
-    });
-    series.setData(points.map((point) => ({ time: point.t, value: point.v })));
-    timelineChart.timeScale().fitContent();
   }
 
   function renderBreakdown() {
@@ -185,7 +218,7 @@
   }
 
   function renderAll() {
-    renderSummary(); renderSourceRows(); renderManualAccounts(); renderNetWorthForm(); renderTimeline(); renderBreakdown();
+    renderSummary(); renderSourceRows(); renderPerformance(); renderCashFlows(); renderManualAccounts(); renderNetWorthForm(); renderTimeline(); renderBreakdown();
     $("account-safety").textContent = payload.safety_note || "";
   }
 
@@ -232,6 +265,26 @@
       assetRows = collectNetWorthRows("asset"); liabilityRows = collectNetWorthRows("liability");
       const row = target.closest(".net-worth-input-row");
       (row.dataset.kind === "asset" ? assetRows : liabilityRows).splice(Number(row.dataset.index), 1); renderNetWorthForm();
+    } else if (target.closest("#return-range button")) {
+      document.querySelectorAll("#return-range button").forEach((button) => button.classList.remove("on"));
+      target.classList.add("on"); selectedReturnWindow = target.dataset.v; renderPerformance();
+    } else if (target.classList.contains("edit-cash-flow")) {
+      const entry = ((payload.cash_flows || {}).entries || []).find((row) => row.id === target.dataset.flowId);
+      if (entry) {
+        $("cash-flow-id").value = entry.id; $("cash-flow-date").value = entry.date;
+        $("cash-flow-amount").value = entry.amount_krw; $("cash-flow-account").value = entry.account;
+        $("cash-flow-memo").value = entry.memo || ""; $("cancel-cash-flow").hidden = false;
+      }
+    } else if (target.classList.contains("delete-cash-flow")) {
+      (async () => {
+        try {
+          const response = await fetch("/api/cash-flows", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: target.dataset.flowId }) });
+          const result = await response.json(); if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+          $("cash-flow-status").textContent = "삭제했습니다."; resetCashFlowForm(); await refresh();
+        } catch (error) { $("cash-flow-status").textContent = `삭제 실패 · ${error.message}`; }
+      })();
+    } else if (target.id === "cancel-cash-flow") {
+      resetCashFlowForm(); $("cash-flow-status").textContent = "";
     }
   });
 
@@ -244,6 +297,14 @@
       try { await postJson("/api/net-worth", { as_of_date: $("net-worth-date").value, assets: collectNetWorthRows("asset"), liabilities: collectNetWorthRows("liability") }, "net-worth-status"); }
       catch (error) { $("net-worth-status").textContent = `저장 실패 · ${error.message}`; }
     });
+    $("save-cash-flow").addEventListener("click", async () => {
+      try {
+        const body = { date: $("cash-flow-date").value, amount_krw: Number($("cash-flow-amount").value), account: $("cash-flow-account").value.trim(), memo: $("cash-flow-memo").value.trim() };
+        if ($("cash-flow-id").value) body.id = $("cash-flow-id").value;
+        await postJson("/api/cash-flows", body, "cash-flow-status"); resetCashFlowForm();
+      } catch (error) { $("cash-flow-status").textContent = `저장 실패 · ${error.message}`; }
+    });
+    resetCashFlowForm();
     try { await refresh(); }
     catch (error) { $("account-safety").textContent = `계좌 화면을 불러오지 못했습니다. · ${error.message}`; }
   });

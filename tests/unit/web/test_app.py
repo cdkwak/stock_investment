@@ -94,9 +94,11 @@ def test_dashboard_static_polish_contracts_are_present() -> None:
     account_js = (root / "static/account.js").read_text(encoding="utf-8")
     css = (root / "static/app.css").read_text(encoding="utf-8")
 
-    assert 'formatter: (value) => `${(value / 1e8).toFixed(2)}억`' in app_js
-    assert 'formatter: (value) => `${(value / 1e8).toFixed(2)}억`' in account_js
-    assert "minMove: 1e5" in app_js and "minMove: 1e5" in account_js
+    assert "window.SIChart = { renderLineChart }" in app_js
+    assert "si-benchmark-line" in app_js
+    assert "LightweightCharts.createChart" in app_js
+    assert "LightweightCharts" not in account_js
+    assert "return_pct_modified_dietz" in account_js
     assert "tile-sub-note" in app_js
     assert "summary-separator" in app_js
     assert "regime-title-line" in app_js

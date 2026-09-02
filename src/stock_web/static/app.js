@@ -18,6 +18,55 @@
   };
   const unavailable = (why) => `<div class="unavailable">표시 불가${why ? " · " + esc(why) : ""}</div>`;
 
+  function renderLineChart(host, rawPoints, options = {}) {
+    if (!host) return;
+    const points = (rawPoints || []).filter((point) => point && Number.isFinite(Number(point.v))).map((point) => ({ ...point, v: Number(point.v), ms: Date.parse(`${point.t}T00:00:00Z`) }));
+    if (points.length < 2) {
+      host.innerHTML = `<div class="unavailable">${esc(options.emptyMessage || "관측이 2개 이상이면 선이 표시됩니다.")}</div>`;
+      return;
+    }
+    let benchmark = (options.benchmark || []).filter((point) => point && Number.isFinite(Number(point.v))).map((point) => ({ ...point, v: Number(point.v), ms: Date.parse(`${point.t}T00:00:00Z`) }));
+    benchmark = benchmark.filter((point) => point.ms >= points[0].ms && point.ms <= points[points.length - 1].ms);
+    if (benchmark.length && benchmark[0].v && options.rebaseBenchmark !== false) {
+      const benchmarkScale = points[0].v / benchmark[0].v;
+      benchmark = benchmark.map((point) => ({ ...point, v: point.v * benchmarkScale }));
+    }
+    const width = 640, height = Number(options.height || 220), left = 62, right = 16, top = 16, bottom = 30;
+    const plotW = width - left - right, plotH = height - top - bottom;
+    const allValues = points.concat(benchmark).map((point) => point.v);
+    const rawMin = Math.min(...allValues), rawMax = Math.max(...allValues), padding = (rawMax - rawMin) * 0.08 || Math.max(Math.abs(rawMax) * 0.02, 1);
+    const min = rawMin - padding, max = rawMax + padding;
+    const start = points[0].ms, finish = points[points.length - 1].ms, span = finish - start || 1;
+    const x = (point) => left + (point.ms - start) / span * plotW;
+    const y = (value) => top + (max - value) / (max - min) * plotH;
+    const path = (series) => series.filter((point) => point.ms >= start && point.ms <= finish).map((point, index) => `${index ? "L" : "M"}${x(point).toFixed(2)} ${y(point.v).toFixed(2)}`).join(" ");
+    const yTicks = Array.from({ length: 4 }, (_, index) => min + (max - min) * index / 3);
+    const tickIndexes = [...new Set([0, Math.floor((points.length - 1) / 2), points.length - 1])];
+    host.innerHTML = `<svg class="si-line-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="${esc(options.ariaLabel || "자산 추이")}">
+      ${yTicks.map((value) => `<line x1="${left}" x2="${width - right}" y1="${y(value)}" y2="${y(value)}" class="si-grid"></line><text x="${left - 7}" y="${y(value) + 3}" text-anchor="end" class="si-axis-label">${(value / 1e8).toFixed(2)}억</text>`).join("")}
+      <line x1="${left}" x2="${left}" y1="${top}" y2="${height - bottom}" class="si-axis"></line>
+      <line x1="${left}" x2="${width - right}" y1="${height - bottom}" y2="${height - bottom}" class="si-axis"></line>
+      ${tickIndexes.map((index) => `<text x="${x(points[index])}" y="${height - 9}" text-anchor="${index === 0 ? "start" : index === points.length - 1 ? "end" : "middle"}" class="si-axis-label">${esc(points[index].t)}</text>`).join("")}
+      ${benchmark.length > 1 ? `<path d="${path(benchmark)}" class="si-benchmark-line"></path>` : ""}
+      <path d="${path(points)}" class="si-value-line"></path>
+      ${points.filter((point) => point.partial).map((point) => `<circle cx="${x(point)}" cy="${y(point.v)}" r="2.5" class="si-partial-point"></circle>`).join("")}
+      <g class="si-hover" hidden><line y1="${top}" y2="${height - bottom}" class="si-hover-line"></line><circle r="4" class="si-hover-point"></circle><rect width="166" height="38" rx="4" class="si-tooltip-bg"></rect><text class="si-tooltip-date"></text><text class="si-tooltip-value"></text></g>
+    </svg>`;
+    const svg = host.querySelector("svg"), hover = svg.querySelector(".si-hover"), vertical = hover.querySelector("line"), dot = hover.querySelector("circle"), box = hover.querySelector("rect"), dateText = hover.querySelector(".si-tooltip-date"), valueText = hover.querySelector(".si-tooltip-value");
+    svg.addEventListener("pointermove", (event) => {
+      const rect = svg.getBoundingClientRect();
+      const targetX = (event.clientX - rect.left) / rect.width * width;
+      const nearest = points.reduce((best, point) => Math.abs(x(point) - targetX) < Math.abs(x(best) - targetX) ? point : best, points[0]);
+      const px = x(nearest), py = y(nearest.v), tooltipX = Math.min(Math.max(px + 8, left + 2), width - right - 168), tooltipY = Math.max(top + 2, py - 45);
+      hover.removeAttribute("hidden"); vertical.setAttribute("x1", px); vertical.setAttribute("x2", px); dot.setAttribute("cx", px); dot.setAttribute("cy", py);
+      box.setAttribute("x", tooltipX); box.setAttribute("y", tooltipY);
+      dateText.setAttribute("x", tooltipX + 8); dateText.setAttribute("y", tooltipY + 14); dateText.textContent = `${nearest.t}${nearest.partial ? " · 부분 관측" : ""}`;
+      valueText.setAttribute("x", tooltipX + 8); valueText.setAttribute("y", tooltipY + 30); valueText.textContent = `₩${Math.round(nearest.v).toLocaleString("ko-KR")}`;
+    });
+    svg.addEventListener("pointerleave", () => { hover.setAttribute("hidden", ""); });
+  }
+  window.SIChart = { renderLineChart };
+
   function sparkline(values, w = 140, h = 22) {
     if (!values || values.length < 2) return "";
     const numeric = values.map((point) => typeof point === "object" ? Number(point.v) : Number(point));
@@ -117,18 +166,29 @@
   }
 
   // ---- account ------------------------------------------------------------------
-  let acctChart, acctSeries, acctBench;
-  function renderAccount(sec) {
+  const signedKrw = (value) => value === null || value === undefined ? "—" : `${value > 0 ? "+" : value < 0 ? "−" : ""}₩${fmt(Math.abs(value) / 1e4, 0)}만`;
+  function renderAccount(sec, selectedWindow = "3M") {
     const host = $("account");
     const investTotal = sec && sec.invest_total_krw !== undefined ? sec.invest_total_krw : sec && sec.total_krw;
     if (!sec || investTotal === undefined) { host.innerHTML = unavailable(sec && sec.reason); return; }
+    const metric = (sec.return_metrics || {})[selectedWindow] || {};
+    const startDate = metric.start_date;
+    const chartHistory = startDate ? (sec.history || []).filter((point) => point.t >= startDate) : (sec.history || []);
+    const chartBenchmark = startDate ? (sec.benchmark || []).filter((point) => point.t >= startDate) : (sec.benchmark || []);
     host.innerHTML = `
-      <div class="acct-total"><span class="muted">투자 자산</span><b class="num">₩ ${fmt(investTotal / 1e8, 2)}억</b><span class="num ${cls(sec.day_change_pct)}">어제 ${pct(sec.day_change_pct)}${sec.day_change_krw !== undefined && sec.day_change_krw !== null ? ` (${sec.day_change_krw >= 0 ? "+" : ""}${fmt(sec.day_change_krw / 1e4, 0)}만)` : ""}</span></div>
+      <div class="acct-total"><span class="muted">투자 자산</span><b class="num">₩ ${fmt(investTotal / 1e8, 2)}억</b></div>
+      <div class="acct-truth-lines">
+        <span>총자산 변동 어제 <b class="num ${cls(sec.daily_true_change_krw)}">${signedKrw(sec.daily_true_change_krw)}</b> <small>(순입금 제외)</small></span>
+        <span>이번 달 진짜 손익 <b class="num ${cls(sec.month_true_pnl_krw)}">${signedKrw(sec.month_true_pnl_krw)}</b></span>
+        <span title="입출금 시점을 반영해 내가 실제 투입한 돈 대비 수익률입니다.">${esc(selectedWindow === "ALL" ? "전체" : selectedWindow)} 돈 가중(내 실제 수익률) <b class="num ${cls(metric.return_pct_modified_dietz)}">${pct(metric.return_pct_modified_dietz)}</b></span>
+      </div>
       ${sec.net_worth_krw !== undefined && sec.net_worth_krw !== null ? `<div class="acct-net-worth"><span>순자산</span> <b class="num">₩${fmt(sec.net_worth_krw / 1e8, 2)}억</b> <small>(부동산·예금 포함, ${esc(sec.net_worth_as_of_label || asof(sec.net_worth_as_of))} 기준)</small></div>` : ""}
       <div class="acct-meta">
-        ${sec.period_pct !== undefined ? `<span>${esc(sec.period_label || "기간")} <b class="num ${cls(sec.period_pct)}">${pct(sec.period_pct)}</b></span>` : ""}
-        ${sec.kospi_period_pct !== undefined ? `<span>KOSPI 동기간 <b class="num ${cls(sec.kospi_period_pct)}">${pct(sec.kospi_period_pct)}</b></span>` : ""}
-        ${sec.ytd_pct !== undefined ? `<span>연초 <b class="num ${cls(sec.ytd_pct)}">${pct(sec.ytd_pct)}</b></span>` : ""}
+        ${metric.reason ? `<span class="muted">${esc(metric.reason)}</span>` : ""}
+        <span title="입출금 영향을 잘라내고 운용 성과만 이어 붙인 수익률입니다.">시간 가중(운용 실력) <b class="num ${cls(metric.return_pct_twr)}">${pct(metric.return_pct_twr)}</b></span>
+        <span>KOSPI 동기간 <b class="num ${cls(metric.kospi_return_pct)}">${pct(metric.kospi_return_pct)}</b></span>
+        <span>증권사 표시 손익 <b class="num ${cls(metric.broker_reported_pnl_krw)}">${signedKrw(metric.broker_reported_pnl_krw)}</b></span>
+        ${metric.partial ? '<span class="badge dashed">부분 관측 포함</span>' : ""}
         ${sec.effective_exposure_pct !== undefined ? `<span>실효 노출 <b class="num">${fmt(sec.effective_exposure_pct, 0)}%</b></span>` : ""}
         ${sec.leveraged_weight_pct !== undefined ? `<span>레버리지 명목 <b class="num">${fmt(sec.leveraged_weight_pct, 0)}%</b></span>` : ""}
         ${sec.cash_pct !== undefined ? `<span>현금 <b class="num">${fmt(sec.cash_pct, 0)}%</b></span>` : ""}
@@ -143,14 +203,7 @@
       <div class="acct-foot">${esc(sec.footnote || "계좌 규모 변화 · 점선은 KOSPI 비교")}</div>
       ${(sec.sources || []).length ? `<div class="acct-foot">${sec.sources.map((source) => `${esc(source.name)} ${esc(source.as_of_label || asof(source.as_of))}${source.included ? "" : " 제외"}`).join(" · ")}</div>` : ""}
       ${(sec.exposure_unverified || []).length ? `<div class="acct-foot">배수 미확인(1배 처리): ${esc(sec.exposure_unverified.join(", "))}</div>` : ""}`;
-    if (window.LightweightCharts && sec.history && sec.history.length > 1) {
-      acctChart = LightweightCharts.createChart($("acct-chart"), { layout: { background: { color: "#fff" }, textColor: "#6b6660" }, grid: { vertLines: { visible: false }, horzLines: { color: "#e6e1d8" } }, rightPriceScale: { borderColor: "#d9d3ca" }, timeScale: { borderColor: "#d9d3ca" }, autoSize: true, handleScroll: false, handleScale: false });
-      const krwPriceFormat = { type: "custom", minMove: 1e5, formatter: (value) => `${(value / 1e8).toFixed(2)}억` };
-      acctSeries = acctChart.addLineSeries({ color: "#1f1d1a", lineWidth: 2, priceLineVisible: false, priceFormat: krwPriceFormat });
-      acctSeries.setData(sec.history.map((p) => ({ time: p.t, value: p.v })));
-      if (sec.benchmark) { acctBench = acctChart.addLineSeries({ color: "#b5aea4", lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false, priceFormat: krwPriceFormat }); acctBench.setData(sec.benchmark.map((p) => ({ time: p.t, value: p.v }))); }
-      acctChart.timeScale().fitContent();
-    }
+    renderLineChart($("acct-chart"), chartHistory, { benchmark: chartBenchmark, height: 150, ariaLabel: "총자산과 KOSPI 동기간 추이" });
   }
 
   // ---- bottom cards ----------------------------------------------------------
@@ -228,6 +281,7 @@
     $("tiles-more").addEventListener("click", () => { const t = $("tiles"); t.classList.toggle("collapsed"); $("tiles-more").textContent = t.classList.contains("collapsed") ? "지표 더 보기 ▾" : "지표 접기 ▴"; });
     $("tiles").classList.add("collapsed");
     document.querySelectorAll("#chart-range button").forEach((b) => b.addEventListener("click", () => { document.querySelectorAll("#chart-range button").forEach((x) => x.classList.remove("on")); b.classList.add("on"); loadChart($("chart-symbol").value, b.dataset.v); }));
+    document.querySelectorAll("#account-range button").forEach((b) => b.addEventListener("click", () => { document.querySelectorAll("#account-range button").forEach((x) => x.classList.remove("on")); b.classList.add("on"); renderAccount(((payload || {}).sections || {}).account, b.dataset.v); }));
     $("chart-symbol").addEventListener("change", () => loadChart($("chart-symbol").value, currentRange()));
     try {
       const r = await fetch("/api/home"); payload = await r.json();
@@ -253,5 +307,5 @@
     renderWatchlist(s.watchlist); renderAccount(s.account); renderFlows(s.flows); renderDerivatives(s.derivatives);
     renderSchedule(s.schedule); renderBrief(s.brief); renderScanner(s.scanner); renderSummaryStrip(s);
   }
-  document.addEventListener("DOMContentLoaded", boot);
+  document.addEventListener("DOMContentLoaded", () => { if ($("home-page")) boot(); });
 })();

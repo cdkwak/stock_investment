@@ -373,107 +373,6 @@ def _leverage_multiple(name: str, style: str | None) -> tuple[float, bool]:
     return 1.0, bool(style)
 
 
-def _account_history(
-    histories: tuple[object, ...], fx: pd.DataFrame,
-) -> tuple[list[dict[str, object]], list[float | None]]:
-    def day(value: object) -> pd.Timestamp:
-        timestamp = pd.Timestamp(value)
-        if timestamp.tzinfo is not None:
-            timestamp = timestamp.tz_convert("UTC").tz_localize(None)
-        return timestamp.normalize()
-
-    series: list[tuple[str, pd.Series]] = []
-    for index, history in enumerate(histories):
-        points = getattr(history, "points", ())
-        if not points:
-            continue
-        frame = pd.DataFrame({
-            "date": [day(point.date) for point in points],
-            "value": [float(point.total_assets) for point in points],
-        }).sort_values("date").drop_duplicates("date", keep="last")
-        series.append((
-            str(getattr(history, "currency", "")),
-            frame.set_index("date")["value"].rename(f"series_{index}"),
-        ))
-    if not series:
-        return [], []
-    dates = sorted(set().union(*(set(values.index) for _currency, values in series)))
-    table = pd.DataFrame(index=pd.DatetimeIndex(dates))
-    currencies: dict[str, str] = {}
-    for index, (currency, values) in enumerate(series):
-        column = f"series_{index}"
-        table[column] = values.reindex(table.index).ffill()
-        currencies[column] = currency
-    table = table.dropna()
-    if table.empty:
-        return [], []
-
-    fx_values: list[float | None] = []
-    totals: list[float] = []
-    fx_indexed = fx.set_index("date")["dexkous"] if not fx.empty else pd.Series(dtype=float)
-    for date, row in table.iterrows():
-        prior_fx = fx_indexed.loc[fx_indexed.index <= date]
-        rate = float(prior_fx.iloc[-1]) if not prior_fx.empty else None
-        fx_values.append(rate)
-        total = 0.0
-        valid = True
-        for column, value in row.items():
-            currency = currencies[column]
-            if currency == "KRW":
-                total += float(value)
-            elif currency == "USD" and rate is not None:
-                total += float(value) * rate
-            else:
-                valid = False
-                break
-        totals.append(total if valid else float("nan"))
-    history = [
-        {"t": date.date().isoformat(), "v": float(total)}
-        for date, total in zip(table.index, totals) if math.isfinite(total)
-    ][-90:]
-    return history, fx_values[-len(history):] if history else []
-
-
-def _kospi_benchmark(
-    project_root: Path, history: list[dict[str, object]],
-) -> tuple[list[dict[str, object]], float | None]:
-    if not history:
-        return [], None
-    from stock_data.gui.query import LocalParquetQuery
-    from stock_data.gui.services import IndexQueryService
-
-    try:
-        frame = IndexQueryService(
-            LocalParquetQuery(project_root / "data"), project_root,
-        ).series("KOSPI", "1Y")
-    except (KeyError, OSError, PermissionError, TypeError, ValueError):
-        return [], None
-    if frame.empty:
-        return [], None
-    frame = frame.copy()
-    frame["date"] = pd.to_datetime(frame["date"], errors="coerce").dt.normalize()
-    frame["close"] = pd.to_numeric(frame["close"], errors="coerce")
-    frame = frame.dropna(subset=["date", "close"]).sort_values("date")
-    account_dates = pd.DataFrame({
-        "date": pd.to_datetime([point["t"] for point in history]),
-        "value": [float(point["v"]) for point in history],
-    })
-    joined = pd.merge_asof(account_dates, frame[["date", "close"]], on="date")
-    joined = joined.dropna(subset=["close"])
-    if joined.empty or not float(joined["close"].iloc[0]):
-        return [], None
-    scale = float(joined["value"].iloc[0]) / float(joined["close"].iloc[0])
-    benchmark = [
-        {"t": row.date.date().isoformat(), "v": float(row.close) * scale}
-        for row in joined.itertuples(index=False)
-    ]
-    period_pct = (
-        (float(joined["close"].iloc[-1]) / float(joined["close"].iloc[0]) - 1.0) * 100.0
-        if len(joined) > 1 else None
-    )
-    return benchmark, period_pct
-
-
 def build_account(project_root: Path) -> dict[str, object]:
     from stock_data.gui.account_snapshot_service import (
         LocalAccountPortfolioService,
@@ -489,6 +388,11 @@ def build_account(project_root: Path) -> dict[str, object]:
     manual_data = account_page["manual_accounts"]
     manual_accounts = manual_data.get("accounts", [])
     invest_total = float(account_summary.get("invest_total_krw") or 0.0)
+    return_metrics = account_page.get("return_metrics", {})
+    flow_history = account_page.get("total_asset_history", [])
+    flow_benchmark = account_page.get("benchmark", [])
+    daily_true_change = account_page.get("daily_true_change_krw")
+    month_true_pnl = account_page.get("month_true_pnl_krw")
 
     candidates = (
         ("toss_self", "Toss Securities · 본인", project_root / "data/normalized/toss_account_snapshot/latest.json"),
@@ -538,9 +442,15 @@ def build_account(project_root: Path) -> dict[str, object]:
             "net_worth_as_of": account_summary.get("net_worth_as_of"),
             "net_worth_as_of_label": account_summary.get("net_worth_as_of_label"),
             "sources": account_summary.get("sources", []),
-            "day_change_pct": None, "day_change_krw": None,
-            "period_label": "3M", "period_pct": None, "kospi_period_pct": None,
-            "ytd_pct": None,
+            "day_change_pct": None, "day_change_krw": daily_true_change,
+            "daily_true_change_krw": daily_true_change,
+            "month_true_pnl_krw": month_true_pnl,
+            "broker_reported_pnl_krw": account_summary.get("broker_reported_pnl_krw"),
+            "return_metrics": return_metrics,
+            "period_label": "3M",
+            "period_pct": return_metrics.get("3M", {}).get("return_pct_modified_dietz"),
+            "kospi_period_pct": return_metrics.get("3M", {}).get("kospi_return_pct"),
+            "ytd_pct": return_metrics.get("YTD", {}).get("return_pct_modified_dietz"),
             "cash_pct": manual_cash / invest_total * 100.0 if invest_total else None,
             "usd_assets_usd": manual_usd_krw / float(usdkrw) if usdkrw else None,
             "usd_assets_krw": manual_usd_krw,
@@ -552,8 +462,8 @@ def build_account(project_root: Path) -> dict[str, object]:
             "leveraged_weight_pct": leveraged_krw / invest_total * 100.0 if invest_total else None,
             "short_treasury_pct": short_treasury_krw / invest_total * 100.0 if invest_total else None,
             "exposure_unverified": list(dict.fromkeys(exposure_unverified)),
-            "history": [], "benchmark": [],
-            "footnote": "등락·기간 수익률·레버리지 비중·실효 노출은 투자 자산만 기준 · 수동 계좌는 과거 관측이 없어 수익률을 추정하지 않음",
+            "history": flow_history, "benchmark": flow_benchmark,
+            "footnote": "입출금은 내 계좌 페이지에서 기록 · 기록이 없으면 변동 전체를 손익으로 간주",
         }
 
     portfolio = LocalAccountPortfolioService(
@@ -566,13 +476,10 @@ def build_account(project_root: Path) -> dict[str, object]:
     fx, usdkrw, usdkrw_as_of = _latest_fx(project_root)
     amounts = {"KRW": 0.0, "USD": 0.0}
     cash = {"KRW": 0.0, "USD": 0.0}
-    as_of_values: list[str] = []
     for entry in portfolio.entries:
         snapshot = entry.snapshot
         if not snapshot.displays_values:
             continue
-        if snapshot.as_of:
-            as_of_values.append(snapshot.as_of)
         if snapshot.currency:
             cash_value = snapshot.cash_balance
             if cash_value is None:
@@ -628,33 +535,17 @@ def build_account(project_root: Path) -> dict[str, object]:
         if any(token in name_upper for token in ("SGOV", "BIL", "SHV", "단기국채", "SHORT TREASURY")):
             short_treasury_krw += value_krw
 
-    history, history_fx = _account_history(presentation.histories, fx)
-    if not history and as_of_values:
-        history = [{"t": pd.Timestamp(max(as_of_values)).date().isoformat(), "v": total_krw}]
-    benchmark, kospi_period_pct = _kospi_benchmark(project_root, history)
+    history = flow_history
+    benchmark = flow_benchmark
     day_change_krw = day_change_pct = fx_effect_pct = equity_effect_pct = None
     if len(history) >= 2:
         previous = float(history[-2]["v"])
-        current = float(history[-1]["v"])
-        day_change_krw = current - previous
-        day_change_pct = (current / previous - 1.0) * 100.0 if previous else None
-        if len(history_fx) >= 2 and history_fx[-1] is not None and history_fx[-2] is not None:
-            fx_effect_krw = amounts["USD"] * (float(history_fx[-1]) - float(history_fx[-2]))
-            fx_effect_pct = fx_effect_krw / previous * 100.0 if previous else None
-            equity_effect_pct = day_change_pct - fx_effect_pct if day_change_pct is not None else None
+        day_change_krw = daily_true_change
+        day_change_pct = day_change_krw / previous * 100.0 if previous and day_change_krw is not None else None
 
-    period_pct = ytd_pct = None
-    if history:
-        history_dates = [pd.Timestamp(point["t"]) for point in history]
-        last_date = history_dates[-1]
-        cutoff = last_date - pd.DateOffset(months=3)
-        start_index = next((i for i, date in enumerate(history_dates) if date >= cutoff), 0)
-        start_value = float(history[start_index]["v"])
-        period_pct = (float(history[-1]["v"]) / start_value - 1.0) * 100.0 if start_value else None
-        ytd_index = next((i for i, date in enumerate(history_dates) if date.year == last_date.year), None)
-        if ytd_index is not None:
-            ytd_value = float(history[ytd_index]["v"])
-            ytd_pct = (float(history[-1]["v"]) / ytd_value - 1.0) * 100.0 if ytd_value else None
+    period_pct = return_metrics.get("3M", {}).get("return_pct_modified_dietz")
+    ytd_pct = return_metrics.get("YTD", {}).get("return_pct_modified_dietz")
+    kospi_period_pct = return_metrics.get("3M", {}).get("kospi_return_pct")
 
     unique_unverified = list(dict.fromkeys(exposure_unverified))
     manual_cash_krw = float(manual_data.get("cash_krw") or 0.0)
@@ -680,11 +571,6 @@ def build_account(project_root: Path) -> dict[str, object]:
             name_upper = f"{holding.get('ticker', '')} {holding.get('name', '')}".upper()
             if any(token in name_upper for token in ("SGOV", "BIL", "SHV", "단기국채", "SHORT TREASURY")):
                 manual_short_treasury_krw += float(value_krw)
-    if manual_accounts:
-        history = []
-        benchmark = []
-        day_change_krw = day_change_pct = fx_effect_pct = equity_effect_pct = None
-        period_pct = ytd_pct = kospi_period_pct = None
     usd_assets_krw = amounts["USD"] * float(usdkrw or 0.0) + manual_usd_krw
     return {
         "total_krw": invest_total,
@@ -695,6 +581,10 @@ def build_account(project_root: Path) -> dict[str, object]:
         "sources": account_summary.get("sources", []),
         "day_change_pct": day_change_pct,
         "day_change_krw": day_change_krw,
+        "daily_true_change_krw": daily_true_change,
+        "month_true_pnl_krw": month_true_pnl,
+        "broker_reported_pnl_krw": account_summary.get("broker_reported_pnl_krw"),
+        "return_metrics": return_metrics,
         "period_label": "3M",
         "period_pct": period_pct,
         "kospi_period_pct": kospi_period_pct,
@@ -715,7 +605,7 @@ def build_account(project_root: Path) -> dict[str, object]:
         "exposure_unverified": list(dict.fromkeys(unique_unverified)),
         "history": history,
         "benchmark": benchmark,
-        "footnote": "등락·기간 수익률·레버리지 비중·실효 노출은 투자 자산만 기준 · 계좌 규모 변화는 입출금 미분리 · 점선은 같은 시점 KOSPI 비교",
+        "footnote": "입출금은 내 계좌 페이지에서 기록 · 기록이 없으면 변동 전체를 손익으로 간주",
     }
 
 

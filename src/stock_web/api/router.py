@@ -93,6 +93,41 @@ def build_router(project_root: Path) -> APIRouter:
 
         return json_response(build_account_page_data(project_root))
 
+    @router.get("/cash-flows")
+    def cash_flows() -> Response:
+        from stock_web.api.account_page import AccountInputError, build_cash_flow_data
+
+        try:
+            return json_response(build_cash_flow_data(project_root))
+        except AccountInputError as error:
+            return json_response({"error": str(error)}, status_code=400)
+
+    @router.post("/cash-flows")
+    async def save_cash_flow_entry(request: Request) -> Response:
+        from stock_web.api.account_page import AccountInputError, save_cash_flow
+
+        if not loopback(request):
+            return json_response({"error": "로컬 접속에서만 저장할 수 있습니다."}, status_code=403)
+        try:
+            saved = save_cash_flow(project_root, await request.json())
+        except (ValueError, AccountInputError) as error:
+            return json_response({"error": str(error)}, status_code=400)
+        clear_home_cache()
+        return json_response(saved)
+
+    @router.delete("/cash-flows")
+    async def delete_cash_flow_entry(request: Request) -> Response:
+        from stock_web.api.account_page import AccountInputError, delete_cash_flow
+
+        if not loopback(request):
+            return json_response({"error": "로컬 접속에서만 저장할 수 있습니다."}, status_code=403)
+        try:
+            saved = delete_cash_flow(project_root, await request.json())
+        except (ValueError, AccountInputError) as error:
+            return json_response({"error": str(error)}, status_code=400)
+        clear_home_cache()
+        return json_response(saved)
+
     @router.get("/stocks")
     def stocks() -> Response:
         from stock_web.api.stocks_page import build_stocks_page_data
