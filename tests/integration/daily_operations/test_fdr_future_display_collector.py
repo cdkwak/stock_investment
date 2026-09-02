@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import multiprocessing
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -11,7 +12,7 @@ import pytest
 from stock_data.orchestration.current_observation import ObservationIdentity
 from stock_data.providers.fdr_display_daily import FDRDisplayDailyResponse
 from stock_data.providers.fdr_future_display_collector import (
-    CHECKPOINT_PATH, FDRFutureCollectorBusy, FDRFutureManifestError, RUNBOOK_PATH, execute_future_collection, load_future_activation,
+    CHECKPOINT_PATH, FDRFutureCollectorBusy, FDRFutureManifestError, RUNBOOK_PATH, _pid_alive, execute_future_collection, load_future_activation,
 )
 
 
@@ -47,6 +48,12 @@ def _hold_collector_lock(root: str, ready, release) -> None:
     with _process_lock(Path(root)):
         ready.set()
         release.wait(5)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows process probing contract")
+def test_windows_pid_probe_is_non_mutating_and_distinguishes_missing_process() -> None:
+    assert _pid_alive(os.getpid())
+    assert not _pid_alive(2_147_483_647)
 
 
 def test_rejects_missing_stale_consumed_and_overbudget_manifests_before_transport(tmp_path) -> None:
