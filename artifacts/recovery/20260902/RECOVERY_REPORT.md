@@ -71,6 +71,17 @@ Verified repair commits:
   isolation, and the sealed 1,222-observation holdout were not inspected or
   changed. The owning GUI Backtest unit file then passed 256 tests with one
   pre-existing skip in that same fresh checkout.
+- Partitioned fresh-checkout validation also passed the remaining GUI unit scope
+  as 444 plus two Health-bound reruns, Providers/Storage/Validation as 350,
+  account/privacy as 339 with two skips, and Backtest/Contracts/Derived/Features
+  as 724 with one skip plus one isolated rerun. Two different Phase-1 journal
+  replacement tests encountered an intermittent Windows `PermissionError` only
+  inside broader runs and each passed immediately in a new temporary directory;
+  this environment-sensitive file-lock flake is recorded rather than hidden.
+- The FDR future-display integration file remains unverified: repeated native
+  execution sessions were terminated by the managed execution environment before
+  a result, while sandbox execution could not create its pytest temporary tree.
+  No PASS or code-failure claim is made for those nine tests.
 
 The fresh 2026-09-02 09:50 KST offline read-only release gate returned `FAIL`.
 It made zero external calls and zero Data/scheduler mutations. Data-root, schema,
