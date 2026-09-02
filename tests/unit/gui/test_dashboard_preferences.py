@@ -576,15 +576,19 @@ def test_dashboard_palette_keeps_normal_text_above_wcag_contrast(
         return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
 
     foreground = luminance("#526177")
-    background = luminance("#ffffff")
-    contrast = (max(foreground, background) + 0.05) / (
-        min(foreground, background) + 0.05
-    )
+
+    def contrast_against(background_color: str) -> float:
+        background = luminance(background_color)
+        return (max(foreground, background) + 0.05) / (
+            min(foreground, background) + 0.05
+        )
+
     style = window.styleSheet().casefold()
 
     assert "#718198" not in style
     assert "#6b7d91" not in style
-    assert contrast >= 4.5
+    assert contrast_against("#ffffff") >= 4.5
+    assert contrast_against("#f2f4f7") >= 4.5
     window.close()
     app.processEvents()
 
