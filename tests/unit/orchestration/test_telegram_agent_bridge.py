@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -250,6 +252,66 @@ def test_market_report_rejects_agent_output_above_compact_boundary(
     monkeypatch.setattr(bridge.subprocess, "run", fake_run)
     with pytest.raises(bridge.BridgeError, match="character safety boundary"):
         bridge.generate_market_report("morning")
+
+
+def test_market_report_is_saved_with_kst_name_frontmatter_and_body(
+    monkeypatch, tmp_path: Path, capsys,
+) -> None:
+    generated_at = datetime(2026, 9, 3, 7, 31, 12, tzinfo=ZoneInfo("Asia/Seoul"))
+    report = "# 아침 시장 요약\n\n본문입니다."
+    monkeypatch.setattr(bridge, "BRIEFS_ROOT", tmp_path / "briefs")
+    monkeypatch.setattr(bridge, "_kst_now", lambda: generated_at)
+    monkeypatch.setattr(bridge, "generate_market_report", lambda kind: report)
+    client = RecordingClient()
+
+    assert bridge.run_market_report(client, 42, "morning") == 0
+
+    saved = tmp_path / "briefs" / "2026-09-03-morning.md"
+    assert saved.read_text(encoding="utf-8") == (
+        "---\n"
+        "kind: morning\n"
+        "generated_at_kst: 2026-09-03T07:31:12+09:00\n"
+        "sent: true\n"
+        "model: codex\n"
+        "---\n\n"
+        "# 아침 시장 요약\n\n본문입니다.\n"
+    )
+    assert client.messages == [(42, report)]
+    assert f"saved={saved}" in capsys.readouterr().out
+
+
+def test_market_report_send_failure_is_saved_as_unsent(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    generated_at = datetime(2026, 9, 3, 16, 11, tzinfo=ZoneInfo("Asia/Seoul"))
+    monkeypatch.setattr(bridge, "BRIEFS_ROOT", tmp_path / "briefs")
+    monkeypatch.setattr(bridge, "_kst_now", lambda: generated_at)
+    monkeypatch.setattr(bridge, "generate_market_report", lambda kind: "마감 본문")
+
+    class FailingClient:
+        def send(self, chat_id: int, text: str) -> None:
+            raise bridge.BridgeError("mock send failure")
+
+    assert bridge.run_market_report(FailingClient(), 42, "close") == 1
+    saved = tmp_path / "briefs" / "2026-09-03-close.md"
+    contents = saved.read_text(encoding="utf-8")
+    assert "kind: close\n" in contents
+    assert "sent: false\n" in contents
+    assert contents.endswith("---\n\n마감 본문\n")
+
+
+def test_unwritable_brief_directory_warns_without_breaking_send(
+    monkeypatch, tmp_path: Path, capsys,
+) -> None:
+    blocked = tmp_path / "not-a-directory"
+    blocked.write_text("occupied", encoding="utf-8")
+    monkeypatch.setattr(bridge, "BRIEFS_ROOT", blocked)
+    monkeypatch.setattr(bridge, "generate_market_report", lambda kind: "브리핑 본문")
+    client = RecordingClient()
+
+    assert bridge.run_market_report(client, 42, "morning") == 0
+    assert client.messages == [(42, "브리핑 본문")]
+    assert "warning: market report could not be saved" in capsys.readouterr().err
 
 
 def test_long_report_splits_on_sections_without_truncation() -> None:

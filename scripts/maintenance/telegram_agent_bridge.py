@@ -28,6 +28,7 @@ MAX_MESSAGE_LENGTH = 3500
 MAX_REPORT_LENGTH = 2200
 MAX_REQUEST_LENGTH = 1200
 INTAKE_ROOT = REPOSITORY / ".tmp" / "agents" / "telegram-bridge"
+BRIEFS_ROOT = REPOSITORY / "artifacts" / "local_user" / "briefs"
 INTAKE_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -460,9 +461,79 @@ def generate_market_report(report_kind: str) -> str:
     return report
 
 
+def _kst_now() -> datetime:
+    return datetime.now(ZoneInfo("Asia/Seoul"))
+
+
+def persist_market_report(
+    report_kind: str,
+    report: str,
+    sent: bool,
+    generated_at_kst: datetime | None = None,
+) -> Path | None:
+    generated_at = generated_at_kst or _kst_now()
+    target = BRIEFS_ROOT / f"{generated_at:%Y-%m-%d}-{report_kind}.md"
+    temporary: Path | None = None
+    contents = (
+        "---\n"
+        f"kind: {report_kind}\n"
+        f"generated_at_kst: {generated_at.isoformat(timespec='seconds')}\n"
+        f"sent: {'true' if sent else 'false'}\n"
+        "model: codex\n"
+        "---\n\n"
+        f"{report.rstrip()}\n"
+    )
+    try:
+        BRIEFS_ROOT.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="\n",
+            prefix=f".{target.name}.",
+            suffix=".tmp",
+            dir=BRIEFS_ROOT,
+            delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+            stream.write(contents)
+        os.replace(temporary, target)
+    except (OSError, UnicodeError) as exc:
+        if temporary is not None:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+        print(
+            f"telegram_bridge: warning: market report could not be saved: {exc}",
+            file=sys.stderr,
+        )
+        return None
+    return target
+
+
+def generate_send_and_persist_market_report(
+    client: TelegramClient, chat_id: int, report_kind: str,
+) -> Path | None:
+    report = generate_market_report(report_kind)
+    send_error: BridgeError | None = None
+    try:
+        send_long_message(client, chat_id, report)
+    except BridgeError as exc:
+        send_error = exc
+    saved_path = persist_market_report(report_kind, report, send_error is None)
+    if saved_path is not None:
+        print(
+            f"telegram_bridge: report {report_kind} sent="
+            f"{'true' if send_error is None else 'false'} saved={saved_path}"
+        )
+    if send_error is not None:
+        raise send_error
+    return saved_path
+
+
 def run_market_report(client: TelegramClient, chat_id: int, report_kind: str) -> int:
     try:
-        send_long_message(client, chat_id, generate_market_report(report_kind))
+        generate_send_and_persist_market_report(client, chat_id, report_kind)
     except BridgeError as exc:
         try:
             client.send(chat_id, f"⚠️ 예약 시장 브리핑 실패: {exc}")
@@ -621,7 +692,9 @@ def handle_updates(
                     reply = "사용법: /brief morning 또는 /brief close"
                 else:
                     client.send(allowed_chat_id, "📰 최신 자료를 확인해 브리핑을 작성 중입니다…")
-                    send_long_message(client, allowed_chat_id, generate_market_report(report_kind))
+                    generate_send_and_persist_market_report(
+                        client, allowed_chat_id, report_kind,
+                    )
                     reply = None
             else:
                 reply = command_reply(text)
