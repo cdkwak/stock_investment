@@ -7,7 +7,7 @@ retained under `docs/archive/gui/status_history/`.
 
 ## Current phase
 
-`AUTONOMOUS_GUI_ENGINEERING_ACTIVE / PYTHON_PM_PERSISTENT_MONITORING_VALIDATED / DASHBOARD_CURRENT_STAGE_AND_COLD_BOUND_VALIDATED / OTHER_COVERAGE_INCOMPLETE`
+`AUTONOMOUS_GUI_ENGINEERING_ACTIVE / CONSUMER_FIRST_DASHBOARD_VERIFIED / PROVIDER_ISOLATED / OTHER_COVERAGE_INCOMPLETE`
 
 GUI and application-service work may proceed in parallel with Data and
 Backtest. Presentation remains local and read-only; provider transport,
@@ -17,7 +17,7 @@ canonical promotion, and scheduler execution remain Data-owned.
 
 | Area | Current fact |
 |---|---|
-| Dashboard | Ten compact top cards fit one row at supported desktop widths. Current observations hot-reread without restarting the application. |
+| Dashboard | The consumer-first Today page groups market summary, Korean/US flow, accounts, and evidence links with typed unavailable states. Native 1366x768 and 900x640 renders have zero horizontal scroll, no overlap, correct Korean glyphs, and a visible analysis entry point. Expanded market evidence scrolls into view; secondary text meets WCAG AA on white and unavailable-state backgrounds. |
 | Health | GUI consumes the retained 80-row Health V2 artifact. All 39 automation-enabled rows are acceptable (`CURRENT 13 / EXPECTED_LAG 26`); unmanaged gaps remain visible rather than weakening the managed gate. |
 | Korean valuation | Accepted KRX KOSPI/KOSDAQ PER/PBR stays visible under `KRX_NEXT_TRADING_DAY_0910`; unpublished same-day data is not demanded early. |
 | Derivatives | Basis, volume PCR, OI PCR, Call Wall, and Put Wall consume exact Health-resolved T+1 dates and fail numeric-free on missing or mismatched inputs. |
@@ -25,10 +25,10 @@ canonical promotion, and scheduler execution remain Data-owned.
 | Market regime | Price/trend/volatility and KRX valuation are present; PIT-safe Forward EPS/revision/ROE is absent. VIX temperature prefers the accepted Yahoo `^VIX` completed 15-minute current observation when available and ranks that display-only value against the retained FRED VIXCLS completed-daily distribution; it never appends the quote to daily history or Backtest inputs. The visible state remains evidence `2/3` with high/low-point judgment withheld. |
 | Flow | Korean foreign/institution/individual daily-final flows are descriptive KRX-market facts. No U.S. participant-flow number is fabricated from semantically different weekly CFTC data. |
 | Research | Provider-free Research Workspace, local watchlists, chart coverage, layout presets, and `Ctrl+K` exact-identity symbol switching are implemented. The [practical partial-axis scanner](STOCK_EXPLORATORY_SCANNER_CONTRACT.md) starts asynchronously on first tab use and shows extreme original-price candidates at RSI14 <= 30 or close/SMA60 <= 80%. Exact-date, hash-bound KRX current PER/PBR is displayed independently when present and never changes inclusion/order; Forward EPS and strict relative-value judgment remain `N/A`. Activating a row revalidates it through the exact local catalog before opening the chart. |
-| Accounts | Toss and KB views are read-only and sanitized. The [P5 account-detail todo](ACCOUNT_DETAIL_TODO.md) records implemented scope and remaining gates. Verified holding fields include average/current price, correctly scaled provider returns, ordinary/after-cost/daily P/L and source-time detail. Per-source cards show allowlisted refresh outcome and eligibility. The user-requested [identifier-free account-scale history](../data/operations/ACCOUNT_VALUE_HISTORY_LOCAL.md) records KB exact total assets and distinctly labelled Toss components by source/currency; it explicitly does not treat deposits, withdrawals or trading-driven scale changes as returns. Unsupported cash, realized P/L and cross-currency totals remain absent. Toss and KB scheduled read-only refreshes are Data-owned; no direct identifier enters GUI state or documentation. |
+| Accounts | Toss and KB views are read-only and sanitized. Verified holding fields include average/current price, correctly scaled provider returns, ordinary/after-cost/daily P/L and source-time detail. Unsupported cash, realized P/L and cross-currency totals remain absent. The natural 2026-09-02 07:10 KB task failed closed after one supplier call and preserved the prior snapshot; a separately keyed manual read-only refresh then succeeded with one call. GUI state receives neither failed provider detail nor any direct identifier, and the failed scheduled receipt is not rewritten. |
 | Backtest | GUI consumes validated typed local result bundles and contains no Feature, Model, strategy, fill, risk, or accounting logic. |
-| Release readiness | GUI page, worker-quiescence, Health, and user-data-isolation checks pass. Focused recovery checks now accept all 39 managed Health rows after Yahoo, Toss-account, FRED, KRX breadth, index-fundamental, and short-investor recovery. The retained full release receipt predates the last recoveries, so rerun the full provider-free gate before making a new release decision. |
-| Python PM operations | The standalone Korean dark operations dashboard reads the canonical `data/runtime/python_pm` SQLite/JSONL/Queue projection and shows only observed PM, Lead, Worker, Reviewer, task, warning, freshness, and recent-event state. It is read-only; the sole button refreshes the snapshot and there is no Queue, agent, broker, provider, filesystem, or lifecycle mutation action. The fresh-temp-root E2E is `tests/integration/pipelines/test_persistent_agent_control_plane.py`; GUI coverage is `tests/integration/gui/test_operations_dashboard_smoke.py` and `tests/unit/gui/test_operations_dashboard.py`. Visually reviewed temporary evidence is `C:\Users\k4545\Desktop\stock_investment_rev1\.tmp\agents\dark-operations-gui\operations-1280x720.png` and `C:\Users\k4545\Desktop\stock_investment_rev1\.tmp\agents\dark-operations-gui\operations-1600x900.png` (validation evidence, not committed artifacts). |
+| Release readiness | GUI startup/provider isolation, account-environment allowlisting, cockpit readability, and the exact ten-page contract pass focused coverage. The fresh 09:50 KST offline gate passed native GUI, file identity, schema, cache, freshness, and required scheduler-result checks with zero external calls/mutations, but full release remains `FAIL` on Health-receipt reconciliation, three retained nonzero scheduler results, and 9/10 due groups. The inaccessible derivatives dataset is a separate retained-audit gate. |
+| Python PM operations | The standalone read-only operations Dashboard and its control-plane source remain preserved but inactive pending the user's restore-or-retire decision. Their fresh-checkout evidence is 10 unit plus 17 integration tests passing; the current consumer Dashboard does not depend on them. |
 
 ## Owning contracts and maps
 
@@ -82,14 +82,14 @@ GUI documents.
 | BOK Treasury finality gate incomplete | Korean sovereign-yield values remain numeric-free | Data; complete the three-batch 17:10 evidence gate and contract-valid promotion |
 | PIT-safe Forward EPS/revision/ROE unavailable | Earnings-momentum axis and market high/low judgment remain unavailable | Data research contract; never substitute current KRX PER/PBR |
 | Daily summary input/runtime unavailable | The closed contract is concise and source-bound, but registry revision 1 intentionally yields `NO_OUTPUT` because no accepted `MARKET_STATE` result is selected; no Telegram runtime exists | GUI; a later reviewed task must bind the exact local result before implementing the provider-free composer |
-| First natural KB account occurrence pending | The configured local surface remains read-only and prior-valid while its installed 07:10 task awaits a natural receipt | Data/Scheduler; verify identifier-free receipt, exact snapshot digest, one-call budget, and prior-valid preservation |
+| Failed KB scheduled receipt and one inaccessible Data dataset | Full release cannot pass even though GUI-local checks and the 09:10 KR task pass | Data; preserve the failed receipt, and repair only the exact ACL after explicit approval before rerunning the full gate |
 | Unmanaged retained-data gaps | Health remains visibly degraded outside the managed SLO | Data; fix each dataset through its own contract rather than masking the row |
-| Autonomous Queue polling is not installed | Python PM lifecycle execution is event-driven through the supported CLI rather than an unattended scheduler | Workflow; add a separately reviewed polling/wakeup host only if unattended dispatch is later required |
+| Python-PM restore-or-retire decision pending | The current consumer Dashboard is independent, while the tested read-only operations surface and lifecycle code remain preserved but inactive | User/Workflow; restoration is the recovery default, and retirement must be an explicit architecture choice |
 
 ## Exact next GUI actions
 
-1. Keep the current Dashboard stable while Data verifies the next natural 09:10
-   KR valuation replay and the BOK 17:10 finality batches.
+1. Keep the verified consumer-first Dashboard stable and observe the 14:10/20:30
+   KR tasks naturally; do not weaken receipt gates or run future slots early.
 2. Preserve the closed
    [Daily Market Summary Contract](DAILY_MARKET_SUMMARY_CONTRACT.md): its default
    projection is normally 3–4 lines and hard-limited to 6 lines/480 code points.

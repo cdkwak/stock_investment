@@ -10,12 +10,12 @@ runbook, checkpoint, or retained evidence.
 | Field | Current value |
 |---|---|
 | Selected domain | `DATA_PRIMARY / PARALLEL_ENGINEERING_ACTIVE` |
-| Current phase | `CANONICAL_BASELINE_V1 / PERSISTENT_PYTHON_PM_CONTROL_VALIDATED / UNATTENDED_PYTHON_PM_RUNNER_RECOVERY_PENDING / AUTONOMOUS_DATA_AND_READONLY_ACCOUNT_OPERATIONS / GUI_BACKTEST_FEATURE_ENGINEERING_ACTIVE / FINAL_HOLDOUT_SEALED / FINANCIAL_MUTATIONS_DISABLED` |
+| Current phase | `RECOVERY_VERIFIED / PYTHON_PM_RETIREMENT_DECISION_PENDING / AUTONOMOUS_DATA_AND_READONLY_ACCOUNT_OPERATIONS / GUI_BACKTEST_FEATURE_ENGINEERING_ACTIVE / FINAL_HOLDOUT_SEALED / FINANCIAL_MUTATIONS_DISABLED` |
 | Next domain | No phase handoff required for ordinary in-scope engineering |
-| Exact next action | Observe the next natural KR bundle v5 sequence at 09:10 and 20:30 after the source-width/publication-boundary recovery, require the 13-lane receipt plus 39/39 Health, and continue the separate BOK 17:10 three-batch finality observation |
+| Exact next action | After explicit approval, restore inherited access on only the inaccessible futures-investor dataset, hash and audit it, then rerun release readiness; otherwise observe the 14:10/20:30 KR slots naturally while managed Health remains 39/39 |
 | Real external blockers | Exact future provider publication/session windows, unavailable secret/entitlement, rejected protected-resource escalation, or a user-only financial/legal/access action |
 | Parallel work | GUI, Features, offline Backtest/ML, portfolio simulation, local paper simulation, diagnostics, and read-only account integration may proceed with disjoint scopes |
-| Queue role | Queue-backed work requires an exact claim; direct user tasks do not require queue registration |
+| Queue role | Hermes coordinates the current direct recovery. The tested repository-local Python-PM/Queue control plane is retained but inactive pending the user's retirement-or-restore decision; direct user tasks do not require queue registration. |
 
 The user-owned [Project Goal](PROJECT_GOAL.md) is durable planning input. It does
 not select a phase or override Status, Contract, checkpoint, or runbook
@@ -23,52 +23,35 @@ authority.
 
 ## Current cross-project facts
 
-- `master` is the single canonical worktree and local branch. Canonical Baseline
-  v1 tracks the approved 1,523-path manifest while preserving mutable runtime,
-  resumable ML, local-private, and account state outside Git.
+- `master` remains unchanged and is the merge-base ancestor of the verified
+  `codex/recovery-verified-20260902` candidate. The relation is a conflict-free
+  fast-forward (`0` master-only / `37` recovery-only commits at the recovery
+  audit); promotion waits for this Status reconciliation and the user's
+  restore-or-retire decision. Mutable runtime, resumable ML, local-private, and
+  account state remain outside Git.
 - Data is the primary operational domain. Current dataset health, source
   semantics, publication/finality gates, account observations, and exact next
   operations live in [Data Status](../data/DATA_STATUS.md).
-- Python PM is the sole supported repository-local workflow lifecycle writer.
-  Its canonical state root is `data/runtime/python_pm`; `status`, read-only
-  `canary`, workspace-write `run`, and exact stale-generation `rollback` are
-  exposed through `scripts/maintenance/workflow_controller.py`. The persistent
-  Listener -> proposal-only Goal–Queue Reconciler -> PM -> multiple Leads ->
-  disjoint Workers <-> preassigned Reviewers protocol is covered end to end by
-  `tests/integration/pipelines/test_persistent_agent_control_plane.py` (1 passed,
-  provider-free fresh temp root on 2026-08-31). It proves stored Codex-session
-  restart, two disjoint Workers with two frozen unique Reviewer sessions,
-  immutable `TaskContract`, typed direct two-`FIX` loop, third-`FIX` replan,
-  fresh-generation `PASS`, Lead checkpoint to PM, PM-generation checkpoint
-  redelivery, durable ACK tombstone, wake-receipt integrity, PM-only final
-  lifecycle, replay/tamper/stale-generation safety, SQLite current state,
-  sanitized append-only JSONL and the read-only Korean Qt projection. Orca is
-  denied legacy migration/history only and is never runtime or fallback. The
-  first bounded live event-runner wake timed out, was publicly reconciled, and
-  its failed `f4885fa...` generation was preserved as recovered evidence. Exact
-  scheduler reinstall/readback is retained, and fresh `a2f370...` PM plus routed
-  Lead direct wake receipts settled successfully. The final post-recovery
-  material generation settled with runner pending `0`, controller writer idle,
-  and boundary pending `0`. A Queue heartbeat-only `updated_at` refresh is
-  excluded from material detection, preventing a metadata self-wake loop. New
-  Queue discovery or triage count transitions remain material and begin a
-  fresh bounded PM/Lead wake; current public runner/controller status, not a
-  historical material digest, defines whether pending work exists.
+- Hermes is the conversation-facing Project Manager for this recovery. The
+  repository-local Python-PM roles, Queue lifecycle, workflow runtime, scheduler
+  entry point, and read-only operations Dashboard remain preserved on the
+  verified branch but are not current execution authority while the user decides
+  whether to restore or retire them. Their clean-checkout evidence is 393 unit,
+  17 integration, and 10 operations-Dashboard tests passing. The uncommitted
+  65-file retirement candidate removes functioning optional capability and must
+  not be integrated without the user's direct decision.
 - Documentation uses the bounded [Documentation Router](../README.md). Current
   domain Status files contain only routing facts, blockers, support boundaries,
   and exact next actions; pre-compaction snapshots and terminal operation detail
   are non-default archive evidence.
-- The Windows scheduler is operational but structurally `DEGRADED`: 17 related
-  definitions exist, 16 are enabled, all 13 enabled Data definitions match
-  their exact contract, and all 39 automation-enabled datasets have a routed
-  lane. KR bundle contract v5 adds no Windows task and routes short balance,
-  short investor, LS t8462 Raw, and Toss Treasury at 20:30 while formalizing
-  liquidity/credit; BOK observation remains separate at 17:10. The configured,
-  live-validated KB account has a separate read-only
-  07:10 daily definition; its first natural occurrence is pending. One disabled
-  legacy KB market-snapshot definition remains and is not account coverage. Exact inventory, uninstalled
-  candidates, and consolidation live in
-  [Scheduler Status](SCHEDULER_STATUS.md).
+- The Windows scheduler is operational but receipt-degraded: all 13 enabled Data
+  definitions exist, are enabled, and have definition mismatch `0`. The 09:10 KR
+  task and an idempotent global-futures run ended with result `0`; the 14:10 and
+  20:30 KR tasks retain prior nonzero results until their natural slots. The
+  separate read-only KB account task failed closed at 07:10 after one supplier
+  call and preserved the prior snapshot. A separately keyed manual read-only
+  refresh succeeded with one call but did not rewrite that failed receipt.
+  Exact inventory remains in [Scheduler Status](SCHEDULER_STATUS.md).
 - The scheduler inventory does not duplicate GUI freshness. Per-surface as-of,
   freshness, last accepted success, and next eligibility remain owned by the
   [GUI refresh-status contract](../gui/GUI_REFRESH_STATUS_CONTRACT.md) and
@@ -95,16 +78,14 @@ authority.
   preflight then passed with one token call and zero account calls; it does not
   claim account-refresh success. KB `SSQM2952` has a configured runtime, a
   retained identifier-free 2026-08-26 live success, and an installed 07:10 task.
-- The provider-free release gate now checks nine independent due task groups,
-  including the exact Toss account occurrence, snapshot digest, and last
-  pointer. Its 03:38 KST report had 8 complete and 1 failed before the 07:00
-  natural Toss validation; the later Toss occurrence now satisfies its
-  terminal-receipt, digest, and call-budget checks. Health body/readback
-  reconciliation, GUI worker quiescence, all ten page contracts, 39/39 managed
-  Health rows, and protected user-data
-  identity pass; provider, canonical data, and scheduler mutations remain zero.
-  BOK and Toss account definitions are included; Issue State, Telegram, and the
-  disabled legacy KB task remain outside the Data-definition gate.
+- The fresh 09:50 KST offline release gate made zero external calls and zero
+  Data/scheduler mutations. Data-root/schema/backtest/cache/freshness/required-
+  result/native-GUI/user-byte checks passed. It remains `FAIL` only on Health-
+  receipt reconciliation, three retained nonzero task results, and 9/10 due
+  groups because of the failed KB receipt and not-yet-natural 14:10/20:30 KR
+  slots. Exactly one of 56 immediate Normalized datasets is separately
+  inaccessible and remains quarantined from retained-data audit until an
+  explicitly approved owner/inheritance repair.
 - The sanitized local [Issue-State Contract](ISSUE_STATE_CONTRACT.md) is active.
   Its scheduled component aggregates local evidence and may discover only the
   explicit thresholded Inbox case; it performs no provider retry or Data action.
@@ -132,8 +113,8 @@ authority.
   Forward EPS and strict relative-value judgment remain explicitly `N/A`.
   The valuation child was introduced in KR bundle contract v4 and is retained
   unchanged in active contract v5 as a retry-zero, one-session 09:10 child;
-  its first natural v5 execution is pending;
-  it performed no provider call or write and closed with zero managed threads.
+  its 2026-09-02 natural execution completed with Windows result `0` while
+  managed Health remained `39/39`.
   The separate `stock-candidate-research/v1` strict three-axis boundary remains
   future Backtest/research validation only and never blocks the practical
   single-axis list.
@@ -165,9 +146,10 @@ authority.
 | Area | Current state | Required handling |
 |---|---|---|
 | Data operations | `AUTONOMOUS_PUBLIC_AND_ENV_AUTHENTICATED_API_OPERATIONS` | Use Landing-first capture, source contracts, validation, atomic writes, and prior-valid preservation |
-| Scheduler | `OPERATIONAL / DEGRADED_STRUCTURE` | Current tasks may run; consolidation is proposed only until code, receipts, and definition readback are updated together |
+| Scheduler | `OPERATIONAL / DEFINITIONS_MATCH / PRIOR_RESULTS_DEGRADED` | Preserve failed receipts and let future-dated KR slots run naturally |
+| Data integrity | `ONE_NORMALIZED_DATASET_ACL_BLOCKED` | After explicit approval repair ownership/inheritance on only that dataset, then hash and audit before use |
 | GUI | `AUTONOMOUS_READONLY_ENGINEERING` | Preserve typed freshness, numeric suppression, privacy, and source identity; keep provider transport and canonical promotion in Data |
-| Workflow control | `PERSISTENT_PYTHON_PM_ONLY / EVENT_DRIVEN / E2E_VALIDATED` | Use the canonical controller, typed mailbox and read-only operations dashboard; Orca is denied legacy migration/history only |
+| Workflow control | `HERMES_CONVERSATION_PM / PYTHON_PM_RETAINED_PENDING_USER_DECISION` | Do not run two lifecycle writers; preserve the tested control plane until the user explicitly chooses restore or retirement |
 | Account | Existing-credential read-only access authorized | Keep projections identifier-free; no account discovery in scheduled paths and no broker mutation |
 | Backtest / ML | `AUTONOMOUS_OFFLINE_ENGINEERING` | Keep the existing final holdout sealed and enforce PIT/leakage controls |
 | Semantics / PIT | `AUTONOMOUS_EVIDENCE_GATHERING` | Quarantine only unsupported claims and dependent promotion/use while continuing independent investigation |
