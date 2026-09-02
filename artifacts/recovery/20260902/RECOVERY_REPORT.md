@@ -80,7 +80,12 @@ complete suite result.
    `data/normalized/kr_kospi200_futures_investor_net_purchase_daily` requires
    explicit user approval. After approval, read/hash the existing Parquet, run
    the retained-data historical audit, and then rerun release readiness. Do not
-   infer or replace its content before that validation.
+   infer or replace its content before that validation. Read-only comparison
+   confirmed that `data/normalized` and a healthy sibling have the same fully
+   inherited access descriptor, including the current user and sandbox-worker
+   groups; only the target rejects ACL and child enumeration. The proposed repair
+   therefore remains narrowly scoped to taking ownership and restoring inherited
+   access on that one directory tree, not changing the parent or other datasets.
 2. Retirement integration: the working tree contains 65 deletions and 8 modified
    tracked files, totalling 73 tracked files with 34,781 deleted lines. This is
    the broad repository-local Python PM retirement set. It is recoverable from
