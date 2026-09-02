@@ -3,11 +3,13 @@
 ## Outcome
 
 The project is operationally recoverable and the verified repair work is isolated on
-`hermes/retire-python-pm-20260831-224653`. The pre-retirement state is preserved by
-commit `b0647b4` and branch `backup/python-pm-pre-hermes-20260831-224653`. The target
-`master` branch has not been changed. The clean safety branch
-`codex/recovery-verified-20260902` contains verified recovery baseline `7f8261b`
-and does not include the 65 uncommitted retirement deletions.
+the clean safety branch `codex/recovery-verified-20260902`. The pre-retirement state
+is preserved by commit `b0647b4` and branch
+`backup/python-pm-pre-hermes-20260831-224653`. The target `master` branch has not
+been changed and remains an ancestor of the safety branch, so the recovery is a
+conflict-free fast-forward candidate. The original
+`hermes/retire-python-pm-20260831-224653` working tree still holds, but has not
+committed, the 65 retirement deletions and other mixed user-owned changes.
 
 Verified repair commits:
 
@@ -22,6 +24,11 @@ Verified repair commits:
 - `6122723` pins contrast on both white and unavailable-state backgrounds.
 - `ec079aa` pins canonical LF for the byte-bound Phase-1 replay artifacts.
 - `003b021` pins canonical LF for the exact Phase-1 code-identity source families.
+- `637b4d3` records Backtest checkout reproducibility without changing the sealed
+  holdout.
+- `977a7fe` reconciles the partitioned recovery-test evidence.
+- `dc3b4f9` reconciles Project and GUI current-state routing with the verified
+  runtime and protected-decision boundary.
 
 ## Measured runtime state
 
@@ -54,6 +61,10 @@ Verified repair commits:
   scroll, no overlap, and a visible analysis entry point.
 - `git diff --check`: clean apart from informational line-ending warnings.
 - Status-link check: 91 checked, 0 missing.
+- Independent current-state review: PASS. Only Project and GUI Status changed;
+  `PROJECT_GOAL.md` did not. The release remains explicitly `FAIL`, Hermes is the
+  conversation-facing PM while the retained Python PM is inactive, and the
+  privacy, PIT, sealed-holdout, and no-broker-mutation boundaries remain intact.
 - Remaining unit/integration suite collection after the retirement candidate:
   3,487 tests collected successfully.
 - A detached clean checkout of `codex/recovery-verified-20260902` passed 341
