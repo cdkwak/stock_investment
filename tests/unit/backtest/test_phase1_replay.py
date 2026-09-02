@@ -45,6 +45,26 @@ def _snapshot(root: Path) -> dict[str, bytes]:
     }
 
 
+def test_phase1_replay_artifacts_keep_canonical_lf_on_every_checkout() -> None:
+    project_root = Path(__file__).resolve().parents[3]
+    attributes = {
+        line.strip()
+        for line in (project_root / ".gitattributes").read_text(
+            encoding="utf-8",
+        ).splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+
+    assert (
+        "artifacts/backtest/phase1_signal_replay/** text eol=lf"
+        in attributes
+    )
+    assert (
+        "artifacts/backtest/kospi200_frozen_manifest.json text eol=lf"
+        in attributes
+    )
+
+
 def test_phase1_code_dependency_manifest_is_explicit_and_fail_closed(
     tmp_path: Path,
 ) -> None:

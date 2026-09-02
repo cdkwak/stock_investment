@@ -1,0 +1,3 @@
+# These canonical replay files are byte-hash-bound and serialized with LF.
+artifacts/backtest/phase1_signal_replay/** text eol=lf
+artifacts/backtest/kospi200_frozen_manifest.json text eol=lf
