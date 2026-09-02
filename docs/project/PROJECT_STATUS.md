@@ -10,12 +10,12 @@ runbook, checkpoint, or retained evidence.
 | Field | Current value |
 |---|---|
 | Selected domain | `DATA_PRIMARY / PARALLEL_ENGINEERING_ACTIVE` |
-| Current phase | `RECOVERY_VERIFIED / PYTHON_PM_RETIREMENT_DECISION_PENDING / AUTONOMOUS_DATA_AND_READONLY_ACCOUNT_OPERATIONS / GUI_BACKTEST_FEATURE_ENGINEERING_ACTIVE / FINAL_HOLDOUT_SEALED / FINANCIAL_MUTATIONS_DISABLED` |
+| Current phase | `RECOVERY_PROMOTED / PYTHON_PM_RETAINED / AUTONOMOUS_DATA_AND_READONLY_ACCOUNT_OPERATIONS / GUI_BACKTEST_FEATURE_ENGINEERING_ACTIVE / FINAL_HOLDOUT_SEALED / FINANCIAL_MUTATIONS_DISABLED` |
 | Next domain | No phase handoff required for ordinary in-scope engineering |
-| Exact next action | After explicit approval, restore inherited access on only the inaccessible futures-investor dataset, hash and audit it, then rerun release readiness; otherwise observe the 14:10/20:30 KR slots naturally while managed Health remains 39/39 |
+| Exact next action | Observe the 2026-09-02 20:30 KR slot naturally and reconcile its exact receipt and managed Health. When an administrator token is available, apply the already approved ACL repair only to the quarantined futures-investor dataset, then hash/audit it and rerun release readiness. |
 | Real external blockers | Exact future provider publication/session windows, unavailable secret/entitlement, rejected protected-resource escalation, or a user-only financial/legal/access action |
 | Parallel work | GUI, Features, offline Backtest/ML, portfolio simulation, local paper simulation, diagnostics, and read-only account integration may proceed with disjoint scopes |
-| Queue role | Hermes coordinates the current direct recovery. The tested repository-local Python-PM/Queue control plane is retained but inactive pending the user's retirement-or-restore decision; direct user tasks do not require queue registration. |
+| Queue role | Hermes coordinates the current direct recovery. The tested repository-local Python-PM/Queue control plane is retained and inactive; the proposed retirement was rejected and preserved only as recovery evidence. Direct user tasks do not require queue registration. |
 
 The user-owned [Project Goal](PROJECT_GOAL.md) is durable planning input. It does
 not select a phase or override Status, Contract, checkpoint, or runbook
@@ -23,31 +23,34 @@ authority.
 
 ## Current cross-project facts
 
-- `master` remains unchanged and is the merge-base ancestor of the verified
-  `codex/recovery-verified-20260902` candidate. The relation is a conflict-free
-  fast-forward (`0` master-only / `37` recovery-only commits at the recovery
-  audit); promotion waits for this Status reconciliation and the user's
-  restore-or-retire decision. Mutable runtime, resumable ML, local-private, and
-  account state remain outside Git.
+- `master` now contains the verified recovery and the follow-up Windows/Data
+  repairs through `6c6f32a`. The pre-Hermes state remains at
+  `backup/python-pm-pre-hermes-20260831-224653`; the rejected 73-file retirement
+  candidate is recoverable from `backup/python-pm-retirement-candidate-20260902`
+  and the named recovery stash. Mutable runtime, resumable ML, local-private,
+  and account state remain outside Git.
 - Data is the primary operational domain. Current dataset health, source
   semantics, publication/finality gates, account observations, and exact next
   operations live in [Data Status](../data/DATA_STATUS.md).
 - Hermes is the conversation-facing Project Manager for this recovery. The
   repository-local Python-PM roles, Queue lifecycle, workflow runtime, scheduler
-  entry point, and read-only operations Dashboard remain preserved on the
-  verified branch but are not current execution authority while the user decides
-  whether to restore or retire them. Their clean-checkout evidence is 393 unit,
-  17 integration, and 10 operations-Dashboard tests passing. The uncommitted
-  65-file retirement candidate removes functioning optional capability and must
-  not be integrated without the user's direct decision.
+  entry point, and read-only operations Dashboard remain preserved on `master`
+  but are not the current execution authority. Their clean-checkout evidence is
+  393 unit, 17 integration, and 10 operations-Dashboard tests passing. The user
+  accepted the recommended recovery: the 65 deletions and eight other tracked
+  retirement changes were rejected, restored, and preserved only on a backup
+  branch plus stash.
 - Documentation uses the bounded [Documentation Router](../README.md). Current
   domain Status files contain only routing facts, blockers, support boundaries,
   and exact next actions; pre-compaction snapshots and terminal operation detail
   are non-default archive evidence.
 - The Windows scheduler is operational but receipt-degraded: all 13 enabled Data
   definitions exist, are enabled, and have definition mismatch `0`. The 09:10 KR
-  task and an idempotent global-futures run ended with result `0`; the 14:10 and
-  20:30 KR tasks retain prior nonzero results until their natural slots. The
+  task and an idempotent global-futures run ended with result `0`. The natural
+  14:10 bundle advanced its three Data lanes through their targets, then ended
+  result `1` only because pre-20:30 downstream rows were projected as stale; the
+  schedule-aware Health fix is on `master` and native recomputation is `39/39`.
+  The 20:30 task remains `Ready` for its natural 2026-09-02 occurrence. The
   separate read-only KB account task failed closed at 07:10 after one supplier
   call and preserved the prior snapshot. A separately keyed manual read-only
   refresh succeeded with one call but did not rewrite that failed receipt.
@@ -78,14 +81,15 @@ authority.
   preflight then passed with one token call and zero account calls; it does not
   claim account-refresh success. KB `SSQM2952` has a configured runtime, a
   retained identifier-free 2026-08-26 live success, and an installed 07:10 task.
-- The fresh 09:50 KST offline release gate made zero external calls and zero
+- The fresh 18:14 KST offline release gate made zero external calls and zero
   Data/scheduler mutations. Data-root/schema/backtest/cache/freshness/required-
-  result/native-GUI/user-byte checks passed. It remains `FAIL` only on Health-
-  receipt reconciliation, three retained nonzero task results, and 9/10 due
-  groups because of the failed KB receipt and not-yet-natural 14:10/20:30 KR
-  slots. Exactly one of 56 immediate Normalized datasets is separately
-  inaccessible and remains quarantined from retained-data audit until an
-  explicitly approved owner/inheritance repair.
+  result/native-GUI/user-byte checks passed. It remains `FAIL` on Health-receipt
+  reconciliation, three retained nonzero task results, and two of ten due groups:
+  the immutable failed KB receipt and the 14:10 terminal receipt. Exactly one of
+  56 immediate Normalized datasets is separately inaccessible. The user approved
+  its exact owner/inheritance repair, but the current token is not an
+  administrator, so that dataset remains quarantined until an elevated token is
+  available; no broader ACL change is authorized.
 - The sanitized local [Issue-State Contract](ISSUE_STATE_CONTRACT.md) is active.
   Its scheduled component aggregates local evidence and may discover only the
   explicit thresholded Inbox case; it performs no provider retry or Data action.
@@ -146,10 +150,10 @@ authority.
 | Area | Current state | Required handling |
 |---|---|---|
 | Data operations | `AUTONOMOUS_PUBLIC_AND_ENV_AUTHENTICATED_API_OPERATIONS` | Use Landing-first capture, source contracts, validation, atomic writes, and prior-valid preservation |
-| Scheduler | `OPERATIONAL / DEFINITIONS_MATCH / PRIOR_RESULTS_DEGRADED` | Preserve failed receipts and let future-dated KR slots run naturally |
-| Data integrity | `ONE_NORMALIZED_DATASET_ACL_BLOCKED` | After explicit approval repair ownership/inheritance on only that dataset, then hash and audit before use |
+| Scheduler | `OPERATIONAL / DEFINITIONS_MATCH / CURRENT_RECEIPTS_DEGRADED` | Preserve immutable failed receipts and observe the 20:30 KR slot naturally |
+| Data integrity | `ONE_NORMALIZED_DATASET_ACL_BLOCKED / REPAIR_APPROVED / ADMIN_TOKEN_UNAVAILABLE` | With an administrator token, repair only that dataset, then hash and audit before use |
 | GUI | `AUTONOMOUS_READONLY_ENGINEERING` | Preserve typed freshness, numeric suppression, privacy, and source identity; keep provider transport and canonical promotion in Data |
-| Workflow control | `HERMES_CONVERSATION_PM / PYTHON_PM_RETAINED_PENDING_USER_DECISION` | Do not run two lifecycle writers; preserve the tested control plane until the user explicitly chooses restore or retirement |
+| Workflow control | `HERMES_CONVERSATION_PM / PYTHON_PM_RETAINED_INACTIVE` | Do not run two lifecycle writers; the retirement candidate is rejected and preserved only as backup evidence |
 | Account | Existing-credential read-only access authorized | Keep projections identifier-free; no account discovery in scheduled paths and no broker mutation |
 | Backtest / ML | `AUTONOMOUS_OFFLINE_ENGINEERING` | Keep the existing final holdout sealed and enforce PIT/leakage controls |
 | Semantics / PIT | `AUTONOMOUS_EVIDENCE_GATHERING` | Quarantine only unsupported claims and dependent promotion/use while continuing independent investigation |
