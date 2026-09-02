@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stock Investment · {{ title }}</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">Stock Investment</div>
+  <nav class="nav">
+    <a href="/" class="{{ 'on' if page == 'home' else '' }}">홈</a><a href="/market" class="{{ 'on' if page == 'market' else '' }}">시장</a><a href="/stocks" class="{{ 'on' if page == 'stocks' else '' }}">종목</a><a href="/account" class="{{ 'on' if page == 'account' else '' }}">내 계좌</a><a href="/data" class="{{ 'on' if page == 'data' else '' }}">데이터</a>
+  </nav>
+</header>
+<main class="page">
+  <div class="card"><div class="card-head"><b>{{ title }}</b><span class="muted">준비 중</span></div><div class="muted">{{ blurb }}</div></div>
+</main>
+</body>
+</html>
