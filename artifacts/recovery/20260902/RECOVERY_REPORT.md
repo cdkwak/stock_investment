@@ -54,6 +54,12 @@ Verified repair commits:
 - Status-link check: 91 checked, 0 missing.
 - Remaining unit/integration suite collection after the retirement candidate:
   3,487 tests collected successfully.
+- A detached clean checkout of `codex/recovery-verified-20260902` passed 341
+  unique focused GUI/release/scheduler tests. Its first run passed 335 and failed
+  six because ignored local inputs (`.venv`, Health, and `data/`) do not exist in
+  a fresh worktree; after linking the same read-only runtime inputs, the five
+  scheduler dry-runs and one native GUI smoke all passed. This confirms the
+  recovery commits do not depend on the 65 uncommitted deletions.
 
 The fresh 2026-09-02 09:50 KST offline read-only release gate returned `FAIL`.
 It made zero external calls and zero Data/scheduler mutations. Data-root, schema,
