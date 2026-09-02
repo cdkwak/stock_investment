@@ -47,6 +47,8 @@ _PRE_DAILY_OCCURRENCE_KST = {
     "kr_kospi200_options_daily": (time(20, 30), ExchangeMarket.KR),
     "kr_kospi200_options_provider_bridge_daily": (time(20, 30), ExchangeMarket.KR),
     "kr_market_liquidity_daily": (time(20, 30), ExchangeMarket.KR),
+    "kr_short_selling_balance_daily": (time(20, 30), ExchangeMarket.KR),
+    "kr_short_selling_investor_daily": (time(20, 30), ExchangeMarket.KR),
     "kr_treasury_yield_daily": (time(20, 30), ExchangeMarket.KR),
 }
 

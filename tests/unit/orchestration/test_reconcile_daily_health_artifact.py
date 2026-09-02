@@ -238,6 +238,8 @@ def test_kr_post_close_outputs_wait_for_2030_occurrence_before_stale(
         "kr_kospi200_options_daily": ("2026-08-31", "2026-09-01"),
         "kr_kospi200_options_provider_bridge_daily": ("2026-08-31", "2026-09-01"),
         "kr_market_liquidity_daily": ("2026-09-01", "2026-09-02"),
+        "kr_short_selling_balance_daily": ("2026-08-28", "2026-08-31"),
+        "kr_short_selling_investor_daily": ("2026-09-01", "2026-09-02"),
         "kr_treasury_yield_daily": ("2026-08-31", "2026-09-01"),
     }
     rows = [{
@@ -257,7 +259,7 @@ def test_kr_post_close_outputs_wait_for_2030_occurrence_before_stale(
 
     before = MODULE.reconcile_universe({
         "run_id": "pre-kospi200-occurrence",
-        "as_of": "2026-09-02T17:45:00+09:00",
+        "as_of": "2026-09-02T18:15:00+09:00",
         "datasets": rows,
     }, project_root=tmp_path)
     after = MODULE.reconcile_universe({
