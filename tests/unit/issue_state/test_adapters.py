@@ -146,6 +146,8 @@ def test_scheduler_adapter_ignores_claim_and_projects_terminal_only() -> None:
         "status": "PASS", "dataset_count": 80,
         "runtime_coverage_validated_count": 21,
         "runtime_coverage_failure_count": 0,
+        "unacceptable_datasets": [],
+        "runtime_coverage_failed_datasets": [],
     }
     lane_failure["health_projection"] = passing_health
     lane_failure["outcomes"][0]["result"] = {
@@ -165,6 +167,8 @@ def test_scheduler_adapter_accepts_typed_success_and_direct_lane_failure() -> No
         "status": "PASS", "dataset_count": 80,
         "runtime_coverage_validated_count": 21,
         "runtime_coverage_failure_count": 0,
+        "unacceptable_datasets": [],
+        "runtime_coverage_failed_datasets": [],
     }
     typed_success = {
         "schema_version": 1, "bundle": "KR_MARKET_DAILY", "scheduled_slot": "09:10",
@@ -182,6 +186,34 @@ def test_scheduler_adapter_accepts_typed_success_and_direct_lane_failure() -> No
         }],
     }
     assert adapt_scheduler_occurrence(typed_success, evidence=evidence)[0].outcome == "SUCCESS"
+
+    degraded_health = {
+        "status": "DEGRADED", "dataset_count": 80,
+        "runtime_coverage_validated_count": 20,
+        "runtime_coverage_failure_count": 0,
+        "unacceptable_datasets": ["UNRELATED_MANAGED_DATASET"],
+        "runtime_coverage_failed_datasets": [],
+    }
+    health_only_degraded = deepcopy(typed_success)
+    health_only_degraded["status"] = "DEGRADED"
+    health_only_degraded["health_projection"] = degraded_health
+    health_only_degraded["outcomes"][0]["result"]["health_projection"] = degraded_health
+    assert adapt_scheduler_occurrence(
+        health_only_degraded, evidence=evidence,
+    )[0].outcome == "SUCCESS"
+
+    degraded_lane_failure = deepcopy(health_only_degraded)
+    degraded_lane_failure.update(
+        occurrence_status="TERMINAL_FAILURE",
+        scheduler_process_status="FAIL_AFTER_INDEPENDENT_LANES",
+        terminal_exit_code=1,
+    )
+    degraded_lane_failure["outcomes"][0]["status"] = "FAIL"
+    degraded_lane_failure["outcomes"][0]["advancement_status"] = "FAILED"
+    degraded_lane_failure["outcomes"][0]["result"]["scheduler_process_status"] = "FAIL"
+    assert adapt_scheduler_occurrence(
+        degraded_lane_failure, evidence=evidence,
+    )[0].outcome == "FAILURE"
 
     direct_failure = deepcopy(typed_success)
     direct_failure.update(

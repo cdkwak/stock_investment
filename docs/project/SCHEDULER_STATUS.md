@@ -78,6 +78,10 @@ fail-closed 처리됐고 이전 정상값과 식별자 없는 immutable receipt�
 
 ## 한국장 묶음 v5
 
+묶음 종료 후 Health 투영은 설명 상태이며, 관리 데이터셋의 오래됨·런타임 실패는
+`DEGRADED` 목록으로 남기되 정상 레인의 성공과 프로세스 종료 코드 0을 바꾸지 않는다.
+Health 보고서 구조 자체가 잘못된 `FAIL`만 전체 레인을 `FAIL_AFTER_HEALTH`로 표시한다.
+
 20:30 슬롯은 다음 13개 레인을 실패 격리된 자식 작업으로 실행한다.
 
 1. `CANONICAL_EQUITY_DAILY`

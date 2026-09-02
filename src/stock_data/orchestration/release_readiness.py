@@ -589,10 +589,8 @@ def assess_health_consistency(
             )
             health = receipt.get("health_projection")
             if (
-                not isinstance(health, dict)
-                or health.get("status") != "PASS"
+                not _health_projection_is_complete(health)
                 or health.get("dataset_count") != len(rows)
-                or health.get("runtime_coverage_failure_count") != 0
             ):
                 raise ValueError("governing Health projection differs")
             receipt_times.append(finished)
@@ -1004,7 +1002,8 @@ def assess_scheduler_results(
         or any(task_name not in SCHEDULER_RESULT_POLICIES for task_name in selected_tasks)
     ):
         raise ValueError("required scheduler result tasks differ")
-    missing = malformed = stale = failed = 0
+    missing = malformed = stale = failed = degraded = 0
+    degraded_datasets: set[str] = set()
     for task_name in selected_tasks:
         relative, maximum_age = SCHEDULER_RESULT_POLICIES[task_name]
         try:
@@ -1027,7 +1026,13 @@ def assess_scheduler_results(
         if age < -timedelta(minutes=5) or age > maximum_age:
             stale += 1
             continue
-        if payload.get("status") != "PASS":
+        if (
+            payload.get("status") != "PASS"
+            and not (
+                task_name == "STOCK_DATA_KR_MARKET_DAILY_SLOT_BUNDLE"
+                and payload.get("status") == "DEGRADED"
+            )
+        ):
             failed += 1
             continue
         if task_name == "STOCK_DATA_YAHOO_MARKET_30M":
@@ -1088,28 +1093,16 @@ def assess_scheduler_results(
                     if tuple(by_lane) != expected_lanes:
                         raise ValueError("due-lane identity or order differs")
                     health = payload.get("health_projection")
-                    if (
-                        not isinstance(health, dict)
-                        or health.get("status") != "PASS"
-                        or not isinstance(
-                            health.get("runtime_coverage_failure_count"), int
-                        )
-                        or isinstance(
-                            health.get("runtime_coverage_failure_count"), bool
-                        )
-                        or health.get("runtime_coverage_failure_count") != 0
-                        or not isinstance(health.get("dataset_count"), int)
-                        or isinstance(health.get("dataset_count"), bool)
-                        or health["dataset_count"] <= 0
-                        or not isinstance(
-                            health.get("runtime_coverage_validated_count"), int
-                        )
-                        or isinstance(
-                            health.get("runtime_coverage_validated_count"), bool
-                        )
-                        or health["runtime_coverage_validated_count"] <= 0
-                    ):
+                    if not _health_projection_is_complete(health):
                         raise ValueError("Health reconciliation is unresolved")
+                    if payload.get("status") != health["status"]:
+                        raise ValueError("bundle and Health status differ")
+                    if health["status"] == "DEGRADED":
+                        degraded += 1
+                        degraded_datasets.update(health["unacceptable_datasets"])
+                        degraded_datasets.update(
+                            health["runtime_coverage_failed_datasets"]
+                        )
                     api_total = 0
                     for lane, outcome in by_lane.items():
                         lane_status = str(outcome.get("status", ""))
@@ -1154,11 +1147,19 @@ def assess_scheduler_results(
                     KeyError, TypeError, ValueError,
                 ):
                     failed += 1
-    status = "PASS" if not any((missing, malformed, stale, failed)) else "FAIL"
+    status = (
+        "FAIL" if any((missing, malformed, stale, failed))
+        else "DEGRADED" if degraded
+        else "PASS"
+    )
+    degraded_summary = (
+        f" degraded={degraded} unacceptable_datasets={sorted(degraded_datasets)}"
+        if degraded else ""
+    )
     return SmokeCheck(
         "SCHEDULER_RESULT_STATUS", status,
         f"required={len(selected_tasks)} missing={missing} malformed={malformed} "
-        f"stale={stale} failed={failed}",
+        f"stale={stale} failed={failed}{degraded_summary}",
         "operations",
     )
 
@@ -1209,15 +1210,35 @@ def _result_finished_after_due(payload: Mapping[str, object], due: datetime) -> 
 
 
 def _health_projection_is_complete(value: object) -> bool:
-    return bool(
-        isinstance(value, dict)
-        and value.get("status") == "PASS"
-        and type(value.get("dataset_count")) is int
-        and value["dataset_count"] > 0
-        and type(value.get("runtime_coverage_validated_count")) is int
-        and value["runtime_coverage_validated_count"] > 0
-        and value.get("runtime_coverage_failure_count") == 0
-    )
+    if not isinstance(value, dict) or set(value) != {
+        "status", "dataset_count", "runtime_coverage_validated_count",
+        "runtime_coverage_failure_count", "unacceptable_datasets",
+        "runtime_coverage_failed_datasets",
+    }:
+        return False
+    dataset_count = value.get("dataset_count")
+    validated_count = value.get("runtime_coverage_validated_count")
+    failure_count = value.get("runtime_coverage_failure_count")
+    unacceptable = value.get("unacceptable_datasets")
+    runtime_failed = value.get("runtime_coverage_failed_datasets")
+    if (
+        value.get("status") not in {"PASS", "DEGRADED"}
+        or type(dataset_count) is not int or dataset_count <= 0
+        or type(validated_count) is not int
+        or not 0 <= validated_count <= dataset_count
+        or type(failure_count) is not int
+        or not 0 <= failure_count <= dataset_count
+        or type(unacceptable) is not list
+        or type(runtime_failed) is not list
+        or any(type(dataset) is not str or not dataset for dataset in unacceptable)
+        or any(type(dataset) is not str or not dataset for dataset in runtime_failed)
+        or unacceptable != sorted(set(unacceptable))
+        or runtime_failed != sorted(set(runtime_failed))
+        or failure_count != len(runtime_failed)
+    ):
+        return False
+    has_degradation = bool(unacceptable or runtime_failed)
+    return value["status"] == ("DEGRADED" if has_degradation else "PASS")
 
 
 def _strict_json_object(path: Path) -> dict[str, object]:
@@ -1453,6 +1474,8 @@ def assess_due_scheduler_outcomes(
     if clock.tzinfo is None or clock.utcoffset() is None:
         raise ValueError("due scheduler clock must be timezone-aware")
     failures = 0
+    degraded = 0
+    degraded_datasets: set[str] = set()
     due = 0
     lane_names = {
         "STOCK_DATA_FRED_DAILY": "FRED_DAILY",
@@ -1502,6 +1525,11 @@ def assess_due_scheduler_outcomes(
                 or not _health_projection_is_complete(payload.get("health_projection"))
             ):
                 raise ValueError("daily provider receipt is incomplete")
+            health = payload["health_projection"]
+            if health["status"] == "DEGRADED":
+                degraded += 1
+                degraded_datasets.update(health["unacceptable_datasets"])
+                degraded_datasets.update(health["runtime_coverage_failed_datasets"])
         except (
             FileNotFoundError, OSError, UnicodeError, json.JSONDecodeError,
             KeyError, TypeError, ValueError,
@@ -1518,11 +1546,19 @@ def assess_due_scheduler_outcomes(
         )
         expected = _latest_kr_occurrence(clock)
         scheduled = _aware_datetime(payload.get("scheduled_for"), field="KR scheduled_for")
-        if scheduled.astimezone(KST) != expected or assess_scheduler_results(
+        kr_result = assess_scheduler_results(
             root, now=clock,
             required_tasks=("STOCK_DATA_KR_MARKET_DAILY_SLOT_BUNDLE",),
-        ).status != "PASS":
+        )
+        if scheduled.astimezone(KST) != expected or kr_result.status not in {
+            "PASS", "DEGRADED",
+        }:
             raise ValueError("latest KR occurrence is unresolved")
+        if kr_result.status == "DEGRADED":
+            degraded += 1
+            health = payload["health_projection"]
+            degraded_datasets.update(health["unacceptable_datasets"])
+            degraded_datasets.update(health["runtime_coverage_failed_datasets"])
     except (
         FileNotFoundError, OSError, UnicodeError, json.JSONDecodeError,
         TypeError, ValueError,
@@ -1651,9 +1687,15 @@ def assess_due_scheduler_outcomes(
     ):
         failures += 1
 
+    status = "FAIL" if failures else "DEGRADED" if degraded else "PASS"
+    degraded_summary = (
+        f" degraded={degraded} unacceptable_datasets={sorted(degraded_datasets)}"
+        if degraded else ""
+    )
     return SmokeCheck(
-        "DUE_OCCURRENCE_OUTCOMES", "PASS" if failures == 0 else "FAIL",
-        f"due_task_groups={due} complete={due - failures} failed={failures}",
+        "DUE_OCCURRENCE_OUTCOMES", status,
+        f"due_task_groups={due} complete={due - failures} failed={failures}"
+        f"{degraded_summary}",
         "operations",
     )
 

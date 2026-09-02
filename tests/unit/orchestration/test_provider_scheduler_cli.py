@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 from stock_data.orchestration.daily_operations import DATASET_UNIVERSE
+from stock_data.providers.tossinvest import TossInvestRateLimitError
 
 
 SCRIPT = Path(__file__).resolve().parents[3] / "scripts/maintenance/run_provider_scheduler.py"
@@ -25,6 +26,20 @@ def _health_pass() -> dict[str, object]:
         "dataset_count": 80,
         "runtime_coverage_validated_count": 21,
         "runtime_coverage_failure_count": 0,
+        "unacceptable_datasets": [],
+        "runtime_coverage_failed_datasets": [],
+    }
+
+
+def _health_degraded(dataset: str, *datasets: str) -> dict[str, object]:
+    listed = sorted((dataset, *datasets))
+    return {
+        "status": "DEGRADED",
+        "dataset_count": 80,
+        "runtime_coverage_validated_count": 20,
+        "runtime_coverage_failure_count": len(listed),
+        "unacceptable_datasets": listed,
+        "runtime_coverage_failed_datasets": listed,
     }
 
 
@@ -34,16 +49,19 @@ def test_health_projection_ignores_unmanaged_runtime_probe_failure() -> None:
         "datasets": [
             {
                 "automation_enabled": True,
+                "dataset": "MANAGED_CURRENT",
                 "runtime_coverage": "VALIDATED",
                 "freshness": "CURRENT",
             },
             {
                 "automation_enabled": True,
+                "dataset": "MANAGED_EXPECTED_LAG",
                 "runtime_coverage": "VALIDATED",
                 "freshness": "EXPECTED_LAG",
             },
             {
                 "automation_enabled": False,
+                "dataset": "UNMANAGED_FAILED",
                 "runtime_coverage": "FAILED:PermissionError",
             },
         ],
@@ -54,49 +72,87 @@ def test_health_projection_ignores_unmanaged_runtime_probe_failure() -> None:
         "dataset_count": 3,
         "runtime_coverage_validated_count": 2,
         "runtime_coverage_failure_count": 0,
+        "unacceptable_datasets": [],
+        "runtime_coverage_failed_datasets": [],
     }
 
 
-def test_health_projection_fails_for_managed_runtime_probe_not_probed() -> None:
+def test_health_projection_describes_managed_runtime_probe_not_probed() -> None:
     report = {
         "dataset_count": 2,
         "datasets": [
-            {"automation_enabled": True, "runtime_coverage": "VALIDATED"},
-            {"automation_enabled": True, "runtime_coverage": "NOT_PROBED"},
+            {
+                "automation_enabled": True, "dataset": "CURRENT",
+                "runtime_coverage": "VALIDATED", "freshness": "CURRENT",
+            },
+            {
+                "automation_enabled": True, "dataset": "NOT_PROBED",
+                "runtime_coverage": "NOT_PROBED", "freshness": "UNKNOWN",
+            },
         ],
     }
 
-    with pytest.raises(MODULE.SchedulerHealthProjectionError):
-        MODULE._health_projection_from_report(report)
+    assert MODULE._health_projection_from_report(report) == {
+        "status": "DEGRADED", "dataset_count": 2,
+        "runtime_coverage_validated_count": 1,
+        "runtime_coverage_failure_count": 0,
+        "unacceptable_datasets": ["NOT_PROBED"],
+        "runtime_coverage_failed_datasets": [],
+    }
 
 
-def test_health_projection_fails_for_managed_stale_row() -> None:
+def test_health_projection_describes_managed_stale_row() -> None:
     report = {
         "dataset_count": 1,
         "datasets": [{
             "automation_enabled": True,
+            "dataset": "STALE_DATASET",
             "runtime_coverage": "VALIDATED",
             "freshness": "STALE",
         }],
     }
 
-    with pytest.raises(MODULE.SchedulerHealthProjectionError):
-        MODULE._health_projection_from_report(report)
+    assert MODULE._health_projection_from_report(report) == {
+        "status": "DEGRADED", "dataset_count": 1,
+        "runtime_coverage_validated_count": 1,
+        "runtime_coverage_failure_count": 0,
+        "unacceptable_datasets": ["STALE_DATASET"],
+        "runtime_coverage_failed_datasets": [],
+    }
 
 
-def test_health_projection_fails_for_managed_runtime_probe_failure() -> None:
+def test_health_projection_describes_managed_runtime_probe_failure() -> None:
     report = {
         "dataset_count": 2,
         "datasets": [
-            {"automation_enabled": True, "runtime_coverage": "VALIDATED"},
+            {
+                "automation_enabled": True, "dataset": "CURRENT",
+                "runtime_coverage": "VALIDATED", "freshness": "CURRENT",
+            },
             {
                 "automation_enabled": True,
+                "dataset": "FAILED_DATASET",
                 "runtime_coverage": "FAILED:PermissionError",
+                "freshness": "UNKNOWN",
             },
         ],
     }
 
-    with pytest.raises(MODULE.SchedulerHealthProjectionError):
+    assert MODULE._health_projection_from_report(report) == {
+        "status": "DEGRADED", "dataset_count": 2,
+        "runtime_coverage_validated_count": 1,
+        "runtime_coverage_failure_count": 1,
+        "unacceptable_datasets": ["FAILED_DATASET"],
+        "runtime_coverage_failed_datasets": ["FAILED_DATASET"],
+    }
+
+
+@pytest.mark.parametrize("report", [None, [], "malformed"])
+def test_health_projection_rejects_malformed_report(report: object) -> None:
+    with pytest.raises(
+        MODULE.SchedulerHealthProjectionError,
+        match="Health report is not an object",
+    ):
         MODULE._health_projection_from_report(report)
 
 
@@ -539,6 +595,113 @@ def test_kr_market_daily_bundle_contains_lane_failure_and_preserves_gates(
     ).exists()
 
 
+def test_kr_bundle_keeps_twelve_good_lane_statuses_after_one_lane_failure(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    failed_dataset = "TOSS_KR_TREASURY_DAILY"
+
+    def run(_root, lane, **_kwargs):
+        if lane == failed_dataset:
+            raise TossInvestRateLimitError("rate limited")
+        return {"status": "NOOP", "api_calls": 0}
+
+    monkeypatch.setattr(MODULE, "_run_bundle_lane", run)
+    monkeypatch.setattr(
+        MODULE, "_refresh_health", lambda _root: _health_degraded(failed_dataset),
+    )
+    occurrence = datetime(
+        2026, 9, 2, 20, 30, tzinfo=MODULE.KR_MARKET_DAILY_TIMEZONE,
+    )
+
+    terminal, exit_code = MODULE._run_kr_market_daily_bundle(
+        tmp_path, scheduled_slot="20:30", as_of=occurrence,
+        dry_run=False, scheduled_occurrence=occurrence,
+    )
+
+    assert exit_code == 1
+    assert terminal["status"] == "DEGRADED"
+    assert terminal["scheduler_process_status"] == "FAIL_AFTER_INDEPENDENT_LANES"
+    assert terminal["health_projection"] == _health_degraded(failed_dataset)
+    good = [item for item in terminal["outcomes"] if item["lane"] != failed_dataset]
+    failed = [item for item in terminal["outcomes"] if item["lane"] == failed_dataset]
+    assert len(good) == 12 and len(failed) == 1
+    assert all(item["result"]["scheduler_process_status"] == "SUCCESS" for item in good)
+    failed_log = json.loads((
+        tmp_path / "artifacts/scheduler_logs/STOCK_DATA_TOSS_KR_TREASURY_DAILY_last.json"
+    ).read_text(encoding="utf-8"))
+    assert failed_log["scheduler_process_status"] == "FAIL"
+    assert failed_log["health_projection"] == _health_degraded(failed_dataset)
+
+
+def test_kr_bundle_health_only_degradation_keeps_successful_process(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    stale_dataset = "UNRELATED_MANAGED_DATASET"
+    monkeypatch.setattr(
+        MODULE, "_run_bundle_lane",
+        lambda *_args, **_kwargs: {"status": "NOOP", "api_calls": 0},
+    )
+    monkeypatch.setattr(
+        MODULE, "_refresh_health", lambda _root: {
+            "status": "DEGRADED",
+            "dataset_count": 80,
+            "runtime_coverage_validated_count": 21,
+            "runtime_coverage_failure_count": 0,
+            "unacceptable_datasets": [stale_dataset],
+            "runtime_coverage_failed_datasets": [],
+        },
+    )
+    occurrence = datetime(
+        2026, 9, 2, 20, 30, tzinfo=MODULE.KR_MARKET_DAILY_TIMEZONE,
+    )
+
+    terminal, exit_code = MODULE._run_kr_market_daily_bundle(
+        tmp_path, scheduled_slot="20:30", as_of=occurrence,
+        dry_run=False, scheduled_occurrence=occurrence,
+    )
+
+    assert exit_code == 0
+    assert terminal["status"] == "DEGRADED"
+    assert terminal["occurrence_status"] == "TERMINAL_SUCCESS"
+    assert terminal["scheduler_process_status"] == "SUCCESS"
+    assert terminal["health_projection"]["unacceptable_datasets"] == [stale_dataset]
+    assert all(
+        item["result"]["scheduler_process_status"] == "SUCCESS"
+        for item in terminal["outcomes"]
+    )
+
+
+def test_kr_bundle_malformed_health_report_still_fails_every_lane_after_health(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        MODULE, "_run_bundle_lane",
+        lambda *_args, **_kwargs: {"status": "NOOP", "api_calls": 0},
+    )
+    monkeypatch.setattr(
+        MODULE, "_refresh_health",
+        lambda _root: MODULE._health_projection_from_report("malformed"),
+    )
+    occurrence = datetime(
+        2026, 9, 2, 9, 10, tzinfo=MODULE.KR_MARKET_DAILY_TIMEZONE,
+    )
+
+    terminal, exit_code = MODULE._run_kr_market_daily_bundle(
+        tmp_path, scheduled_slot="09:10", as_of=occurrence,
+        dry_run=False, scheduled_occurrence=occurrence,
+    )
+
+    assert exit_code == 1
+    assert terminal["health_projection"] == {
+        "status": "FAIL", "error_type": "SchedulerHealthProjectionError",
+    }
+    assert terminal["scheduler_process_status"] == "FAIL_AFTER_INDEPENDENT_LANES"
+    assert all(
+        item["result"]["scheduler_process_status"] == "FAIL_AFTER_HEALTH"
+        for item in terminal["outcomes"]
+    )
+
+
 @pytest.mark.parametrize(
     ("scheduled_slot", "started_at", "expected_lanes", "expected_scheduled_for"),
     [
@@ -978,13 +1141,7 @@ def test_duplicate_occurrence_never_rewinds_a_newer_terminal_pointer(
             "status": "NOOP", "api_calls": 0,
         },
     )
-    monkeypatch.setattr(
-        MODULE, "_refresh_health", lambda _root: {
-            "status": "PASS", "dataset_count": 80,
-            "runtime_coverage_validated_count": 21,
-            "runtime_coverage_failure_count": 0,
-        },
-    )
+    monkeypatch.setattr(MODULE, "_refresh_health", lambda _root: _health_pass())
     started = datetime(2026, 8, 25, 2, 30, tzinfo=timezone.utc)
     old_occurrence = datetime(
         2026, 8, 24, 20, 30, tzinfo=MODULE.KR_MARKET_DAILY_TIMEZONE,

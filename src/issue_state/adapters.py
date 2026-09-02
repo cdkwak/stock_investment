@@ -284,16 +284,39 @@ def adapt_scheduler_occurrence(payload: object, *, evidence: str) -> tuple[Issue
     outcomes = payload.get("outcomes")
     api_calls = payload.get("api_calls")
     health = payload.get("health_projection")
-    health_pass = (
+    health_non_error = (
         type(health) is dict
         and set(health) == {
             "status", "dataset_count", "runtime_coverage_validated_count",
-            "runtime_coverage_failure_count",
+            "runtime_coverage_failure_count", "unacceptable_datasets",
+            "runtime_coverage_failed_datasets",
         }
-        and health.get("status") == "PASS"
+        and health.get("status") in {"PASS", "DEGRADED"}
         and type(health.get("dataset_count")) is int and health["dataset_count"] > 0
         and type(health.get("runtime_coverage_validated_count")) is int
+        and 0 <= health["runtime_coverage_validated_count"] <= health["dataset_count"]
         and type(health.get("runtime_coverage_failure_count")) is int
+        and 0 <= health["runtime_coverage_failure_count"] <= health["dataset_count"]
+        and type(health.get("unacceptable_datasets")) is list
+        and type(health.get("runtime_coverage_failed_datasets")) is list
+        and all(
+            type(dataset) is str and bool(dataset)
+            for dataset in health["unacceptable_datasets"]
+            + health["runtime_coverage_failed_datasets"]
+        )
+        and health["unacceptable_datasets"]
+        == sorted(set(health["unacceptable_datasets"]))
+        and health["runtime_coverage_failed_datasets"]
+        == sorted(set(health["runtime_coverage_failed_datasets"]))
+        and health["runtime_coverage_failure_count"]
+        == len(health["runtime_coverage_failed_datasets"])
+        and (
+            (health["status"] == "PASS" and not health["unacceptable_datasets"]
+             and not health["runtime_coverage_failed_datasets"])
+            or (health["status"] == "DEGRADED"
+                and bool(health["unacceptable_datasets"]
+                         or health["runtime_coverage_failed_datasets"]))
+        )
     )
     health_fail = (
         type(health) is dict
@@ -307,7 +330,7 @@ def adapt_scheduler_occurrence(payload: object, *, evidence: str) -> tuple[Issue
         or any(type(lane) is not str or not re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", lane) for lane in lanes)
         or type(outcomes) is not list or len(outcomes) != len(lanes)
         or type(api_calls) is not int or api_calls < 0
-        or not (health_pass or health_fail)
+        or not (health_non_error or health_fail)
     ):
         raise ValueError("scheduler occurrence coverage differs")
     outcome_calls = 0
@@ -366,9 +389,10 @@ def adapt_scheduler_occurrence(payload: object, *, evidence: str) -> tuple[Issue
     if outcome_lanes != lanes or outcome_calls != api_calls:
         raise ValueError("scheduler lane totals differ")
     success = (
-        payload.get("status") == "PASS" and payload.get("scheduler_process_status") == "SUCCESS"
-        and payload.get("terminal_exit_code") == 0 and health_pass
-        and health["runtime_coverage_failure_count"] == 0
+        health_non_error
+        and payload.get("status") == health["status"]
+        and payload.get("scheduler_process_status") == "SUCCESS"
+        and payload.get("terminal_exit_code") == 0
         and all(not row["status"].startswith(("FAIL", "DEGRADED")) for row in outcomes)
     )
     failure = (

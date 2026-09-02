@@ -680,34 +680,38 @@ def _health_projection_from_report(report: object) -> dict[str, object]:
         or dataset_count != len(rows)
         or any(not isinstance(row, dict) for row in rows)
         or any(type(row.get("automation_enabled")) is not bool for row in rows)
+        or any(
+            not isinstance(row.get("dataset"), str) or not row["dataset"]
+            for row in rows
+        )
+        or len({str(row["dataset"]) for row in rows}) != len(rows)
     ):
         raise SchedulerHealthProjectionError("Health report coverage differs")
     managed = [row for row in rows if row["automation_enabled"]]
     managed_validated = sum(
         row.get("runtime_coverage") == "VALIDATED" for row in managed
     )
-    managed_failures = sum(
-        str(row.get("runtime_coverage", "")).startswith("FAILED:")
+    runtime_coverage_failed_datasets = sorted(
+        str(row["dataset"])
         for row in managed
+        if str(row.get("runtime_coverage", "")).startswith("FAILED:")
     )
-    managed_unacceptable = sum(
-        row.get("freshness") not in {"CURRENT", "EXPECTED_LAG"}
+    unacceptable_datasets = sorted(
+        str(row["dataset"])
         for row in managed
+        if row.get("freshness") not in {"CURRENT", "EXPECTED_LAG"}
     )
-    if (
-        not managed
-        or managed_validated != len(managed)
-        or managed_failures != 0
-        or managed_unacceptable != 0
-    ):
-        raise SchedulerHealthProjectionError(
-            "Health managed freshness or runtime coverage is incomplete or failed"
-        )
     return _validated_health_projection({
-        "status": "PASS",
+        "status": (
+            "PASS"
+            if not unacceptable_datasets and not runtime_coverage_failed_datasets
+            else "DEGRADED"
+        ),
         "dataset_count": dataset_count,
         "runtime_coverage_validated_count": managed_validated,
-        "runtime_coverage_failure_count": managed_failures,
+        "runtime_coverage_failure_count": len(runtime_coverage_failed_datasets),
+        "unacceptable_datasets": unacceptable_datasets,
+        "runtime_coverage_failed_datasets": runtime_coverage_failed_datasets,
     })
 
 
@@ -717,17 +721,41 @@ def _validated_health_projection(payload: object) -> dict[str, object]:
     dataset_count = payload.get("dataset_count")
     validated_count = payload.get("runtime_coverage_validated_count")
     failure_count = payload.get("runtime_coverage_failure_count")
+    unacceptable = payload.get("unacceptable_datasets")
+    runtime_failed = payload.get("runtime_coverage_failed_datasets")
     if (
-        payload.get("status") != "PASS"
+        set(payload) != {
+            "status", "dataset_count", "runtime_coverage_validated_count",
+            "runtime_coverage_failure_count", "unacceptable_datasets",
+            "runtime_coverage_failed_datasets",
+        }
+        or payload.get("status") not in {"PASS", "DEGRADED"}
         or not isinstance(dataset_count, int)
         or isinstance(dataset_count, bool)
         or dataset_count <= 0
         or not isinstance(validated_count, int)
         or isinstance(validated_count, bool)
-        or validated_count <= 0
+        or validated_count < 0
+        or validated_count > dataset_count
         or not isinstance(failure_count, int)
         or isinstance(failure_count, bool)
-        or failure_count != 0
+        or failure_count < 0
+        or failure_count > dataset_count
+        or not isinstance(unacceptable, list)
+        or not isinstance(runtime_failed, list)
+        or any(not isinstance(item, str) or not item for item in unacceptable)
+        or any(not isinstance(item, str) or not item for item in runtime_failed)
+        or unacceptable != sorted(set(unacceptable))
+        or runtime_failed != sorted(set(runtime_failed))
+        or failure_count != len(runtime_failed)
+        or (
+            payload.get("status") == "PASS"
+            and (unacceptable or runtime_failed)
+        )
+        or (
+            payload.get("status") == "DEGRADED"
+            and not (unacceptable or runtime_failed)
+        )
     ):
         raise SchedulerHealthProjectionError(
             "Health projection is incomplete or has runtime coverage failures"
@@ -918,23 +946,33 @@ def _run_kr_market_daily_bundle_unlocked(
             }
             payload["status"] = "DEGRADED"
             exit_code = 1
+        else:
+            if payload["health_projection"]["status"] == "DEGRADED":
+                payload["status"] = "DEGRADED"
         payload["scheduler_process_status"] = (
             "SUCCESS" if exit_code == 0 else "FAIL_AFTER_INDEPENDENT_LANES"
         )
+        health_failed = payload["health_projection"].get("status") == "FAIL"
         for item in outcomes:
             lane = str(item["lane"])
             lane_payload = item.get("result")
+            lane_failed = str(item["status"]).startswith(("FAIL", "DEGRADED"))
+            lane_process_status = (
+                "FAIL_AFTER_HEALTH" if health_failed
+                else "FAIL" if lane_failed
+                else "SUCCESS"
+            )
             if isinstance(lane_payload, dict):
                 lane_payload["advancement_status"] = item["advancement_status"]
                 lane_payload["health_projection"] = payload["health_projection"]
-                lane_payload["scheduler_process_status"] = (
-                    "FAIL_AFTER_HEALTH"
-                    if payload["health_projection"].get("status") != "PASS"
-                    else "FAIL" if item in failures else "SUCCESS"
-                )
+                lane_payload["scheduler_process_status"] = lane_process_status
                 _write_lane_log(project_root, lane, lane_payload)
             else:
-                _write_lane_log(project_root, lane, item)
+                _write_lane_log(project_root, lane, {
+                    **item,
+                    "health_projection": payload["health_projection"],
+                    "scheduler_process_status": lane_process_status,
+                })
         if occurrence_receipt is not None:
             payload = _finalize_kr_occurrence_receipt(
                 project_root, occurrence_receipt, payload, exit_code=exit_code,

@@ -531,6 +531,8 @@ def _write_required_scheduler_results(
         "status": "PASS", "dataset_count": dataset_count,
         "runtime_coverage_validated_count": validated_count,
         "runtime_coverage_failure_count": 0,
+        "unacceptable_datasets": [],
+        "runtime_coverage_failed_datasets": [],
     }
     outcomes = []
     for lane in lanes:
@@ -608,6 +610,8 @@ def _write_complete_release_gate_inputs(root: Path, *, clock: datetime) -> None:
         "status": "PASS", "dataset_count": 1,
         "runtime_coverage_validated_count": 1,
         "runtime_coverage_failure_count": 0,
+        "unacceptable_datasets": [],
+        "runtime_coverage_failed_datasets": [],
     }
     lane_files = {
         "FRED_DAILY": "STOCK_DATA_FRED_DAILY_last.json",
@@ -773,6 +777,37 @@ def test_scheduler_results_require_fresh_well_formed_success(tmp_path: Path) -> 
     _write_required_scheduler_results(tmp_path, finished=clock - timedelta(days=3))
     check = subject.assess_scheduler_results(tmp_path, now=clock)
     assert check.status == "FAIL" and "stale=2" in check.summary
+
+
+def test_release_readiness_accepts_descriptive_degraded_health_projection(
+    tmp_path: Path,
+) -> None:
+    clock = datetime.now(subject.KST)
+    _write_complete_release_gate_inputs(tmp_path, clock=clock)
+    log = tmp_path / "artifacts/scheduler_logs/STOCK_DATA_KR_MARKET_DAILY_last.json"
+    payload = json.loads(log.read_text(encoding="utf-8"))
+    degraded_health = {
+        "status": "DEGRADED", "dataset_count": 1,
+        "runtime_coverage_validated_count": 1,
+        "runtime_coverage_failure_count": 0,
+        "unacceptable_datasets": ["unrelated_managed_dataset"],
+        "runtime_coverage_failed_datasets": [],
+    }
+    payload["status"] = "DEGRADED"
+    payload["health_projection"] = degraded_health
+    for outcome in payload["outcomes"]:
+        outcome["result"]["health_projection"] = degraded_health
+    encoded = json.dumps(payload, sort_keys=True)
+    log.write_text(encoded, encoding="utf-8")
+    (tmp_path / payload["occurrence_receipt"]).write_text(encoded, encoding="utf-8")
+
+    scheduler = subject.assess_scheduler_results(tmp_path, now=clock)
+    due = subject.assess_due_scheduler_outcomes(tmp_path, now=clock)
+
+    assert scheduler.status == "DEGRADED"
+    assert "unrelated_managed_dataset" in scheduler.summary
+    assert due.status == "DEGRADED"
+    assert "unrelated_managed_dataset" in due.summary
 
 
 def test_kr_scheduler_lane_contract_has_bounded_legacy_cutover(
