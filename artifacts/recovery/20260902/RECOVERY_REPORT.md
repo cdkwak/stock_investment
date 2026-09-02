@@ -6,8 +6,8 @@ The project is operationally recoverable and the verified repair work is isolate
 `hermes/retire-python-pm-20260831-224653`. The pre-retirement state is preserved by
 commit `b0647b4` and branch `backup/python-pm-pre-hermes-20260831-224653`. The target
 `master` branch has not been changed. The clean safety branch
-`codex/recovery-verified-20260902` points to verified recovery commit `7f8261b` and
-does not include the 65 uncommitted retirement deletions.
+`codex/recovery-verified-20260902` contains verified recovery baseline `7f8261b`
+and does not include the 65 uncommitted retirement deletions.
 
 Verified repair commits:
 
