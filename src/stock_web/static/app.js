@@ -6,6 +6,7 @@
   const pct = (v, d = 1) => (v === null || v === undefined) ? "—" : `${v > 0 ? "+" : ""}${Number(v).toFixed(d)}%`;
   const cls = (v) => (v === null || v === undefined) ? "muted" : (v > 0 ? "up" : v < 0 ? "down" : "muted");
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const intradayValue = (value) => Number(value).toLocaleString("ko-KR", { maximumFractionDigits: 2 });
   const asof = (value) => {
     if (!value) return "—";
     const text = String(value);
@@ -29,10 +30,12 @@
   function renderRegime(sec) {
     const host = $("regime-cards");
     if (!sec || !sec.markets) { host.innerHTML = `<div class="regime-card">${unavailable("국면 근거 미계산")}</div>`; return; }
-    host.innerHTML = sec.markets.map((m) => `
+    host.innerHTML = sec.markets.map((m, index) => `
       <div class="regime-card">
-        <div class="t">${esc(m.title)}</div>
-        <div class="temp"><b style="color:${m.hot ? "var(--amber-soft)" : "#f4f2ee"}">${esc(m.temperature)}</b><span>${esc(m.subtitle || "")}</span></div>
+        <div class="regime-title-line">
+          <span class="t">${esc(m.title)}</span>
+          <div class="temp"><b style="color:${m.hot ? "var(--amber-soft)" : "#f4f2ee"}">${esc(m.temperature)}</b><span>${esc(m.subtitle || "")}</span>${index === 0 ? '<button class="regime-toggle" id="regime-toggle" type="button" aria-expanded="false">근거 펼치기 ▾</button>' : ""}</div>
+        </div>
         <div class="ev">${(m.evidence || []).map((e) => `<div><span>${esc(e[0])}</span><span class="num">${esc(e[1])}</span></div>`).join("")}</div>
       </div>`).join("");
     const r = sec.rules;
@@ -49,10 +52,10 @@
     host.innerHTML = (tiles || []).map((t) => `
       <div class="tile" data-symbol="${esc(t.symbol || "")}">
         <div class="n">${esc(t.name)}</div>
-        <div class="v"><b class="num">${t.value ?? "—"}</b><span class="num ${cls(t.change_pct)}">${t.change_label ?? pct(t.change_pct)}</span></div>
-        ${t.latest_intraday ? `<div class="muted" style="font-size:10px;margin-top:2px">장중 <span class="num">${fmt(t.latest_intraday.value)}</span> (${asof(t.latest_intraday.time).slice(-5)})</div>` : ""}
+        <div class="v"><span class="headline-value"><b class="num">${t.value ?? "—"}</b>${t.latest_intraday ? `<small class="muted">장중 <span class="num">${intradayValue(t.latest_intraday.value)}</span> · ${asof(t.latest_intraday.time).slice(-5)}</small>` : ""}</span><span class="num ${cls(t.change_pct)}">${t.change_label ?? pct(t.change_pct)}</span></div>
         <div class="ma"><span>5일 <span class="num ${cls(t.ma5_pct)}">${pct(t.ma5_pct)}</span></span><span>20일 <span class="num ${cls(t.ma20_pct)}">${pct(t.ma20_pct)}</span></span></div>
         ${t.spark ? `<div class="spark">${sparkline(t.spark)}<small>${esc(t.window || "")}</small></div>` : `<div class="note">${esc(t.note || "표시 불가")}</div>`}
+        ${t.sub_note ? `<div class="tile-sub-note">${esc(t.sub_note)}</div>` : ""}
       </div>`).join("");
     host.querySelectorAll(".tile").forEach((el) => el.addEventListener("click", () => el.dataset.symbol && onPick(el.dataset.symbol)));
   }
@@ -121,7 +124,7 @@
     if (!sec || investTotal === undefined) { host.innerHTML = unavailable(sec && sec.reason); return; }
     host.innerHTML = `
       <div class="acct-total"><span class="muted">투자 자산</span><b class="num">₩ ${fmt(investTotal / 1e8, 2)}억</b><span class="num ${cls(sec.day_change_pct)}">어제 ${pct(sec.day_change_pct)}${sec.day_change_krw !== undefined && sec.day_change_krw !== null ? ` (${sec.day_change_krw >= 0 ? "+" : ""}${fmt(sec.day_change_krw / 1e4, 0)}만)` : ""}</span></div>
-      ${sec.net_worth_krw !== undefined && sec.net_worth_krw !== null ? `<div class="acct-net-worth"><span>순자산</span> <b class="num">₩${fmt(sec.net_worth_krw / 1e8, 2)}억</b> <small>(부동산·예금 포함, ${esc(asof(sec.net_worth_as_of))} 기준)</small></div>` : ""}
+      ${sec.net_worth_krw !== undefined && sec.net_worth_krw !== null ? `<div class="acct-net-worth"><span>순자산</span> <b class="num">₩${fmt(sec.net_worth_krw / 1e8, 2)}억</b> <small>(부동산·예금 포함, ${esc(sec.net_worth_as_of_label || asof(sec.net_worth_as_of))} 기준)</small></div>` : ""}
       <div class="acct-meta">
         ${sec.period_pct !== undefined ? `<span>${esc(sec.period_label || "기간")} <b class="num ${cls(sec.period_pct)}">${pct(sec.period_pct)}</b></span>` : ""}
         ${sec.kospi_period_pct !== undefined ? `<span>KOSPI 동기간 <b class="num ${cls(sec.kospi_period_pct)}">${pct(sec.kospi_period_pct)}</b></span>` : ""}
@@ -132,19 +135,20 @@
         ${sec.short_treasury_pct !== undefined ? `<span>단기국채 <b class="num">${fmt(sec.short_treasury_pct, 0)}%</b></span>` : ""}
       </div>
       <div class="acct-meta">
-        ${sec.usd_assets_usd !== undefined ? `<span>달러 자산 <b class="num">$${fmt(sec.usd_assets_usd, 0)} = ${fmt(sec.usd_assets_krw / 1e8, 2)}억</b> (${fmt(sec.usdkrw, 2)}원 · ${esc(sec.usdkrw_as_of || "기준일 미상")})</span>` : `<span>달러 자산 —</span>`}
+        ${sec.usd_assets_usd !== undefined ? `<span>달러 자산 <b class="num">$${fmt(sec.usd_assets_usd, 0)} = ${fmt(sec.usd_assets_krw / 1e8, 2)}억</b> (${fmt(sec.usdkrw, 2)}원 · ${esc(sec.usdkrw_as_of_label || asof(sec.usdkrw_as_of))})</span>` : `<span>달러 자산 —</span>`}
         ${sec.fx_effect_pct !== undefined ? `<span>환율 효과 어제 <b class="num ${cls(sec.fx_effect_pct)}">${pct(sec.fx_effect_pct)}</b></span>` : ""}
         ${sec.equity_effect_pct !== undefined ? `<span>주식 효과 <b class="num ${cls(sec.equity_effect_pct)}">${pct(sec.equity_effect_pct)}</b></span>` : ""}
       </div>
       <div id="acct-chart" class="acct-chart"></div>
       <div class="acct-foot">${esc(sec.footnote || "계좌 규모 변화 · 점선은 KOSPI 비교")}</div>
-      ${(sec.sources || []).length ? `<div class="acct-foot">${sec.sources.map((source) => `${esc(source.name)} ${esc(asof(source.as_of))}${source.included ? "" : " 제외"}`).join(" · ")}</div>` : ""}
+      ${(sec.sources || []).length ? `<div class="acct-foot">${sec.sources.map((source) => `${esc(source.name)} ${esc(source.as_of_label || asof(source.as_of))}${source.included ? "" : " 제외"}`).join(" · ")}</div>` : ""}
       ${(sec.exposure_unverified || []).length ? `<div class="acct-foot">배수 미확인(1배 처리): ${esc(sec.exposure_unverified.join(", "))}</div>` : ""}`;
     if (window.LightweightCharts && sec.history && sec.history.length > 1) {
       acctChart = LightweightCharts.createChart($("acct-chart"), { layout: { background: { color: "#fff" }, textColor: "#6b6660" }, grid: { vertLines: { visible: false }, horzLines: { color: "#e6e1d8" } }, rightPriceScale: { borderColor: "#d9d3ca" }, timeScale: { borderColor: "#d9d3ca" }, autoSize: true, handleScroll: false, handleScale: false });
-      acctSeries = acctChart.addLineSeries({ color: "#1f1d1a", lineWidth: 2, priceLineVisible: false });
+      const krwPriceFormat = { type: "custom", minMove: 1e5, formatter: (value) => `${(value / 1e8).toFixed(2)}억` };
+      acctSeries = acctChart.addLineSeries({ color: "#1f1d1a", lineWidth: 2, priceLineVisible: false, priceFormat: krwPriceFormat });
       acctSeries.setData(sec.history.map((p) => ({ time: p.t, value: p.v })));
-      if (sec.benchmark) { acctBench = acctChart.addLineSeries({ color: "#b5aea4", lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false }); acctBench.setData(sec.benchmark.map((p) => ({ time: p.t, value: p.v }))); }
+      if (sec.benchmark) { acctBench = acctChart.addLineSeries({ color: "#b5aea4", lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false, priceFormat: krwPriceFormat }); acctBench.setData(sec.benchmark.map((p) => ({ time: p.t, value: p.v }))); }
       acctChart.timeScale().fitContent();
     }
   }
@@ -184,10 +188,15 @@
   function renderSummaryStrip(d) {
     const f = d.flows && d.flows.rows ? d.flows.rows[0] : null;
     const dv = d.derivatives && d.derivatives.groups ? d.derivatives.groups[0] : null;
-    $("summary-strip").innerHTML = `<b>수급</b><span>${f ? `외국인 오늘 ${signed(f.today)} · 5일 ${signed(f.d5)}` : '<span class="muted">—</span>'}</span>` +
-      `<span style="color:var(--line)">|</span><b>파생</b><span>${dv ? dv.rows.slice(0, 2).map((r) => `${esc(r[0])} ${esc(r[1])}`).join(" · ") : '<span class="muted">—</span>'}</span>` +
-      `<span style="color:var(--line)">|</span><b>일정</b><span>${d.schedule && d.schedule.items ? d.schedule.items.slice(0, 2).map((i) => `${esc(i.when)} ${esc(i.what)}`).join(" · ") : '<span class="muted">—</span>'}</span>` +
-      `<span class="ml">브리핑 · 스캐너 ${d.scanner && d.scanner.count !== undefined ? d.scanner.count + "개" : "—"} · 자세히 ▸</span>`;
+    const groups = [];
+    if (f) groups.push(`<span class="summary-group"><b>수급</b><span>외국인 오늘 ${signed(f.today)} · 5일 ${signed(f.d5)}</span></span>`);
+    if (dv && dv.rows && dv.rows.length) groups.push(`<span class="summary-group"><b>파생</b><span>${dv.rows.slice(0, 2).map((r) => `${esc(r[0])} ${esc(r[1])}`).join(" · ")}</span></span>`);
+    if (d.schedule && d.schedule.items && d.schedule.items.length) groups.push(`<span class="summary-group"><b>일정</b><span>${d.schedule.items.slice(0, 2).map((i) => `${esc(i.when)} ${esc(i.what)}`).join(" · ")}</span></span>`);
+    const more = [];
+    if (d.brief && d.brief.lines && d.brief.lines.length) more.push("브리핑");
+    if (d.scanner && d.scanner.count !== undefined) more.push(`스캐너 ${d.scanner.count}개`);
+    if (more.length) groups.push(`<span class="summary-group ml">${more.join(" · ")} · 자세히 ▸</span>`);
+    $("summary-strip").innerHTML = groups.length ? groups.join('<span class="summary-separator">|</span>') : '<span class="muted">표시할 요약이 없습니다.</span>';
   }
   function renderHealth(h) {
     const chip = $("health-chip");
@@ -206,9 +215,15 @@
   }
   function currentRange() { const b = document.querySelector("#chart-range button.on"); return b ? b.dataset.v : "6M"; }
   async function boot() {
-    $("regime-toggle").addEventListener("click", () => {
+    $("regime").addEventListener("click", (event) => {
+      if (!event.target.closest(".regime-title-line, .regime-toggle")) return;
       const sec = $("regime"); const open = getComputedStyle(sec.querySelector(".ev") || sec).display !== "none";
-      sec.dataset.expanded = open ? "false" : "true"; $("regime-toggle").textContent = open ? "근거 펼치기 ▾" : "근거 접기 ▴";
+      sec.dataset.expanded = open ? "false" : "true";
+      const toggle = $("regime-toggle");
+      if (toggle) {
+        toggle.textContent = open ? "근거 펼치기 ▾" : "근거 접기 ▴";
+        toggle.setAttribute("aria-expanded", String(!open));
+      }
     });
     $("tiles-more").addEventListener("click", () => { const t = $("tiles"); t.classList.toggle("collapsed"); $("tiles-more").textContent = t.classList.contains("collapsed") ? "지표 더 보기 ▾" : "지표 접기 ▴"; });
     $("tiles").classList.add("collapsed");

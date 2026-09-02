@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ except RuntimeError:  # local env may not have the declared ``test`` extra yet
     from tests.unit.web import ASGITestClient as TestClient
 
 from stock_web.api import home_data
+from stock_web.api.data_page import load_scheduler_receipts
 from stock_web.app import create_app
 from tests.unit.web import make_project, new_temp_root
 
@@ -58,3 +60,46 @@ def test_phone_css_keeps_the_topbar_on_one_row() -> None:
     assert 'content: "SI"' in css
     assert "overflow-x: auto" in css
     assert "flex-wrap: nowrap" in css
+
+
+def test_data_page_uses_korean_grouped_health_and_kst_receipts() -> None:
+    root = make_project(new_temp_root())
+    failed = root / "artifacts/scheduler_logs/FAILED_TASK_last.json"
+    failed.write_text(json.dumps({
+        "task_name": "FAILED_TASK", "status": "FAIL",
+        "finished_at_utc": "2026-09-16T22:00:00+00:00",
+        "api_calls": 2, "terminal_exit_code": 1,
+    }), encoding="utf-8")
+
+    receipts = load_scheduler_receipts(root)
+    page = TestClient(create_app(root)).get("/data?status=ALL")
+
+    assert receipts[0]["task"] == "FAILED_TASK"
+    assert receipts[0]["finished_label"] == "09-17 07:00"
+    assert receipts[0]["result_code"] == 1
+    assert page.status_code == 200
+    for header in ("데이터셋", "신선도", "최신", "예상", "운영 상태", "차단 사유", "자동화"):
+        assert header in page.text
+    assert "정상" in page.text
+    assert "일별 · KR 지수" in page.text
+    assert 'title="CURRENT"' in page.text
+    assert "마지막 실행(KST)" in page.text
+    assert "09-17 09:01" in page.text
+    assert "데이터셋·상태 검색" in page.text
+
+
+def test_dashboard_static_polish_contracts_are_present() -> None:
+    root = Path(__file__).parents[3] / "src/stock_web"
+    app_js = (root / "static/app.js").read_text(encoding="utf-8")
+    account_js = (root / "static/account.js").read_text(encoding="utf-8")
+    css = (root / "static/app.css").read_text(encoding="utf-8")
+
+    assert 'formatter: (value) => `${(value / 1e8).toFixed(2)}억`' in app_js
+    assert 'formatter: (value) => `${(value / 1e8).toFixed(2)}억`' in account_js
+    assert "minMove: 1e5" in app_js and "minMove: 1e5" in account_js
+    assert "tile-sub-note" in app_js
+    assert "summary-separator" in app_js
+    assert "regime-title-line" in app_js
+    assert ".market-main-chart { width: 100%; height: 440px; }" in css
+    assert ".market-main-chart { height: 280px; }" in css
+    assert ".data-health-table td::before" in css

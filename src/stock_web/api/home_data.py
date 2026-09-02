@@ -16,6 +16,7 @@ import pandas as pd
 
 from stock_web.api import datasets as dsx
 from stock_web.api.datasets import field
+from stock_web.api.fmt import KST, format_kst
 from stock_web.api.intraday import load_intraday_series
 
 _HOME_CACHE_TTL_SECONDS = 60.0
@@ -164,6 +165,7 @@ def _tile_from_series(name: str, symbol: str | None, frame: pd.DataFrame | None,
         "spark": [round(float(v), 4) for v in values.iloc[-30:]],
         "window": f"{window_label} · {series['date'].iloc[-1]:%m-%d}",
         "_daily_value": float(last),
+        "_daily_date": series["date"].iloc[-1].strftime("%Y-%m-%d"),
     }
     if change_kind == "pct":
         tile["change_pct"] = _nan_to_none((last / prev - 1) * 100)
@@ -176,6 +178,29 @@ def _tile_from_series(name: str, symbol: str | None, frame: pd.DataFrame | None,
 
 def _placeholder(name: str, note: str) -> dict[str, object]:
     return {"name": name, "symbol": None, "value": "—", "note": note}
+
+
+def _previous_kst_session_close(points: list[dict[str, object]]) -> float | None:
+    if not points:
+        return None
+    try:
+        latest_date = datetime.fromisoformat(
+            str(points[-1]["t"]).replace("Z", "+00:00")
+        ).astimezone(KST).date()
+        prior = [
+            float(point["v"])
+            for point in points
+            if datetime.fromisoformat(
+                str(point["t"]).replace("Z", "+00:00")
+            ).astimezone(KST).date() < latest_date
+        ]
+    except (KeyError, TypeError, ValueError):
+        return None
+    return prior[-1] if prior else None
+
+
+def _compact_number(value: object) -> str:
+    return f"{float(value):,.2f}".rstrip("0").rstrip(".")
 
 
 def build_tiles(project_root: Path) -> list[dict[str, object]]:
@@ -203,28 +228,63 @@ def build_tiles(project_root: Path) -> list[dict[str, object]]:
         _tile_from_series("WTI 선물", "WTI", idx("WTI"), "close"),
         _tile_from_series("미국 2Y", None, yields, "dgs2", fmt="{:.2f}%", change_kind="bp", window_label="FRED 일별"),
         _tile_from_series("미국 30Y", None, yields, "dgs30", fmt="{:.2f}%", change_kind="bp", window_label="FRED 일별"),
-        _tile_from_series("VIX (FRED 마감)", None, vix, "vixcls"),
+        _tile_from_series("VIX", None, vix, "vixcls"),
         _placeholder("한국 3Y · 10Y", "한국은행 확정 검증 후 표시"),
     ]
     for tile in tiles:
         intraday = load_intraday_series(project_root, str(tile["name"]))
         daily_value = tile.pop("_daily_value", None)
+        daily_date = tile.pop("_daily_date", None)
         if intraday is not None and len(intraday["points"]) >= 3:
             tile["spark"] = intraday["points"]
             tile["window"] = intraday["window"]
             tile["spark_kind"] = "intraday"
             tile["spark_source"] = intraday["source"]
             latest = intraday["points"][-1]
-            if daily_value is not None and not math.isclose(
-                float(daily_value), float(latest["v"]), rel_tol=0, abs_tol=1e-9,
-            ):
+            latest_value = float(latest["v"])
+            latest_clock = format_kst(latest["t"])[-5:]
+            if tile["name"] == "USD/KRW":
+                tile["value"] = f"{latest_value:,.2f}"
+                tile["window"] = f"24h · {latest_clock} KST"
+                previous_close = _previous_kst_session_close(intraday["points"])
+                tile.pop("change_label", None)
+                if previous_close:
+                    tile["change_pct"] = (latest_value / previous_close - 1.0) * 100.0
+                else:
+                    tile.pop("change_pct", None)
+                if daily_value is not None:
+                    tile["sub_note"] = (
+                        f"FRED 확정 {format_kst(daily_date)}: {float(daily_value):,.2f}"
+                    )
+            elif daily_value is not None and abs(latest_value / float(daily_value) - 1.0) > 0.0005:
                 tile["latest_intraday"] = {
-                    "value": latest["v"], "time": latest["t"],
+                    "value": latest_value, "time": latest["t"],
                 }
+            if tile["name"] == "VIX" and daily_value is not None:
+                tile["window"] = f"24h · {latest_clock} KST"
+                tile["sub_note"] = (
+                    f"FRED 마감 {format_kst(daily_date)} {_compact_number(daily_value)}"
+                    f" · 장중 ^VIX {_compact_number(latest_value)}"
+                )
+            elif tile["name"] == "미국 10Y" and daily_value is not None:
+                tile["window"] = f"24h · {latest_clock} KST"
+                tile["sub_note"] = (
+                    f"FRED 마감 {format_kst(daily_date)} {_compact_number(daily_value)}%"
+                    f" · 장중 ^TNX 지수 {_compact_number(latest_value)}"
+                )
         else:
             tile["spark_kind"] = "daily"
             if tile.get("spark"):
                 tile["window"] = "최근 30일 마감"
+            if tile["name"] == "VIX" and daily_value is not None:
+                tile["sub_note"] = (
+                    f"FRED 마감 {format_kst(daily_date)} {_compact_number(daily_value)}"
+                )
+            elif tile["name"] == "미국 10Y" and daily_value is not None:
+                tile["sub_note"] = (
+                    f"FRED 마감 {format_kst(daily_date)} {_compact_number(daily_value)}%"
+                    " · ^TNX 지수는 장중 관측"
+                )
     return tiles
 
 
@@ -279,7 +339,7 @@ def build_health(project_root: Path) -> dict[str, object]:
         "current": current,
         "lag": lag,
         "fail": max(0, managed - current - lag),
-        "as_of": as_of,
+        "as_of": format_kst(as_of),
         "overall": summary.get("overall", "UNKNOWN"),
     }
 
@@ -476,6 +536,7 @@ def build_account(project_root: Path) -> dict[str, object]:
             "invest_total_krw": invest_total,
             "net_worth_krw": account_summary.get("net_worth_krw"),
             "net_worth_as_of": account_summary.get("net_worth_as_of"),
+            "net_worth_as_of_label": account_summary.get("net_worth_as_of_label"),
             "sources": account_summary.get("sources", []),
             "day_change_pct": None, "day_change_krw": None,
             "period_label": "3M", "period_pct": None, "kospi_period_pct": None,
@@ -483,7 +544,9 @@ def build_account(project_root: Path) -> dict[str, object]:
             "cash_pct": manual_cash / invest_total * 100.0 if invest_total else None,
             "usd_assets_usd": manual_usd_krw / float(usdkrw) if usdkrw else None,
             "usd_assets_krw": manual_usd_krw,
-            "usdkrw": usdkrw, "usdkrw_as_of": account_summary.get("fx_as_of"),
+            "usdkrw": usdkrw,
+            "usdkrw_as_of": account_summary.get("fx_as_of"),
+            "usdkrw_as_of_label": account_summary.get("fx_as_of_label"),
             "fx_effect_pct": None, "equity_effect_pct": None,
             "effective_exposure_pct": exposure_krw / invest_total * 100.0 if invest_total else None,
             "leveraged_weight_pct": leveraged_krw / invest_total * 100.0 if invest_total else None,
@@ -628,6 +691,7 @@ def build_account(project_root: Path) -> dict[str, object]:
         "invest_total_krw": invest_total,
         "net_worth_krw": account_summary.get("net_worth_krw"),
         "net_worth_as_of": account_summary.get("net_worth_as_of"),
+        "net_worth_as_of_label": account_summary.get("net_worth_as_of_label"),
         "sources": account_summary.get("sources", []),
         "day_change_pct": day_change_pct,
         "day_change_krw": day_change_krw,
@@ -642,6 +706,7 @@ def build_account(project_root: Path) -> dict[str, object]:
         "usd_assets_krw": usd_assets_krw,
         "usdkrw": usdkrw,
         "usdkrw_as_of": usdkrw_as_of,
+        "usdkrw_as_of_label": format_kst(usdkrw_as_of),
         "fx_effect_pct": fx_effect_pct,
         "equity_effect_pct": equity_effect_pct,
         "effective_exposure_pct": (exposure_krw + manual_exposure_krw) / invest_total * 100.0 if invest_total else None,
@@ -670,7 +735,7 @@ def build_derivatives(project_root: Path) -> dict[str, object]:
         metric = metrics.get(key)
         if metric is not None and metric.displays_value and metric.value is not None:
             value = pattern.format(float(metric.value))
-            return f"{value} · {metric.as_of}" if metric.as_of else value
+            return f"{value} · {format_kst(metric.as_of)}" if metric.as_of else value
         return str(getattr(metric, "unavailable_reason", None) or "보존 데이터 없음")
 
     vix_reason = build_vix_futures_dashboard_view().metric.unavailable_reason
@@ -745,7 +810,8 @@ def build_brief(project_root: Path) -> dict[str, object] | None:
         lines = [str(line).strip().lstrip("-· ") for line in raw_lines if str(line).strip()]
         if not lines:
             return None
-        return {"lines": lines, "meta": f"{created or '생성 시각 미상'} · {source}"}
+        created_label = format_kst(created) if created else "생성 시각 미상"
+        return {"lines": lines, "meta": f"{created_label} · {source}"}
     except (OSError, UnicodeError, json.JSONDecodeError, TypeError):
         return None
 
@@ -802,7 +868,7 @@ def _build_home_payload_uncached(project_root: Path) -> dict[str, object]:
     return {
         "schema_version": 1,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
-        "as_of_label": f"한국장 마감 기준 {as_of}" if as_of else "",
+        "as_of_label": f"한국장 마감 기준 {format_kst(as_of)}" if as_of else "",
         "sections": sections,
     }
 

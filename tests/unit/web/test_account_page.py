@@ -155,6 +155,8 @@ def test_account_totals_use_local_prices_fx_and_exclude_unpriced_holdings() -> N
     assert payload["summary"]["net_worth_krw"] == 141_300
     assert payload["summary"]["fx_krw_per_usd"] == 1_300
     assert payload["summary"]["fx_as_of"] == "2026-09-01"
+    assert payload["summary"]["fx_as_of_label"] == "09-01"
+    assert next(row for row in payload["rows"] if row["name"] == "Toss")["as_of_label"] == "09-02 07:00"
     assert payload["manual_accounts"]["unpriced_count"] == 1
     unpriced = next(
         position
@@ -208,6 +210,7 @@ def test_home_account_keeps_total_alias_and_adds_split_fields() -> None:
     assert account["total_krw"] == account["invest_total_krw"] == 56_300
     assert account["net_worth_krw"] == 141_300
     assert account["net_worth_as_of"] == "2026-08-15"
+    assert account["net_worth_as_of_label"] == "08-15"
     assert account["day_change_pct"] is None
     assert "투자 자산만 기준" in account["footnote"]
     assert {source["name"] for source in account["sources"]} >= {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -118,3 +119,14 @@ def test_market_api_sections_with_missing_data_are_json_reasons() -> None:
 
     assert response.status_code == 200
     assert response.json()["sections"]["flows"]["reason"]
+
+
+def test_market_chart_uses_compact_height_and_panel_proportions() -> None:
+    web_root = Path(__file__).parents[3] / "src/stock_web"
+    css = (web_root / "static/app.css").read_text(encoding="utf-8")
+    script = (web_root / "static/market.js").read_text(encoding="utf-8")
+
+    assert "height: 440px" in css
+    assert "height: 360px" in css
+    assert "height: 280px" in css
+    assert "Math.min(0.14, 0.58 / lower.length)" in script

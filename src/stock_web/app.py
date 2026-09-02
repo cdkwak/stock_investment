@@ -15,6 +15,8 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from stock_web.api.fmt import format_kst
+
 PACKAGE_ROOT = Path(__file__).resolve().parent
 
 
@@ -35,6 +37,7 @@ def create_app(project_root: Path | None = None) -> FastAPI:
     templates.env.globals["static_version"] = str(
         int(max(p.stat().st_mtime for p in static_root.glob("*")) if any(static_root.glob("*")) else 0)
     )
+    templates.env.globals["format_kst"] = format_kst
 
     from stock_web.api.router import build_router
 

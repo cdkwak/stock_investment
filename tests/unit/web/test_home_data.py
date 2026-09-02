@@ -121,6 +121,8 @@ def test_optional_local_artifacts_are_projected_without_inventing_content() -> N
         "source": "local test",
     }), encoding="utf-8")
     assert home_data.build_schedule(root)["items"][0]["what"] == "테스트 일정"
-    assert home_data.build_brief(root)["lines"] == ["첫 줄", "둘째 줄"]
+    brief_payload = home_data.build_brief(root)
+    assert brief_payload["lines"] == ["첫 줄", "둘째 줄"]
+    assert brief_payload["meta"] == "09-17 08:00 · local test"
     assert home_data.build_scanner(root)["status"] == "UNAVAILABLE"
     assert home_data.build_scanner(root)["top"] == []

@@ -133,7 +133,7 @@
     const candleColors = new Map(payload.candles.map((candle) => [
       candle.t, candle.c >= candle.o ? "rgba(192,57,43,.42)" : "rgba(43,98,192,.42)",
     ]));
-    const height = lower.length ? Math.min(0.15, 0.62 / lower.length) : 0;
+    const height = lower.length ? Math.min(0.14, 0.58 / lower.length) : 0;
     mainChart.priceScale("right").applyOptions({ scaleMargins: { top: 0.04, bottom: lower.length * height + 0.02 } });
     lower.forEach((name, index) => {
       const scaleId = `market-${name}`;

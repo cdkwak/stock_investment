@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from stock_data.gui.watchlist_service import LocalWatchlistService
 from stock_web.api import home_data
 from stock_web.api.scanner import build_scanner
@@ -156,6 +158,18 @@ def test_stocks_posts_refuse_non_loopback_and_page_renders() -> None:
     assert page.status_code == 200
     assert "관심종목 관리" in page.text
     assert "과매도 스캐너" in page.text
+    assert 'id="add-selected-stock"' in page.text
+    assert "검색 결과에서 종목을 선택하세요." in page.text
+
+
+def test_stocks_search_selection_and_new_row_flash_are_client_side() -> None:
+    script = (
+        Path(__file__).parents[3] / "src/stock_web/static/stocks.js"
+    ).read_text(encoding="utf-8")
+
+    assert "선택: ${selectedSearch.name} ${selectedSearch.symbol} → 목록 '${list.name}'에 추가" in script
+    assert 'target.id === "add-selected-stock"' in script
+    assert "flash-new" in script
 
 
 def test_home_symbol_query_is_embedded_for_chart_preselection() -> None:

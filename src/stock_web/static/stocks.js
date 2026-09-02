@@ -18,6 +18,8 @@
   let page = { watchlists: { lists: [] }, conditions: { conditions: [] }, table: [] };
   let selectedListId = "favorites";
   let conditions = [];
+  let selectedSearch = null;
+  let flashIdentity = null;
 
   async function requestJson(url, options) {
     const response = await fetch(url, options);
@@ -45,7 +47,7 @@
     const list = currentList();
     $("watchlist-name").value = list ? list.name : "";
     $("watchlist-items").innerHTML = list && list.items.length ? list.items.map((item, index) => `
-      <div class="watchlist-edit-row" data-market="${esc(item.market)}" data-symbol="${esc(item.symbol)}">
+      <div class="watchlist-edit-row${flashIdentity === `${item.market}:${item.symbol}` ? " flash-new" : ""}" data-market="${esc(item.market)}" data-symbol="${esc(item.symbol)}">
         <span><b>${esc(item.name)}</b><small>${esc(item.symbol)} · ${esc(item.market)}</small></span>
         <span class="watchlist-row-actions">
           <button class="text-button move-watch-item" data-offset="-1" aria-label="${esc(item.name)} 위로 이동" ${index === 0 ? "disabled" : ""}>↑</button>
@@ -57,7 +59,7 @@
 
   function renderWatchlistTable() {
     const rows = page.table || [];
-    $("watchlist-table-rows").innerHTML = rows.length ? rows.map((row) => `<tr>
+    $("watchlist-table-rows").innerHTML = rows.length ? rows.map((row) => `<tr class="${flashIdentity === `${row.market}:${row.symbol}` ? "flash-new" : ""}">
       <td><b>${esc(row.name)}</b><small>${esc(row.list_name)}</small></td>
       <td class="num">${esc(row.symbol)}</td>
       <td class="num">${price(row)}${row.price_available ? "" : `<small>${esc(row.unavailable_reason)}</small>`}</td>
@@ -105,6 +107,7 @@
   function renderAll() {
     conditions = (page.conditions.conditions || []).map((item) => ({ ...item }));
     renderWatchlistEditor(); renderWatchlistTable(); renderConditions();
+    renderSelectedSearch();
     $("stocks-safety").textContent = page.note || "";
   }
 
@@ -117,9 +120,17 @@
   function renderSearch(payload) {
     const matches = payload.matches || [];
     $("stock-search-results").innerHTML = matches.length ? matches.map((item) => `
-      <button type="button" class="search-result" data-market="${esc(item.market)}" data-symbol="${esc(item.symbol)}">
+      <button type="button" class="search-result" data-market="${esc(item.market)}" data-symbol="${esc(item.symbol)}" data-name="${esc(item.name)}">
         <b>${esc(item.name)}</b><span>${esc(item.symbol)} · ${esc(item.market)} · ${esc(item.security_type)}</span>
       </button>`).join("") : `<div class="unavailable">${esc(payload.reason || "검색 결과가 없습니다.")}</div>`;
+  }
+
+  function renderSelectedSearch() {
+    const list = currentList();
+    $("add-selected-stock").disabled = !selectedSearch || !list;
+    $("stock-selection").textContent = selectedSearch && list
+      ? `선택: ${selectedSearch.name} ${selectedSearch.symbol} → 목록 '${list.name}'에 추가`
+      : "검색 결과에서 종목을 선택하세요.";
   }
 
   async function runSearch() {
@@ -158,9 +169,22 @@
         await runSearch();
       } else if (target.closest(".search-result")) {
         const result = target.closest(".search-result");
-        await mutate("/api/watchlist/items", { list_id: selectedListId, market: result.dataset.market, symbol: result.dataset.symbol });
+        selectedSearch = {
+          market: result.dataset.market, symbol: result.dataset.symbol, name: result.dataset.name,
+        };
+        document.querySelectorAll(".search-result").forEach((item) => item.classList.toggle("on", item === result));
+        renderSelectedSearch();
+      } else if (target.id === "add-selected-stock" && selectedSearch) {
+        const added = { ...selectedSearch };
+        await mutate("/api/watchlist/items", { list_id: selectedListId, market: added.market, symbol: added.symbol });
+        flashIdentity = `${added.market}:${added.symbol}`;
+        selectedSearch = null;
         $("stock-search-results").innerHTML = "";
         await refreshPage("종목을 추가했습니다.");
+        window.setTimeout(() => {
+          document.querySelectorAll(".flash-new").forEach((row) => row.classList.remove("flash-new"));
+          flashIdentity = null;
+        }, 1900);
       } else if (target.classList.contains("remove-watch-item")) {
         const row = target.closest(".watchlist-edit-row");
         if (!window.confirm("이 종목을 현재 관심목록에서 삭제할까요?")) return;
@@ -200,7 +224,7 @@
 
   document.addEventListener("DOMContentLoaded", async () => {
     $("watchlist-select").addEventListener("change", () => {
-      selectedListId = $("watchlist-select").value; renderWatchlistEditor();
+      selectedListId = $("watchlist-select").value; renderWatchlistEditor(); renderSelectedSearch();
     });
     $("stock-search").addEventListener("keydown", (event) => {
       if (event.key === "Enter") { event.preventDefault(); runSearch().catch((error) => { $("stocks-safety").textContent = `검색 실패 · ${error.message}`; }); }

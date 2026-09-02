@@ -18,6 +18,8 @@ from typing import Any, Mapping
 
 import pandas as pd
 
+from stock_web.api.fmt import format_kst
+
 from stock_data.gui.manual_account_store import (
     LocalManualAccountStore,
     ManualAccountPosition,
@@ -924,11 +926,19 @@ def build_account_page_data(project_root: Path) -> dict[str, object]:
         invest_total + float(other_net)
         if other_net is not None and net_worth.get("complete") else None
     )
-    rows = [*api["rows"], *manual["rows"], *net_worth["rows"]]
+    rows = [
+        {**row, "as_of_label": format_kst(row.get("as_of"))}
+        for row in [*api["rows"], *manual["rows"], *net_worth["rows"]]
+    ]
     sources = [{
         "name": row["name"], "as_of": row["as_of"],
+        "as_of_label": row["as_of_label"],
         "included": bool(row["included"]), "note": row["note"],
     } for row in rows]
+    net_worth = {
+        **net_worth,
+        "as_of_label": format_kst(net_worth.get("as_of")),
+    }
     return {
         "schema_version": 1,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -936,8 +946,10 @@ def build_account_page_data(project_root: Path) -> dict[str, object]:
             "invest_total_krw": invest_total,
             "net_worth_krw": combined_net_worth,
             "net_worth_as_of": net_worth.get("as_of"),
+            "net_worth_as_of_label": format_kst(net_worth.get("as_of")),
             "fx_krw_per_usd": api.get("fx_krw_per_usd") or manual.get("fx_krw_per_usd"),
             "fx_as_of": api.get("fx_as_of") or manual.get("fx_as_of"),
+            "fx_as_of_label": format_kst(api.get("fx_as_of") or manual.get("fx_as_of")),
             "sources": sources,
         },
         "rows": rows,

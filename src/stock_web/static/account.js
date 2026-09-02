@@ -30,7 +30,7 @@
   let timelineChart = null;
 
   function sourceAsOf(rows, kinds) {
-    return (rows || []).filter((row) => kinds.includes(row.kind)).map((row) => `${row.name} ${shortDate(row.as_of)}${row.included ? "" : " 제외"}`).join(" · ");
+    return (rows || []).filter((row) => kinds.includes(row.kind)).map((row) => `${row.name} ${row.as_of_label || shortDate(row.as_of)}${row.included ? "" : " 제외"}`).join(" · ");
   }
 
   function renderSummary() {
@@ -41,7 +41,7 @@
     const netWorthSources = sourceAsOf(payload.rows, ["asset", "liability"]);
     $("net-worth-asof").textContent = summary.net_worth_krw === null || summary.net_worth_krw === undefined
       ? "기타 자산·부채 스냅샷 없음"
-      : netWorthSources || `부동산·예금 포함 · ${summary.net_worth_as_of || "기준일 미상"} 기준`;
+      : netWorthSources || `부동산·예금 포함 · ${summary.net_worth_as_of_label || "기준일 미상"} 기준`;
   }
 
   function renderSourceRows() {
@@ -51,7 +51,7 @@
       <td class="num ${row.value_krw < 0 ? "down" : ""}">${money(row.value_krw)}</td>
       <td class="num">${money(row.cash_krw)}</td>
       <td class="num ${row.pnl_krw > 0 ? "up" : row.pnl_krw < 0 ? "down" : ""}">${money(row.pnl_krw)}</td>
-      <td class="num">${esc(row.as_of || "—")}</td>
+      <td class="num">${esc(row.as_of_label || shortDate(row.as_of))}</td>
       <td><span class="chip ${row.included ? "" : "dashed"}">${row.included ? (row.partial ? "부분 포함" : "포함") : "제외"}</span></td>
     </tr>`).join("") : `<tr><td colspan="6" class="unavailable">표시할 계좌나 자산이 없습니다.</td></tr>`;
   }
@@ -157,14 +157,17 @@
       grid: { vertLines: { visible: false }, horzLines: { color: "#e6e1d8" } },
       rightPriceScale: { borderColor: "#d9d3ca" }, timeScale: { borderColor: "#d9d3ca" }, autoSize: true,
     });
-    const series = timelineChart.addLineSeries({ color: "#1f1d1a", lineWidth: 2, priceLineVisible: false });
+    const series = timelineChart.addLineSeries({
+      color: "#1f1d1a", lineWidth: 2, priceLineVisible: false,
+      priceFormat: { type: "custom", minMove: 1e5, formatter: (value) => `${(value / 1e8).toFixed(2)}억` },
+    });
     series.setData(points.map((point) => ({ time: point.t, value: point.v })));
     timelineChart.timeScale().fitContent();
   }
 
   function renderBreakdown() {
     const netWorth = payload.net_worth || {};
-    $("breakdown-asof").textContent = netWorth.as_of ? `${netWorth.as_of} 기준` : "";
+    $("breakdown-asof").textContent = netWorth.as_of ? `${netWorth.as_of_label || shortDate(netWorth.as_of)} 기준` : "";
     $("net-worth-breakdown").innerHTML = (netWorth.breakdown || []).length ? netWorth.breakdown.map((row) => `<div class="breakdown-row">
       <span><i class="${row.kind}"></i>${esc(row.name)}${row.complete ? "" : ' <small class="muted">미완전</small>'}</span>
       <b class="num ${row.kind === "liability" ? "down" : ""}">${row.kind === "liability" ? "−" : ""}${money(row.value_krw)}</b>

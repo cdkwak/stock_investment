@@ -5,6 +5,8 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from stock_web.api import home_data, intraday
 from tests.unit.web import make_project, new_temp_root
 
@@ -217,3 +219,68 @@ def test_missing_store_keeps_daily_sparkline(monkeypatch) -> None:
     assert tile["spark_kind"] == "daily"
     assert tile["window"] == "최근 30일 마감"
     assert len(tile["spark"]) == 30
+
+
+def test_fx_intraday_becomes_headline_against_previous_kst_session(monkeypatch) -> None:
+    root = make_project(new_temp_root())
+
+    def retained_intraday(_root: Path, tile_key: str) -> dict[str, object] | None:
+        if tile_key != "USD/KRW":
+            return None
+        return {
+            "points": [
+                {"t": "2026-09-02T23:30:00+09:00", "v": 1_380.0},
+                {"t": "2026-09-03T00:30:00+09:00", "v": 1_390.0},
+                {"t": "2026-09-03T01:30:00+09:00", "v": 1_400.0},
+            ],
+            "window": "최근 24h · 01:30 KST", "source": "Yahoo · KRW=X",
+        }
+
+    monkeypatch.setattr(home_data, "load_intraday_series", retained_intraday)
+    tile = next(item for item in home_data.build_tiles(root) if item["name"] == "USD/KRW")
+
+    assert tile["value"] == "1,400.00"
+    assert tile["change_pct"] == pytest.approx((1_400 / 1_380 - 1) * 100)
+    assert tile["window"] == "24h · 01:30 KST"
+    assert tile["sub_note"].startswith("FRED 확정 ")
+    assert "latest_intraday" not in tile
+
+
+def test_tile_source_notes_and_intraday_difference_threshold(monkeypatch) -> None:
+    root = make_project(new_temp_root())
+    daily_kospi = next(item for item in home_data.build_tiles(root) if item["name"] == "KOSPI")
+    daily_value = float(str(daily_kospi["value"]).replace(",", ""))
+
+    def retained_intraday(_root: Path, tile_key: str) -> dict[str, object] | None:
+        if tile_key == "KOSPI":
+            latest = daily_value * 1.0004
+            return {
+                "points": [
+                    {"t": "2026-09-03T09:00:00+09:00", "v": daily_value},
+                    {"t": "2026-09-03T09:30:00+09:00", "v": daily_value},
+                    {"t": "2026-09-03T10:00:00+09:00", "v": latest},
+                ],
+                "window": "당일 09:00~ · 10:00", "source": "Toss",
+            }
+        if tile_key in {"VIX", "미국 10Y"}:
+            value = 15.6 if tile_key == "VIX" else 4.1
+            return {
+                "points": [
+                    {"t": "2026-09-02T23:00:00+09:00", "v": value - 0.2},
+                    {"t": "2026-09-03T00:30:00+09:00", "v": value - 0.1},
+                    {"t": "2026-09-03T01:30:00+09:00", "v": value},
+                ],
+                "window": "최근 24h · 01:30 KST", "source": "Yahoo",
+            }
+        return None
+
+    monkeypatch.setattr(home_data, "load_intraday_series", retained_intraday)
+    tiles = home_data.build_tiles(root)
+    kospi = next(item for item in tiles if item["name"] == "KOSPI")
+    vix = next(item for item in tiles if item["name"] == "VIX")
+    treasury = next(item for item in tiles if item["name"] == "미국 10Y")
+
+    assert "latest_intraday" not in kospi
+    assert vix["sub_note"].startswith("FRED 마감 ")
+    assert "장중 ^VIX 15.6" in vix["sub_note"]
+    assert "^TNX 지수" in treasury["sub_note"]
