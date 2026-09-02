@@ -102,7 +102,13 @@ complete suite result.
    the broad repository-local Python PM retirement set. It is recoverable from
    the backup branch, but it must not be committed or promoted without explicit
    user approval. `PROJECT_GOAL.md` is inside this mixed set and therefore needs
-   the user's direct decision.
+   the user's direct decision. A fresh clean checkout retaining this code passed
+   393/393 Python-PM unit tests, 17/17 deleted control-plane/operations integration
+   tests, and 10/10 operations-Dashboard unit tests. Active production imports do
+   not currently require the control plane, but the candidate removes functioning,
+   tested capability rather than broken debris. The recovery recommendation is to
+   reject and restore this deletion set by default unless the user deliberately
+   chooses an irreversible Hermes-only architecture after reviewing the tradeoff.
 
 Unrelated/generated items remain deliberately excluded: the modified option-wall
 analysis CSV, untracked `uv.lock`, untracked release JSON, and the old operations
