@@ -552,3 +552,64 @@ def test_main_window_write_failure_reverts_visible_state_and_keeps_notices(
     assert not window.dashboard.freshness.isHidden()
     window.close()
     app.processEvents()
+
+
+def test_dashboard_palette_keeps_normal_text_above_wcag_contrast(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(MainWindow, "_queue_local_dashboard_reload", lambda _self: None)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = MainWindow(
+        tmp_path,
+        dashboard_preferences_path=tmp_path / "layout.json",
+        toss_runtime_enabled=False,
+    )
+
+    def luminance(color: str) -> float:
+        channels = [int(color[index:index + 2], 16) / 255 for index in (1, 3, 5)]
+        linear = [
+            value / 12.92
+            if value <= 0.04045
+            else ((value + 0.055) / 1.055) ** 2.4
+            for value in channels
+        ]
+        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+    foreground = luminance("#526177")
+    background = luminance("#ffffff")
+    contrast = (max(foreground, background) + 0.05) / (
+        min(foreground, background) + 0.05
+    )
+    style = window.styleSheet().casefold()
+
+    assert "#718198" not in style
+    assert "#6b7d91" not in style
+    assert contrast >= 4.5
+    window.close()
+    app.processEvents()
+
+
+def test_summary_detail_action_reveals_the_expanded_market_strip() -> None:
+    class ObservedDashboardPage(DashboardPage):
+        def __init__(self) -> None:
+            self.revealed: list[tuple[QtWidgets.QWidget, tuple[int, int]]] = []
+            super().__init__()
+
+        def ensureWidgetVisible(
+            self, child_widget: QtWidgets.QWidget, xmargin: int = 50,
+            ymargin: int = 50,
+        ) -> None:
+            self.revealed.append((child_widget, (xmargin, ymargin)))
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    page = ObservedDashboardPage()
+    page.show()
+
+    page.market_summary_cards["KOREA"].details_button.click()
+    app.processEvents()
+
+    assert page.market_details_button.isChecked()
+    assert not page.top_widget.isHidden()
+    assert page.revealed == [(page.top_widget, (12, 32))]
+    page.close()
+    app.processEvents()

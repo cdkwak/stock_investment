@@ -2056,7 +2056,7 @@ class ThresholdScale(QtWidgets.QWidget):
         font = painter.font()
         font.setPixelSize(9)
         painter.setFont(font)
-        painter.setPen(QtGui.QColor("#718198"))
+        painter.setPen(QtGui.QColor("#526177"))
         width = max(1, self.width() - 1)
         for threshold in self.thresholds:
             ratio = min(max((threshold - self.minimum) / (self.maximum - self.minimum), 0.0), 1.0)
@@ -5723,9 +5723,7 @@ class DashboardPage(QtWidgets.QScrollArea):
         )
         self.market_details_button.setFocusPolicy(QtCore.Qt.StrongFocus)
         for card in self.market_summary_cards.values():
-            card.details_requested.connect(
-                lambda button=self.market_details_button: button.setChecked(True)
-            )
+            card.details_requested.connect(self._show_market_details_from_summary)
         root.addWidget(self.market_details_button, alignment=QtCore.Qt.AlignLeft)
 
         self.market_cards = {key: CompactMetricCard(label) for key, label in self.TOP_METRICS}
@@ -6479,6 +6477,16 @@ class DashboardPage(QtWidgets.QScrollArea):
             "시장별 상세 카드 접기" if expanded else "시장별 상세 카드 펼치기"
         )
         QtCore.QTimer.singleShot(0, self._apply_dashboard_density)
+
+    def _show_market_details_from_summary(self) -> None:
+        """Expand grouped evidence and reveal it after the layout settles."""
+
+        self.market_details_button.setChecked(True)
+        QtCore.QTimer.singleShot(0, self._ensure_market_details_visible)
+
+    def _ensure_market_details_visible(self) -> None:
+        if self.top_widget.isVisible():
+            self.ensureWidgetVisible(self.top_widget, 12, 32)
 
     def apply_preferences(self, preferences: DashboardPreferences) -> None:
         """Apply presentation state without reading data or emitting reloads."""
@@ -14132,12 +14140,12 @@ class MainWindow(QtWidgets.QMainWindow):
             QLabel#rateChange { font-size:14px; font-weight:700; }
             QLabel#rateChange[tone="positive"] { color:#176b49; }
             QLabel#rateChange[tone="negative"] { color:#b4493a; }
-            QLabel#rateChange[tone="neutral"] { color:#718198; }
+            QLabel#rateChange[tone="neutral"] { color:#526177; }
             QFrame#unavailablePanel { background:#f8fafc; border:1px dashed #b9c7d8; border-radius:9px; }
             QLabel#cardTitle { color:#53657b; font-weight:700; font-size:14px; }
             QLabel#compactTitle { color:#52677f; font-weight:700; font-size:14px; }
             QLabel#compactValue { color:#10233d; font-weight:800; font-size:16px; }
-            QLabel#compactMeta { color:#718198; font-size:14px; }
+            QLabel#compactMeta { color:#526177; font-size:14px; }
             QFrame#marketSessionStrip { background:#ffffff; border:0; border-radius:0; }
             QLabel#marketSessionText { color:#39414d; font-size:14px; font-weight:650; }
             QLabel#indicatorLabel { color:#2b4059; font-size:14px; }
@@ -14146,8 +14154,8 @@ class MainWindow(QtWidgets.QMainWindow):
             QLabel#indicatorState[tone="negative"] { color:#a33f38; background:#fbeceb; }
             QLabel#indicatorState[tone="warning"] { color:#8a5b12; background:#fff3d6; }
             QLabel#indicatorState[tone="neutral"] { color:#42617f; background:#edf3f8; }
-            QLabel#indicatorState[tone="unavailable"] { color:#718198; background:#f2f4f7; }
-            QLabel#flowHeader { color:#718198; font-size:14px; font-weight:700; }
+            QLabel#indicatorState[tone="unavailable"] { color:#526177; background:#f2f4f7; }
+            QLabel#flowHeader { color:#526177; font-size:14px; font-weight:700; }
             QLabel#flowInvestor { color:#31506f; font-size:14px; font-weight:700; }
             QLabel#flowValue { font-size:14px; font-weight:750; }
             QLabel#flowValue[tone="positive"] { color:#176b49; }
@@ -14155,11 +14163,11 @@ class MainWindow(QtWidgets.QMainWindow):
             QLabel#flowValue[tone="neutral"] { color:#52677f; }
             QLabel#flowValue[tone="unavailable"] { color:#8a6b32; }
             QLabel#momentumSummary { color:#17375e; background:#eef4fa; border-radius:7px; padding:6px 8px; font-size:14px; font-weight:700; }
-            QLabel#accountUnavailable { color:#718198; font-size:19px; font-weight:750; }
+            QLabel#accountUnavailable { color:#526177; font-size:19px; font-weight:750; }
             QLabel#statusBadge { background:#eaf1f8; color:#315a84; border-radius:5px; padding:2px 5px; font-size:14px; font-weight:700; }
             QLabel#unavailableState { color:#755c29; font-size:16px; font-weight:800; }
             QLabel#pageTitle { font-size:26px; font-weight:800; color:#10233d; }
-            QLabel#pageSubtitle { color:#6b7d91; }
+            QLabel#pageSubtitle { color:#526177; }
             QLabel#sectionTitle { font-size:19px; font-weight:750; color:#17375e; }
             QLabel#chartStatus { color:#5e7188; padding:4px; }
             QLabel#freshness { background:#fff8e8; border:1px solid #efd28a; border-radius:6px; padding:7px; color:#805b16; }
