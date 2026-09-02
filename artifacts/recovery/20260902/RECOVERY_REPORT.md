@@ -69,7 +69,8 @@ Verified repair commits:
   generation, code digest `bb85d67f...` matched `experiments.json`, and the two
   checkout/GUI acceptance regressions passed. PIT clocks, feature/label
   isolation, and the sealed 1,222-observation holdout were not inspected or
-  changed.
+  changed. The owning GUI Backtest unit file then passed 256 tests with one
+  pre-existing skip in that same fresh checkout.
 
 The fresh 2026-09-02 09:50 KST offline read-only release gate returned `FAIL`.
 It made zero external calls and zero Data/scheduler mutations. Data-root, schema,
