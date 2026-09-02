@@ -24,6 +24,7 @@ CONFIG = {
     "NASDAQ100": "^NDX",
     "SOX": "^SOX",
     "DOW_JONES": "^DJI",
+    "DOLLAR_INDEX": "DX-Y.NYB",
 }
 ETF_REGISTRY = {
     "SOXX": {
@@ -59,13 +60,12 @@ COMMODITY_CONFIG = {
     "NASDAQ100_FUTURES": ("NQ=F", "Nasdaq 100 E-mini vendor-continuous future"),
     "SP500_FUTURES": ("ES=F", "S&P 500 E-mini vendor-continuous future"),
     "DOW_FUTURES": ("YM=F", "Dow E-mini vendor-continuous future"),
-    "DOLLAR_INDEX_FUTURES": ("DX=F", "U.S. Dollar Index vendor-continuous future"),
 }
 GLOBAL_INDEX_DAILY_SYMBOLS = tuple(CONFIG)
 GLOBAL_ETF_DAILY_SYMBOLS = tuple(ETF_REGISTRY)
 GLOBAL_FUTURES_DAILY_SYMBOLS = (
     "NASDAQ100_FUTURES", "GOLD", "WTI_CRUDE_OIL",
-    "SP500_FUTURES", "DOW_FUTURES", "DOLLAR_INDEX_FUTURES",
+    "SP500_FUTURES", "DOW_FUTURES",
 )
 SUPPORTED_START = {
     "SP500": date(1928, 1, 3),

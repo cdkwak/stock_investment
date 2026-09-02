@@ -1,6 +1,6 @@
 # Capture-first global current refresh
 
-Status: `FRED_DAILY_AUTOMATION_ACTIVE / YAHOO_INDEX_ETF_FUTURES_AUTOMATION_ACTIVE / SIX_NEW_SYMBOLS_REGISTERED_NOT_YET_COLLECTED / DESCRIPTIVE_CURRENT_ONLY`.
+Status: `FRED_DAILY_AUTOMATION_ACTIVE / YAHOO_INDEX_ETF_FUTURES_AUTOMATION_ACTIVE / FIVE_NEW_SYMBOLS_COLLECTED_20260902 / DOLLAR_INDEX_REGISTERED_NOT_YET_COLLECTED / DESCRIPTIVE_CURRENT_ONLY`.
 
 The `fred_vix`, `fred_yields`, and `fred_fx` phases are explicitly authorized
 for bounded as-retrieved operational collection. Their reviewed promotion may
@@ -14,18 +14,19 @@ this does not authorize fallback sources, another symbol, or an inferred end dat
 `scripts/manual/collect/refresh_global_current.py` prepares one bounded provider phase.
 The live command never changes a production Normalized or Derived root.
 
-- `yahoo`: up to 5 sequential calls (SP500, NASDAQ Composite, NASDAQ-100,
-  SOX, Dow Jones); `--symbols` uses one call per selected canonical id
+- `yahoo`: up to 6 sequential calls (SP500, NASDAQ Composite, NASDAQ-100,
+  SOX, Dow Jones, Dollar Index `DX-Y.NYB`); `--symbols` uses one call per selected canonical id
 - `yahoo_etf`: up to 2 sequential calls (SOXX, EWY); a subset is registry-bound
-- `yahoo_dashboard_futures`: up to 6 sequential calls (NQ=F, GC=F, CL=F,
-  ES=F, YM=F, DX=F); a subset is registry-bound
+- `yahoo_dashboard_futures`: up to 5 sequential calls (NQ=F, GC=F, CL=F,
+  ES=F, YM=F); a subset is registry-bound
 - `fred_yields`: exactly 3 sequential calls (DGS2, DGS10, DGS30)
 - `fred_fx`: exactly 2 sequential calls (DEXKOUS, DEXJPUS)
 - `fred_vix`: exactly 1 call (VIXCLS)
 
-The registry-bound `yahoo_etf` phase contains retained SOXX plus EWY
-`REGISTERED_NOT_YET_COLLECTED`. The `yahoo` phase contains retained SP500,
-NASDAQ_COMPOSITE, and NASDAQ100 plus SOX and DOW_JONES
+The registry-bound `yahoo_etf` phase contains retained SOXX plus EWY, first
+collected and promoted on 2026-09-02. The `yahoo` phase contains retained SP500,
+NASDAQ_COMPOSITE, and NASDAQ100; SOX and DOW_JONES were first collected and
+promoted on 2026-09-02; DOLLAR_INDEX (`DX-Y.NYB`) is
 `REGISTERED_NOT_YET_COLLECTED`. Existing symbols allow only one completed-session
 append; a missing registered symbol uses the explicitly bounded onboarding
 window. Every symbol keeps retry zero, exact retained-overlap validation, atomic
@@ -57,7 +58,9 @@ exchange-local day boundary. Returned rows outside the explicit requested range
 are also excluded. The endpoint must have `VALID` OHLC and a finite close for
 every selected symbol or that symbol stops before publication.
 
-The unattended lane is fixed to NQ=F, GC=F, CL=F, ES=F, YM=F, and DX=F.
+The unattended futures lane is fixed to NQ=F, GC=F, CL=F, ES=F, and YM=F.
+ES=F and YM=F were first collected and promoted on 2026-09-02. The Dollar Index
+is an index-lane `DX-Y.NYB` symbol, not a continuous future.
 Existing symbols permit only a one-session append, while a missing registered
 symbol uses the bounded onboarding window. Each symbol requires its own HTTP 200
 response with retry zero, validates overlap and revision reports, and promotes
@@ -69,7 +72,7 @@ predictive PIT eligibility.
 
 Installed times are global ETFs 06:10 KST, global indices 06:20 KST, and the
 Dashboard-futures bundle 22:10 KST. Existing task actions omit `--symbols`, so
-registry defaults automatically include the six new symbols on the next natural
+registry defaults automatically include the corrected registered symbols on the next natural
 run; no Windows task definition is added or modified. Each prior actual task and retained-date replay
 returned result 0; the replay used API 0. Provider completion atomically refreshes
 Health V2 from contract-valid production dates.

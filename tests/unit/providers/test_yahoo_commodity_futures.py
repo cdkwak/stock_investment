@@ -57,7 +57,7 @@ class GapSession(Session):
 def test_bounded_symbols_and_explicit_daily_period_capture(tmp_path):
     assert [ticker for ticker, _ in COMMODITY_CONFIG.values()] == [
         "GC=F", "SI=F", "HG=F", "CL=F", "BZ=F", "NQ=F",
-        "ES=F", "YM=F", "DX=F",
+        "ES=F", "YM=F",
     ]
     frame = fetch_commodity_future("WTI_CRUDE_OIL", date(1900, 1, 1), date(2026, 8, 14), session=Session(), capture_root=tmp_path)
     assert frame.ohlc_status.tolist() == ["VALID", "SOURCE_RELATION_ANOMALY"]
@@ -120,7 +120,6 @@ def test_live_forming_futures_bar_is_not_normalized_as_a_completed_duplicate(tmp
     (
         ("SP500_FUTURES", "ES=F", "S&P 500 E-mini vendor-continuous future"),
         ("DOW_FUTURES", "YM=F", "Dow E-mini vendor-continuous future"),
-        ("DOLLAR_INDEX_FUTURES", "DX=F", "U.S. Dollar Index vendor-continuous future"),
     ),
 )
 def test_new_futures_use_the_existing_contract_fields_and_identity_path(

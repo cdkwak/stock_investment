@@ -34,7 +34,12 @@ INDEX_SOURCES = {
     "WTI": ("data/normalized/global_commodity_futures_daily", "symbol", "WTI_CRUDE_OIL", "WTI 선물"),
     "GOLD": ("data/normalized/global_commodity_futures_daily", "symbol", "GOLD", "금 선물"),
     "SOXX": ("data/normalized/global_etf_price_daily", "symbol", "SOXX", "SOXX (반도체 ETF)"),
-    "EWY": ("data/normalized/global_etf_price_daily", "symbol", "EWY", "iShares MSCI South Korea ETF"),
+    "EWY": ("data/normalized/global_etf_price_daily", "symbol", "EWY", "EWY (한국 ETF)"),
+    "SOX": ("data/normalized/global_index_price_daily", "symbol", "SOX", "필라델피아 반도체"),
+    "DOW": ("data/normalized/global_index_price_daily", "symbol", "DOW_JONES", "다우존스"),
+    "DXY": ("data/normalized/global_index_price_daily", "symbol", "DOLLAR_INDEX", "달러 인덱스"),
+    "ESF": ("data/normalized/global_commodity_futures_daily", "symbol", "SP500_FUTURES", "S&P 500 선물"),
+    "YMF": ("data/normalized/global_commodity_futures_daily", "symbol", "DOW_FUTURES", "다우 선물"),
 }
 
 
@@ -183,15 +188,16 @@ def build_tiles(project_root: Path) -> list[dict[str, object]]:
     tiles = [
         _tile_from_series("KOSPI", "KOSPI", idx("KOSPI"), "close"),
         _tile_from_series("KOSDAQ", "KOSDAQ", idx("KOSDAQ"), "close"),
-        _placeholder("밤사이 한국 ETF (EWY)", "수집 추가 필요"),
+        _tile_from_series("밤사이 한국 ETF (EWY)", "EWY", idx("EWY"), "close"),
         _tile_from_series("NASDAQ 100 선물", "NQF", idx("NQF"), "close", fmt="{:,.0f}"),
-        _tile_from_series("S&P 500", "SP500", idx("SP500"), "close"),
+        _tile_from_series("S&P 500 선물", "ESF", idx("ESF"), "close"),
         _tile_from_series("USD/KRW", None, fx, "dexkous", window_label="FRED 일별"),
         _tile_from_series("미국 10Y", None, yields, "dgs10", fmt="{:.2f}%", change_kind="bp", window_label="FRED 일별"),
         _tile_from_series("10Y-2Y 스프레드", None, spread, "spread_10y_2y", fmt="{:+.2f}%p", change_kind="bp", window_label="FRED 일별"),
-        _tile_from_series("SOXX (반도체 ETF)", "SOXX", idx("SOXX"), "close"),
-        _placeholder("다우 선물", "수집 추가 필요"),
-        _placeholder("달러 인덱스 선물", "수집 추가 필요"),
+        _tile_from_series("필라델피아 반도체", "SOX", idx("SOX"), "close", fmt="{:,.0f}"),
+        _tile_from_series("다우 선물", "YMF", idx("YMF"), "close", fmt="{:,.0f}"),
+        (_tile_from_series("달러 인덱스", "DXY", idx("DXY"), "close") if idx("DXY") is not None
+         else _placeholder("달러 인덱스", "첫 수집 대기 (DX-Y.NYB)")),
         _tile_from_series("WTI 선물", "WTI", idx("WTI"), "close"),
         _tile_from_series("미국 2Y", None, yields, "dgs2", fmt="{:.2f}%", change_kind="bp", window_label="FRED 일별"),
         _tile_from_series("미국 30Y", None, yields, "dgs30", fmt="{:.2f}%", change_kind="bp", window_label="FRED 일별"),
@@ -757,8 +763,8 @@ def _build_home_payload_uncached(project_root: Path) -> dict[str, object]:
     sections["watchlist"] = build_watchlist(project_root)
     sections["tiles"] = build_tiles(project_root)
     sections["chart_symbols"] = [
-        {"symbol": s, "name": INDEX_SOURCES[s][3]} for s in ("KOSPI", "KOSDAQ", "KOSPI200", "SP500", "NASDAQ", "NDX", "NQF", "SOXX", "EWY", "WTI", "GOLD")
-        if _ohlcv(project_root, s)[0] is not None
+        {"symbol": s, "name": INDEX_SOURCES[s][3]} for s in ("KOSPI", "KOSDAQ", "KOSPI200", "SP500", "ESF", "NASDAQ", "NDX", "NQF", "DOW", "YMF", "SOX", "SOXX", "EWY", "DXY", "WTI", "GOLD")
+        if (_f := _ohlcv(project_root, s)[0]) is not None and not _f.empty
     ]
     sections["flows"] = build_flows(project_root)
     kospi = _ohlcv(project_root, "KOSPI")[0]

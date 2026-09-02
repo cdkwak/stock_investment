@@ -40,7 +40,12 @@ class YahooSession:
 
 @pytest.mark.parametrize(
     ("symbol", "ticker"),
-    (("SP500", "^GSPC"), ("SOX", "^SOX"), ("DOW_JONES", "^DJI")),
+    (
+        ("SP500", "^GSPC"),
+        ("SOX", "^SOX"),
+        ("DOW_JONES", "^DJI"),
+        ("DOLLAR_INDEX", "DX-Y.NYB"),
+    ),
 )
 def test_yahoo_registered_index_arrays_are_identity_validated_and_normalized(
     symbol: str, ticker: str,

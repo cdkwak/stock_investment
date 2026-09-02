@@ -1,7 +1,10 @@
-# Yahoo 신규 6종목 최초 bounded 수집
+# Yahoo 신규 종목 최초 bounded 수집
 
-상태: `REGISTERED_NOT_YET_COLLECTED`. 아래 명령은 실행하지 않은 operator용
-명령이다. Scheduler가 호출하는 동일 `global_current_refresh` prepare/promote
+상태: EWY, SOX, DOW_JONES, SP500_FUTURES, DOW_FUTURES는 2026-09-02에
+`COLLECTED_AND_PROMOTED`되었다. 실패한 `DOLLAR_INDEX_FUTURES` / `DX=F` 등록은
+제거되었고, 대체 index 종목 DOLLAR_INDEX / `DX-Y.NYB`만
+`REGISTERED_NOT_YET_COLLECTED`이다. 아래 명령은 최초 수집 batch와 수정된 재개
+job을 기록한다. Scheduler가 호출하는 동일 `global_current_refresh` prepare/promote
 경로를 쓰며, 종목별 1회 호출·retry 0·Landing 우선·전체 데이터셋 CAS 교체를
 유지한다. 완료 세션 범위는 `2025-09-01..2026-09-01`이다.
 
@@ -17,7 +20,7 @@ $jobs = @(
     @{ phase = "yahoo"; symbol = "DOW_JONES" },
     @{ phase = "yahoo_dashboard_futures"; symbol = "SP500_FUTURES" },
     @{ phase = "yahoo_dashboard_futures"; symbol = "DOW_FUTURES" },
-    @{ phase = "yahoo_dashboard_futures"; symbol = "DOLLAR_INDEX_FUTURES" }
+    @{ phase = "yahoo"; symbol = "DOLLAR_INDEX" }
 )
 foreach ($job in $jobs) {
     try {
@@ -43,8 +46,8 @@ foreach ($job in $jobs) {
 승격 후 Normalized는 다음 symbol/year partition에 존재해야 한다.
 
 - `data/normalized/global_etf_price_daily/symbol=EWY/year={2025,2026}/data.parquet`
-- `data/normalized/global_index_price_daily/symbol={SOX,DOW_JONES}/year={2025,2026}/data.parquet`
-- `data/normalized/global_commodity_futures_daily/symbol={SP500_FUTURES,DOW_FUTURES,DOLLAR_INDEX_FUTURES}/year={2025,2026}/data.parquet`
+- `data/normalized/global_index_price_daily/symbol={SOX,DOW_JONES,DOLLAR_INDEX}/year={2025,2026}/data.parquet`
+- `data/normalized/global_commodity_futures_daily/symbol={SP500_FUTURES,DOW_FUTURES}/year={2025,2026}/data.parquet`
 
 기존 Windows task는 변경하지 않는다. 06:10 ETF, 06:20 index, 22:10 futures
 task는 `--symbols`를 생략하므로 다음 자연 실행부터 registry 전체를 자동 사용한다.

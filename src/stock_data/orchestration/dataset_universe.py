@@ -22,11 +22,12 @@ CONTRACTS = {
 DATASET_SYMBOL_REGISTRY: Mapping[str, tuple[str, ...]] = MappingProxyType({
     "global_index_price_daily": (
         "SP500", "NASDAQ_COMPOSITE", "NASDAQ100", "SOX", "DOW_JONES",
+        "DOLLAR_INDEX",
     ),
     "global_etf_price_daily": ("SOXX", "EWY"),
     "global_commodity_futures_daily": (
         "NASDAQ100_FUTURES", "GOLD", "WTI_CRUDE_OIL",
-        "SP500_FUTURES", "DOW_FUTURES", "DOLLAR_INDEX_FUTURES",
+        "SP500_FUTURES", "DOW_FUTURES",
     ),
 })
 

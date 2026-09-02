@@ -539,11 +539,12 @@ def test_important_dataset_reclassifications_preserve_temporal_nature() -> None:
 def test_yahoo_daily_dataset_symbol_registry_includes_new_uncollected_scope() -> None:
     assert DATASET_SYMBOL_REGISTRY["global_index_price_daily"] == (
         "SP500", "NASDAQ_COMPOSITE", "NASDAQ100", "SOX", "DOW_JONES",
+        "DOLLAR_INDEX",
     )
     assert DATASET_SYMBOL_REGISTRY["global_etf_price_daily"] == ("SOXX", "EWY")
     assert DATASET_SYMBOL_REGISTRY["global_commodity_futures_daily"] == (
         "NASDAQ100_FUTURES", "GOLD", "WTI_CRUDE_OIL",
-        "SP500_FUTURES", "DOW_FUTURES", "DOLLAR_INDEX_FUTURES",
+        "SP500_FUTURES", "DOW_FUTURES",
     )
 
 
