@@ -156,6 +156,53 @@ def test_scheduler_adapter_ignores_claim_and_projects_terminal_only() -> None:
     )[0].outcome == "FAILURE"
 
 
+def test_scheduler_adapter_accepts_typed_success_and_direct_lane_failure() -> None:
+    scheduled = "2026-08-27T09:10:00+09:00"
+    started = "2026-08-27T00:10:00Z"
+    receipt = "data/state/provider_scheduler/kr_market_daily_occurrences/20260827T001000Z-0910.json"
+    evidence = receipt + "@sha256:" + "b" * 64
+    health = {
+        "status": "PASS", "dataset_count": 80,
+        "runtime_coverage_validated_count": 21,
+        "runtime_coverage_failure_count": 0,
+    }
+    typed_success = {
+        "schema_version": 1, "bundle": "KR_MARKET_DAILY", "scheduled_slot": "09:10",
+        "scheduled_for": scheduled, "started_at_utc": started,
+        "finished_at_utc": "2026-08-27T00:11:00Z", "status": "PASS",
+        "occurrence_status": "TERMINAL_SUCCESS", "scheduler_process_status": "SUCCESS",
+        "terminal_exit_code": 0, "eligible_lanes": ["KR_EQUITY_FUNDAMENTAL_CURRENT_OBSERVATION"],
+        "api_calls": 1, "health_projection": health, "occurrence_receipt": receipt,
+        "outcomes": [{
+            "lane": "KR_EQUITY_FUNDAMENTAL_CURRENT_OBSERVATION",
+            "status": "CAPTURED_CURRENT_OBSERVATION", "advancement_status": "UPDATED",
+            "api_calls": 1, "scheduled_slot": "09:10", "scheduled_for": scheduled,
+            "started_at_utc": started,
+            "result": {"scheduler_process_status": "SUCCESS", "health_projection": health},
+        }],
+    }
+    assert adapt_scheduler_occurrence(typed_success, evidence=evidence)[0].outcome == "SUCCESS"
+
+    direct_failure = deepcopy(typed_success)
+    direct_failure.update(
+        status="DEGRADED", occurrence_status="TERMINAL_FAILURE",
+        scheduler_process_status="FAIL_AFTER_INDEPENDENT_LANES", terminal_exit_code=1,
+        api_calls=0,
+    )
+    direct_failure["outcomes"] = [{
+        "lane": "KR_EQUITY_FUNDAMENTAL_CURRENT_OBSERVATION", "status": "FAIL",
+        "advancement_status": "UNKNOWN", "api_calls": None,
+        "error_type": "CurrentObservationError", "scheduled_slot": "09:10",
+        "scheduled_for": scheduled, "started_at_utc": started,
+    }]
+    assert adapt_scheduler_occurrence(direct_failure, evidence=evidence)[0].outcome == "FAILURE"
+
+    unsafe = deepcopy(direct_failure)
+    unsafe["outcomes"][0]["error_type"] = "ValueError: private message"
+    with pytest.raises(ValueError, match="direct lane failure"):
+        adapt_scheduler_occurrence(unsafe, evidence=evidence)
+
+
 def test_update_success_closes_each_failure_fingerprint_without_copying_message() -> None:
     started = UpdateEvent.started(
         run_id="route-20260826", job_route="yahoo-current",

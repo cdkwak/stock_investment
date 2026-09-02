@@ -315,41 +315,70 @@ def adapt_scheduler_occurrence(payload: object, *, evidence: str) -> tuple[Issue
     for row in outcomes:
         if (
             type(row) is not dict
-            or not {"lane", "status", "advancement_status", "api_calls", "result", "scheduled_slot", "scheduled_for", "started_at_utc"} <= set(row)
-            or row["status"] not in {"PASS", "NOOP", "FAIL"}
+            or not {"lane", "status", "advancement_status", "api_calls", "scheduled_slot", "scheduled_for", "started_at_utc"} <= set(row)
+            or type(row["status"]) is not str
+            or not re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", row["status"])
             or row["advancement_status"] not in {"UPDATED", "NOOP_CURRENT", "UNKNOWN", "FAILED"}
-            or type(row["api_calls"]) is not int or row["api_calls"] < 0
             or row["scheduled_slot"] != slot or row["scheduled_for"] != scheduled
-            or type(row["result"]) is not dict
-            or row["result"].get("scheduler_process_status") not in {
-                "SUCCESS", "FAIL", "FAIL_AFTER_HEALTH",
-            }
-            or row["result"].get("health_projection") != health
         ):
             raise ValueError("scheduler lane outcome differs")
-        expected_lane_process = (
-            "FAIL_AFTER_HEALTH" if health_fail
-            else "FAIL" if row["status"] == "FAIL"
-            else "SUCCESS"
-        )
-        if row["result"]["scheduler_process_status"] != expected_lane_process:
-            raise ValueError("scheduler lane process status contradicts outcome")
+        lane_failed = row["status"].startswith(("FAIL", "DEGRADED"))
+        if lane_failed and row["advancement_status"] not in {"UNKNOWN", "FAILED"}:
+            raise ValueError("scheduler failed lane advancement differs")
+        if not lane_failed and row["advancement_status"] == "FAILED":
+            raise ValueError("scheduler successful lane advancement differs")
+        lane_result = row.get("result")
+        if lane_result is None:
+            if (
+                set(row) != {
+                    "lane", "status", "advancement_status", "api_calls", "error_type",
+                    "scheduled_slot", "scheduled_for", "started_at_utc",
+                }
+                or row["status"] != "FAIL"
+                or row["advancement_status"] != "UNKNOWN"
+                or row["api_calls"] is not None
+                or type(row["error_type"]) is not str
+                or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,127}", row["error_type"])
+            ):
+                raise ValueError("scheduler direct lane failure differs")
+            lane_calls = 0
+        else:
+            if (
+                type(lane_result) is not dict
+                or type(row["api_calls"]) is not int or row["api_calls"] < 0
+                or lane_result.get("scheduler_process_status") not in {
+                    "SUCCESS", "FAIL", "FAIL_AFTER_HEALTH",
+                }
+                or lane_result.get("health_projection") != health
+            ):
+                raise ValueError("scheduler lane result differs")
+            expected_lane_process = (
+                "FAIL_AFTER_HEALTH" if health_fail
+                else "FAIL" if lane_failed
+                else "SUCCESS"
+            )
+            if lane_result["scheduler_process_status"] != expected_lane_process:
+                raise ValueError("scheduler lane process status contradicts outcome")
+            lane_calls = row["api_calls"]
         _utc(row["started_at_utc"], "lane started_at_utc")
         outcome_lanes.append(row["lane"])
-        outcome_calls += row["api_calls"]
+        outcome_calls += lane_calls
     if outcome_lanes != lanes or outcome_calls != api_calls:
         raise ValueError("scheduler lane totals differ")
     success = (
         payload.get("status") == "PASS" and payload.get("scheduler_process_status") == "SUCCESS"
         and payload.get("terminal_exit_code") == 0 and health_pass
         and health["runtime_coverage_failure_count"] == 0
-        and all(row["status"] in {"PASS", "NOOP"} for row in outcomes)
+        and all(not row["status"].startswith(("FAIL", "DEGRADED")) for row in outcomes)
     )
     failure = (
         payload.get("status") == "DEGRADED"
         and payload.get("scheduler_process_status") == "FAIL_AFTER_INDEPENDENT_LANES"
         and payload.get("terminal_exit_code") == 1
-        and (health_fail or any(row["status"] == "FAIL" for row in outcomes))
+        and (
+            health_fail
+            or any(row["status"].startswith(("FAIL", "DEGRADED")) for row in outcomes)
+        )
     )
     if (status == "TERMINAL_SUCCESS" and not success) or (
         status == "TERMINAL_FAILURE" and not failure
