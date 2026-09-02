@@ -31,6 +31,10 @@ def create_app(project_root: Path | None = None) -> FastAPI:
     app.state.project_root = root
     app.mount("/static", StaticFiles(directory=PACKAGE_ROOT / "static"), name="static")
     templates = Jinja2Templates(directory=PACKAGE_ROOT / "templates")
+    static_root = PACKAGE_ROOT / "static"
+    templates.env.globals["static_version"] = str(
+        int(max(p.stat().st_mtime for p in static_root.glob("*")) if any(static_root.glob("*")) else 0)
+    )
 
     from stock_web.api.router import build_router
 
