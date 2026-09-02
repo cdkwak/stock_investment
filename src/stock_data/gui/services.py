@@ -2184,6 +2184,11 @@ US_ETF_CHART_IDENTITIES = (
         "UR-054 accepted chart-only catalog",
     ),
     EquityIdentity(
+        "EWY", "iShares MSCI South Korea ETF", "US ETF", None,
+        "2000-05-09", "ETF", "iShares", "MSCI Korea 25/50 Index", "USD",
+        "비레버리지 한국 주식 ETF", "반기 분배", "registered Yahoo daily scope",
+    ),
+    EquityIdentity(
         "TLT", "iShares 20+ Year Treasury Bond ETF", "US ETF", None,
         "2002-07-22", "ETF", "iShares", "ICE U.S. Treasury 20+ Year Bond Index",
         "USD", "비레버리지 장기 국채 ETF", "월 분배",
@@ -2241,15 +2246,15 @@ US_ETF_CHART_IDENTITIES = (
 )
 
 
-# Data Status currently authorizes and validates only the symbol-bound SOXX
-# global-ETF lane. SOXX is intentionally not part of this thirteen-fund seed
-# universe, so production remains numeric-free until Data explicitly expands
-# the accepted symbol scope.
+# The retained global-ETF lane is symbol-bound to SOXX and EWY. SOXX remains a
+# separate Dashboard asset; EWY is the catalog symbol authorized for this local
+# chart service after its first contract-valid retained promotion.
 US_ETF_OFFICIAL_IDENTITY_SOURCES = {
     "SOXL": "https://www.direxion.com/product/daily-semiconductor-bull-bear-3x-etfs",
     "TQQQ": "https://www.proshares.com/our-etfs/leveraged-and-inverse/tqqq",
     "QLD": "https://www.proshares.com/our-etfs/leveraged-and-inverse/qld",
     "KORU": "https://www.direxion.com/product/daily-msci-south-korea-bull-3x-etf",
+    "EWY": "https://www.ishares.com/us/products/239681/ishares-msci-south-korea-etf",
     "TLT": "https://www.ishares.com/us/products/239454/ishares-20-year-treasury-bond-etf",
     "TLTW": "https://www.ishares.com/us/products/329118/ishares-20-year-treasury-bond-buywrite-strategy-etf",
     "QQQ": "https://www.invesco.com/qqq-etf/en/home.html",
@@ -2264,7 +2269,7 @@ US_ETF_CHART_IDENTITIES = tuple(
     replace(identity, identity_source=US_ETF_OFFICIAL_IDENTITY_SOURCES[identity.symbol])
     for identity in US_ETF_CHART_IDENTITIES
 )
-US_ETF_CHART_AUTHORIZED_SYMBOLS: frozenset[str] = frozenset()
+US_ETF_CHART_AUTHORIZED_SYMBOLS: frozenset[str] = frozenset({"EWY"})
 
 
 @dataclass(frozen=True)
@@ -2929,7 +2934,7 @@ class EquityChartService:
 
 @dataclass
 class USEtfChartService:
-    """Chart-only, local and provider-native view for the accepted 13-ETF seed set."""
+    """Chart-only, local and provider-native view for the accepted 14-ETF catalog."""
 
     root: Path
     authorized_symbols: frozenset[str] = field(
@@ -2967,7 +2972,7 @@ class USEtfChartService:
         matches = tuple((exact_ticker + exact_name + partial)[:limit])
         return EquitySearchView(
             query, matches,
-            None if matches else "승인된 13개 미국 ETF 범위에서 일치 항목을 찾지 못했습니다.",
+            None if matches else "승인된 14개 미국 ETF 범위에서 일치 항목을 찾지 못했습니다.",
         )
 
     def series(
@@ -2990,11 +2995,11 @@ class USEtfChartService:
                 (
                     f"{canonical.symbol} is outside the Data Status-authorized local "
                     "global_etf_price_daily symbol scope. The current accepted lane is "
-                    "SOXX-only; no external lookup, substitution, collection, or numeric "
+                    "SOXX/EWY-only; no external lookup, substitution, collection, or numeric "
                     "display was performed."
                 ),
                 freshness="BLOCKED",
-                source="yahoo_chart_api; accepted local scope: SOXX only",
+                source="yahoo_chart_api; accepted local scope: SOXX and EWY",
                 state=DashboardDisplayState.PROHIBITED,
             )
 

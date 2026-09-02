@@ -5,7 +5,9 @@ GLOBAL_ETF_PRICE_DAILY = DatasetContract(
     name="global_etf_price_daily", version=1, status="active",
     description=(
         "Daily provider OHLCV and separately retained adjusted close for explicitly "
-        "registered exchange-traded funds. ETFs are never represented as indices."
+        "registered exchange-traded funds. Provider ticker, ETF type, currency, exchange, "
+        "and daily granularity are validated before normalization. ETFs are never "
+        "represented as indices."
     ),
     source="yahoo_chart_api", layer="normalized", storage_format="parquet", frequency="daily",
     timezone="source_exchange", primary_key=("date", "symbol"), sort_key=("date", "symbol"),

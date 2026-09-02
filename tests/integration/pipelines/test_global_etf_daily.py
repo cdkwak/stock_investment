@@ -61,6 +61,8 @@ def test_global_etf_contract_and_registry_are_generic():
     assert ETF_REGISTRY["SOXX"]["validation"] == "global_etf_price_daily_v1"
     assert ETF_REGISTRY["SOXX"]["instrument_type"] == "ETF"
     assert ETF_REGISTRY["SOXX"]["official_cusip"] == "464287523"
+    assert ETF_REGISTRY["EWY"]["official_fund_name"] == "iShares MSCI South Korea ETF"
+    assert ETF_REGISTRY["EWY"]["automation_enabled"] is True
 
 
 def test_fetch_etf_preserves_adjusted_close_identity_and_landing(tmp_path):
@@ -109,7 +111,8 @@ def test_initial_etf_vertical_slice_is_capture_first_promotable_and_idempotent(t
 
     monkeypatch.setattr(refresh, "fetch_global_etf", fake_fetch)
     result = refresh.prepare_phase(
-        root, "yahoo_etf", start=date(2026, 8, 14), end=date(2026, 8, 14), session=Backend(),
+        root, "yahoo_etf", start=date(2026, 8, 14), end=date(2026, 8, 14),
+        symbols=("SOXX",), session=Backend(),
     )
     assert result["http_calls"] == 1 and result["normalized_mutation"] is False
     assert not (root / "data/normalized/global_etf_price_daily").exists()
@@ -130,7 +133,7 @@ def test_initial_etf_vertical_slice_is_capture_first_promotable_and_idempotent(t
 
     operation_rerun = refresh.prepare_phase(
         root, "yahoo_etf", start=date(2026, 8, 14), end=date(2026, 8, 14),
-        session=NoNetwork(),
+        symbols=("SOXX",), session=NoNetwork(),
     )
     assert operation_rerun["status"] == "NOOP_IDEMPOTENT"
     assert operation_rerun["http_calls"] == 0
@@ -140,5 +143,5 @@ def test_initial_etf_vertical_slice_is_capture_first_promotable_and_idempotent(t
     with pytest.raises(AssertionError, match="must not call"):
         refresh.prepare_phase(
             root, "yahoo_etf", start=date(2026, 8, 13), end=date(2026, 8, 13),
-            session=NoNetwork(),
+            symbols=("SOXX",), session=NoNetwork(),
         )

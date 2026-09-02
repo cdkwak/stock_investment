@@ -31,6 +31,13 @@ replay-only and is not a candidate under this allowlist. A later independent
 date/route may be added after binding its exact identity, contract, and new
 idempotency key.
 
+The Normalized Yahoo daily registries now also contain EWY, `^SOX`, `^DJI`,
+`ES=F`, `YM=F`, and `DX=F`, all
+`REGISTERED_NOT_YET_COLLECTED`. They use the capture-first
+`GLOBAL_ETF_DAILY`, `GLOBAL_INDEX_DAILY`, and `GLOBAL_COMMODITY_DAILY` lanes;
+this FDR display-only allowlist is not their collection path and is not expanded
+by that registration.
+
 ## Execution boundary
 
 Any future invocation is serial and uses a manifest-bounded request budget,

@@ -49,7 +49,7 @@ KR 묶음 v5의 첫 자연 20:30 실행은 source-width와 publication-boundary 
 
 | 영역 | 설치 작업 | KST 주기 | 현재 경계 |
 |---|---|---:|---|
-| 글로벌 일별 | `STOCK_DATA_FRED_DAILY`, `STOCK_DATA_GLOBAL_ETF_SOXX_DAILY`, `STOCK_DATA_GLOBAL_INDEX_DAILY` | 06:00 / 06:10 / 06:20 | Yahoo S&P 500·NASDAQ Composite·NASDAQ-100 index와 FRED VIXCLS는 2026-08-31까지 승격되었고 각 replay는 API 0; `GLOBAL_ETF_DAILY`·`GLOBAL_INDEX_DAILY`는 2026-09-02 `NOOP_CURRENT`, API 0, scheduler process `SUCCESS`, embedded Health `PASS 39/39` |
+| 글로벌 일별 | `STOCK_DATA_FRED_DAILY`, `STOCK_DATA_GLOBAL_ETF_SOXX_DAILY`, `STOCK_DATA_GLOBAL_INDEX_DAILY` | 06:00 / 06:10 / 06:20 | 기존 Yahoo S&P 500·NASDAQ Composite·NASDAQ-100 index와 SOXX는 유지. EWY·SOX(`^SOX`)·DOW_JONES(`^DJI`)는 `REGISTERED_NOT_YET_COLLECTED`; 기존 ETF/index task가 registry default로 다음 자연 실행에서 수집하며 새 Windows task는 없음 |
 | Health | `STOCK_DATA_DAILY_HEALTH` | 매일 06:30 | 공급자 호출 없이 typed universe 검증; 레인별 Health 쓰기와 일부 중복 |
 | 프로젝트 상태 | `STOCK_PROJECT_ISSUE_STATE_SYNC` | 매일 06:45 | Data 작업 아님; 첫 자연 실행 확인 대기 |
 | Toss 계좌 | `STOCK_DATA_TOSS_ACCOUNT_DAILY` | 매일 07:00 | 읽기 전용, 식별자 제거; 2026-08-27 자연 실행이 terminal receipt, snapshot digest, call budget을 통과 |
@@ -59,7 +59,7 @@ KR 묶음 v5의 첫 자연 20:30 실행은 source-width와 publication-boundary 
 | 한국장 일별 묶음 | `STOCK_DATA_KR_MARKET_DAILY_0910`, `_1410`, `_2030` | 09:10 / 14:10 / 20:30 | 계약 v5. 09:10 결과 0. 14:10은 Canonical/Lending 갱신과 Short Selling no-op을 성공시켰지만 수정 전 Health 오분류로 결과 1; 분류 보정 뒤 native Health 39/39. 20:30 작업은 오늘 자연 13-lane 실행 대기 |
 | Telegram 마감 | `STOCK_TELEGRAM_KR_CLOSE_BRIEF` | 평일 16:10 | Data 통합 대상 아님 |
 | BOK 국채 증거 | `STOCK_DATA_BOK_TREASURY_DAILY` | 매일 17:10 | 3-batch gate reviewed, 후속 실행 API 0; permanent publication finality unknown이므로 Canonical 금리·예측·GUI 숫자 아님 |
-| 글로벌 선물 | `STOCK_DATA_GLOBAL_FUTURES_DAILY` | 매일 22:10 | `GLOBAL_COMMODITY_DAILY`는 2026-09-02 `NOOP_CURRENT`, API 0, scheduler process `SUCCESS`, embedded Health `PASS 39/39` |
+| 글로벌 선물 | `STOCK_DATA_GLOBAL_FUTURES_DAILY` | 매일 22:10 | 기존 NQ=F/GC=F/CL=F 유지. SP500_FUTURES(`ES=F`)·DOW_FUTURES(`YM=F`)·DOLLAR_INDEX_FUTURES(`DX=F`)는 `REGISTERED_NOT_YET_COLLECTED`; 같은 task의 registry default가 다음 자연 실행에서 수집하며 새 Windows task는 없음 |
 | Yahoo 현재 | `STOCK_DATA_YAHOO_MARKET_30M` | 매시 :02/:32 | 30분봉 13개와 공급자 원형 15분봉 4개; 03:32 17/17 회복 |
 | 과거 KB 시장 스냅샷 | `StockInvestmentRev1-KBSecDailySnapshot` | 과거 평일 17:00 | 비활성 IVSA0070 시장 자료; KB 계좌 작업과 별개 |
 

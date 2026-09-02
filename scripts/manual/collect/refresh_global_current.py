@@ -41,8 +41,9 @@ from stock_data.providers.fred import fetch_series  # noqa: E402
 from stock_data.providers.fred import URL as FRED_URL  # noqa: E402
 from stock_data.providers.financedatareader_fred import fetch_vixcls  # noqa: E402
 from stock_data.providers.yahoo import (  # noqa: E402
-    COMMODITY_CONFIG, CONFIG, ETF_REGISTRY, _epoch, fetch_commodity_future,
-    fetch_global_etf, fetch_global_index,
+    COMMODITY_CONFIG, CONFIG, ETF_REGISTRY, GLOBAL_ETF_DAILY_SYMBOLS,
+    GLOBAL_FUTURES_DAILY_SYMBOLS, GLOBAL_INDEX_DAILY_SYMBOLS, _epoch,
+    fetch_commodity_future, fetch_global_etf, fetch_global_index,
 )
 from stock_data.orchestration.exchange_calendar import ExchangeMarket, ExchangeTradingCalendar  # noqa: E402
 from stock_data.orchestration.automatic_fallback import (  # noqa: E402
@@ -58,11 +59,17 @@ from stock_data.validation.global_market import (  # noqa: E402
 
 
 PHASES = {
-    "yahoo": (3, GLOBAL_INDEX_PRICE_DAILY, tuple(CONFIG)),
-    "yahoo_etf": (1, GLOBAL_ETF_PRICE_DAILY, tuple(ETF_REGISTRY)),
+    "yahoo": (
+        len(GLOBAL_INDEX_DAILY_SYMBOLS), GLOBAL_INDEX_PRICE_DAILY,
+        GLOBAL_INDEX_DAILY_SYMBOLS,
+    ),
+    "yahoo_etf": (
+        len(GLOBAL_ETF_DAILY_SYMBOLS), GLOBAL_ETF_PRICE_DAILY,
+        GLOBAL_ETF_DAILY_SYMBOLS,
+    ),
     "yahoo_dashboard_futures": (
-        3, GLOBAL_COMMODITY_FUTURES_DAILY,
-        ("NASDAQ100_FUTURES", "GOLD", "WTI_CRUDE_OIL"),
+        len(GLOBAL_FUTURES_DAILY_SYMBOLS), GLOBAL_COMMODITY_FUTURES_DAILY,
+        GLOBAL_FUTURES_DAILY_SYMBOLS,
     ),
     "fred_yields": (3, FRED_TREASURY_YIELD_DAILY, ("DGS2", "DGS10", "DGS30")),
     "fred_fx": (2, FRED_USD_FX_DAILY, ("DEXKOUS", "DEXJPUS")),
@@ -70,10 +77,29 @@ PHASES = {
 }
 LOCK = Path("data/state/global_current_refresh.lock")
 REPARSE_POINT = 0x400
+YAHOO_PHASES = frozenset({"yahoo", "yahoo_etf", "yahoo_dashboard_futures"})
 
 
 class RefreshError(RuntimeError):
     pass
+
+
+def _select_phase_items(
+    phase: str, configured: tuple[str, ...], symbols: tuple[str, ...] | None,
+) -> tuple[str, ...]:
+    if symbols is None:
+        return configured
+    if phase not in YAHOO_PHASES:
+        raise RefreshError("symbol selection is supported only for Yahoo phases")
+    selected = tuple(str(item).strip() for item in symbols)
+    if not selected or any(not item for item in selected):
+        raise RefreshError("at least one non-empty Yahoo symbol is required")
+    if len(selected) != len(set(selected)):
+        raise RefreshError("Yahoo symbol selection contains duplicates")
+    unknown = set(selected).difference(configured)
+    if unknown:
+        raise RefreshError(f"Yahoo symbol selection is not registered: {sorted(unknown)}")
+    return selected
 
 
 def _atomic_json(path: Path, value: object) -> None:
@@ -933,14 +959,17 @@ def adopt_stopped_fred_fx(
 
 
 def prepare_phase(
-    project_root: Path, phase: str, *, end: date, start: date | None = None, session=None,
+    project_root: Path, phase: str, *, end: date, start: date | None = None,
+    symbols: tuple[str, ...] | None = None, session=None,
 ) -> dict[str, object]:
     """Make a reviewable Landing/candidate bundle; never mutate production."""
     project_root = project_root.resolve()
     _assert_plain_path(project_root.parent, project_root)
     if phase not in PHASES:
         raise RefreshError("unknown phase")
-    limit, contract, items = PHASES[phase]
+    configured_limit, contract, configured_items = PHASES[phase]
+    items = _select_phase_items(phase, configured_items, symbols)
+    limit = len(items) if phase in YAHOO_PHASES else configured_limit
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "_" + uuid4().hex
     state_root = project_root / "data/state/global_current_refresh" / run_id
     landing_root = project_root / "data/landing/global_current_refresh" / run_id
@@ -971,7 +1000,7 @@ def prepare_phase(
     )
     if fred_noop is not None:
         return fred_noop
-    if phase == "yahoo_etf" and not existing.empty and start is not None:
+    if phase in YAHOO_PHASES and not existing.empty and start is not None:
         requested_start = start or end
         expected_dates = {
             value.isoformat() for value in ExchangeTradingCalendar(
@@ -1001,7 +1030,7 @@ def prepare_phase(
                     if phase in {"yahoo", "yahoo_etf", "yahoo_dashboard_futures"}
                     else existing.loc[pd.to_numeric(existing[item.lower()], errors="coerce").notna(), "date"])
         if selected.empty:
-            if phase not in {"yahoo_etf", "yahoo_dashboard_futures"} or start is None:
+            if phase not in YAHOO_PHASES or start is None:
                 raise RefreshError(f"cannot derive overlap start for {item}")
             item_start = start
         else:
@@ -1085,8 +1114,6 @@ def prepare_phase(
                 )
                 validator(incoming)
                 expected_symbols = (
-                    set(CONFIG) if phase == "yahoo" else
-                    set(ETF_REGISTRY) if phase == "yahoo_etf" else
                     set(items)
                 )
                 if set(incoming.symbol) != expected_symbols or incoming.groupby("symbol")["date"].max().ne(end.isoformat()).any():
@@ -1187,10 +1214,16 @@ def prepare_phase(
             return checkpoint
         except Exception as error:
             stopped_statuses = route_statuses if phase == "fred_vix" else budget.statuses
-            checkpoint.update({"status": "STOPPED", "http_calls": len(stopped_statuses),
+            checkpoint.update({"status": "STOPPED", "http_calls": (
+                                   len(stopped_statuses) if phase == "fred_vix" else budget.calls
+                               ),
                                "http_statuses": stopped_statuses, "error_type": type(error).__name__,
                                "post_dataset": _dataset_manifest(production_root)})
             _atomic_json(checkpoint_path, checkpoint)
+            try:
+                setattr(error, "checkpoint", dict(checkpoint))
+            except Exception:
+                pass
             raise
 
 
@@ -1402,7 +1435,17 @@ def _promote_locked(project_root: Path, checkpoint_path: Path, approval_digest: 
     run_id, phase = checkpoint.get("run_id"), checkpoint.get("phase")
     if phase not in PHASES:
         raise RefreshError("unknown checkpoint phase")
-    limit, contract, items = PHASES[phase]
+    configured_limit, contract, configured_items = PHASES[phase]
+    plan = checkpoint.get("frozen_plan", [])
+    if not isinstance(plan, list) or not plan:
+        raise RefreshError("checkpoint frozen plan is absent")
+    items = tuple(entry.get("item") for entry in plan if isinstance(entry, dict))
+    if len(items) != len(plan):
+        raise RefreshError("checkpoint frozen plan item schema differs")
+    _select_phase_items(phase, configured_items, items if phase in YAHOO_PHASES else None)
+    if phase not in YAHOO_PHASES and items != configured_items:
+        raise RefreshError("checkpoint frozen plan differs from the registered phase")
+    limit = len(items) if phase in YAHOO_PHASES else configured_limit
     fallback_decision = checkpoint.get("fallback_decision")
     expected_calls = (
         3 if phase == "fred_vix" and isinstance(fallback_decision, dict)
@@ -1415,7 +1458,7 @@ def _promote_locked(project_root: Path, checkpoint_path: Path, approval_digest: 
             or checkpoint.get("retry_count") != 0
             or checkpoint.get("http_statuses") != [200] * expected_calls
             or len(checkpoint.get("landing_captures", [])) != expected_calls
-            or [entry.get("item") for entry in checkpoint.get("frozen_plan", [])] != list(items)
+            or [entry.get("item") for entry in plan] != list(items)
             or checkpoint.get("approval_digest") != approval_digest
             or _approval_digest(checkpoint) != approval_digest):
         raise RefreshError("checkpoint approval/call/plan accounting differs")
@@ -1499,6 +1542,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--phase", choices=tuple(PHASES))
     parser.add_argument("--end", type=date.fromisoformat)
     parser.add_argument("--start", type=date.fromisoformat)
+    parser.add_argument(
+        "--symbols", nargs="+",
+        help="Exact registered Yahoo canonical symbol ids; omitted means the full phase registry.",
+    )
     parser.add_argument("--confirm-live-landing-only", action="store_true")
     parser.add_argument("--promote-checkpoint", type=Path)
     parser.add_argument("--confirm-offline-promotion", action="store_true")
@@ -1534,7 +1581,10 @@ def main(argv: list[str] | None = None) -> int:
     else:
         if not args.phase or not args.end or not args.confirm_live_landing_only:
             raise SystemExit("phase, explicit end, and Landing-only live confirmation are required")
-        result = prepare_phase(root, args.phase, end=args.end, start=args.start)
+        result = prepare_phase(
+            root, args.phase, end=args.end, start=args.start,
+            symbols=tuple(args.symbols) if args.symbols else None,
+        )
     print(json.dumps(result, ensure_ascii=False, sort_keys=True, indent=2))
     return 0
 

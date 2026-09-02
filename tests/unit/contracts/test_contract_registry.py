@@ -27,3 +27,19 @@ def test_market_15m_active_contract_is_delayed_and_timezone_explicit() -> None:
         contract.column_names
     )
     assert "not licensed realtime" in contract.description
+
+
+def test_global_daily_contracts_keep_symbol_identity_and_futures_semantics() -> None:
+    index = CONTRACTS["global_index_price_daily"]
+    etf = CONTRACTS["global_etf_price_daily"]
+    futures = CONTRACTS["global_commodity_futures_daily"]
+
+    assert index.primary_key == ("date", "symbol")
+    assert {"source_ticker", "open", "high", "low", "close", "volume"} <= set(
+        index.column_names
+    )
+    assert {"adjusted_close", "currency", "exchange", "provider"} <= set(
+        etf.column_names
+    )
+    assert {"source_ticker", "asset", "ohlc_status"} <= set(futures.column_names)
+    assert "dollar-index continuous futures" in futures.description

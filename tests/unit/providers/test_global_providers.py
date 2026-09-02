@@ -6,7 +6,8 @@ import pandas as pd
 import pytest
 
 from stock_data.providers.yahoo import (
-    fetch_global_index, fetch_global_market_60m, fetch_market_60m,
+    ETF_REGISTRY, fetch_global_etf, fetch_global_index, fetch_global_market_60m,
+    fetch_market_60m,
 )
 from stock_data.providers.yahoo_15m import fetch_market_15m
 from stock_data.providers.fred import fetch_series
@@ -24,28 +25,72 @@ class Response:
 
 class YahooSession:
     @staticmethod
-    def get(*args,**kwargs):
+    def get(url,*args,**kwargs):
+        ticker = url.rsplit("/", 1)[-1].replace("%5E", "^")
         return Response({"chart":{"error":None,"result":[{
+            "meta": {
+                "symbol": ticker, "instrumentType": "INDEX",
+                "dataGranularity": "1d",
+            },
             "timestamp":[1786032000],
             "indicators":{"quote":[{"open":[100.0],"high":[110.0],"low":[90.0],"close":[105.0],"volume":[1000]}]}
         }]}})
 
 
-def test_yahoo_arrays_are_normalized() -> None:
-    frame=fetch_global_index("SP500",date(2026,8,1),date(2026,8,7),session=YahooSession)
-    assert len(frame)==1 and frame.symbol.item()=="SP500"
+@pytest.mark.parametrize(
+    ("symbol", "ticker"),
+    (("SP500", "^GSPC"), ("SOX", "^SOX"), ("DOW_JONES", "^DJI")),
+)
+def test_yahoo_registered_index_arrays_are_identity_validated_and_normalized(
+    symbol: str, ticker: str,
+) -> None:
+    frame=fetch_global_index(symbol,date(2026,8,1),date(2026,8,7),session=YahooSession)
+    assert len(frame)==1 and frame.symbol.item()==symbol
+    assert frame.source_ticker.item() == ticker
 
 
 class BadYahoo(YahooSession):
     @staticmethod
     def get(*args,**kwargs):
-        response=YahooSession.get(); response._payload["chart"]["result"][0]["indicators"]["quote"][0]["volume"]=[]
+        response=YahooSession.get(*args, **kwargs); response._payload["chart"]["result"][0]["indicators"]["quote"][0]["volume"]=[]
         return response
 
 
 def test_yahoo_array_mismatch_is_rejected() -> None:
     with pytest.raises(RuntimeError,match="lengths"):
         fetch_global_index("SP500",date(2026,8,1),date(2026,8,7),session=BadYahoo)
+
+
+class YahooEtfSession:
+    @staticmethod
+    def get(url, *args, **kwargs):
+        ticker = url.rsplit("/", 1)[-1]
+        return Response({"chart": {"error": None, "result": [{
+            "meta": {
+                "symbol": ticker, "instrumentType": "ETF", "dataGranularity": "1d",
+                "currency": "USD", "exchangeName": "PCX",
+            },
+            "timestamp": [1786032000],
+            "indicators": {
+                "quote": [{
+                    "open": [70.0], "high": [71.0], "low": [69.0],
+                    "close": [70.5], "volume": [1000],
+                }],
+                "adjclose": [{"adjclose": [70.25]}],
+            },
+        }]}})
+
+
+def test_ewy_registry_and_daily_identity_are_validated_offline() -> None:
+    assert ETF_REGISTRY["EWY"]["source_ticker"] == "EWY"
+    assert ETF_REGISTRY["EWY"]["official_fund_name"] == "iShares MSCI South Korea ETF"
+    frame = fetch_global_etf(
+        "EWY", date(2026, 8, 1), date(2026, 8, 7), session=YahooEtfSession,
+        retrieved_at=datetime(2026, 8, 8, tzinfo=timezone.utc),
+    )
+    assert frame[["symbol", "source_ticker", "currency", "exchange"]].iloc[0].tolist() == [
+        "EWY", "EWY", "USD", "PCX",
+    ]
 
 
 class Yahoo60mSession:

@@ -18,7 +18,13 @@ from stock_data.validation.market_60m import validate_market_price_60m
 from stock_data.providers.public_http_capture import capture_public_response
 
 
-CONFIG = {"SP500": "^GSPC", "NASDAQ_COMPOSITE": "^IXIC", "NASDAQ100": "^NDX"}
+CONFIG = {
+    "SP500": "^GSPC",
+    "NASDAQ_COMPOSITE": "^IXIC",
+    "NASDAQ100": "^NDX",
+    "SOX": "^SOX",
+    "DOW_JONES": "^DJI",
+}
 ETF_REGISTRY = {
     "SOXX": {
         "source_ticker": "SOXX", "provider": "yahoo_chart_api",
@@ -26,6 +32,22 @@ ETF_REGISTRY = {
         "official_fund_name": "iShares Semiconductor ETF",
         "official_exchange": "NASDAQ", "official_cusip": "464287523",
         "official_identity_url": "https://www.ishares.com/us/products/239705/SOXX",
+        "expected_currency": "USD",
+        "accepted_yahoo_exchanges": ("NMS", "NASDAQ", "NasdaqGM"),
+        "cadence": "GLOBAL_DAILY", "freshness_policy": "reviewed_us_completed_session",
+        "validation": "global_etf_price_daily_v1", "automation_enabled": True,
+    },
+    "EWY": {
+        "source_ticker": "EWY", "provider": "yahoo_chart_api",
+        "instrument_type": "ETF", "issuer": "iShares",
+        "official_fund_name": "iShares MSCI South Korea ETF",
+        "official_exchange": "NYSE Arca",
+        "official_identity_url": (
+            "https://www.ishares.com/us/products/239681/"
+            "ishares-msci-south-korea-etf"
+        ),
+        "expected_currency": "USD",
+        "accepted_yahoo_exchanges": ("PCX", "NYSEArca", "NYSE Arca"),
         "cadence": "GLOBAL_DAILY", "freshness_policy": "reviewed_us_completed_session",
         "validation": "global_etf_price_daily_v1", "automation_enabled": True,
     },
@@ -35,7 +57,16 @@ COMMODITY_CONFIG = {
     "COPPER": ("HG=F", "Copper"), "WTI_CRUDE_OIL": ("CL=F", "WTI Crude Oil"),
     "BRENT_CRUDE_OIL": ("BZ=F", "Brent Crude Oil"),
     "NASDAQ100_FUTURES": ("NQ=F", "Nasdaq 100 E-mini vendor-continuous future"),
+    "SP500_FUTURES": ("ES=F", "S&P 500 E-mini vendor-continuous future"),
+    "DOW_FUTURES": ("YM=F", "Dow E-mini vendor-continuous future"),
+    "DOLLAR_INDEX_FUTURES": ("DX=F", "U.S. Dollar Index vendor-continuous future"),
 }
+GLOBAL_INDEX_DAILY_SYMBOLS = tuple(CONFIG)
+GLOBAL_ETF_DAILY_SYMBOLS = tuple(ETF_REGISTRY)
+GLOBAL_FUTURES_DAILY_SYMBOLS = (
+    "NASDAQ100_FUTURES", "GOLD", "WTI_CRUDE_OIL",
+    "SP500_FUTURES", "DOW_FUTURES", "DOLLAR_INDEX_FUTURES",
+)
 SUPPORTED_START = {
     "SP500": date(1928, 1, 3),
     "NASDAQ_COMPOSITE": date(1971, 2, 5),
@@ -393,6 +424,13 @@ def fetch_global_index(
     if not isinstance(results, list) or len(results) != 1:
         raise RuntimeError("Yahoo chart result is missing")
     item = results[0]
+    meta = item.get("meta") or {}
+    if (
+        str(meta.get("symbol")) != ticker
+        or str(meta.get("instrumentType", "")).upper() != "INDEX"
+        or str(meta.get("dataGranularity")) != "1d"
+    ):
+        raise RuntimeError("Yahoo index identity or granularity differs")
     timestamps = item.get("timestamp") or []
     quote_rows = ((item.get("indicators") or {}).get("quote") or [])
     if not timestamps or len(quote_rows) != 1:
@@ -451,6 +489,14 @@ def fetch_global_etf(
         raise RuntimeError("Yahoo ETF identity/instrument type differs")
     if str(meta.get("dataGranularity")) != "1d":
         raise RuntimeError("Yahoo ETF response is not daily")
+    currency = str(meta.get("currency") or "")
+    exchange = str(meta.get("exchangeName") or meta.get("fullExchangeName") or "")
+    expected_currency = str(spec.get("expected_currency") or "USD")
+    accepted_exchanges = tuple(spec.get("accepted_yahoo_exchanges") or ())
+    if currency != expected_currency or not exchange:
+        raise RuntimeError("Yahoo ETF currency/exchange identity differs")
+    if accepted_exchanges and exchange not in accepted_exchanges:
+        raise RuntimeError("Yahoo ETF exchange identity differs")
     timestamps = item.get("timestamp") or []
     quote_rows = ((item.get("indicators") or {}).get("quote") or [])
     adjusted_rows = ((item.get("indicators") or {}).get("adjclose") or [])
@@ -472,8 +518,8 @@ def fetch_global_etf(
         "symbol": symbol, "source_ticker": ticker,
         **{column: values[column] for column in ("open", "high", "low", "close", "volume")},
         "adjusted_close": adjusted,
-        "currency": str(meta.get("currency") or ""),
-        "exchange": str(meta.get("exchangeName") or meta.get("fullExchangeName") or ""),
+        "currency": currency,
+        "exchange": exchange,
         "provider": "yahoo_chart_api", "retrieved_at": observed_at,
         "adjustment_status": "SOURCE_ADJUSTED_CLOSE_RETAINED_SEPARATELY",
     })
@@ -511,8 +557,13 @@ def fetch_commodity_future(
     if not isinstance(results, list) or len(results) != 1:
         raise RuntimeError("Yahoo commodity chart result is missing")
     item = results[0]
-    if str((item.get("meta") or {}).get("dataGranularity")) != "1d":
-        raise RuntimeError("Yahoo commodity response is not daily")
+    meta = item.get("meta") or {}
+    if (
+        str(meta.get("symbol")) != ticker
+        or str(meta.get("instrumentType", "")).upper() != "FUTURE"
+        or str(meta.get("dataGranularity")) != "1d"
+    ):
+        raise RuntimeError("Yahoo futures identity or granularity differs")
     timestamps = item.get("timestamp") or []
     quote_rows = ((item.get("indicators") or {}).get("quote") or [])
     if not timestamps or len(quote_rows) != 1:
@@ -525,7 +576,6 @@ def fetch_commodity_future(
     # boundary used by completed daily bars.  Retain it in Landing evidence but
     # exclude it from the completed-daily candidate.  Never deduplicate by date:
     # any other duplicate remains a validation failure.
-    meta = item.get("meta") or {}
     regular_market_time = meta.get("regularMarketTime")
     completed_positions = list(range(len(timestamps)))
     if timestamps and regular_market_time == timestamps[-1]:
@@ -607,7 +657,7 @@ def collect_global_indices(
     frames=[]; errors=[]
     for symbol in CONFIG:
         try:
-            symbol_start = max(fetch_start, SUPPORTED_START[symbol])
+            symbol_start = max(fetch_start, SUPPORTED_START.get(symbol, fetch_start))
             frames.append(fetch_global_index(
                 symbol, symbol_start, end, session=session, capture_root=capture_root,
             ))

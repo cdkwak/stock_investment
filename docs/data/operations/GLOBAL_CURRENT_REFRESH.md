@@ -1,6 +1,6 @@
 # Capture-first global current refresh
 
-Status: `FRED_DAILY_AUTOMATION_ACTIVE / YAHOO_INDEX_ETF_FUTURES_AUTOMATION_ACTIVE / DESCRIPTIVE_CURRENT_ONLY`.
+Status: `FRED_DAILY_AUTOMATION_ACTIVE / YAHOO_INDEX_ETF_FUTURES_AUTOMATION_ACTIVE / SIX_NEW_SYMBOLS_REGISTERED_NOT_YET_COLLECTED / DESCRIPTIVE_CURRENT_ONLY`.
 
 The `fred_vix`, `fred_yields`, and `fred_fx` phases are explicitly authorized
 for bounded as-retrieved operational collection. Their reviewed promotion may
@@ -8,24 +8,29 @@ refresh the corresponding Normalized datasets; `fred_yields` may also refresh
 the derived Treasury spread in its existing atomic transaction. Missing
 realtime/vintage/series-last-updated metadata remains null, and predictive use
 stays `PIT_BLOCKED_PENDING_VINTAGE_RESOLVER`. Yahoo automation is separately
-bounded to the exact registered index, SOXX, and Dashboard-futures scopes below;
+bounded to the exact registered index, ETF, and Dashboard-futures scopes below;
 this does not authorize fallback sources, another symbol, or an inferred end date.
 
 `scripts/manual/collect/refresh_global_current.py` prepares one bounded provider phase.
 The live command never changes a production Normalized or Derived root.
 
-- `yahoo`: exactly 3 sequential calls (SP500, NASDAQ Composite, NASDAQ-100)
-- `yahoo_dashboard_futures`: exactly 3 sequential calls (NQ=F, GC=F, CL=F)
+- `yahoo`: up to 5 sequential calls (SP500, NASDAQ Composite, NASDAQ-100,
+  SOX, Dow Jones); `--symbols` uses one call per selected canonical id
+- `yahoo_etf`: up to 2 sequential calls (SOXX, EWY); a subset is registry-bound
+- `yahoo_dashboard_futures`: up to 6 sequential calls (NQ=F, GC=F, CL=F,
+  ES=F, YM=F, DX=F); a subset is registry-bound
 - `fred_yields`: exactly 3 sequential calls (DGS2, DGS10, DGS30)
 - `fred_fx`: exactly 2 sequential calls (DEXKOUS, DEXJPUS)
 - `fred_vix`: exactly 1 call (VIXCLS)
 
-The registry-bound `yahoo_etf` phase is scheduler-active only for SOXX and is
-current through 2026-08-18. The `yahoo` phase is scheduler-active only for the
-joint SP500, NASDAQ_COMPOSITE, and NASDAQ100 bundle through 2026-08-18. Both
-lanes allow only one completed-session append, retry zero, exact retained-overlap
-validation, atomic promotion, and a pre-network same-target replay. This does
-not authorize another ETF/index symbol or a fallback.
+The registry-bound `yahoo_etf` phase contains retained SOXX plus EWY
+`REGISTERED_NOT_YET_COLLECTED`. The `yahoo` phase contains retained SP500,
+NASDAQ_COMPOSITE, and NASDAQ100 plus SOX and DOW_JONES
+`REGISTERED_NOT_YET_COLLECTED`. Existing symbols allow only one completed-session
+append; a missing registered symbol uses the explicitly bounded onboarding
+window. Every symbol keeps retry zero, exact retained-overlap validation, atomic
+promotion, and a pre-network same-target replay. This does not authorize another
+ETF/index symbol or a fallback.
 
 FRED expected dates are provider-publication dates, not direct projections of
 the completed XNYS session. H.15 yields use the official weekday 16:15 ET
@@ -49,18 +54,23 @@ KST, after the explicit next-US-business-day 08:00 ET availability gate. Yahoo l
 bars remain in immutable Landing evidence but are excluded from completed-daily
 candidates when their timestamp equals `meta.regularMarketTime` away from the
 exchange-local day boundary. Returned rows outside the explicit requested range
-are also excluded. The endpoint must have `VALID` OHLC and a finite close for all
-three symbols or the run stops before publication.
+are also excluded. The endpoint must have `VALID` OHLC and a finite close for
+every selected symbol or that symbol stops before publication.
 
-The unattended lane is fixed to NQ=F, GC=F, and CL=F, permits only a one-session
-append, requires three HTTP 200 responses with retry zero, validates overlap and
-revision reports, and promotes the three symbols as one CAS transaction. A
-same-target replay exits before network access. It does not provide intraday
+The unattended lane is fixed to NQ=F, GC=F, CL=F, ES=F, YM=F, and DX=F.
+Existing symbols permit only a one-session append, while a missing registered
+symbol uses the bounded onboarding window. Each symbol requires its own HTTP 200
+response with retry zero, validates overlap and revision reports, and promotes
+through an independent whole-dataset CAS transaction. One failed symbol remains
+unpromoted and does not block valid peers. A same-target replay exits before
+network access. It does not provide intraday
 streaming, individual expiries, official settlements, volume/OI semantics, or
 predictive PIT eligibility.
 
-Installed times are SOXX 06:10 KST, the global-index bundle 06:20 KST, and the
-Dashboard-futures bundle 22:10 KST. Each actual task and retained-date replay
+Installed times are global ETFs 06:10 KST, global indices 06:20 KST, and the
+Dashboard-futures bundle 22:10 KST. Existing task actions omit `--symbols`, so
+registry defaults automatically include the six new symbols on the next natural
+run; no Windows task definition is added or modified. Each prior actual task and retained-date replay
 returned result 0; the replay used API 0. Provider completion atomically refreshes
 Health V2 from contract-valid production dates.
 
@@ -111,8 +121,10 @@ are checked again after the provider lock is acquired. Paths must match the
 run/phase topology; symlinks, junctions/reparse points, extra files, and unknown
 partition layouts are rejected.
 
-Run and audit each Yahoo lane, FRED yields, FRED FX, and FRED VIX separately. A failure in one phase
-cannot partially publish another. FRED current observations do not establish
+Run and audit each Yahoo symbol, FRED yields, FRED FX, and FRED VIX separately.
+A Yahoo symbol failure preserves its prior-valid rows while independent valid
+symbols may publish; a failure in one FRED phase cannot partially publish another.
+FRED current observations do not establish
 vintage/revision history; retained historical provenance limitations remain.
 Prepared FRED checkpoints record an operational as-retrieved observation view
 using the immutable call timestamp. The fredgraph CSV does not expose source

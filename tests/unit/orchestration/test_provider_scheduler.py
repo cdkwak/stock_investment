@@ -406,7 +406,10 @@ def test_current_registry_enables_registered_global_indices(tmp_path: Path) -> N
 def _write_yahoo_index_landing(
     tmp_path: Path, *, rows: list[dict[str, object]], symbol: str = "SP500",
 ) -> Path:
-    ticker = {"SP500": "^GSPC", "NASDAQ_COMPOSITE": "^IXIC", "NASDAQ100": "^NDX"}[symbol]
+    ticker = {
+        "SP500": "^GSPC", "NASDAQ_COMPOSITE": "^IXIC", "NASDAQ100": "^NDX",
+        "SOX": "^SOX", "DOW_JONES": "^DJI",
+    }[symbol]
     timestamps = [int(pd.Timestamp(row["date"], tz="America/New_York").timestamp()) for row in rows]
     body = json.dumps({
         "chart": {"error": None, "result": [{
@@ -599,36 +602,49 @@ def test_global_index_landing_replay_rejects_missing_target(tmp_path: Path) -> N
         )
 
 
-def test_global_index_phase_replays_three_symbols_restores_wrapper_and_promotes(
+def test_global_index_phase_bad_new_symbol_does_not_block_other_landing_promotion(
     tmp_path: Path, monkeypatch,
 ) -> None:
     tickers = {"SP500": "^GSPC", "NASDAQ_COMPOSITE": "^IXIC", "NASDAQ100": "^NDX"}
-    existing = pd.concat([
+    stored = pd.concat([
         _retained_index_frame().assign(symbol=symbol, source_ticker=ticker)
         for symbol, ticker in tickers.items()
     ], ignore_index=True)
+    stored["date"] = "2026-08-31"
     module = SimpleNamespace()
+    candidates = {}
 
     def original_fetch(symbol, start, end, *, session, capture_root):
-        _write_yahoo_index_landing(capture_root / symbol, symbol=symbol, rows=[
-            {"date": "2026-08-28", "open": None, "high": None, "low": None, "close": None, "volume": None},
-            {"date": "2026-08-31", "open": 104.0, "high": 106.0, "low": 103.0, "close": 105.0, "volume": 11},
+        call = _write_yahoo_index_landing(capture_root / symbol, symbol=symbol, rows=[
+            {"date": end.isoformat(), "open": 104.0, "high": 106.0,
+             "low": 103.0, "close": 105.0, "volume": 11},
         ])
-        raise RuntimeError("Yahoo OHLC contains missing or infinite values")
-
-    def prepare_phase(project_root, phase, *, end):
-        frames = [
-            module.fetch_global_index(
-                symbol, date(2026, 8, 28), end, session=object(),
-                capture_root=project_root / "captures",
+        if symbol == "SOX":
+            _rewrite_yahoo_landing(
+                call,
+                lambda payload: payload["chart"]["result"][0]["meta"].update(
+                    instrumentType="ETF"
+                ),
             )
-            for symbol in tickers
-        ]
-        assert all(frame["date"].tolist() == ["2026-08-28", "2026-08-31"] for frame in frames)
+            raise RuntimeError("Yahoo index identity or granularity differs")
+        return pd.DataFrame([{
+            "date": end.isoformat(), "symbol": symbol, "source_ticker": "^DJI",
+            "open": 104.0, "high": 106.0, "low": 103.0, "close": 105.0,
+            "volume": 11,
+        }], columns=scheduler.GLOBAL_INDEX_PRICE_DAILY.column_names)
+
+    def prepare_phase(project_root, phase, *, end, start, symbols):
+        assert len(symbols) == 1 and start == date(2025, 8, 31)
+        symbol = symbols[0]
+        frame = module.fetch_global_index(
+            symbol, start, end, session=object(),
+            capture_root=project_root / "captures" / symbol,
+        )
+        candidates[symbol] = frame
         return {
             "status": "CANDIDATE_REVIEW_REQUIRED", "phase": phase,
-            "max_http_calls": 3, "http_calls": 3, "retry_count": 0,
-            "http_statuses": [200, 200, 200], "run_id": "three-index-run",
+            "max_http_calls": 1, "http_calls": 1, "retry_count": 0,
+            "http_statuses": [200], "run_id": f"{symbol.lower()}-run",
             "approval_digest": "approved",
             "revision_report": {
                 symbol: {
@@ -636,32 +652,37 @@ def test_global_index_phase_replays_three_symbols_restores_wrapper_and_promotes(
                     "finite_to_null_cells": 0,
                     "inserted_rows": 1,
                 }
-                for symbol in tickers
             },
         }
 
     promoted = []
 
     def promote_phase(project_root, checkpoint_path, *, approval_digest):
+        nonlocal stored
+        symbol = checkpoint_path.parent.name.removesuffix("-run").upper()
+        if symbol == "DOW_JONES":
+            stored = pd.concat([stored, candidates[symbol]], ignore_index=True)
         promoted.append((checkpoint_path, approval_digest))
         return {"status": "PROMOTED"}
 
     module.fetch_global_index = original_fetch
     module.prepare_phase = prepare_phase
     module.promote_phase = promote_phase
-    monkeypatch.setattr(scheduler, "read_dataset", lambda *args: existing.copy())
+    monkeypatch.setattr(scheduler, "read_dataset", lambda *args: stored.copy())
     monkeypatch.setattr(scheduler, "_load_refresh_module", lambda _root: module)
 
     result = scheduler._run_global_index_phase(
         tmp_path, "global_indices", date(2026, 8, 31),
     )
 
-    assert result["status"] == "PROMOTED" and result["http_calls"] == 3
-    assert result["landing_replay_symbols"] == list(tickers)
-    assert result["reason"].endswith("WITH_LANDING_REPLAY")
+    assert result["status"] == "DEGRADED_SYMBOL_FAILURES_PRESERVED"
+    assert result["promoted_symbols"] == ["DOW_JONES"]
+    assert set(result["failed_symbols"]) == {"SOX"}
+    assert set(stored["symbol"]) == {*tickers, "DOW_JONES"}
+    assert len(list((tmp_path / "captures").rglob("call.json"))) == 2
     assert module.fetch_global_index is original_fetch
     assert promoted == [(
-        tmp_path / "data/state/global_current_refresh/three-index-run/checkpoint.json",
+        tmp_path / "data/state/global_current_refresh/dow_jones-run/checkpoint.json",
         "approved",
     )]
 

@@ -72,6 +72,7 @@ from stock_data.orchestration.daily_operations import (
     transition_run,
     write_run_checkpoint,
 )
+from stock_data.orchestration.dataset_universe import DATASET_SYMBOL_REGISTRY
 
 
 UTC = timezone.utc
@@ -533,6 +534,17 @@ def test_important_dataset_reclassifications_preserve_temporal_nature() -> None:
         "kr_etf_ohlcv_daily", "kr_etf_universe_daily", "kr_index_fundamental_daily",
     ):
         assert DATASET_UNIVERSE[dataset_id].data_grain is DataGrain.DAILY
+
+
+def test_yahoo_daily_dataset_symbol_registry_includes_new_uncollected_scope() -> None:
+    assert DATASET_SYMBOL_REGISTRY["global_index_price_daily"] == (
+        "SP500", "NASDAQ_COMPOSITE", "NASDAQ100", "SOX", "DOW_JONES",
+    )
+    assert DATASET_SYMBOL_REGISTRY["global_etf_price_daily"] == ("SOXX", "EWY")
+    assert DATASET_SYMBOL_REGISTRY["global_commodity_futures_daily"] == (
+        "NASDAQ100_FUTURES", "GOLD", "WTI_CRUDE_OIL",
+        "SP500_FUTURES", "DOW_FUTURES", "DOLLAR_INDEX_FUTURES",
+    )
 
 
 def test_daily_gap_status_covers_62_rows_and_never_infers_a_calendar() -> None:

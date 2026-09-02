@@ -2117,14 +2117,14 @@ def _write_us_etf_price(root: Path, symbol: str = "SPY") -> pd.DataFrame:
     return frame
 
 
-def test_us_etf_catalog_has_exact_thirteen_fund_identities_and_official_references():
+def test_us_etf_catalog_has_exact_fourteen_fund_identities_and_official_references():
     by_symbol = {identity.symbol: identity for identity in US_ETF_CHART_IDENTITIES}
 
     assert tuple(by_symbol) == (
-        "SOXL", "TQQQ", "QLD", "KORU", "TLT", "TLTW", "QQQ", "SPY",
+        "SOXL", "TQQQ", "QLD", "KORU", "EWY", "TLT", "TLTW", "QQQ", "SPY",
         "QQQI", "QDVO", "GPIQ", "JEPQ", "JEPI",
     )
-    assert len({identity.key for identity in by_symbol.values()}) == 13
+    assert len({identity.key for identity in by_symbol.values()}) == 14
     assert all(identity.is_us_etf and identity.currency == "USD" for identity in by_symbol.values())
     assert all(identity.issuer and identity.exposure and identity.listing_date for identity in by_symbol.values())
     assert all((identity.identity_source or "").startswith("https://") for identity in by_symbol.values())
@@ -2146,7 +2146,7 @@ def test_us_etf_production_scope_is_searchable_but_numeric_free_before_any_price
     assert view.display_state is DashboardDisplayState.PROHIBITED
     assert view.frame.empty and view.change is None and view.period_high is None
     assert view.freshness == "BLOCKED"
-    assert "SOXX-only" in (view.unavailable_reason or "")
+    assert "SOXX/EWY-only" in (view.unavailable_reason or "")
     assert "no external lookup" in (view.unavailable_reason or "")
     assert service.query.files_read == []
 

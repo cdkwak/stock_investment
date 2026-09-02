@@ -1,6 +1,6 @@
-# Global ETF / SOXX onboarding gates
+# Global ETF / SOXX and EWY onboarding gates
 
-Status: `DAILY_AUTOMATION_ACTIVE / SYMBOL_BOUND / PIT_BLOCKED`.
+Status: `DAILY_AUTOMATION_ACTIVE / SYMBOL_BOUND / EWY_REGISTERED_NOT_YET_COLLECTED / PIT_BLOCKED`.
 
 SOXX is the `iShares Semiconductor ETF`, an ETF listed on NASDAQ under ticker
 `SOXX` (CUSIP `464287523`). It is not the SOX index, and neither series is a
@@ -26,5 +26,18 @@ CAS promotion. Predictive use remains blocked pending a vintage policy,
 Round 3 advanced the retained slice to 2026-08-18 (252 XNYS rows) through one
 overlap-preserving call. `STOCK_DATA_GLOBAL_ETF_SOXX_DAILY` is installed at
 06:10 KST. Its actual trigger and second trigger both completed with result 0;
-the second was a pre-network API-0 no-op. Automation is bound to the single
-registered `SOXX` symbol and grants no other ETF symbol or fallback.
+the second was a pre-network API-0 no-op. That receipt remains the retained SOXX
+baseline.
+
+EWY is now registered separately as the `iShares MSCI South Korea ETF` under
+Yahoo ticker `EWY`; it is not a Korea equity index and is not interchangeable
+with KORU. Its first live call must validate exact ticker, ETF instrument type,
+USD currency, a registered Yahoo NYSE Arca exchange identifier, and `1d`
+granularity before any candidate exists. Until that bounded run is promoted,
+EWY remains `REGISTERED_NOT_YET_COLLECTED`.
+
+The 06:10 KST `STOCK_DATA_GLOBAL_ETF_SOXX_DAILY` task name is retained for
+compatibility. Its registry-default invocation now covers SOXX and EWY without
+a Windows task change. Each symbol prepares and promotes through an independent
+whole-dataset CAS transaction, so an EWY identity failure preserves all SOXX
+rows and does not block SOXX advancement.

@@ -290,7 +290,7 @@ def test_prepare_is_nonmutating_tamper_fails_and_offline_promotion_is_atomic(tmp
     promoted = refresh.promote_phase(root, checkpoint, approval_digest=result["approval_digest"])
     assert promoted["status"] == "PROMOTED"
     restored = read_dataset(production, GLOBAL_INDEX_PRICE_DAILY, validate_global_index)
-    assert len(restored) == 9 and restored.date.max() == "2026-08-03"
+    assert len(restored) == len(CONFIG) * 3 and restored.date.max() == "2026-08-03"
     assert json.loads(state.read_text())["run_id"] == result["run_id"]
 
 

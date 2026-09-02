@@ -16,6 +16,20 @@ CONTRACTS = {
     KR_INDEX_FUNDAMENTAL_DAILY.name: KR_INDEX_FUNDAMENTAL_DAILY,
 }
 
+# Canonical provider-symbol membership for the three Yahoo daily datasets.
+# Coverage remains dataset-level below; newly registered symbols are not treated
+# as retained until a validated Landing-first promotion actually writes rows.
+DATASET_SYMBOL_REGISTRY: Mapping[str, tuple[str, ...]] = MappingProxyType({
+    "global_index_price_daily": (
+        "SP500", "NASDAQ_COMPOSITE", "NASDAQ100", "SOX", "DOW_JONES",
+    ),
+    "global_etf_price_daily": ("SOXX", "EWY"),
+    "global_commodity_futures_daily": (
+        "NASDAQ100_FUTURES", "GOLD", "WTI_CRUDE_OIL",
+        "SP500_FUTURES", "DOW_FUTURES", "DOLLAR_INDEX_FUTURES",
+    ),
+})
+
 
 class DatasetRefreshClass(StrEnum):
     """Deprecated single-axis compatibility view; never drive new logic."""
@@ -1190,5 +1204,6 @@ __all__ = [
     "DatasetUniverseRegistry", "DatasetUniverseSpec", "GuiUse",
     "OperationalBlockerReason", "PredictivePitStatus", "RefreshPolicy",
     "RegistryDisposition", "SchedulerGroup", "SchedulerManagement",
-    "UniverseOperationalStatus", "build_dataset_universe", "validate_consumer_decision",
+    "UniverseOperationalStatus", "DATASET_SYMBOL_REGISTRY", "build_dataset_universe",
+    "validate_consumer_decision",
 ]

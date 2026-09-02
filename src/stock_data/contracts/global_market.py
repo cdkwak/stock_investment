@@ -33,7 +33,11 @@ FRED_DEXJPUS_IDENTITY = FredFxSeriesIdentity(
 
 GLOBAL_INDEX_PRICE_DAILY = DatasetContract(
     name="global_index_price_daily", version=1, status="active",
-    description="Daily OHLCV for explicitly configured overseas indices.",
+    description=(
+        "Daily OHLCV for explicitly registered overseas indices, including broad-market "
+        "and semiconductor benchmarks. Provider identity and daily granularity must match "
+        "the registered Yahoo ticker before normalization."
+    ),
     source="yahoo_chart_api", layer="normalized", storage_format="parquet", frequency="daily",
     timezone="source_exchange", primary_key=("date", "symbol"), sort_key=("date", "symbol"),
     partition_by=("symbol", "year"), columns=(
@@ -48,8 +52,9 @@ GLOBAL_COMMODITY_FUTURES_DAILY = DatasetContract(
     name="global_commodity_futures_daily", version=1, status="active",
     description=(
         "Yahoo vendor-continuous market-futures daily OHLCV. The legacy dataset name "
-        "is retained for compatibility and includes explicitly registered commodity "
-        "futures plus NQ=F. Not spot prices, individual-expiry contracts, official "
+        "is retained for compatibility and includes explicitly registered commodity, "
+        "equity-index, and dollar-index continuous futures. Not spot prices, "
+        "individual-expiry contracts, official "
         "settlements, or historical provider vintages."
     ),
     source="yahoo_chart_api", layer="normalized", storage_format="parquet", frequency="daily",

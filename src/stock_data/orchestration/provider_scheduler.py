@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import hashlib
 import importlib.util
 import json
@@ -195,20 +195,24 @@ LANE_SCHEDULES = MappingProxyType({
         market=ExchangeMarket.US, phases=("global_indices",),
         dataset_ids=("global_index_price_daily",),
         accepted_source=(
-            "Yahoo chart API: registered SP500, NASDAQ_COMPOSITE, and NASDAQ100 only"
+            "Yahoo chart API: registered SP500, NASDAQ_COMPOSITE, NASDAQ100, SOX, "
+            "and DOW_JONES"
         ),
     ),
     "GLOBAL_ETF_DAILY": LaneSchedule(
         lane="GLOBAL_ETF_DAILY", cadence_group="GLOBAL_DAILY_FINAL",
-        market=ExchangeMarket.US, phases=("soxx",),
+        market=ExchangeMarket.US, phases=("global_etfs",),
         dataset_ids=("global_etf_price_daily",),
-        accepted_source="Yahoo chart API: registered SOXX only",
+        accepted_source="Yahoo chart API: registered SOXX and EWY ETFs",
     ),
     "GLOBAL_COMMODITY_DAILY": LaneSchedule(
         lane="GLOBAL_COMMODITY_DAILY", cadence_group="GLOBAL_DAILY_FINAL",
         market=ExchangeMarket.US, phases=("dashboard_futures",),
         dataset_ids=("global_commodity_futures_daily",),
-        accepted_source="Yahoo chart API: NQ=F, GC=F, and CL=F completed daily bars",
+        accepted_source=(
+            "Yahoo chart API: NQ=F, GC=F, CL=F, ES=F, YM=F, and DX=F "
+            "completed daily bars"
+        ),
     ),
 })
 
@@ -588,57 +592,27 @@ def _run_toss_kr_treasury_phase(
 
 
 def _run_etf_phase(project_root: Path, phase: str, target: object) -> dict[str, object]:
-    if phase != "soxx" or not isinstance(target, date):
+    if phase != "global_etfs" or not isinstance(target, date):
         raise ProviderSchedulerError("invalid global ETF scheduler phase")
-    production = project_root / "data/normalized/global_etf_price_daily"
-    existing = read_dataset(production, GLOBAL_ETF_PRICE_DAILY, validate_global_etf)
-    selected = existing.loc[existing["symbol"].eq("SOXX"), "date"]
-    if selected.empty:
-        raise ProviderSchedulerError("SOXX retained baseline is absent")
-    retained = date.fromisoformat(str(selected.astype(str).max()))
-    if retained >= target:
-        return {"status": "NOOP_IDEMPOTENT", "http_calls": 0, "run_id": None,
-                "symbol": "SOXX", "latest_before": retained.isoformat(),
-                "latest_after": retained.isoformat(),
-                "reason": "EXPECTED_SESSION_ALREADY_RETAINED"}
-    calendar = ExchangeTradingCalendar(ExchangeMarket.US)
-    if calendar.next_trading_day(retained) != target:
-        raise ProviderSchedulerError(
-            f"SOXX catch-up is not a one-session append: {retained} -> {target}"
-        )
-    module = _load_refresh_module(project_root)
-    checkpoint = module.prepare_phase(
-        project_root, "yahoo_etf", start=retained, end=target,
+    return _run_registered_yahoo_phase(
+        project_root, phase="yahoo_etf", target=target,
+        symbols=_GLOBAL_ETF_SYMBOLS, contract=GLOBAL_ETF_PRICE_DAILY,
+        validator=validate_global_etf,
     )
-    if checkpoint.get("status") == "NOOP_IDEMPOTENT":
-        return {"status": "NOOP_IDEMPOTENT", "http_calls": 0, "run_id": None,
-                "symbol": "SOXX", "latest_before": retained.isoformat(),
-                "latest_after": retained.isoformat(),
-                "reason": "EXPECTED_SESSION_ALREADY_RETAINED"}
-    if checkpoint.get("status") != "CANDIDATE_REVIEW_REQUIRED":
-        raise ProviderSchedulerError(f"unexpected ETF phase status: {checkpoint.get('status')}")
-    if checkpoint.get("http_calls") != 1 or checkpoint.get("http_statuses") != [200]:
-        raise ProviderSchedulerError("SOXX accepted-source checkpoint validation failed")
-    checkpoint_path = (
-        project_root / "data/state/global_current_refresh" /
-        str(checkpoint["run_id"]) / "checkpoint.json"
-    )
-    promoted = module.promote_phase(
-        project_root, checkpoint_path, approval_digest=str(checkpoint["approval_digest"]),
-    )
-    if promoted.get("status") != "PROMOTED":
-        raise ProviderSchedulerError(f"SOXX promotion did not commit: {promoted.get('status')}")
-    return {"status": "PROMOTED", "http_calls": 1,
-            "run_id": checkpoint.get("run_id"), "symbol": "SOXX",
-            "latest_before": retained.isoformat(), "latest_after": target.isoformat(),
-            "reason": "VALIDATED_SYMBOL_BOUND_PROMOTION"}
 
 
 _GLOBAL_INDEX_TICKERS = MappingProxyType({
     "SP500": "^GSPC",
     "NASDAQ_COMPOSITE": "^IXIC",
     "NASDAQ100": "^NDX",
+    "SOX": "^SOX",
+    "DOW_JONES": "^DJI",
 })
+_GLOBAL_ETF_SYMBOLS = ("SOXX", "EWY")
+_GLOBAL_FUTURES_SYMBOLS = (
+    "NASDAQ100_FUTURES", "GOLD", "WTI_CRUDE_OIL",
+    "SP500_FUTURES", "DOW_FUTURES", "DOLLAR_INDEX_FUTURES",
+)
 _GLOBAL_INDEX_NUMERIC = ("open", "high", "low", "close", "volume")
 
 
@@ -749,7 +723,8 @@ def _replay_global_index_landing(
 
 
 def _prepare_global_index_with_landing_replay(
-    module: object, project_root: Path, existing: pd.DataFrame, target: date,
+    module: object, project_root: Path, existing: pd.DataFrame, target: date, *,
+    symbols: tuple[str, ...], start: date | None,
 ) -> tuple[dict[str, object], list[str]]:
     original_fetch = module.fetch_global_index
     replayed: list[str] = []
@@ -781,10 +756,171 @@ def _prepare_global_index_with_landing_replay(
 
     module.fetch_global_index = fetch_with_replay
     try:
-        checkpoint = module.prepare_phase(project_root, "yahoo", end=target)
+        checkpoint = module.prepare_phase(
+            project_root, "yahoo", end=target, start=start, symbols=symbols,
+        )
     finally:
         module.fetch_global_index = original_fetch
     return checkpoint, replayed
+
+
+def _run_registered_yahoo_phase(
+    project_root: Path, *, phase: str, target: date, symbols: tuple[str, ...],
+    contract: object, validator: Callable[[pd.DataFrame], None],
+) -> dict[str, object]:
+    """Advance registered Yahoo symbols independently through the same CAS path."""
+    production = project_root / "data/normalized" / str(contract.name)
+    existing = read_dataset(production, contract, validator)
+    present = set(existing["symbol"].astype(str))
+    unknown = present.difference(symbols)
+    if unknown:
+        raise ProviderSchedulerError(
+            f"{contract.name} retained unregistered symbols: {sorted(unknown)}"
+        )
+    calendar = ExchangeTradingCalendar(ExchangeMarket.US)
+    module = _load_refresh_module(project_root)
+    latest_before: dict[str, str | None] = {}
+    latest_after: dict[str, str | None] = {}
+    symbol_results: list[dict[str, object]] = []
+    promoted_symbols: list[str] = []
+    failed_symbols: dict[str, str] = {}
+    replayed_symbols: list[str] = []
+    run_ids: list[str] = []
+    http_calls = 0
+
+    for symbol in symbols:
+        selected = existing.loc[existing["symbol"].astype(str).eq(symbol), "date"]
+        retained = (
+            date.fromisoformat(str(selected.astype(str).max()))
+            if not selected.empty else None
+        )
+        latest_before[symbol] = retained.isoformat() if retained is not None else None
+        if retained is not None and retained >= target:
+            latest_after[symbol] = retained.isoformat()
+            symbol_results.append({
+                "symbol": symbol, "status": "NOOP_IDEMPOTENT", "http_calls": 0,
+                "latest_before": retained.isoformat(), "latest_after": retained.isoformat(),
+                "reason": "EXPECTED_SESSION_ALREADY_RETAINED",
+            })
+            continue
+        if retained is not None and calendar.next_trading_day(retained) != target:
+            failed_symbols[symbol] = "NON_CONSECUTIVE_RETAINED_SESSION"
+            latest_after[symbol] = retained.isoformat()
+            symbol_results.append({
+                "symbol": symbol, "status": "FAILED_PRESERVED", "http_calls": 0,
+                "latest_before": retained.isoformat(), "latest_after": retained.isoformat(),
+                "error_type": "NonConsecutiveRetainedSession",
+            })
+            continue
+
+        prepare_start = retained if phase == "yahoo_etf" else None
+        if retained is None:
+            prepare_start = target - timedelta(days=365)
+        try:
+            if phase == "yahoo":
+                checkpoint, replayed = _prepare_global_index_with_landing_replay(
+                    module, project_root, existing, target,
+                    symbols=(symbol,), start=prepare_start,
+                )
+                replayed_symbols.extend(replayed)
+            else:
+                checkpoint = module.prepare_phase(
+                    project_root, phase, end=target, start=prepare_start,
+                    symbols=(symbol,),
+                )
+            http_calls += int(checkpoint.get("http_calls", 0) or 0)
+            if checkpoint.get("status") == "NOOP_IDEMPOTENT":
+                latest_after[symbol] = target.isoformat()
+                symbol_results.append({
+                    "symbol": symbol, "status": "NOOP_IDEMPOTENT", "http_calls": 0,
+                    "latest_before": latest_before[symbol],
+                    "latest_after": target.isoformat(),
+                    "reason": "EXPECTED_SESSION_ALREADY_RETAINED",
+                })
+                continue
+            revision = checkpoint.get("revision_report")
+            report = revision.get(symbol) if isinstance(revision, dict) else None
+            inserted = report.get("inserted_rows") if isinstance(report, dict) else None
+            if (
+                checkpoint.get("status") != "CANDIDATE_REVIEW_REQUIRED"
+                or checkpoint.get("phase") != phase
+                or checkpoint.get("max_http_calls") != 1
+                or checkpoint.get("http_calls") != 1
+                or checkpoint.get("retry_count") != 0
+                or checkpoint.get("http_statuses") != [200]
+                or set(revision or {}) != {symbol}
+                or not isinstance(report, dict)
+                or report.get("source_omitted_existing_dates") != 0
+                or report.get("finite_to_null_cells") != 0
+                or not isinstance(inserted, int)
+                or inserted < 1
+                or (retained is not None and inserted != 1)
+            ):
+                raise ProviderSchedulerError(
+                    f"{symbol} accepted-source checkpoint validation failed"
+                )
+            run_id = checkpoint.get("run_id")
+            digest = checkpoint.get("approval_digest")
+            if not isinstance(run_id, str) or not isinstance(digest, str):
+                raise ProviderSchedulerError(f"{symbol} checkpoint identity is incomplete")
+            checkpoint_path = (
+                project_root / "data/state/global_current_refresh" / run_id / "checkpoint.json"
+            )
+            promoted = module.promote_phase(
+                project_root, checkpoint_path, approval_digest=digest,
+            )
+            if promoted.get("status") != "PROMOTED":
+                raise ProviderSchedulerError(
+                    f"{symbol} promotion did not commit: {promoted.get('status')}"
+                )
+            existing = read_dataset(production, contract, validator)
+            accepted = existing.loc[
+                existing["symbol"].astype(str).eq(symbol), "date"
+            ].astype(str)
+            if target.isoformat() not in set(accepted):
+                raise ProviderSchedulerError(f"{symbol} promoted read-back missed target")
+            promoted_symbols.append(symbol)
+            run_ids.append(run_id)
+            latest_after[symbol] = target.isoformat()
+            symbol_results.append({
+                "symbol": symbol, "status": "PROMOTED", "http_calls": 1,
+                "run_id": run_id, "latest_before": latest_before[symbol],
+                "latest_after": target.isoformat(),
+                "reason": "VALIDATED_SYMBOL_BOUND_ATOMIC_PROMOTION",
+            })
+        except Exception as error:
+            stopped = getattr(error, "checkpoint", None)
+            if isinstance(stopped, dict):
+                http_calls += int(stopped.get("http_calls", 0) or 0)
+            failed_symbols[symbol] = type(error).__name__
+            latest_after[symbol] = latest_before[symbol]
+            symbol_results.append({
+                "symbol": symbol, "status": "FAILED_PRESERVED",
+                "http_calls": int(stopped.get("http_calls", 0) or 0)
+                if isinstance(stopped, dict) else 0,
+                "latest_before": latest_before[symbol],
+                "latest_after": latest_before[symbol],
+                "error_type": type(error).__name__,
+            })
+
+    if failed_symbols:
+        status = "DEGRADED_SYMBOL_FAILURES_PRESERVED"
+        reason = "FAILED_SYMBOLS_PRESERVED_SUCCESSFUL_SYMBOLS_COMMITTED"
+    elif promoted_symbols:
+        status = "PROMOTED"
+        reason = "REGISTERED_SYMBOLS_VALIDATED_AND_PROMOTED_INDEPENDENTLY"
+    else:
+        status = "NOOP_IDEMPOTENT"
+        reason = "ALL_REGISTERED_SYMBOLS_CURRENT"
+    return {
+        "status": status, "http_calls": http_calls,
+        "run_id": run_ids[-1] if len(run_ids) == 1 else None,
+        "run_ids": run_ids, "latest_before": latest_before,
+        "latest_after": latest_after, "reason": reason,
+        "promoted_symbols": promoted_symbols, "failed_symbols": failed_symbols,
+        "symbol_results": symbol_results,
+        "landing_replay_symbols": replayed_symbols,
+    }
 
 
 def _run_global_index_phase(
@@ -792,176 +928,22 @@ def _run_global_index_phase(
 ) -> dict[str, object]:
     if phase != "global_indices" or not isinstance(target, date):
         raise ProviderSchedulerError("invalid global index scheduler phase")
-    production = project_root / "data/normalized/global_index_price_daily"
-    existing = read_dataset(production, GLOBAL_INDEX_PRICE_DAILY, validate_global_index)
-    symbols = ("SP500", "NASDAQ_COMPOSITE", "NASDAQ100")
-    present = set(existing["symbol"].astype(str))
-    if present != set(symbols):
-        raise ProviderSchedulerError(
-            f"global index retained symbol set differs: {sorted(present)}"
-        )
-    latest = {
-        symbol: date.fromisoformat(str(
-            existing.loc[existing["symbol"].eq(symbol), "date"].astype(str).max()
-        ))
-        for symbol in symbols
-    }
-    if len(set(latest.values())) != 1:
-        raise ProviderSchedulerError(f"global index split retained latest: {latest}")
-    retained = next(iter(latest.values()))
-    latest_text = {key: value.isoformat() for key, value in latest.items()}
-    if retained >= target:
-        return {
-            "status": "NOOP_IDEMPOTENT", "http_calls": 0, "run_id": None,
-            "latest_before": latest_text, "latest_after": latest_text,
-            "reason": "ALL_REGISTERED_INDICES_CURRENT",
-        }
-    calendar = ExchangeTradingCalendar(ExchangeMarket.US)
-    if calendar.next_trading_day(retained) != target:
-        raise ProviderSchedulerError(
-            f"global index catch-up is not a one-session append: {retained} -> {target}"
-        )
-    module = _load_refresh_module(project_root)
-    checkpoint, landing_replay_symbols = _prepare_global_index_with_landing_replay(
-        module, project_root, existing, target,
+    return _run_registered_yahoo_phase(
+        project_root, phase="yahoo", target=target,
+        symbols=tuple(_GLOBAL_INDEX_TICKERS), contract=GLOBAL_INDEX_PRICE_DAILY,
+        validator=validate_global_index,
     )
-    if checkpoint.get("status") == "NOOP_IDEMPOTENT":
-        return {
-            "status": "NOOP_IDEMPOTENT", "http_calls": 0, "run_id": None,
-            "latest_before": latest_text, "latest_after": latest_text,
-            "reason": "ALL_REGISTERED_INDICES_CURRENT",
-        }
-    revisions = checkpoint.get("revision_report")
-    if (
-        checkpoint.get("status") != "CANDIDATE_REVIEW_REQUIRED"
-        or checkpoint.get("phase") != "yahoo"
-        or checkpoint.get("max_http_calls") != 3
-        or checkpoint.get("http_calls") != 3
-        or checkpoint.get("retry_count") != 0
-        or checkpoint.get("http_statuses") != [200, 200, 200]
-        or not isinstance(revisions, dict)
-        or set(revisions) != set(symbols)
-        or any(
-            report.get("source_omitted_existing_dates") != 0
-            or report.get("finite_to_null_cells") != 0
-            or report.get("inserted_rows") != 1
-            for report in revisions.values()
-        )
-    ):
-        raise ProviderSchedulerError("global index checkpoint validation failed")
-    run_id = checkpoint.get("run_id")
-    digest = checkpoint.get("approval_digest")
-    if not isinstance(run_id, str) or not isinstance(digest, str):
-        raise ProviderSchedulerError("global index checkpoint identity is incomplete")
-    checkpoint_path = (
-        project_root / "data/state/global_current_refresh" / run_id / "checkpoint.json"
-    )
-    promoted = module.promote_phase(
-        project_root, checkpoint_path, approval_digest=digest,
-    )
-    if promoted.get("status") != "PROMOTED":
-        raise ProviderSchedulerError(
-            f"global index promotion did not commit: {promoted.get('status')}"
-        )
-    after = {symbol: target.isoformat() for symbol in symbols}
-    return {
-        "status": "PROMOTED", "http_calls": 3, "run_id": run_id,
-        "latest_before": latest_text, "latest_after": after,
-        "reason": (
-            "VALIDATED_THREE_INDEX_ATOMIC_PROMOTION_WITH_LANDING_REPLAY"
-            if landing_replay_symbols
-            else "VALIDATED_THREE_INDEX_ATOMIC_PROMOTION"
-        ),
-        "landing_replay_symbols": landing_replay_symbols,
-    }
 
 
 def _run_futures_phase(project_root: Path, phase: str, target: object) -> dict[str, object]:
     if phase != "dashboard_futures" or not isinstance(target, date):
         raise ProviderSchedulerError("invalid global futures scheduler phase")
-    production = project_root / "data/normalized/global_commodity_futures_daily"
-    existing = read_dataset(
-        production, GLOBAL_COMMODITY_FUTURES_DAILY,
-        validate_global_commodity_futures,
+    return _run_registered_yahoo_phase(
+        project_root, phase="yahoo_dashboard_futures", target=target,
+        symbols=_GLOBAL_FUTURES_SYMBOLS,
+        contract=GLOBAL_COMMODITY_FUTURES_DAILY,
+        validator=validate_global_commodity_futures,
     )
-    symbols = ("NASDAQ100_FUTURES", "GOLD", "WTI_CRUDE_OIL")
-    present = set(existing["symbol"].astype(str))
-    if present != set(symbols):
-        raise ProviderSchedulerError(
-            f"global futures retained symbol set differs: {sorted(present)}"
-        )
-    latest = {
-        symbol: date.fromisoformat(str(
-            existing.loc[existing["symbol"].eq(symbol), "date"].astype(str).max()
-        ))
-        for symbol in symbols
-    }
-    if len(set(latest.values())) != 1:
-        raise ProviderSchedulerError(f"global futures split retained latest: {latest}")
-    retained = next(iter(latest.values()))
-    latest_text = {key: value.isoformat() for key, value in latest.items()}
-    if retained >= target:
-        return {
-            "status": "NOOP_IDEMPOTENT", "http_calls": 0, "run_id": None,
-            "latest_before": latest_text, "latest_after": latest_text,
-            "reason": "ALL_DASHBOARD_FUTURES_CURRENT",
-        }
-    calendar = ExchangeTradingCalendar(ExchangeMarket.US)
-    if calendar.next_trading_day(retained) != target:
-        raise ProviderSchedulerError(
-            f"global futures catch-up is not a one-session append: {retained} -> {target}"
-        )
-    module = _load_refresh_module(project_root)
-    checkpoint = module.prepare_phase(
-        project_root, "yahoo_dashboard_futures", end=target,
-    )
-    if checkpoint.get("status") == "NOOP_IDEMPOTENT":
-        return {
-            "status": "NOOP_IDEMPOTENT", "http_calls": 0, "run_id": None,
-            "latest_before": latest_text, "latest_after": latest_text,
-            "reason": "ALL_DASHBOARD_FUTURES_CURRENT",
-        }
-    if checkpoint.get("status") != "CANDIDATE_REVIEW_REQUIRED":
-        raise ProviderSchedulerError(
-            f"unexpected futures phase status: {checkpoint.get('status')}"
-        )
-    revisions = checkpoint.get("revision_report")
-    if (
-        checkpoint.get("phase") != "yahoo_dashboard_futures"
-        or checkpoint.get("max_http_calls") != 3
-        or checkpoint.get("http_calls") != 3
-        or checkpoint.get("retry_count") != 0
-        or checkpoint.get("http_statuses") != [200, 200, 200]
-        or not isinstance(revisions, dict)
-        or set(revisions) != set(symbols)
-        or any(
-            report.get("source_omitted_existing_dates") != 0
-            or report.get("finite_to_null_cells") != 0
-            or report.get("inserted_rows") != 1
-            for report in revisions.values()
-        )
-    ):
-        raise ProviderSchedulerError("global futures checkpoint validation failed")
-    run_id = checkpoint.get("run_id")
-    digest = checkpoint.get("approval_digest")
-    if not isinstance(run_id, str) or not isinstance(digest, str):
-        raise ProviderSchedulerError("global futures checkpoint identity is incomplete")
-    checkpoint_path = (
-        project_root / "data/state/global_current_refresh" / run_id / "checkpoint.json"
-    )
-    promoted = module.promote_phase(
-        project_root, checkpoint_path, approval_digest=digest,
-    )
-    if promoted.get("status") != "PROMOTED":
-        raise ProviderSchedulerError(
-            f"global futures promotion did not commit: {promoted.get('status')}"
-        )
-    after = {symbol: target.isoformat() for symbol in symbols}
-    return {
-        "status": "PROMOTED", "http_calls": 3, "run_id": run_id,
-        "latest_before": latest_text, "latest_after": after,
-        "reason": "VALIDATED_THREE_SYMBOL_ATOMIC_PROMOTION",
-    }
 
 
 def run_lane(
@@ -1017,7 +999,7 @@ def run_lane(
         "market_investor": "kr_market_investor_net_purchase_bridge_daily",
         "toss_kr_treasury": "kr_treasury_yield_daily",
         "global_indices": "global_index_price_daily",
-        "soxx": "global_etf_price_daily",
+        "global_etfs": "global_etf_price_daily",
         "dashboard_futures": "global_commodity_futures_daily",
     }
     phase_targets = {}
@@ -1086,8 +1068,12 @@ def run_lane(
                 "status": result.get("status"),
                 "http_calls": int(result.get("http_calls", 0) or 0),
                 "run_id": result.get("run_id"),
+                "run_ids": result.get("run_ids"),
                 "dataset_id": phase_dataset[phase],
                 "symbol": result.get("symbol"),
+                "promoted_symbols": result.get("promoted_symbols"),
+                "failed_symbols": result.get("failed_symbols"),
+                "symbol_results": result.get("symbol_results"),
                 "expected_latest": phase_targets[phase].isoformat(),
                 "latest_before": result.get("latest_before"),
                 "latest_after": result.get("latest_after"),

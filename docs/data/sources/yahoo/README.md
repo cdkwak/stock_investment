@@ -18,9 +18,9 @@ Yahoo supplies capture-first, locally persisted market-price observations:
 
 | Scope | Project series | Meaning |
 |---|---|---|
-| Global indices | S&P 500, Nasdaq Composite, Nasdaq-100 | Completed provider daily bars |
-| ETF | SOXX only in the active automated slice | Completed provider daily ETF bars |
-| Continuous futures daily | `NQ=F`, `GC=F`, `CL=F` | Descriptive continuous-futures OHLC; not an individual contract |
+| Global indices | retained S&P 500, Nasdaq Composite, Nasdaq-100; registered-not-collected SOX and Dow Jones | Completed provider daily bars |
+| ETF | retained SOXX; registered-not-collected EWY | Completed provider daily ETF bars |
+| Continuous futures daily | retained `NQ=F`, `GC=F`, `CL=F`; registered-not-collected `ES=F`, `YM=F`, `DX=F` | Descriptive continuous-futures OHLC; not an individual contract |
 | Finalized delayed 60m | `KRW=X`, `ZT=F`, `ZN=F`, `ZB=F` | Provider-finalized 60-minute price observations |
 
 The application reads persisted Normalized data. It must not scrape the Yahoo
@@ -28,7 +28,7 @@ web page during GUI rendering.
 
 ## Non-negotiable semantics
 
-- `NQ=F`, `GC=F`, and `CL=F` are continuous provider series. They are not
+- `NQ=F`, `GC=F`, `CL=F`, `ES=F`, `YM=F`, and `DX=F` are continuous provider series. They are not
   official settlements, exact expiries, basis series, or trusted OI series.
 - `ZT=F`, `ZN=F`, and `ZB=F` are Treasury **futures prices**, never yields.
 - `KRW=X` is a provider FX observation, separate from the official FRED H.10
