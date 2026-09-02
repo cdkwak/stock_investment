@@ -67,7 +67,7 @@
     if (mainChart || !window.LightweightCharts) return;
     mainChart = LightweightCharts.createChart($("market-chart"), chartOptions());
     candleSeries = mainChart.addCandlestickSeries({
-      upColor: "#fff", downColor: "#2b62c0", borderUpColor: "#c0392b",
+      upColor: "#c0392b", downColor: "#2b62c0", borderUpColor: "#c0392b",
       borderDownColor: "#2b62c0", wickUpColor: "#c0392b", wickDownColor: "#2b62c0",
     });
   }
