@@ -1,0 +1,148 @@
+{
+  "checks": [
+    {
+      "category": "release",
+      "check_id": "DATA_ROOT_READABILITY",
+      "status": "PASS",
+      "summary": "required_roots=5 readable"
+    },
+    {
+      "category": "release",
+      "check_id": "SCHEMA_VERSION_READABILITY",
+      "status": "PASS",
+      "summary": "health_schema=2 retained_rows=80"
+    },
+    {
+      "category": "backtest",
+      "check_id": "BACKTEST_GUI_BUNDLE",
+      "status": "PASS",
+      "summary": "service_ready=True exact_files=1 exact_bytes=12187 stable=True"
+    },
+    {
+      "category": "retained_data",
+      "check_id": "TYPED_HEALTH",
+      "status": "FAIL",
+      "summary": "rows=80 current=21 expected_lag=15 stale=5 unknown=12 blocked=8 managed=39 managed_acceptable=36 managed_invalid=3"
+    },
+    {
+      "category": "operations",
+      "check_id": "HEALTH_RECEIPT_RECONCILIATION",
+      "status": "FAIL",
+      "summary": "raw Health, readback, managed SLO, or governing receipt reconciliation failed"
+    },
+    {
+      "category": "release",
+      "check_id": "FRESHNESS_SUPPRESSION",
+      "status": "PASS",
+      "summary": "stale_or_unknown_numeric_leaks=0"
+    },
+    {
+      "category": "release",
+      "check_id": "LOCAL_CACHE_AND_CHART",
+      "status": "PASS",
+      "summary": "deterministic_repeat=True chart_rows=120"
+    },
+    {
+      "category": "operations",
+      "check_id": "SCHEDULER_READ_ONLY_STATUS",
+      "status": "DEGRADED",
+      "summary": "expected=13 missing=13 disabled=0 nonzero=0 definition_mismatch=0 namespace_visible=False namespace_probe=UNAVAILABLE"
+    },
+    {
+      "category": "operations",
+      "check_id": "SCHEDULER_RESULT_STATUS",
+      "status": "FAIL",
+      "summary": "required=2 missing=0 malformed=0 stale=0 failed=1"
+    },
+    {
+      "category": "operations",
+      "check_id": "DUE_OCCURRENCE_OUTCOMES",
+      "status": "FAIL",
+      "summary": "due_task_groups=10 complete=8 failed=2"
+    },
+    {
+      "category": "release",
+      "check_id": "ISOLATED_UPDATE_PRESERVATION",
+      "status": "FAIL",
+      "summary": "isolated synthetic preservation check failed"
+    },
+    {
+      "category": "gui",
+      "check_id": "NATIVE_GUI_1600X900",
+      "status": "FAIL",
+      "summary": "native GUI smoke failed: PermissionError"
+    },
+    {
+      "category": "safety",
+      "check_id": "USER_DATA_BYTE_IDENTITY",
+      "status": "PASS",
+      "summary": "exact_user_files=22 exact_user_bytes=21198 protected_files=109135 protected_bytes=20090612821 exact_user_unchanged=True protected_unchanged=True attribution=UNCHANGED"
+    }
+  ],
+  "code_identity": {
+    "file_count": 356,
+    "sha256": "03b488b75755a4cccf1c1f69b5bc7d7e49a520547a2aa3c73612f8cfbe5cda10",
+    "total_bytes": 5699372
+  },
+  "data_identity": {
+    "backtest_gui_bundle": {
+      "file_count": 1,
+      "sha256": "22e1ba566b24454fbec4b4b169602d17e36eb3a839b7ec2b2617c9350eb1be4f",
+      "total_bytes": 12187
+    },
+    "chart_sha256": "6daabff667f666f3e372a9e9701d2dfde1e00a8de7988f11462d42939ad5029b",
+    "exact_user_data_after": {
+      "file_count": 22,
+      "sha256": "a6b0d6abc26c012410d7cc867606608a92165f8a6192143a74e310728e52c10c",
+      "total_bytes": 21198
+    },
+    "exact_user_data_before": {
+      "file_count": 22,
+      "sha256": "a6b0d6abc26c012410d7cc867606608a92165f8a6192143a74e310728e52c10c",
+      "total_bytes": 21198
+    },
+    "protected_after": {
+      "file_count": 109135,
+      "sha256": "ee5aad1386115a32f5b46836d7b8ed0527eede06b7ff0c7c5bcffdb9a6f67315",
+      "total_bytes": 20090612821
+    },
+    "protected_before": {
+      "file_count": 109135,
+      "sha256": "ee5aad1386115a32f5b46836d7b8ed0527eede06b7ff0c7c5bcffdb9a6f67315",
+      "total_bytes": 20090612821
+    },
+    "retained_inputs": {
+      "file_count": 119,
+      "sha256": "783b0b5779b348bce91c3abbb4bfcf71a6c8c595badc945900810a2b52ffd69e",
+      "total_bytes": 19725845
+    },
+    "snapshot_sha256": "20b48b606270769836eb4dee2204ba47e63286701315f448a87aa09434ff8350"
+  },
+  "data_mutations": 0,
+  "degraded_conditions": [
+    "SCHEDULER_READ_ONLY_STATUS"
+  ],
+  "expected_conditions": [
+    "managed_current=21",
+    "managed_expected_provider_lag=15",
+    "approved_deferred_or_blocked=8",
+    "outside_managed_stale_or_unknown=14"
+  ],
+  "external_calls": 0,
+  "gui_user_data_isolation": "UNVERIFIED",
+  "mode": "OFFLINE_READ_ONLY_PROVIDER_SAFE",
+  "observed_at_kst": "2026-09-02T17:42:37+09:00",
+  "release_blockers": [
+    "TYPED_HEALTH",
+    "HEALTH_RECEIPT_RECONCILIATION",
+    "SCHEDULER_RESULT_STATUS",
+    "DUE_OCCURRENCE_OUTCOMES",
+    "ISOLATED_UPDATE_PRESERVATION",
+    "NATIVE_GUI_1600X900"
+  ],
+  "scheduler_mutations": 0,
+  "schema_version": 1,
+  "sensitive_values_in_report": false,
+  "status": "FAIL",
+  "user_data_change_attribution": "UNCHANGED"
+}

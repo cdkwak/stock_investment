@@ -1,6 +1,6 @@
 # 스케줄러 상태
 
-상태: `현재 / 실환경 정의 확인 / 일부 운영 확인 대기`
+상태: `현재 / 실환경 정의 확인 / 영수증 저하 / 20:30 자연 실행 대기`
 
 확인 시각: `2026-09-02 KST`
 
@@ -20,15 +20,17 @@
 ## 현재 요약
 
 관련 작업 정의는 **17개**다. **16개가 활성**, **1개가 비활성 과거 작업**이며,
-활성 작업은 Data 13개, 프로젝트 상태 동기화 1개, Telegram 2개다. 사용자
-지시에 따라 Python PM 이벤트 러너는 완전히 제거됐으며 이 수치에 없다.
+활성 작업은 Data 13개, 프로젝트 상태 동기화 1개, Telegram 2개다. 복구된
+Python-PM/Queue 코드는 `master`에 보존돼 있지만 비활성이다. 그 이벤트 러너
+Windows 작업은 설치되지 않았으며 이 수치에 없다.
 
 80개 Dataset Universe 가운데 **39개 자동화 활성 데이터셋이 19개 논리 레인에
 모두 연결**돼 있다. Windows Data 작업 수는 13개로 유지했고, 한국장 일별
 20:30 묶음을 계약 v5로 확장했기 때문에 데이터셋마다 별도 Windows 작업을
 추가하지 않았다. 공급자 호출이 없는 v5 20:30 사전 검증은 13개 레인으로
 통과했다. 2026-09-02 KST에 측정한 관리 자동화 Health artifact는
-**39/39 허용 상태**이고 런타임 검증 실패는 0개다. 비관리
+**39/39 허용 상태**이고 런타임 검증 실패는 0개다. 18:24 KST 네이티브
+재계산은 2 `CURRENT`, 37 `EXPECTED_LAG`, 0 managed `STALE`, 0 invalid였다. 비관리
 연구·보존 행의 오래됨과 미확정까지 포함한 전체 Typed Health 표시는
 `DEGRADED`이며, 관리 자동화 실패를 뜻하지 않는다.
 
@@ -36,8 +38,10 @@
 자동화 데이터셋은 없지만, 아침 작업과 Health 쓰기가 아직 여러 Windows
 작업으로 나뉘어 있다. 2026-09-02 KST에 글로벌 commodity·ETF·index governing
 영수증은 각각 `NOOP_CURRENT / api_calls=0 / scheduler_process_status=SUCCESS /
-Health PASS 39/39`로 복구됐다. KR governing envelope는 여전히 실패 상태이며
-다음 자연 실행을 기다린다.
+Health PASS 39/39`로 복구됐다. 14:10 KR 묶음은 다섯 API 호출로 세 Data 레인을
+성공시켰지만, 당시 pre-20:30 Health 오분류 때문에 최종 결과 1을 남겼다. 이
+분류기는 `6c6f32a`까지 보정·검증됐고, KR governing envelope는 20:30 자연
+실행을 기다린다.
 KR 묶음 v5의 첫 자연 20:30 실행은 source-width와 publication-boundary 불일치를
 정확히 드러낸 뒤 부분 승격 없이 실패했고, 제한된 후속 복구와 API-zero replay가
 완료됐다. Yahoo 현재 경로의 03:02 단일 실패는 03:32 자연 실행에서 17개 경로
@@ -49,10 +53,10 @@ KR 묶음 v5의 첫 자연 20:30 실행은 source-width와 publication-boundary 
 | Health | `STOCK_DATA_DAILY_HEALTH` | 매일 06:30 | 공급자 호출 없이 typed universe 검증; 레인별 Health 쓰기와 일부 중복 |
 | 프로젝트 상태 | `STOCK_PROJECT_ISSUE_STATE_SYNC` | 매일 06:45 | Data 작업 아님; 첫 자연 실행 확인 대기 |
 | Toss 계좌 | `STOCK_DATA_TOSS_ACCOUNT_DAILY` | 매일 07:00 | 읽기 전용, 식별자 제거; 2026-08-27 자연 실행이 terminal receipt, snapshot digest, call budget을 통과 |
-| KB 계좌 | `STOCK_DATA_KBSEC_ACCOUNT_DAILY` | 매일 07:10 | `SSQM2952` 읽기 전용, 식별자 제거; 2026-09-01 자연 실행 `LastTaskResult=0`, `TERMINAL_SUCCESS / SUCCEEDED`, `supplier_calls=1`, snapshot digest binding, release-readiness KB due group PASS |
+| KB 계좌 | `STOCK_DATA_KBSEC_ACCOUNT_DAILY` | 매일 07:10 | `SSQM2952` 읽기 전용, 식별자 제거; 2026-09-02 자연 실행은 한 supplier call 뒤 fail-closed, 이전 정상 snapshot 보존, immutable failed receipt 유지. 별도 키의 수동 읽기 전용 refresh는 성공했지만 이 영수증을 덮어쓰지 않음 |
 | Telegram 아침 | `STOCK_TELEGRAM_MORNING_BRIEF` | 평일 07:30 | Data 통합 대상 아님 |
 | Toss 국내 현재 | `STOCK_DATA_TOSS_DOMESTIC_30M` | 평일 09:00~15:00, 30분마다 | 4개 화면용 현재 관측; 이력 데이터셋 아님 |
-| 한국장 일별 묶음 | `STOCK_DATA_KR_MARKET_DAILY_0910`, `_1410`, `_2030` | 09:10 / 14:10 / 20:30 | 계약 v5. 첫 자연 20:30 실행은 두 contract mismatch를 fail-closed로 노출; source-width/same-day 경계 보정 후 bounded recovery와 API-zero replay는 통과했지만 governing envelope는 실패 상태로 다음 자연 13-lane 영수증 필요 |
+| 한국장 일별 묶음 | `STOCK_DATA_KR_MARKET_DAILY_0910`, `_1410`, `_2030` | 09:10 / 14:10 / 20:30 | 계약 v5. 09:10 결과 0. 14:10은 Canonical/Lending 갱신과 Short Selling no-op을 성공시켰지만 수정 전 Health 오분류로 결과 1; 분류 보정 뒤 native Health 39/39. 20:30 작업은 오늘 자연 13-lane 실행 대기 |
 | Telegram 마감 | `STOCK_TELEGRAM_KR_CLOSE_BRIEF` | 평일 16:10 | Data 통합 대상 아님 |
 | BOK 국채 증거 | `STOCK_DATA_BOK_TREASURY_DAILY` | 매일 17:10 | 3-batch gate reviewed, 후속 실행 API 0; permanent publication finality unknown이므로 Canonical 금리·예측·GUI 숫자 아님 |
 | 글로벌 선물 | `STOCK_DATA_GLOBAL_FUTURES_DAILY` | 매일 22:10 | `GLOBAL_COMMODITY_DAILY`는 2026-09-02 `NOOP_CURRENT`, API 0, scheduler process `SUCCESS`, embedded Health `PASS 39/39` |
@@ -66,8 +70,9 @@ KR 묶음 v5의 첫 자연 20:30 실행은 source-width와 publication-boundary 
 
 구성된 KB 계좌는 존재한다. 허용된 런타임 설정과 식별자를 제거한 실검증
 스냅샷이 있고, 07:10 단일 실행·5분 제한·이전 정상값 보존 정의도 설치됐다.
-2026-09-01 자연 실행은 식별자 없는 terminal receipt, `supplier_calls=1`,
-snapshot digest binding과 release-readiness KB due group을 모두 통과했다.
+2026-09-02 자연 실행은 한 번의 supplier call 뒤 `KB_ACCOUNT_SUPPLIER_FAILED`로
+fail-closed 처리됐고 이전 정상값과 식별자 없는 immutable receipt를 보존했다.
+별도 키의 수동 읽기 전용 refresh 성공은 그 자연 실행의 실패를 재작성하지 않는다.
 비활성 KB 작업은 계좌가 아니라 별도의 시장 스냅샷이므로 계좌 자동화로
 세지 않는다.
 
@@ -129,7 +134,7 @@ transient 재시도 뒤 공급자 오류가 반복됐다. 이전 정상 데이�
 
 | 우선순위 | 문제 | 다음 안전 작업 |
 |---|---|---|
-| P1 | KR 묶음 v5 보정 후 자연 실행 미확인 | 다음 09:10·20:30 영수증에서 20:30 13개 레인, 관리 Health 39/39와 현재 데이터의 API 0 재실행을 확인 |
+| P1 | KR 묶음 v5 보정 후 20:30 자연 실행 미확인 | 2026-09-02 20:30 영수증에서 13개 레인과 관리 Health 39/39를 확인; 현재 데이터는 각 레인의 계약에 따라 API 0이어야 하며 공급자 지연 레인은 typed 결과로 보존 |
 | P1 | BOK permanent finality 미확정 | reviewed 3-batch/API-zero 경계를 유지하고 추가 공식 증거 없이 Canonical 승격·예측·GUI 숫자 사용 금지 |
 | P2 | 아침 작업 분산 | 레인별 영수증과 실패 격리를 보존한 단일 아침 오케스트레이션으로 통합 검토 |
 | P2 | Health 중복 쓰기 | 레인별 장애 증거는 유지하고 최종 아침 Health 산출은 한 번으로 축소 검토 |
@@ -141,14 +146,15 @@ BOK 관찰 종료 뒤에는 8개까지 줄이는 것이다. 이 목표는 제안
 이번 변경에서는 데이터별 실패 격리와 발표 시각을 보존하기 위해 Windows
 작업 정의를 추가·삭제하지 않았다.
 
-## Hermes 전환
+## Workflow control boundary
 
-`STOCK_PROJECT_PYTHON_PM_EVENT_RUNNER`는 2026-08-31 제거 후 정확한 작업명
-조회에서 absent로 확인했다. 저장소 내부 에이전트 스케줄러는 다시 설치하지
-않는다. 프로젝트 작업 조율은 Hermes PM과 bounded subagent/Codex worktree가
-담당하고, 장기 반복 작업은 Hermes cron 또는 기존 Data-owned Windows 작업만
-사용한다. 제거 전 상태는 Git backup branch
-`backup/python-pm-pre-hermes-20260831-224653`에서만 복구할 수 있다.
+`STOCK_PROJECT_PYTHON_PM_EVENT_RUNNER`는 정확한 작업명 조회에서 absent다.
+사용자가 권장 복구안을 승인해 저장소의 Python-PM/Queue 구현과 Dashboard는
+`master`에 복원·보존됐지만, Hermes와 동시에 lifecycle writer를 실행하지 않기
+위해 비활성으로 둔다. 거부된 퇴역 후보는
+`backup/python-pm-retirement-candidate-20260902`와 named stash에, pre-Hermes
+기준은 `backup/python-pm-pre-hermes-20260831-224653`에 보존돼 있다. 현재 반복
+Data 작업은 기존 Data-owned Windows 작업만 사용한다.
 
 ## 읽기 전용 확인
 
