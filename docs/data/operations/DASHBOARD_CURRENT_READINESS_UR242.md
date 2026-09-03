@@ -20,6 +20,6 @@ KST date they are numeric-free again.
 
 The projector required explicit confirmation, preserved a durable preimage, and
 atomically replaced/read back the UTF-8 RFC4180 CSV at
-`2026-08-21T22:51:37.1028973+09:00`. Its preimage is
-`artifacts/agent_runs/ur242/DASHBOARD_64_CURRENT_READINESS_preimage.csv`.
+`2026-08-21T22:51:37.1028973+09:00`. Its preimage was 제거됨
+(backup/repo-cleanup-phase2-20260903 브랜치에 보존).
 The manifest is now terminal; any replay is API-zero and no-write.

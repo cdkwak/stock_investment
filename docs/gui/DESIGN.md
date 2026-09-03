@@ -1,9 +1,11 @@
 # GUI Design Contract
 
+역할: 이 문서는 표시 설계 계약이며, 현재 런타임·우선순위·퇴역 상태의 권위는 [GUI Status](GUI_STATUS.md)다.
+
 ## 0. Research Log
 
-- Existing Dashboard audit (`artifacts/gui_audits/20260831_quant_investor_full_audit/evidence/Dashboard_largefont_1366x768.png`): the first screen gives ten equal-weight asset cards, exposes technical chart controls before answering the daily investor question, mixes Korean and English navigation, and presents unavailable states repeatedly without a concise explanation or next action.
-- Existing Data Status audit (`artifacts/gui_audits/20260831_quant_investor_full_audit/evidence/Data_Status_largefont_1366x768.png`): an operator-oriented health table is a top-level peer of everyday investing pages. It uses scheduling and data-pipeline language that belongs behind an advanced/tooling entry point.
+- Existing Dashboard audit evidence: 제거됨 (backup/repo-cleanup-phase2-20260903 브랜치에 보존). Its recorded finding was that the first screen gave ten equal-weight asset cards, exposed technical chart controls before answering the daily investor question, mixed Korean and English navigation, and repeated unavailable states without a concise explanation or next action.
+- Existing Data Status audit evidence: 제거됨 (backup/repo-cleanup-phase2-20260903 브랜치에 보존). Its recorded finding was that an operator-oriented health table appeared as a top-level peer of everyday investing pages and used scheduling/data-pipeline language better kept behind an advanced tooling entry point.
 - User feedback, 2026-09-02: the GUI is not being revisited because it feels built for agents rather than for the investor.
 - Curated OMH design-data lookup was attempted but the `omh` CLI was unavailable on PATH. No tokens were imported from that optional local reference lane; all decisions below are explicit project decisions.
 

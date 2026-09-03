@@ -1,5 +1,7 @@
 # Endpoint catalog
 
+역할: 이 문서는 endpoint 탐색 색인이며, 실행·상태 권위는 [Data Status](../DATA_STATUS.md)와 선택된 Dataset Contract/operation에 있다.
+
 이 표는 에이전트가 브라우저 검색 전에 확인하는 빠른 목록이다. 실제 실행
 승인, 최신 상태, 데이터 계약을 대체하지 않는다. `Endpoint / operation`이
 비어 있거나 `NONE`이면 이름을 추측해 호출하지 않는다.

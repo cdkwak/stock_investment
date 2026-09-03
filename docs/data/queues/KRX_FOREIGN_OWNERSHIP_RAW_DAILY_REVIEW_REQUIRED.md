@@ -1,5 +1,7 @@
 # KRX Foreign Ownership Raw Daily Incremental Candidate
 
+역할: 이 문서는 비실행 검토 후보이며, source 의미·finality 권위는 [`MDCSTAT03701` source policy](../sources/krx/MDCSTAT03701_FOREIGN_OWNERSHIP_FINALITY.md)다.
+
 Status: `REVIEW_REQUIRED / NOT_EXECUTABLE`
 
 Dataset: `kr_equity_foreign_ownership_daily` Raw only
@@ -58,4 +60,3 @@ The offline implementation is
 If timing remains non-deterministic, the operation stays manual/review-gated.
 Scheduler eligibility requires an explicit retry/failure policy and repeated
 bounded evidence; it is not implied by one successful capture.
-

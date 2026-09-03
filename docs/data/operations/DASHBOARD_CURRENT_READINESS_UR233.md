@@ -23,6 +23,6 @@ At `2026-08-21T21:27:16.2063306+09:00`, the sole production projection used
 API calls zero and atomically read back the 64-row UTF-8 RFC4180 CSV. It updated
 the four UR-232 mapped 60m surfaces from their exact local envelopes and
 reconciled allowlisted local SOXX/Naver rows under the shared gate. Its durable
-preimage is `artifacts/agent_runs/ur233/DASHBOARD_64_CURRENT_READINESS_preimage.csv`.
+preimage was 제거됨 (backup/repo-cleanup-phase2-20260903 브랜치에 보존).
 The UR-230 terminal manifest remains untouched; this UR-233 manifest is now
 terminal and does not authorize another write.

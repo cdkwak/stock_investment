@@ -20,9 +20,9 @@
 ## 현재 요약
 
 관련 작업 정의는 **17개**다. **16개가 활성**, **1개가 비활성 과거 작업**이며,
-활성 작업은 Data 13개, 프로젝트 상태 동기화 1개, Telegram 2개다. 복구된
-Python-PM/Queue 코드는 `master`에 보존돼 있지만 비활성이다. 그 이벤트 러너
-Windows 작업은 설치되지 않았으며 이 수치에 없다.
+활성 작업은 Data 13개, 프로젝트 상태 동기화 1개, Telegram 2개다. 정리 2단계에서
+비활성 저장소 로컬 PM 구현을 제거했으며, 그 전용 Windows 작업은 설치돼 있지
+않았으므로 이 수치와 현재 스케줄러 운영에는 변화가 없다.
 
 80개 Dataset Universe 가운데 **39개 자동화 활성 데이터셋이 19개 논리 레인에
 모두 연결**돼 있다. Windows Data 작업 수는 13개로 유지했고, 한국장 일별
@@ -150,15 +150,11 @@ BOK 관찰 종료 뒤에는 8개까지 줄이는 것이다. 이 목표는 제안
 이번 변경에서는 데이터별 실패 격리와 발표 시각을 보존하기 위해 Windows
 작업 정의를 추가·삭제하지 않았다.
 
-## Workflow control boundary
+## Retired orchestration boundary
 
-`STOCK_PROJECT_PYTHON_PM_EVENT_RUNNER`는 정확한 작업명 조회에서 absent다.
-사용자가 권장 복구안을 승인해 저장소의 Python-PM/Queue 구현과 Dashboard는
-`master`에 복원·보존됐지만, Hermes와 동시에 lifecycle writer를 실행하지 않기
-위해 비활성으로 둔다. 거부된 퇴역 후보는
-`backup/python-pm-retirement-candidate-20260902`와 named stash에, pre-Hermes
-기준은 `backup/python-pm-pre-hermes-20260831-224653`에 보존돼 있다. 현재 반복
-Data 작업은 기존 Data-owned Windows 작업만 사용한다.
+정리 2단계에서 비활성 저장소 로컬 PM 구현과 전용 scheduler entry point를
+제거했다. 삭제 전 상태는 `backup/repo-cleanup-phase2-20260903`에 보존돼 있으며,
+현재 반복 Data 작업은 기존 Data-owned Windows 작업만 사용한다.
 
 ## 읽기 전용 확인
 

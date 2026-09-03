@@ -1,5 +1,7 @@
 # Data source README template
 
+역할: 이 문서는 provider README의 작성 형식만 소유하며, 실행 순서는 [Datasource agent runbook](AGENT_RUNBOOK.md), 상태 권위는 [Data Status](../DATA_STATUS.md)다.
+
 새 공급자를 추가할 때 `docs/data/sources/<source_id>/README.md`에 아래 항목을
 짧게 기록한다. 이 문서는 상태 승인이나 데이터 계약을 대체하지 않는다.
 

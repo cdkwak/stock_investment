@@ -1,5 +1,7 @@
 # KRX MDCSTAT03701 Foreign Ownership Source Policy
 
+역할: 이 문서는 source 의미·finality 권위이며, 동명 Raw queue 문서는 비실행 후보 경계만 소유한다.
+
 Status: `OFFICIAL_SCREEN_CONFIRMED / PUBLICATION_FINALITY_UNDOCUMENTED`
 
 Scope: KRX `MDCSTAT03701` ALL-market daily foreign-ownership Raw response via

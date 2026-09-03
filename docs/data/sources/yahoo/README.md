@@ -121,10 +121,10 @@ tested by UR-094 was unauthorized. It is not evidence that Yahoo Finance lacks
 option-chain functionality, and no other web, cookie, token, authenticated, or
 alternate-host access method was inspected or attempted.
 
-The completed runbook and checkpoint are
-[Yahoo Symbol Option P/C Pilot](../../operations/YAHOO_SYMBOL_OPTION_PCR_PILOT.md)
-and
-`artifacts/agent_runs/ur094_yahoo_symbol_option_live_evidence_20260820T201906+0900.json`.
+The completed runbook is
+[Yahoo Symbol Option P/C Pilot](../../operations/YAHOO_SYMBOL_OPTION_PCR_PILOT.md).
+The checkpoint evidence was 제거됨
+(backup/repo-cleanup-phase2-20260903 브랜치에 보존).
 The tested route and SPY call must not be repeated. Every real symbol remains numeric-free;
 there is still no runtime registry, automation, canonical history, or Backtest
 eligibility. A usable authorized Yahoo access method remains an unfilled feature

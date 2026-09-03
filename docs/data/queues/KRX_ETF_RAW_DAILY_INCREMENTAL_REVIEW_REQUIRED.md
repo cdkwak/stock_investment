@@ -1,5 +1,7 @@
 # KRX ETF Raw Daily Incremental Candidate
 
+역할: 이 문서는 full-market Raw 비실행 후보이며, 현재 소규모 watchlist ETF 자동화 권위는 [Data Status](../DATA_STATUS.md)와 [KR ETF daily operation](../operations/KR_ETF_DAILY.md)이다.
+
 Status: `REVIEW_REQUIRED / NOT_EXECUTABLE`
 
 Scope: `kr_etf_universe_daily` and `kr_etf_ohlcv_daily` Raw logical views only
@@ -119,4 +121,3 @@ The offline transaction implementation and recovery coverage are in
 Until all affected gates are reviewed, `publication_finality_reviewed`,
 `revision_policy_reviewed`, and `delisting_policy_reviewed` must remain false,
 the candidate cannot run, and no scheduler is eligible.
-

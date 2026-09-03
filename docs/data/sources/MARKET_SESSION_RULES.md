@@ -1,5 +1,7 @@
 # Market Session Rule Evidence
 
+역할: 이 문서는 교차시장 session evidence이며, dataset별 bar/date 의미의 권위는 선택된 Dataset Contract와 source policy다.
+
 This bounded source record supports the versioned contracts in
 `src/stock_data/orchestration/exchange_calendar.py`. It is evidence, not
 authorization to collect prices, promote data, or install a scheduler.

@@ -100,8 +100,7 @@ session rather than falling back to multi-day daily history.
   were unchanged
 - inspected 1600x900 offscreen Dashboard: nine requested cards in one row,
   nine visible session traces, zero scrollbars, zero QThreads before/after close
-- evidence:
-  `artifacts/agent_runs/global_market_current_60m_13_route/validation_20260822.md`
+- evidence: 제거됨 (backup/repo-cleanup-phase2-20260903 브랜치에 보존)
 
 The later session-aware verification run
 `global60m-current-20260821T221832Z-ae754c1454cd46baa78dd779ed30d739`

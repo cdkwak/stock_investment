@@ -148,5 +148,5 @@ consumed budget were all zero. That rejection no longer acts as a permission
 gate. An agent may run or modernize the operation under standing Data authority
 after validating the current company/date/endpoints, secret injection,
 provider limits, and checkpoint/idempotency boundary.
-The offline gate is retained at
-`artifacts/agent_runs/ur110/opendart_corporate_action_incremental_offline_gate_20260820.json`.
+The offline gate evidence was 제거됨
+(backup/repo-cleanup-phase2-20260903 브랜치에 보존).

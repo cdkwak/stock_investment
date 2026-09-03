@@ -21,16 +21,28 @@ python -m venv .venv
 Secrets belong only in `.env`; never commit or print them.
 [`.env.example`](.env.example) contains variable names without values.
 
-## Dashboard GUI
+## Dashboard
 
-The PySide6/PyQtGraph Dashboard is a no-network, read-only view over retained
-local artifacts:
+The primary display is the local FastAPI web app (`src/stock_web`) with 홈,
+시장, 종목, 내 계좌, and 데이터 pages. The always-on Windows task is
+`STOCK_WEB_DASHBOARD`; open <http://127.0.0.1:8787> and restart it with:
+
+```powershell
+.\scripts\restart_web.cmd
+```
+
+Runtime logs are under `artifacts/runtime_logs/web/`; settings are stored in
+`artifacts/local_user/web_settings.json`.
+
+The PySide6/PyQtGraph app is secondary: **유지 (웹 parity 이후 퇴역 예정,
+4단계)**. Run it with:
 
 ```powershell
 .\.venv\Scripts\python.exe .\app.py
 ```
 
-It never refreshes or promotes data. Each card retains its own source,
+Display-layer code does not promote market data; provider transport and
+canonical promotion remain Data-owned. Each card retains its own source,
 market-date/freshness, and semantic/PIT status.
 
 ## Daily offline release smoke

@@ -1,5 +1,7 @@
 # Portfolio Risk Validation Evidence Contract
 
+역할: 이 Backtest 계약이 증거 의미의 권위이며, GUI 동명 문서는 이 계약의 읽기 전용 표시 투영만 소유한다.
+
 Status: `DOCUMENTATION_ONLY / READ_ONLY / NO_NUMERIC_RISK_CLAIM`
 
 Contract version: `portfolio-risk-validation-evidence/v1`

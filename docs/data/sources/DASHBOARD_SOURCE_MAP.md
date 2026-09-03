@@ -1,5 +1,7 @@
 # Dashboard source map
 
+역할: 이 문서는 datasource 관점의 빠른 지도이며, 표시 선택 권위는 [Dashboard Daily Source Routing](../../gui/DASHBOARD_DAILY_SOURCE_ROUTING.md), 현재 상태 권위는 [Data Status](../DATA_STATUS.md)다.
+
 Dashboard 숫자를 어디서 읽어야 하는지 빠르게 판단하기 위한 datasource
 관점의 지도다. 현재 날짜와 operational 상태는 [Data Status](../DATA_STATUS.md),
 실제 표시 정책은 [Dashboard Daily Source Routing](../../gui/DASHBOARD_DAILY_SOURCE_ROUTING.md),

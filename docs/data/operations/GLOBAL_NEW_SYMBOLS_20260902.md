@@ -1,5 +1,7 @@
 # Yahoo 신규 종목 최초 bounded 수집
 
+역할: 이 문서는 2026-09-02 bounded 수집·재개 절차 기록이며, 현재 선택과 실행 권위는 [Data Status](../DATA_STATUS.md)와 각 Dataset Contract에 있다.
+
 상태: EWY, SOX, DOW_JONES, SP500_FUTURES, DOW_FUTURES는 2026-09-02에
 `COLLECTED_AND_PROMOTED`되었다. 실패한 `DOLLAR_INDEX_FUTURES` / `DX=F` 등록은
 제거되었고, 대체 index 종목 DOLLAR_INDEX / `DX-Y.NYB`만

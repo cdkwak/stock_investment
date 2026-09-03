@@ -1,6 +1,8 @@
 # 저장소 정리 인벤토리 — 2026-09-03
 
-상태: **읽기 전용 조사 결과 / 삭제·이동·커밋 미수행**
+상태: **2단계 제거 반영 / 3단계 문서 정리 기준 / 커밋 미수행**
+
+역할: 이 문서는 2026-09-03 저장소 정리 범위와 단계 기록이며, 현재 프로젝트 우선순위와 실행 권위는 [Project Status](PROJECT_STATUS.md)다.
 
 ## 1. 조사 기준과 결론
 
@@ -20,11 +22,11 @@
 
 | 판단 | 근거 |
 |---|---|
-| Python PM **런타임**은 백업 브랜치 이동 후보 | Project/GUI/Scheduler Status가 `보존·비활성`, 설치 작업 `STOCK_PROJECT_PYTHON_PM_EVENT_RUNNER`가 absent라고 명시한다. 현재 소비자 Dashboard는 이를 import하지 않는다. |
-| Queue 전체는 잔해가 아님 | `scripts/request_queue.py`, `.agents/skills/request-queue/`, `artifacts/request_queue/`는 `AGENTS.md`, Issue State, Telegram bridge가 현재 참조한다. Python PM 런타임과 Queue 생명주기를 분리해야 한다. |
+| 비활성 저장소 로컬 PM 하위시스템은 2단계에서 제거됨 | 삭제 전 상태와 정확한 파일 목록은 `backup/repo-cleanup-phase2-20260903`에 보존된다. 현재 소비자 Dashboard와 Data scheduler는 이 하위시스템을 사용하지 않는다. |
+| Queue 전체는 잔해가 아님 | `scripts/request_queue.py`, `.agents/skills/request-queue/`, `artifacts/request_queue/`는 `AGENTS.md`, Issue State, Telegram bridge가 현재 참조한다. 제거된 PM 하위시스템과 file-backed Queue 생명주기를 구분한다. |
 | PySide6 폴더는 지금 삭제할 수 없음 | 웹 앱이 `stock_data.gui.services`, `query`, `health_service`, `account_snapshot_service`, `manual_account_store`, `net_worth_service`, `watchlist_service` 등을 직접 import한다. 비-Qt 서비스를 중립 패키지로 옮긴 뒤 Qt 파일을 퇴역해야 한다. |
 | 가장 즉시 회수 가능한 공간은 `.tmp/` | 접근 가능한 파일만 8.61 GB, 파일 209,608개, 파일이 존재하는 `pytest-*` 디렉터리 449개다. 단, 실행 중 agent 경로를 먼저 배제해야 한다. |
-| Git churn의 중심은 생성 산출물 | 최근 7일 `artifacts/**/*.json|csv` 중 현재 추적되는 경로가 176개(JSON 162, CSV 14)다. Queue 상태와 GUI 감사가 대부분이다. |
+| Git churn의 중심은 생성 산출물 | 조사 당시 최근 7일 `artifacts/**/*.json|csv` 중 추적 경로는 176개(JSON 162, CSV 14)였다. Queue 상태와 정적 GUI evidence가 대부분이었고, 후자는 2단계에서 제거했다. |
 
 분류 뜻은 `삭제(명백한 잔해)` = 재생성 가능하고 현재 참조가 없는 생성물,
 `보관 브랜치로 이동` = 코드·문서·증거이나 현재 런타임에서 미사용,
@@ -61,74 +63,37 @@
 
 | 경로 | 크기 | 파일 수 | Git 추적 파일 | 마지막 변경일 | 비-archive 참조 예 | 최근 7일 변경(날짜:파일) | 분류 |
 |---|---:|---:|---:|---|---|---|---|
-| `artifacts/agent_runs/` | 38,891 B | 9 | 9 | 2026-08-28 | `DATA_STATUS.md`, Yahoo source README | 08-28:9 | 보관 브랜치로 이동 |
 | `artifacts/analysis/` | 175,422 B | 1 | 1 | 2026-09-02 | `gui/services.py`, `DATASET_INDEX.md` | 08-28:1, 08-31:1, 09-02:1 | 유지 |
 | `artifacts/backtest/` | 27,963,738 B | 51 | 45 | 2026-08-28 | replay/overnight entrypoint와 Backtest 문서 | 08-28:45 | 유지 |
 | `artifacts/daily_health/` | 188,883 B | 4 | 3 | 2026-08-28 | scheduler, Issue State, Dataset Index | 08-28:4 | 유지 |
 | `artifacts/data_inventory/` | 84,504 B | 2 | 2 | 2026-09-03 | `REPOSITORY_MAP.md`, `DATASET_INDEX.md`, tests | 08-28:2, 09-03:1 | 유지 |
 | `artifacts/gui/` | 0 B | 0 | 0 | 없음 | `docs/gui/DESIGN.md`가 경로만 언급 | 없음 | 삭제(명백한 잔해) |
-| `artifacts/gui_audits/` | **64,436,935 B (64.4 MB)** | 715 | 714 | 2026-09-02 | `docs/gui/DESIGN.md` | 08-28:1, 08-31:606, 09-02:2 | 보관 브랜치로 이동 |
-| `artifacts/gui_benchmark/` | 202,725 B | 10 | 8 | 2026-08-28 | 없음 | 08-28:8 | 보관 브랜치로 이동 |
-| `artifacts/gui_usability_review_20260825/` | 232,829 B | 13 | 13 | 2026-08-28 | 없음 | 08-28:13 | 보관 브랜치로 이동 |
 | `artifacts/gui_validation/` | 2,637,333 B | 27 | 27 | 2026-08-28 | retention 도구와 테스트 | 08-28:27 | 웹 전환 후 퇴역 |
 | `artifacts/issue_state/` | 209,529 B | 2 | 2 | 2026-09-02 | Issue State contract/code/test | 08-28:2, 09-02:1 | 유지 |
 | `artifacts/local_user/` | 65,913 B | 6 | 0 | Git 기록 없음 | 웹/Qt 계정·watchlist 서비스와 테스트 | 없음 | 유지 |
-| `artifacts/provider_capability/` | 5,361 B | 2 | 2 | 2026-08-28 | 없음 | 08-28:2 | 보관 브랜치로 이동 |
 | `artifacts/recovery/` | 185,309 B | 3 | 2 | 2026-09-02 | 정확 경로 참조 없음 | 09-02:2 | 보관 브랜치로 이동(`acl_denied_dirs.txt`는 루트 잔해 단계) |
 | `artifacts/release_readiness/` | 54,141 B | 11 | 11 | 2026-09-02 | release-readiness entrypoint, Repository Map | 08-28:7, 09-02:4 | 유지(날짜별 JSON 보존정책 필요) |
 | `artifacts/request_queue/` | 565,872 B | 343 | 343 | 2026-08-31 | `AGENTS.md`, README, Repository Map, Issue State | 08-28:217, 08-29:40, 08-30:29, 08-31:113 | 유지 |
 | `artifacts/runtime_logs/` | 1,277,977 B | 1,279 | 1 | 2026-08-28 | diagnostics, replay/ML, Issue State | 08-28:1 | 유지 |
 | `artifacts/scheduler_logs/` | 52,811 B | 32 | 0 | Git 기록 없음 | Scheduler Status, web/GUI services/tests | 없음 | 유지 |
-| `artifacts/semantic_validation/` | 19,475 B | 6 | 6 | 2026-08-28 | 현재 비-archive 정확 경로 참조 없음 | 08-28:6 | 보관 브랜치로 이동 |
 
 `request_queue`의 일별 변경량이 큰 것은 단순 캐시가 아니라 file-backed 상태 이동과
 Done receipt까지 Git에 기록하는 설계 때문이다. Queue를 유지하는 동안 무조건 ignore하면
-복구 계약을 깨뜨린다. 반면 `gui_audits`, `gui_benchmark`, 과거 `agent_runs`는 현재
-branch에서 분리해도 런타임에 영향이 없는 정적 증거다.
+복구 계약을 깨뜨린다. 조사 당시 런타임 비의존 정적 evidence 여섯 묶음은 2단계에서
+제거했고 `backup/repo-cleanup-phase2-20260903`에 보존했다.
 
-## 4. Python PM / Queue control plane
+## 4. 비활성 저장소 로컬 PM 하위시스템과 Queue 구분
 
-### 4.1 소스 모듈
+초기 조사에서 PM 전용 소스 26개(817,116 B / 18,763줄), 전용 entry/display
+파일 3개, 전용 테스트 22개는 현재 소비자 웹 앱과 일반 Data 작업에서 사용되지
+않는 것으로 확인됐다. 이 세트는 2단계에서 제거했고, 삭제 전 정확한 경로·크기·
+줄 수·테스트 목록은 `backup/repo-cleanup-phase2-20260903`에 보존했다. 현재 문서는
+그 제거 세트를 실행·복구 경로로 제공하지 않는다.
 
-아래 `workflow_control` 26개 모듈의 합계는 817,116 B / 18,763줄이다. “외부 import”는
-이 표의 control-plane 코드와 전용 테스트 바깥의 Python import를 뜻한다.
-
-| 경로 | 크기 | 줄 수 | 추적 | 마지막 변경일 | 외부 import/참조 | 분류 |
-|---|---:|---:|---:|---|---|---|
-| `workflow_control/__init__.py` | 7.7 KiB | 299 | 예 | 2026-08-31 | 없음(내부/전용 테스트만) | 보관 브랜치로 이동 |
-| `workflow_control/codex_adapter.py` | 1.6 KiB | 51 | 예 | 2026-08-29 | 없음 | 보관 브랜치로 이동 |
-| `workflow_control/codex_boundary.py` | 72.9 KiB | 1,780 | 예 | 2026-08-31 | 없음 | 보관 브랜치로 이동 |
-| `workflow_control/contracts.py` | 14.2 KiB | 349 | 예 | 2026-08-29 | 없음 | 보관 브랜치로 이동 |
-| `workflow_control/controller.py` | 163.9 KiB | 3,538 | 예 | 2026-08-31 | 없음 | 보관 브랜치로 이동 |
-| `workflow_control/cycle.py` | 24.9 KiB | 629 | 예 | 2026-08-31 | 없음 | 보관 브랜치로 이동 |
-| `workflow_control/digest.py` | 7.9 KiB | 244 | 예 | 2026-08-29 | 없음 | 보관 브랜치로 이동 |
-| `workflow_control/discovery.py` | 7.9 KiB | 198 | 예 | 2026-08-29 | Queue script 경로를 내부 실행 | 보관 브랜치로 이동 |
-| `workflow_control/event_runner.py` | 66.4 KiB | 1,445 | 예 | 2026-08-31 | 없음 | 보관 브랜치로 이동 |
-| `workflow_control/events.py` | 4.3 KiB | 115 | 예 | 2026-08-29 | 없음 | 보관 브랜치로 이동 |
-| `workflow_control/goal_queue_reconciler.py` | 59.0 KiB | 1,479 | 예 | 2026-08-31 | 없음 | 보관 브랜치로 이동 |
-| `workflow_control/listener_gateway.py` | 55.1 KiB | 1,266 | 예 | 2026-08-31 | 없음 | 보관 브랜치로 이동 |
-| `workflow_control/monitoring.py` | 24.8 KiB | 506 | 예 | 2026-08-31 | `operations_dashboard.py`만 import | 보관 브랜치로 이동 |
-| `workflow_control/policy.py` | 25.2 KiB | 616 | 예 | 2026-08-29 | 없음 | 보관 브랜치로 이동 |
-| `workflow_control/production.py` | 3.6 KiB | 101 | 예 | 2026-08-31 | 없음 | 보관 브랜치로 이동 |
-| `workflow_control/queue_adapter.py` | 15.1 KiB | 326 | 예 | 2026-08-31 | Queue script를 내부 호출 | 보관 브랜치로 이동 |
-| `workflow_control/registry.py` | 46.4 KiB | 1,065 | 예 | 2026-08-31 | 없음 | 보관 브랜치로 이동 |
-| `workflow_control/replay.py` | 4.7 KiB | 120 | 예 | 2026-08-29 | 없음 | 보관 브랜치로 이동 |
-| `workflow_control/routing.py` | 21.1 KiB | 542 | 예 | 2026-08-31 | 없음 | 보관 브랜치로 이동 |
-| `workflow_control/runner.py` | 12.7 KiB | 312 | 예 | 2026-08-31 | 없음 | 보관 브랜치로 이동 |
-| `workflow_control/service.py` | 110.4 KiB | 2,491 | 예 | 2026-08-31 | 없음 | 보관 브랜치로 이동 |
-| `workflow_control/session_runner.py` | 9.0 KiB | 231 | 예 | 2026-08-31 | 없음 | 보관 브랜치로 이동 |
-| `workflow_control/simulator.py` | 6.7 KiB | 179 | 예 | 2026-08-31 | 없음 | 보관 브랜치로 이동 |
-| `workflow_control/state.py` | 15.8 KiB | 421 | 예 | 2026-08-29 | 없음 | 보관 브랜치로 이동 |
-| `workflow_control/supervisor.py` | 6.9 KiB | 188 | 예 | 2026-08-31 | 없음 | 보관 브랜치로 이동 |
-| `workflow_control/watchdog.py` | 9.9 KiB | 272 | 예 | 2026-08-31 | 없음 | 보관 브랜치로 이동 |
-| `scripts/request_queue.py` | 137.0 KiB | 3,159 | 예 | 2026-08-31 | `sync_issue_state.py`, `telegram_agent_bridge.py`, AGENTS/Issue State | 유지 |
-| `scripts/register_python_pm_event_runner_task.ps1` | 8.5 KiB | 236 | 예 | 2026-08-31 | 전용 테스트만; 설치 task는 현재 absent | 보관 브랜치로 이동 |
-| `scripts/maintenance/workflow_controller.py` | 35.5 KiB | 738 | 예 | 2026-08-31 | 등록 스크립트와 전용 테스트만 | 보관 브랜치로 이동 |
-| `src/stock_data/gui/operations_dashboard.py` | 29.9 KiB | 481 | 예 | 2026-08-31 | GUI Status와 전용 테스트; 현재 consumer Dashboard 미사용 | 웹 전환 후 퇴역 |
-
-`src/stock_data/orchestration/workflow_control/` 접두사는 모든 행에서
-`src/stock_data/orchestration/`를 생략해 표시했다. 실제 코드 검색 결과, 전용 세트 밖의
-현재 `src/`/일반 스크립트가 workflow runtime을 import하지 않는다.
+`scripts/request_queue.py`, `.agents/roles/`, `.agents/skills/`,
+`artifacts/request_queue/`, Issue State 동기화는 제거 대상이 아니며 각각 현재 Queue
+CLI, role packet, router/queue/data 절차, file-backed 상태/receipt, local issue
+projection 역할을 유지한다.
 
 ### 4.2 역할/skill과 테스트
 
@@ -137,34 +102,9 @@ branch에서 분리해도 런타임에 영향이 없는 정적 증거다.
 | `.agents/roles/` (8파일) | 16,343 B / 296줄 | 예, 8 | 2026-08-31 | `AGENTS.md` Queue role packet 규칙 | 유지 |
 | `.agents/skills/` (9파일) | 19,498 B / 310줄 | 예, 9 | 2026-08-31 | `AGENTS.md`, 현재 세션 router/queue/data 절차 | 유지 |
 
-전용 테스트 24개는 다음과 같다. 크기/줄 수/날짜는 파일별 실측이다.
-
-| 테스트 모듈 | 크기 | 줄 수 | 마지막 변경일 | 분류 |
-|---|---:|---:|---|---|
-| `tests/integration/daily_operations/test_issue_state_sync.py` | 19.8 KiB | 474 | 2026-08-28 | 유지 |
-| `tests/integration/gui/test_operations_dashboard_smoke.py` | 7.0 KiB | 134 | 2026-08-31 | 웹 전환 후 퇴역 |
-| `tests/integration/pipelines/test_listener_pm_continuity.py` | 6.7 KiB | 199 | 2026-08-31 | 보관 브랜치로 이동 |
-| `tests/integration/pipelines/test_persistent_agent_control_plane.py` | 46.3 KiB | 1,142 | 2026-08-31 | 보관 브랜치로 이동 |
-| `tests/integration/pipelines/test_unattended_workflow_runner.py` | 10.9 KiB | 251 | 2026-08-31 | 보관 브랜치로 이동 |
-| `tests/integration/pipelines/test_workflow_control_cycle.py` | 4.0 KiB | 98 | 2026-08-31 | 보관 브랜치로 이동 |
-| `tests/integration/pipelines/test_workflow_controller_cutover.py` | 7.6 KiB | 173 | 2026-08-31 | 보관 브랜치로 이동 |
-| `tests/unit/gui/test_operations_dashboard.py` | 11.3 KiB | 240 | 2026-08-31 | 웹 전환 후 퇴역 |
-| `tests/unit/orchestration/test_codex_boundary.py` | 29.5 KiB | 829 | 2026-08-31 | 보관 브랜치로 이동 |
-| `tests/unit/orchestration/test_goal_queue_reconciler.py` | 34.0 KiB | 942 | 2026-08-31 | 보관 브랜치로 이동 |
-| `tests/unit/orchestration/test_listener_gateway.py` | 28.2 KiB | 744 | 2026-08-31 | 보관 브랜치로 이동 |
-| `tests/unit/orchestration/test_python_pm_event_runner_schedule.py` | 22.2 KiB | 597 | 2026-08-31 | 보관 브랜치로 이동 |
-| `tests/unit/orchestration/test_request_queue.py` | 112.3 KiB | 2,864 | 2026-08-31 | 유지 |
-| `tests/unit/orchestration/test_workflow_control_state.py` | 24.5 KiB | 616 | 2026-08-31 | 보관 브랜치로 이동 |
-| `tests/unit/orchestration/test_workflow_controller.py` | 89.9 KiB | 2,275 | 2026-08-31 | 보관 브랜치로 이동 |
-| `tests/unit/orchestration/test_workflow_controller_entrypoint.py` | 25.6 KiB | 729 | 2026-08-31 | 보관 브랜치로 이동 |
-| `tests/unit/orchestration/test_workflow_controller_service.py` | 46.8 KiB | 1,110 | 2026-08-31 | 보관 브랜치로 이동 |
-| `tests/unit/orchestration/test_workflow_discovery.py` | 5.1 KiB | 146 | 2026-08-29 | 보관 브랜치로 이동 |
-| `tests/unit/orchestration/test_workflow_event_runner.py` | 19.4 KiB | 499 | 2026-08-31 | 보관 브랜치로 이동 |
-| `tests/unit/orchestration/test_workflow_monitoring.py` | 21.0 KiB | 403 | 2026-08-31 | 보관 브랜치로 이동 |
-| `tests/unit/orchestration/test_workflow_policy.py` | 12.8 KiB | 406 | 2026-08-29 | 보관 브랜치로 이동 |
-| `tests/unit/orchestration/test_workflow_recovery.py` | 23.5 KiB | 582 | 2026-08-31 | 보관 브랜치로 이동 |
-| `tests/unit/orchestration/test_workflow_routing.py` | 14.1 KiB | 378 | 2026-08-31 | 보관 브랜치로 이동 |
-| `tests/unit/orchestration/test_workflow_supervisor.py` | 13.0 KiB | 399 | 2026-08-31 | 보관 브랜치로 이동 |
+초기 분류의 24개 테스트 중 Queue/Issue State 소유 2개는 유지했고, 제거된 PM
+하위시스템 전용 22개는 2단계에서 함께 제거했다. 삭제 전 개별 모듈명, 크기,
+줄 수, 날짜는 `backup/repo-cleanup-phase2-20260903`에 보존한다.
 
 ## 5. `docs/` 현황과 router 미직접참조 문서
 
@@ -179,15 +119,18 @@ branch에서 분리해도 런타임에 영향이 없는 정적 증거다.
 | `gui/` | 11 | 165,433 B | 웹 전환 후 퇴역 여부를 파일별 판단 |
 | `archive/` | **230** | **5,277,398 B (5.28 MB)** | 유지(비기본 역사 증거) |
 
-다음 19개는 지정된 7개 router/status 파일(`docs/README.md`, Project/Data/Backtest/GUI
-Status, 루트 README, AGENTS)에서 **직접 이름이 나오지 않는다**. 이 조건은 “미사용”과
-같지 않다. 별도 현재 문서의 inbound 참조를 함께 표시했다.
+### 5.2 Router 직접 참조 재검토 대상
+
+다음 19개는 초기 조사에서 지정된 7개 router/status 파일(`docs/README.md`,
+Project/Data/Backtest/GUI Status, 루트 README, AGENTS)에 직접 이름이 없던 문서다.
+이 조건은 “미사용”과 같지 않다. 3단계에서 요구된 3개는 Data Status에 연결했고,
+나머지는 현재 inbound 참조와 역할을 재확인했다.
 
 | 경로 | 크기 | 추적 / 마지막 변경일 | 다른 현재 문서 참조 | 분류 |
 |---|---:|---|---|---|
 | `docs/backtest/PORTFOLIO_RISK_VALIDATION_EVIDENCE_CONTRACT.md` | 5,831 B | 예 / 2026-08-31 | GUI 동명 contract | 유지 |
 | `docs/data/config/LS_T8462_ANALYSIS_FEATURES.md` | 4,533 B | 예 / 2026-08-27 | Dataset Index, LS operation/source/research | 유지 |
-| `docs/data/operations/GLOBAL_NEW_SYMBOLS_20260902.md` | 3,713 B | 예 / 2026-09-03 | 없음; 현재 별도 작업 변경과 겹침 | 유지(라우팅 보강 필요) |
+| `docs/data/operations/GLOBAL_NEW_SYMBOLS_20260902.md` | 3,713 B | 예 / 2026-09-03 | Data Status | 유지(라우팅 완료) |
 | `docs/data/queues/KRX_EQUITY_FUNDAMENTAL_RAW_DAILY_REVIEW_REQUIRED.md` | 3,411 B | 예 / 2026-08-27 | Dataset Index, Source Registry, queue README | 유지 |
 | `docs/data/queues/KRX_ETF_RAW_DAILY_INCREMENTAL_REVIEW_REQUIRED.md` | 6,299 B | 예 / 2026-08-27 | queue README | 유지 |
 | `docs/data/queues/KRX_FOREIGN_OWNERSHIP_RAW_DAILY_REVIEW_REQUIRED.md` | 2,931 B | 예 / 2026-08-27 | Dataset Index, Source Registry, queue README | 유지 |
@@ -199,11 +142,16 @@ Status, 루트 README, AGENTS)에서 **직접 이름이 나오지 않는다**. �
 | `docs/data/sources/forward_valuation/KOSPI_FORWARD_PER_PBR_SOURCE_DECISION.md` | 9,764 B | 예 / 2026-08-27 | active PIT research contract | 유지 |
 | `docs/data/sources/krx/MDCSTAT03501_EQUITY_FUNDAMENTAL_FINALITY.md` | 5,004 B | 예 / 2026-08-27 | Dataset Index, Source Registry, queue 문서 | 유지 |
 | `docs/data/sources/krx/MDCSTAT03701_FOREIGN_OWNERSHIP_FINALITY.md` | 3,329 B | 예 / 2026-08-27 | Dataset Index, Source Registry, queue 문서 | 유지 |
-| `docs/data/sources/MARKET_SESSION_RULES.md` | 8,328 B | 예 / 2026-08-27 | 없음 | 유지(라우팅 보강 필요) |
+| `docs/data/sources/MARKET_SESSION_RULES.md` | 8,328 B | 예 / 2026-08-27 | Data Status | 유지(라우팅 완료) |
 | `docs/data/sources/SOURCE_TEMPLATE.md` | 1,427 B | 예 / 2026-08-27 | source README | 유지 |
-| `docs/data/sources/us_option_pcr/US_OPTION_PCR_SOURCE_DECISION.md` | 14,144 B | 예 / 2026-08-27 | 없음 | 유지(라우팅 보강 필요) |
-| `docs/gui/DESIGN.md` | 8,351 B | 예 / 2026-09-02 | 없음; PySide artifact 경로를 설명 | 웹 전환 후 퇴역 |
+| `docs/data/sources/us_option_pcr/US_OPTION_PCR_SOURCE_DECISION.md` | 14,144 B | 예 / 2026-08-27 | Data Status | 유지(라우팅 완료) |
+| `docs/gui/DESIGN.md` | 8,351 B | 예 / 2026-09-02 | GUI Status를 역할 권위로 명시 | 유지; PySide6 퇴역 때 재검토 |
 | `docs/gui/PORTFOLIO_RISK_VALIDATION_EVIDENCE_CONTRACT.md` | 4,142 B | 예 / 2026-08-31 | Backtest 동명 contract | 유지 |
+
+중복 재검토 결과 삭제 대상은 없다. 의도적으로 겹치는 역할은 Backtest risk
+evidence 의미 대 GUI 표시 투영, KRX source/finality policy 대 비실행 Queue 후보,
+source 조사 runbook 대 template/endpoint 색인, full-market ETF Raw 후보 대 현재
+watchlist ETF operation이다. 각 관련 문서 상단에 한 줄 역할과 권위 문서를 명시했다.
 
 ## 6. `scripts/manual/` 대 `scripts/maintenance/`
 
@@ -262,19 +210,18 @@ Status, 루트 README, AGENTS)에서 **직접 이름이 나오지 않는다**. �
 
 ## 7. `src/` 최대 파일 10개
 
-Git 추적 소스만 대상으로 했고 `__pycache__/*.pyc`는 제외했다.
+Git 추적 소스만 대상으로 했고 `__pycache__/*.pyc`는 제외했다. 아래 표는 조사
+당시 순위를 보존하되, 2단계에서 제거된 PM 전용 상위 4개 행은 현재 경로로
+오해하지 않도록 생략했다. 그 행의 정확한 값은
+`backup/repo-cleanup-phase2-20260903`에 보존한다.
 
 | 순위 | 경로 | 바이트 | 줄 수 | 분류 |
 |---:|---|---:|---:|---|
 | 1 | `src/stock_data/gui/main_window.py` | 766,198 | 16,004 | 웹 전환 후 퇴역 |
 | 2 | `src/stock_data/gui/services.py` | 353,211 | 7,198 | 유지(웹 import 분리 후 경로 이전) |
-| 3 | `src/stock_data/orchestration/workflow_control/controller.py` | 167,852 | 3,538 | 보관 브랜치로 이동 |
-| 4 | `src/stock_data/orchestration/workflow_control/service.py` | 113,035 | 2,491 | 보관 브랜치로 이동 |
 | 5 | `src/stock_data/orchestration/release_readiness.py` | 104,795 | 2,402 | 유지 |
 | 6 | `src/stock_data/orchestration/daily_operations.py` | 98,292 | 2,093 | 유지 |
 | 7 | `src/stock_data/gui/backtest_service.py` | 81,186 | 1,988 | 유지(웹 공유 서비스 후보) |
-| 8 | `src/stock_data/orchestration/workflow_control/codex_boundary.py` | 74,603 | 1,780 | 보관 브랜치로 이동 |
-| 9 | `src/stock_data/orchestration/workflow_control/event_runner.py` | 67,985 | 1,445 | 보관 브랜치로 이동 |
 | 10 | `src/stock_data/gui/account_snapshot_service.py` | 64,376 | 1,504 | 유지(웹이 직접 import) |
 
 `main_window.py` 16,004줄과 `services.py` 7,198줄은 퇴역 작업 전에 각각 UI와
@@ -289,27 +236,24 @@ Git 추적 소스만 대상으로 했고 `__pycache__/*.pyc`는 제외했다.
 | 경로군 | 추적 생성형 JSON/CSV 수 | 대표 예 | 판단 |
 |---|---:|---|---|
 | `artifacts/request_queue/` | 91 | `COMPLETED_INDEX.json`, 각 `META.json` | 유지. 현재 file-backed Queue 계약이므로 단순 ignore 금지 |
-| `artifacts/gui_audits/` | 31 | `ledger.json`, `inventory.json`, `stress.json` | 보관 브랜치 이동 후 새 대용량 run은 기본 ignore 검토 |
 | `artifacts/release_readiness/` | 11 | 날짜별 JSON, `release_readiness_latest.json` | latest/receipt 보존 단위를 계약으로 정하고 날짜별 churn 분리 |
 | `artifacts/backtest/` | 8 | bundle/result/ledger JSON, signals CSV | 재현 manifest와 대용량 결과를 분리; 현재는 유지 |
-| `artifacts/gui_benchmark/` | 8 | timestamp JSON/CSV | 보관 브랜치 이동 후 새 timestamp 산출물 ignore |
-| `artifacts/semantic_validation/` | 6 | LS closure JSON/CSV | 증거 묶음으로 백업 branch 이동 |
-| `artifacts/agent_runs/` | 4 | scheduler/validation JSON | 과거 receipt 묶음으로 백업 branch 이동 |
 | `artifacts/daily_health/` | 3 | health JSON/CSV | 현재 consumer가 읽으므로 유지 |
-| `artifacts/gui_usability_review_20260825/` | 3 | capture/preferences JSON | 정적 review 묶음으로 백업 branch 이동 |
 | `artifacts/gui_validation/` | 3 | retention manifest/receipt, stall JSON | PySide6 퇴역 전 유지 |
 | `artifacts/data_inventory/` | 2 | full-universe CSV | 현재 navigation 증거로 유지 |
 | `artifacts/issue_state/` | 2 | `issues.json`, policy JSON | 현재 상태 계약. Git churn 허용 여부 별도 결정 필요 |
-| `artifacts/provider_capability/` | 2 | capability CSV/JSON | 백업 branch 이동 |
 | `artifacts/analysis/` | 1 | option-wall CSV | GUI 서비스가 직접 읽으므로 유지 |
 | `artifacts/recovery/` | 1 | ACL repair report JSON | 백업 branch 이동 |
 | **합계** | **176 (JSON 162, CSV 14)** |  |  |
 
+이 표의 나머지 54개 추적 JSON/CSV를 구성하던 정적 evidence 여섯 경로군은
+2단계에서 제거했고 `backup/repo-cleanup-phase2-20260903`에 보존했다.
+
 ## 9. 제안하는 4단계 정리 계획
 
-각 단계는 별도 diff/검증으로 실행한다. 아래 Git 명령은 **제안일 뿐 이번 조사에서는
-실행하지 않았다**. 추적 파일을 지우기 전에 현재 commit을 가리키는 백업 branch를
-만드는 공통 형태는 다음과 같다.
+각 단계는 별도 diff/검증으로 실행한다. 아래 Git 명령은 초기 제안과 완료 기록이며,
+이 3단계 문서 정리에서는 branch 생성·commit을 실행하지 않는다. 추적 파일을 지우기
+전에 현재 commit을 가리키는 백업 branch를 만드는 공통 형태는 다음과 같다.
 
 ```powershell
 git branch backup/repo-cleanup-phase<N>-20260903 HEAD
@@ -341,51 +285,14 @@ git commit -m "backup: preserve untracked cleanup candidates"
 git switch master
 ```
 
-### 2단계 — artifacts와 비활성 Python PM
+### 2단계 — 정적 artifacts와 비활성 저장소 로컬 PM
 
-정확한 artifacts 대상:
+> **실행됨 2026-09-03 (Claude):** 런타임 비의존 정적 evidence 여섯 경로군,
+> 비활성 PM 전용 소스·entry/display·테스트 세트를 제거했다. 정확한 삭제 목록과
+> 파일 내용은 `backup/repo-cleanup-phase2-20260903`에 보존한다.
 
-```text
-artifacts/agent_runs/
-artifacts/gui_audits/
-artifacts/gui_benchmark/
-artifacts/gui_usability_review_20260825/
-artifacts/provider_capability/
-artifacts/recovery/            # 1단계 txt 제외
-artifacts/semantic_validation/
-```
-
-정확한 비활성 control-plane 대상:
-
-```text
-src/stock_data/orchestration/workflow_control/
-scripts/register_python_pm_event_runner_task.ps1
-scripts/maintenance/workflow_controller.py
-tests/integration/pipelines/test_listener_pm_continuity.py
-tests/integration/pipelines/test_persistent_agent_control_plane.py
-tests/integration/pipelines/test_unattended_workflow_runner.py
-tests/integration/pipelines/test_workflow_control_cycle.py
-tests/integration/pipelines/test_workflow_controller_cutover.py
-tests/unit/orchestration/test_codex_boundary.py
-tests/unit/orchestration/test_goal_queue_reconciler.py
-tests/unit/orchestration/test_listener_gateway.py
-tests/unit/orchestration/test_python_pm_event_runner_schedule.py
-tests/unit/orchestration/test_workflow_control_state.py
-tests/unit/orchestration/test_workflow_controller.py
-tests/unit/orchestration/test_workflow_controller_entrypoint.py
-tests/unit/orchestration/test_workflow_controller_service.py
-tests/unit/orchestration/test_workflow_discovery.py
-tests/unit/orchestration/test_workflow_event_runner.py
-tests/unit/orchestration/test_workflow_monitoring.py
-tests/unit/orchestration/test_workflow_policy.py
-tests/unit/orchestration/test_workflow_recovery.py
-tests/unit/orchestration/test_workflow_routing.py
-tests/unit/orchestration/test_workflow_supervisor.py
-```
-
-`scripts/request_queue.py`, `.agents/`, `artifacts/request_queue/`,
-`test_request_queue.py`, `test_issue_state_sync.py`는 명시적으로 제외한다. 이미
-`backup/python-pm-retirement-candidate-20260902`가 존재하지만, 실행 시점 HEAD도 보존한다.
+`scripts/request_queue.py`, `.agents/`, `artifacts/request_queue/`, Queue/Issue
+State 테스트, `artifacts/recovery/`는 명시적으로 제외되어 현재 경로에 남는다.
 
 ```powershell
 git branch backup/repo-cleanup-phase2-20260903 HEAD
@@ -397,6 +304,10 @@ git branch backup/repo-cleanup-phase2-20260903 HEAD
 (`GLOBAL_NEW_SYMBOLS_20260902.md`, `MARKET_SESSION_RULES.md`,
 `US_OPTION_PCR_SOURCE_DECISION.md`)를 현재 authority에서 연결하고 중복/역할을 재확인한다.
 이 단계는 삭제 단계가 아니다.
+
+> **문서 갱신 2026-09-03:** 위 3개와 이번 주 생성 문서는 Project/Data/GUI
+> Status의 해당 route에 연결했다. 19개 문서는 삭제하지 않았고, 겹치는 문서에는
+> 의미·표시·source evidence·비실행 후보 중 어느 권위가 우선인지 역할 줄을 추가했다.
 
 ```text
 docs/README.md
@@ -440,16 +351,13 @@ git branch backup/repo-cleanup-phase3-20260903 HEAD
 app.py
 src/stock_data/gui/main_window.py
 src/stock_data/gui/font_policy.py
-src/stock_data/gui/operations_dashboard.py
 src/stock_data/gui/__init__.py              # 공유 서비스 이동 완료 후
-tests/integration/gui/test_operations_dashboard_smoke.py
 tests/integration/gui/test_release_readiness.py
 tests/unit/gui/test_dashboard_preferences.py
 tests/unit/gui/test_font_policy.py
 tests/unit/gui/test_gui_backtest.py
 tests/unit/gui/test_gui_health.py
 tests/unit/gui/test_net_worth_page.py
-tests/unit/gui/test_operations_dashboard.py
 tests/unit/gui/test_stock_candidate_discovery_gui.py
 docs/gui/DESIGN.md
 artifacts/gui_validation/
@@ -464,9 +372,11 @@ git branch backup/repo-cleanup-phase4-pyside6-20260903 HEAD
 
 ## 10. 분류 집계
 
-집계는 중복 세부 module 행을 다시 세지 않고, 루트 14 + artifacts 19 + control-plane
-의사결정 9 + router 미직접참조 docs 19 + 미참조 scripts 45 = **106개 정리 의사결정
-단위**를 기준으로 한다.
+아래는 초기 조사 시점 집계다. 중복 세부 module 행을 다시 세지 않고, 루트 14 +
+artifacts 19 + control-plane 의사결정 9 + router 미직접참조 docs 19 + 미참조
+scripts 45 = **106개 정리 의사결정 단위**를 기준으로 한다. 2단계 제거 후 현재
+경로별 재집계는 이번 문서-only 단계의 범위가 아니며, 삭제 전 상세는
+`backup/repo-cleanup-phase2-20260903`에 보존한다.
 
 | 분류 | 개수 |
 |---|---:|

@@ -35,8 +35,8 @@ closed and the canonical and short-selling routes active. Preserve the incident
 evidence and exact historical receipts, but do not use this section to require a
 new user or Lead approval for a new bounded occurrence.
 
-- The 21-row local-first matrix is
-  `artifacts/agent_runs/ur111_phase1_local_first_matrix_20260821T022500+0900.md`.
+- The 21-row local-first matrix evidence was 제거됨
+  (backup/repo-cleanup-phase2-20260903 브랜치에 보존).
   Health was regenerated from contract-valid production readback with provider
   calls 0. KR index/KOSPI200/VKOSPI/market-investor now read through
   2026-08-20; lending/global index/SOXX/global futures through 2026-08-19;

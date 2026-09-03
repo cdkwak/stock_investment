@@ -1,5 +1,7 @@
 # KRX Equity Fundamental Raw Daily Incremental Candidate
 
+역할: 이 문서는 비실행 검토 후보이며, source 의미·finality 권위는 [`MDCSTAT03501` source policy](../sources/krx/MDCSTAT03501_EQUITY_FUNDAMENTAL_FINALITY.md)다.
+
 Status: `REVIEW_REQUIRED / NOT_EXECUTABLE`
 
 Dataset: `kr_equity_fundamental_daily` Raw only
@@ -66,4 +68,3 @@ The offline implementation is
 
 If publication or revision behavior remains non-deterministic, keep the route
 manual/review-gated. One successful response does not make a scheduler eligible.
-

@@ -1,5 +1,7 @@
 # Portfolio Risk Validation Evidence Display Contract
 
+역할: 이 문서는 표시 투영만 소유하며, 증거 의미의 권위는 [Backtest 계약](../backtest/PORTFOLIO_RISK_VALIDATION_EVIDENCE_CONTRACT.md)이다.
+
 Status: `PRESENTATION_ONLY / READ_ONLY / NO_GUI_RECOMPUTATION`
 
 Display contract version: `portfolio-risk-validation-evidence-display/v1`

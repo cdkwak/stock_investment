@@ -63,7 +63,7 @@ option P/C outputs therefore remain suppressed.
 - Landing:
   `data/landing/yahoo_symbol_option_chain/20260820T111905.538768Z_9dc6c566c0fd467d9327bc98b005b47e/`
 - Checkpoint:
-  `artifacts/agent_runs/ur094_yahoo_symbol_option_live_evidence_20260820T201906+0900.json`
+  제거됨 (backup/repo-cleanup-phase2-20260903 브랜치에 보존)
 - Mutations: Landing and the checkpoint only; Normalized, Published, canonical,
   Dashboard runtime, Backtest, scheduler, cookies, and alternate hosts remained
   untouched.
@@ -112,8 +112,9 @@ planned, consumed, not-attempted, and retained scopes. Existing capture roots
 are immutable; a failed run never deletes or overwrites prior valid evidence.
 
 No Landing response is Normalized, Canonical, or Published by this pilot. The
-only derived output is a review artifact under `artifacts/agent_runs/`, bound to
-the Landing hashes.
+only derived review output was 제거됨
+(backup/repo-cleanup-phase2-20260903 브랜치에 보존); the immutable Landing
+responses retain their own hashes.
 
 ## Parse, liquidity, and freshness gates
 

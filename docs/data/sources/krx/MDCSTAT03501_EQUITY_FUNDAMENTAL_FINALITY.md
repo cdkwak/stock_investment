@@ -1,5 +1,7 @@
 # KRX MDCSTAT03501 Equity Fundamental Source Policy
 
+역할: 이 문서는 source 의미·finality 권위이며, 동명 Raw queue 문서는 비실행 후보 경계만 소유한다.
+
 Status: `OFFICIAL_SCREEN_CONFIRMED / CURRENT_DESCRIPTIVE_OBSERVATION_CAPTURED / PUBLICATION_REVISION_FINALITY_UNDOCUMENTED`
 
 Scope: KRX `MDCSTAT03501` ALL-market daily equity-fundamental Raw response via

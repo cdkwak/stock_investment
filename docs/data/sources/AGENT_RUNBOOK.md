@@ -1,5 +1,7 @@
 # Datasource agent runbook
 
+역할: 이 문서는 source 조사·pilot·promotion의 작업 순서를 소유하며, 상태 권위는 [Data Status](../DATA_STATUS.md), schema 권위는 Dataset Contract다.
+
 이 문서는 동일한 API 문서를 반복해서 브라우저로 찾거나, 이미 있는 client를
 우회하는 일을 줄이기 위한 순서다.
 

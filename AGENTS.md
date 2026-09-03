@@ -113,6 +113,15 @@ repository. Start every task here and follow this route:
 6. Inspect code and tests only after the authoritative documents have narrowed
    the task scope.
 
+### Display runtime
+
+- Use the local FastAPI web dashboard first: Windows task
+  `STOCK_WEB_DASHBOARD`, <http://127.0.0.1:8787>, restart entry point
+  `scripts/restart_web.cmd`, and logs under `artifacts/runtime_logs/web/`.
+- The PySide6 app is second: run `app.py`; status is **유지 (웹 parity 이후
+  퇴역 예정, 4단계)**. Do not remove the shared GUI services before the phase-4
+  service split and parity check.
+
 Before the first write in a task, inspect the scoped Git status and preserve
 pre-existing and unrelated changes. Recheck only when the write scope or
 worktree changes.
