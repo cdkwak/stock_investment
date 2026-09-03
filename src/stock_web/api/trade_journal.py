@@ -206,6 +206,10 @@ def _load_daily_snapshots(
             continue
         if not isinstance(payload, Mapping):
             continue
+        # Landing captures wrap the provider body: {capture_kind, payload_sha256, schema_version,
+        # snapshot: {...positions, collected_at...}} (verified live 2026-09-03 for Toss and KB).
+        if isinstance(payload.get("snapshot"), Mapping) and "positions" not in payload:
+            payload = payload["snapshot"]
         observed = _parse_timestamp(payload.get("collected_at")) or _timestamp_from_name(path)
         if observed is None:
             issues.append({
