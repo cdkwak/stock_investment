@@ -41,3 +41,4 @@ htmlcov/
 /artifacts/recovery/acl_denied_dirs.txt
 /artifacts/runtime_logs/web/
 /artifacts/analysis/
+artifacts/research/
