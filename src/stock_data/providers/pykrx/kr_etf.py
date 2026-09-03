@@ -92,7 +92,7 @@ class PykrxEtfClient:
         if not isinstance(values, (list, tuple)):
             raise KrEtfProviderError("pykrx ETF ticker list type differs")
         result = tuple(str(value).strip() for value in values)
-        if not result or any(not re.fullmatch(r"\d{6}", value) for value in result):
+        if not result or any(not re.fullmatch(r"[0-9A-Z]{6}", value) for value in result):
             raise KrEtfProviderError("pykrx ETF ticker list is empty or malformed")
         if len(result) != len(set(result)):
             raise KrEtfProviderError("pykrx ETF ticker list contains duplicates")

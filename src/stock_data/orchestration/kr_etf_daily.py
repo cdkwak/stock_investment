@@ -54,8 +54,8 @@ def normalize_symbols(values: tuple[str, ...] | list[str]) -> tuple[str, ...]:
     symbols = tuple(str(value).strip() for value in values)
     if not symbols or len(symbols) > MAX_SYMBOLS:
         raise ValueError(f"symbols must contain between 1 and {MAX_SYMBOLS} values")
-    if any(not re.fullmatch(r"\d{6}", value) for value in symbols):
-        raise ValueError("every Korean ETF symbol must be a six-digit KRX code")
+    if any(not re.fullmatch(r"[0-9A-Z]{6}", value) for value in symbols):
+        raise ValueError("every Korean ETF symbol must be a six-character KRX code (digits or upper-case letters)")
     if len(symbols) != len(set(symbols)):
         raise ValueError("Korean ETF symbols must be unique")
     return symbols

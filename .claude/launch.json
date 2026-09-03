@@ -2,10 +2,14 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "web",
+      "name": "dashboard",
+      "url": "http://127.0.0.1:8787"
+    },
+    {
+      "name": "web-dev",
       "runtimeExecutable": ".venv/Scripts/python.exe",
-      "runtimeArgs": ["-m", "stock_web", "--port", "8787", "--reload"],
-      "port": 8787
+      "runtimeArgs": ["-m", "stock_web", "--port", "8788"],
+      "port": 8788
     }
   ]
 }

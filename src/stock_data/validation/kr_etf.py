@@ -12,8 +12,8 @@ def _require_columns(dataframe: pd.DataFrame, expected: tuple[str, ...], label: 
 
 
 def _validate_symbols(values: pd.Series, label: str) -> None:
-    if not values.astype(str).str.fullmatch(r"\d{6}").all():
-        raise ValueError(f"{label} symbol is not a six-digit KRX code")
+    if not values.astype(str).str.fullmatch(r"[0-9A-Z]{6}").all():
+        raise ValueError(f"{label} symbol is not a six-character KRX code (digits or upper-case letters)")
 
 
 def validate_kr_etf_master(dataframe: pd.DataFrame) -> None:
