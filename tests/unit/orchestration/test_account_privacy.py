@@ -10,6 +10,7 @@ import pytest
 from stock_data.gui.account_snapshot_service import LocalAccountSnapshotService
 from stock_data.orchestration.account_privacy import (
     AccountSnapshotRemovalError,
+    backfill_positions_history,
     mask_account_identifier,
     prune_account_landing,
     redact_account_text,
@@ -274,6 +275,71 @@ def test_account_landing_retention_is_limited_to_exact_dataset(tmp_path):
     assert market.read_text(encoding="utf-8") == "market"
 
 
+def test_positions_history_backfill_is_minimal_latest_wins_and_idempotent(tmp_path):
+    toss_landing = tmp_path / "data/landing/tossinvest/account_snapshot"
+    kb_landing = tmp_path / "data/landing/kbsec/account_snapshot"
+    toss_landing.mkdir(parents=True)
+    kb_landing.mkdir(parents=True)
+
+    def write_landing(path: Path, collected_at: str, position: dict) -> None:
+        path.write_text(json.dumps({
+            "schema_version": 1,
+            "capture_kind": "SANITIZED_CONTRACT_PROJECTION",
+            "payload_sha256": "0" * 64,
+            "snapshot": {
+                "collected_at": collected_at,
+                "positions": [position],
+                "cash_balance": "999999",
+            },
+        }, ensure_ascii=False), encoding="utf-8")
+
+    toss_position = {
+        "symbol": "TSLA", "name": "Tesla", "currency": "USD",
+        "market_country": "US", "quantity": "0.5",
+        "average_purchase_price": "250", "last_price": "260",
+        "market_value": "130", "profit_loss": "5",
+    }
+    write_landing(
+        toss_landing / "older.json", "2026-09-03T00:00:00+00:00",
+        {**toss_position, "quantity": "0.25"},
+    )
+    write_landing(
+        toss_landing / "newer.json", "2026-09-03T01:00:00+00:00", toss_position,
+    )
+    write_landing(kb_landing / "one.json", "2026-09-02T22:00:00+00:00", {
+        "symbol": "005930", "name": "삼성전자", "currency": "KRW",
+        "classification": "주식", "quantity": "2",
+        "average_purchase_price": "70000", "current_price": "71000",
+        "market_value": "142000", "unrealized_pnl": "2000",
+    })
+
+    assert backfill_positions_history(tmp_path) == 2
+    toss_history = tmp_path / "data/local/account_positions_history/toss_self/2026-09-03.json"
+    kb_history = tmp_path / "data/local/account_positions_history/kb_self/2026-09-03.json"
+    first_bytes = (toss_history.read_bytes(), kb_history.read_bytes())
+    assert backfill_positions_history(tmp_path) == 0
+    assert (toss_history.read_bytes(), kb_history.read_bytes()) == first_bytes
+
+    toss_payload = json.loads(toss_history.read_text(encoding="utf-8"))
+    assert set(toss_payload) == {"schema_version", "source_id", "observed_at", "positions"}
+    assert toss_payload["positions"][0]["quantity"] == "0.5"
+    assert set(toss_payload["positions"][0]) == {
+        "symbol", "name", "currency", "market_country", "quantity",
+        "average_purchase_price",
+    }
+    assert set(json.loads(kb_history.read_text(encoding="utf-8"))["positions"][0]) == {
+        "symbol", "name", "currency", "classification", "quantity",
+        "average_purchase_price",
+    }
+
+    later = {**toss_payload, "observed_at": "2026-09-03T02:00:00+00:00"}
+    later["positions"] = [{**toss_payload["positions"][0], "quantity": "0.75"}]
+    toss_history.write_text(json.dumps(later, ensure_ascii=False), encoding="utf-8")
+    later_bytes = toss_history.read_bytes()
+    assert backfill_positions_history(tmp_path) == 0
+    assert toss_history.read_bytes() == later_bytes
+
+
 def test_exact_account_snapshot_removal_never_touches_credentials_or_market_data(tmp_path):
     account_files = (
         tmp_path / "data/normalized/toss_account_snapshot/latest.json",
@@ -286,6 +352,8 @@ def test_exact_account_snapshot_removal_never_touches_credentials_or_market_data
         tmp_path / "data/staging/toss_account_snapshot/orphan/backup/state.json",
         tmp_path / "data/local/account_value_history/toss_self/one.json",
         tmp_path / "data/local/account_value_history/kb_self/one.json",
+        tmp_path / "data/local/account_positions_history/toss_self/2026-09-03.json",
+        tmp_path / "data/local/account_positions_history/kb_self/2026-09-03.json",
     )
     for path in account_files:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -298,6 +366,11 @@ def test_exact_account_snapshot_removal_never_touches_credentials_or_market_data
     unrelated.write_bytes(b"market")
     credential = tmp_path / "runtime_credentials.json"
     credential.write_text("secret", encoding="utf-8")
+    unrelated_history = (
+        tmp_path / "data/local/account_positions_history/other/2026-09-03.json"
+    )
+    unrelated_history.parent.mkdir(parents=True)
+    unrelated_history.write_text("unrelated", encoding="utf-8")
 
     result = remove_retained_account_snapshots(tmp_path)
 
@@ -305,6 +378,7 @@ def test_exact_account_snapshot_removal_never_touches_credentials_or_market_data
     assert all(not path.exists() for path in account_files)
     assert unrelated.read_bytes() == b"market"
     assert credential.read_text(encoding="utf-8") == "secret"
+    assert unrelated_history.read_text(encoding="utf-8") == "unrelated"
 
     restarted = LocalAccountSnapshotService(account_files[0]).load()
     assert not restarted.available and restarted.reason == "ACCOUNT_SNAPSHOT_MISSING"
@@ -447,6 +521,7 @@ def test_account_snapshot_removal_rejects_malformed_staging_junction_before_dele
         "data/state/transactions/toss_account_snapshot",
         "data/landing/tossinvest/account_snapshot",
         "data/local/account_snapshots",
+        "data/local/account_positions_history",
         "data/staging/toss_account_snapshot",
     ],
 )
@@ -558,6 +633,7 @@ def test_account_snapshot_removal_rejects_non_directory_project_root(tmp_path):
     (
         "data/landing/tossinvest/account_snapshot",
         "data/local/account_snapshots",
+        "data/local/account_positions_history",
         "data/state/transactions/toss_account_snapshot",
         "data/staging/toss_account_snapshot",
     ),

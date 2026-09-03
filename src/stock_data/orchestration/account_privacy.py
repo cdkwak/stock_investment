@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime
 import json
 import os
 from pathlib import Path
@@ -17,11 +18,29 @@ import threading
 import time
 from typing import Any
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 
 MASKED_VALUE = "••••"
 _PRIVACY_GENERATION_PATH = "data/state/toss_account_snapshot_privacy.json"
 _PRIVACY_GENERATION_SCHEMA_VERSION = 1
+_POSITIONS_HISTORY_ROOT = "data/local/account_positions_history"
+_POSITIONS_HISTORY_SCHEMA_VERSION = 1
+_POSITIONS_HISTORY_FIELDS = {
+    "toss_self": (
+        "symbol", "name", "currency", "market_country", "quantity",
+        "average_purchase_price",
+    ),
+    "kb_self": (
+        "symbol", "name", "currency", "classification", "quantity",
+        "average_purchase_price",
+    ),
+}
+_POSITIONS_HISTORY_LANDING_ROOTS = {
+    "toss_self": "data/landing/tossinvest/account_snapshot",
+    "kb_self": "data/landing/kbsec/account_snapshot",
+}
+_KST = ZoneInfo("Asia/Seoul")
 _LIFECYCLE_GUARDS_LOCK = threading.Lock()
 _LIFECYCLE_GUARDS: dict[str, threading.RLock] = {}
 _LIFECYCLE_DEPTH = threading.local()
@@ -84,6 +103,144 @@ def _atomic_json(path: Path, value: object) -> None:
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _positions_history_payload(
+    source_id: str, snapshot: object,
+) -> tuple[datetime, dict[str, object]]:
+    """Reduce one promoted snapshot to the exact daily-history allowlist."""
+
+    if source_id not in _POSITIONS_HISTORY_FIELDS or not isinstance(snapshot, dict):
+        raise ValueError("account positions history source differs")
+    if isinstance(snapshot.get("snapshot"), dict) and "positions" not in snapshot:
+        snapshot = snapshot["snapshot"]
+    observed_at = snapshot.get("collected_at")
+    if not isinstance(observed_at, str):
+        raise ValueError("account positions history clock is missing")
+    try:
+        observed = datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise ValueError("account positions history clock differs") from error
+    if observed.tzinfo is None or observed.utcoffset() is None:
+        raise ValueError("account positions history clock must be timezone-aware")
+    raw_positions = snapshot.get("positions")
+    if not isinstance(raw_positions, list):
+        raise ValueError("account positions history rows differ")
+
+    fields = _POSITIONS_HISTORY_FIELDS[source_id]
+    positions: list[dict[str, object]] = []
+    for raw in raw_positions:
+        if not isinstance(raw, dict) or any(field not in raw for field in fields):
+            raise ValueError("account positions history row differs")
+        row = {field: raw[field] for field in fields}
+        if any(
+            value is not None
+            and (isinstance(value, bool) or not isinstance(value, (str, int, float)))
+            for value in row.values()
+        ):
+            raise ValueError("account positions history value differs")
+        positions.append(row)
+    positions.sort(key=lambda row: (
+        str(row["symbol"]), str(row.get("classification") or ""),
+    ))
+    return observed, {
+        "schema_version": _POSITIONS_HISTORY_SCHEMA_VERSION,
+        "source_id": source_id,
+        "observed_at": observed_at,
+        "positions": positions,
+    }
+
+
+def _retain_positions_history_unlocked(
+    root: Path, source_id: str, snapshot: object,
+) -> Path:
+    observed, payload = _positions_history_payload(source_id, snapshot)
+    target = (
+        root / _POSITIONS_HISTORY_ROOT / source_id
+        / f"{observed.astimezone(_KST).date().isoformat()}.json"
+    )
+    try:
+        retained = json.loads(target.read_text(encoding="utf-8"))
+        retained_text = retained.get("observed_at") if isinstance(retained, dict) else None
+        retained_observed = (
+            datetime.fromisoformat(retained_text.replace("Z", "+00:00"))
+            if isinstance(retained_text, str) else None
+        )
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
+        retained = None
+        retained_observed = None
+    if retained == payload or (
+        retained_observed is not None
+        and retained_observed.tzinfo is not None
+        and retained_observed.utcoffset() is not None
+        and retained_observed > observed
+    ):
+        return target
+    _atomic_json(target, payload)
+    return target
+
+
+def retain_positions_history(
+    project_root: Path, source_id: str, snapshot: object,
+) -> Path:
+    """Atomically retain the latest privacy-minimized snapshot for one KST day."""
+
+    root = project_root.resolve()
+    with account_snapshot_lifecycle_lock(root):
+        return _retain_positions_history_unlocked(root, source_id, snapshot)
+
+
+def backfill_positions_history(project_root: Path) -> int:
+    """Create missing or changed daily history from retained sanitized Landing."""
+
+    root = project_root.resolve()
+    newest: dict[tuple[str, str], tuple[datetime, dict[str, object]]] = {}
+    with account_snapshot_lifecycle_lock(root):
+        for source_id, relative in _POSITIONS_HISTORY_LANDING_ROOTS.items():
+            landing_root = (root / relative).resolve()
+            landing_root.relative_to(root)
+            if not landing_root.exists():
+                continue
+            if not landing_root.is_dir() or landing_root.is_symlink():
+                raise ValueError("account positions Landing boundary differs")
+            for path in sorted(landing_root.glob("*.json")):
+                if (
+                    path.is_symlink() or not path.is_file()
+                    or path.resolve().parent != landing_root
+                ):
+                    raise ValueError("account positions Landing file differs")
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                observed, minimized = _positions_history_payload(source_id, payload)
+                day = observed.astimezone(_KST).date().isoformat()
+                current = newest.get((source_id, day))
+                if current is None or observed > current[0]:
+                    newest[(source_id, day)] = (observed, minimized)
+
+        changed = 0
+        for (source_id, day), (observed, payload) in sorted(newest.items()):
+            target = root / _POSITIONS_HISTORY_ROOT / source_id / f"{day}.json"
+            try:
+                retained = json.loads(target.read_text(encoding="utf-8"))
+                retained_text = (
+                    retained.get("observed_at") if isinstance(retained, dict) else None
+                )
+                retained_observed = (
+                    datetime.fromisoformat(retained_text.replace("Z", "+00:00"))
+                    if isinstance(retained_text, str) else None
+                )
+            except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
+                retained = None
+                retained_observed = None
+            if retained == payload or (
+                retained_observed is not None
+                and retained_observed.tzinfo is not None
+                and retained_observed.utcoffset() is not None
+                and retained_observed > observed
+            ):
+                continue
+            _atomic_json(target, payload)
+            changed += 1
+        return changed
 
 
 def account_snapshot_privacy_generation(project_root: Path) -> int:
@@ -367,6 +524,13 @@ def _remove_retained_account_snapshots_unlocked(
         resolve_owned_root(history_root / source_id)
         for source_id in ("toss_self", "kb_self")
     )
+    positions_history_root = resolve_owned_root(
+        root / "data/local/account_positions_history"
+    )
+    positions_history_source_roots = tuple(
+        resolve_owned_root(positions_history_root / source_id)
+        for source_id in ("toss_self", "kb_self")
+    )
     staging_root = resolve_owned_root(
         root / "data/staging/toss_account_snapshot"
     )
@@ -487,6 +651,11 @@ def _remove_retained_account_snapshots_unlocked(
         for source_root in history_source_roots
         for path in source_root.glob("*.json")
     )
+    positions_history_specs = [
+        (path, source_root)
+        for source_root in positions_history_source_roots
+        for path in sorted(source_root.glob("*.json"))
+    ]
     candidate_specs = [
         *((path, None, expected) for path, expected in zip(fixed, fixed_resolved, strict=True)),
         *((path, boundary, None) for path, boundary in landing_specs),
@@ -495,6 +664,7 @@ def _remove_retained_account_snapshots_unlocked(
             *staged_files, *kb_staged_files, *history_staged_files,
         )),
         *((path, path.parent.resolve(), None) for path in history_files),
+        *((path, boundary, None) for path, boundary in positions_history_specs),
     ]
 
     def validate_candidate(
@@ -588,9 +758,11 @@ __all__ = [
     "AccountSnapshotRemovalResult",
     "account_snapshot_privacy_generation",
     "account_snapshot_lifecycle_lock",
+    "backfill_positions_history",
     "MASKED_VALUE",
     "mask_account_identifier",
     "prune_account_landing",
     "redact_account_text",
+    "retain_positions_history",
     "remove_retained_account_snapshots",
 ]

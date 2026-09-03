@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import Enum
+import json
 from pathlib import Path
 
 from dotenv import dotenv_values
@@ -10,6 +11,10 @@ from dotenv import dotenv_values
 from stock_data.orchestration.kb_account_snapshot import (
     KBAccountRefreshResult,
     KBAccountSnapshotCoordinator,
+)
+from stock_data.orchestration.account_privacy import (
+    account_snapshot_lifecycle_lock,
+    retain_positions_history,
 )
 from stock_data.orchestration.toss_account_snapshot import AccountRefreshTrigger
 from stock_data.providers.kbsec.client import KBSecClient, KBSecResponse
@@ -128,7 +133,27 @@ def build_kbsec_account_runtime(
                 supplier_calls=0,
                 reason="MANUAL_TRIGGER_REQUIRED",
             )
-        return coordinator.refresh_manual()
+        root = project_root.resolve()
+        try:
+            with account_snapshot_lifecycle_lock(root):
+                result = coordinator.refresh_manual()
+                if (
+                    result.status == "SUCCEEDED"
+                    and result.supplier_calls == 1
+                    and result.snapshot_path
+                    == "data/local/account_snapshots/kb_self.json"
+                ):
+                    snapshot = json.loads(
+                        (root / result.snapshot_path).read_text(encoding="utf-8")
+                    )
+                    retain_positions_history(root, "kb_self", snapshot)
+                return result
+        except TimeoutError:
+            return KBAccountRefreshResult(
+                status="FAILED_PRESERVED_PRIOR",
+                supplier_calls=0,
+                reason="KB_ACCOUNT_LOCK_TIMEOUT",
+            )
 
     return KBSecAccountRuntimeWiring(
         state=KBSecAccountRuntimeState.ENABLED,

@@ -99,6 +99,8 @@ owns these paths:
 
 - sanitized immutable Landing under `data/landing/kbsec/account_snapshot/`;
 - latest local projection at `data/local/account_snapshots/kb_self.json`;
+- one latest-wins file per KST day under
+  `data/local/account_positions_history/kb_self/YYYY-MM-DD.json`;
 - a value-free receipt at `data/state/kbsec_account_snapshot.json` and
   identifier-free transaction journals under
   `data/state/transactions/kbsec_account_snapshot/`.
@@ -121,6 +123,17 @@ injected by `app.py`; construction and desktop startup make provider calls 0.
 The Account-page button currently supplies `MANUAL` off the GUI thread. A tested
 scheduled trigger may use the same runtime/coordinator boundary and must remain
 single-flight and read-only.
+
+The daily positions history is written atomically inside the same account
+lifecycle lease immediately after a successful promotion. A later successful
+run on the same KST day replaces that day's file; a failed refresh writes no
+history. Its top level is only `schema_version`, `source_id`, `observed_at`, and
+`positions`; each position is only `symbol`, security `name`, `currency`,
+`classification`, `quantity`, and `average_purchase_price`. It contains no
+cash, balances, totals, account identifiers, current prices, market values,
+purchase amounts, or P&L fields. The existing user privacy removal action
+deletes this history. Existing retained sanitized Landing can be backfilled
+provider-free with `scripts/maintenance/backfill_positions_history.py`.
 
 ## Active read-only call gate
 

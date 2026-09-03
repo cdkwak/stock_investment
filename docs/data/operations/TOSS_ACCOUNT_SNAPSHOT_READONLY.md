@@ -64,6 +64,8 @@ only the sanitized contract projection may enter:
 
 - `data/landing/tossinvest/account_snapshot/*.json`
 - `data/normalized/toss_account_snapshot/latest.json`
+- one latest-wins file per KST day under
+  `data/local/account_positions_history/toss_self/YYYY-MM-DD.json`
 - `data/state/toss_account_snapshot.json`
 - identifier-free transaction journals under
   `data/state/transactions/toss_account_snapshot/`
@@ -78,6 +80,17 @@ one rollback unit. An interrupted journal is recovered before the next refresh.
 Any network, auth, token-expiry, ambiguous-account, partial-schema,
 cross-currency, summary-reconciliation, or promotion failure preserves the last
 valid snapshot.
+
+The daily positions history is written atomically inside the same account
+lifecycle lease immediately after a successful promotion. A later successful
+run on the same KST day replaces that day's file; a failed refresh writes no
+history. Its top level is only `schema_version`, `source_id`, `observed_at`, and
+`positions`; each position is only `symbol`, security `name`, `currency`,
+`market_country`, `quantity`, and `average_purchase_price`. It contains no
+cash, balances, totals, account identifiers, current prices, market values,
+purchase amounts, fees, taxes, or P&L fields. The existing user privacy removal
+action deletes this history. Existing retained sanitized Landing can be
+backfilled provider-free with `scripts/maintenance/backfill_positions_history.py`.
 
 ## Refresh policy
 

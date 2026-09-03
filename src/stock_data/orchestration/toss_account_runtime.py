@@ -20,7 +20,10 @@ from stock_data.orchestration.toss_account_snapshot import (
     TossAccountRefreshResult,
     TossAccountSnapshotRefresher,
 )
-from stock_data.orchestration.account_privacy import account_snapshot_lifecycle_lock
+from stock_data.orchestration.account_privacy import (
+    account_snapshot_lifecycle_lock,
+    retain_positions_history,
+)
 from stock_data.providers.tossinvest import (
     TossInvestClient,
 )
@@ -54,6 +57,7 @@ _NORMALIZED_ACCOUNT_PATH = "data/normalized/toss_account_snapshot/latest.json"
 _STATE_ACCOUNT_PATH = "data/state/toss_account_snapshot.json"
 _LANDING_ACCOUNT_ROOT = "data/landing/tossinvest/account_snapshot"
 _HISTORY_ACCOUNT_ROOT = "data/local/account_value_history/toss_self"
+_POSITIONS_HISTORY_ACCOUNT_ROOT = "data/local/account_positions_history/toss_self"
 _JOURNAL_ACCOUNT_ROOT = "data/state/transactions/toss_account_snapshot"
 
 
@@ -145,9 +149,32 @@ def build_toss_account_runtime(
             refresher=None,
             reason="CLIENT_INITIALIZATION_FAILED",
         )
+    root = project_root.resolve()
+
+    def refresh(trigger: AccountRefreshTrigger) -> TossAccountRefreshResult:
+        try:
+            with account_snapshot_lifecycle_lock(root):
+                result = coordinator.refresh(trigger)
+                if (
+                    result.status == "SUCCEEDED"
+                    and result.account_calls == 3
+                    and result.token_calls in {0, 1}
+                    and result.normalized_path == _NORMALIZED_ACCOUNT_PATH
+                ):
+                    snapshot = json.loads(
+                        (root / _NORMALIZED_ACCOUNT_PATH).read_text(encoding="utf-8")
+                    )
+                    retain_positions_history(root, "toss_self", snapshot)
+                return result
+        except TimeoutError:
+            return TossAccountRefreshResult(
+                "NOOP_CONCURRENT_REFRESH", trigger, 0,
+                reason="CONCURRENT_REFRESH_IN_PROGRESS",
+            )
+
     return TossAccountRuntimeWiring(
         state=TossAccountRuntimeState.ENABLED,
-        refresher=coordinator.refresh,
+        refresher=refresh,
     )
 
 
@@ -262,7 +289,8 @@ def _projection_bytes(root: Path) -> dict[str, bytes]:
                 raise TossAccountScheduleError("account projection boundary differs")
             captured[relative] = path.read_bytes()
     for relative_root in (
-        _LANDING_ACCOUNT_ROOT, _HISTORY_ACCOUNT_ROOT, _JOURNAL_ACCOUNT_ROOT,
+        _LANDING_ACCOUNT_ROOT, _HISTORY_ACCOUNT_ROOT,
+        _POSITIONS_HISTORY_ACCOUNT_ROOT, _JOURNAL_ACCOUNT_ROOT,
     ):
         for path in _direct_json_files(root, relative_root):
             captured[path.relative_to(root).as_posix()] = path.read_bytes()

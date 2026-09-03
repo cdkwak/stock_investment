@@ -29,6 +29,7 @@ from stock_web.api.account_page import (
 
 TOSS_LANDING = Path("data/landing/tossinvest/account_snapshot")
 KB_LANDING = Path("data/landing/kbsec/account_snapshot")
+POSITIONS_HISTORY = Path("data/local/account_positions_history")
 CACHE_PATH = Path("artifacts/local_user/trade_journal_cache.json")
 MANUAL_PATH = Path("artifacts/local_user/trade_journal_manual.json")
 
@@ -43,6 +44,16 @@ _SOURCE_LABELS = {"toss_self": "Toss", "kb_self": "KB"}
 _SOURCE_ALIASES = {
     "toss_self": {"toss", "토스", "토스증권"},
     "kb_self": {"kb", "kb증권", "케이비", "케이비증권"},
+}
+_HISTORY_POSITION_KEYS = {
+    "toss_self": {
+        "symbol", "name", "currency", "market_country", "quantity",
+        "average_purchase_price",
+    },
+    "kb_self": {
+        "symbol", "name", "currency", "classification", "quantity",
+        "average_purchase_price",
+    },
 }
 
 
@@ -192,41 +203,69 @@ def _cash_map(payload: Mapping[str, object], source: str) -> dict[str, float]:
 def _load_daily_snapshots(
     project_root: Path, relative: Path, source: str,
 ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
-    root = project_root / relative
     newest: dict[str, tuple[datetime, dict[str, object]]] = {}
+    history_dates: set[str] = set()
     issues: list[dict[str, object]] = []
-    for path in sorted(root.glob("*.json")) if root.is_dir() else []:
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError):
-            issues.append({
-                "source": source, "type": "unreadable_snapshot",
-                "file": path.name, "reason": "스냅샷 JSON을 읽을 수 없어 제외했습니다.",
-            })
-            continue
-        if not isinstance(payload, Mapping):
-            continue
-        # Landing captures wrap the provider body: {capture_kind, payload_sha256, schema_version,
-        # snapshot: {...positions, collected_at...}} (verified live 2026-09-03 for Toss and KB).
-        if isinstance(payload.get("snapshot"), Mapping) and "positions" not in payload:
-            payload = payload["snapshot"]
-        observed = _parse_timestamp(payload.get("collected_at")) or _timestamp_from_name(path)
-        if observed is None:
-            issues.append({
-                "source": source, "type": "undated_snapshot",
-                "file": path.name, "reason": "수집 시각을 확인할 수 없어 제외했습니다.",
-            })
-            continue
-        kst_date = observed.astimezone(_KST).date().isoformat()
-        snapshot = {
-            "date": kst_date,
-            "collected_at": observed.isoformat(),
-            "positions": _position_map(payload),
-            "cash": _cash_map(payload, source),
-        }
-        current = newest.get(kst_date)
-        if current is None or observed > current[0]:
-            newest[kst_date] = (observed, snapshot)
+    inputs = (
+        (project_root / POSITIONS_HISTORY / source, True),
+        (project_root / relative, False),
+    )
+    for root, is_history in inputs:
+        for path in sorted(root.glob("*.json")) if root.is_dir() else []:
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                issues.append({
+                    "source": source, "type": "unreadable_snapshot",
+                    "file": path.name, "reason": "스냅샷 JSON을 읽을 수 없어 제외했습니다.",
+                })
+                continue
+            if not isinstance(payload, Mapping):
+                continue
+            if is_history and (
+                set(payload) != {"schema_version", "source_id", "observed_at", "positions"}
+                or payload.get("schema_version") != 1
+                or payload.get("source_id") != source
+                or not isinstance(payload.get("positions"), list)
+                or any(
+                    not isinstance(row, Mapping)
+                    or set(row) != _HISTORY_POSITION_KEYS[source]
+                    for row in payload.get("positions", [])
+                )
+            ):
+                issues.append({
+                    "source": source, "type": "invalid_positions_history",
+                    "file": path.name, "reason": "보유종목 이력 형식이 달라 제외했습니다.",
+                })
+                continue
+            # Landing captures may wrap the sanitized snapshot body.
+            if isinstance(payload.get("snapshot"), Mapping) and "positions" not in payload:
+                payload = payload["snapshot"]
+            observed = (
+                _parse_timestamp(payload.get("observed_at"))
+                or _parse_timestamp(payload.get("collected_at"))
+                or _timestamp_from_name(path)
+            )
+            if observed is None:
+                issues.append({
+                    "source": source, "type": "undated_snapshot",
+                    "file": path.name, "reason": "수집 시각을 확인할 수 없어 제외했습니다.",
+                })
+                continue
+            kst_date = observed.astimezone(_KST).date().isoformat()
+            if not is_history and kst_date in history_dates:
+                continue
+            snapshot = {
+                "date": kst_date,
+                "collected_at": observed.isoformat(),
+                "positions": _position_map(payload),
+                "cash": {} if is_history else _cash_map(payload, source),
+            }
+            current = newest.get(kst_date)
+            if current is None or observed > current[0]:
+                newest[kst_date] = (observed, snapshot)
+                if is_history:
+                    history_dates.add(kst_date)
     return [newest[key][1] for key in sorted(newest)], issues
 
 
@@ -278,10 +317,16 @@ def _trade_event(
         else:
             price = _decimal(after.get("last_price"))
             basis = "당일 스냅샷 현재가 사용"
-    if price is None or price < 0:
+    if price is not None and price < 0:
         return None
+    if price is None:
+        price_basis = "unavailable"
+        basis = "보유 수량 변화는 확인했지만 최소 이력에 체결 추정 단가가 없습니다."
     avg0 = _decimal(before.get("average_price")) if isinstance(before, Mapping) else None
-    realized = (price - avg0) * delta if side == "SELL" and avg0 is not None else None
+    realized = (
+        (price - avg0) * delta
+        if side == "SELL" and price is not None and avg0 is not None else None
+    )
     day = str(current["date"])
     return {
         "id": _event_id(source, day, symbol, side),
@@ -294,7 +339,7 @@ def _trade_event(
         "quantity": _number(delta, quantity=True),
         "price": _number(price),
         "currency": str(observed.get("currency") or "KRW"),
-        "amount": _number(delta * price),
+        "amount": _number(delta * price) if price is not None else None,
         "realized_pnl_est": _number(realized),
         "price_basis": price_basis,
         "basis": basis,
@@ -354,6 +399,16 @@ def _build_derivation(project_root: Path) -> dict[str, object]:
 
 def _snapshot_file_key(project_root: Path) -> list[str]:
     files: list[str] = []
+    for source in _SOURCE_LABELS:
+        root = project_root / POSITIONS_HISTORY / source
+        if root.is_dir():
+            for path in root.glob("*.json"):
+                relative = str(path.relative_to(project_root)).replace("\\", "/")
+                try:
+                    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                except OSError:
+                    digest = "unreadable"
+                files.append(f"{relative}#{digest}")
     for relative in (TOSS_LANDING, KB_LANDING):
         root = project_root / relative
         if root.is_dir():
@@ -418,9 +473,13 @@ def _tag_recurring(
         event = dict(raw_event)
         recurring = False
         if event.get("side") == "BUY":
-            amount = float(event.get("amount") or 0)
+            raw_amount = event.get("amount")
+            amount = float(raw_amount) if raw_amount is not None else None
             currency = str(event.get("currency"))
-            krw_amount = amount if currency == "KRW" else amount * fx if fx is not None else None
+            krw_amount = (
+                amount if currency == "KRW"
+                else amount * fx if amount is not None and fx is not None else None
+            )
             small = krw_amount is not None and krw_amount < 100_000
             days = [str(day) for day in snapshot_days.get(str(event["source"]), [])]
             try:

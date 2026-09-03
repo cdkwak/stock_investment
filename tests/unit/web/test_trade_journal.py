@@ -76,6 +76,32 @@ def _write_snapshot(
     return path
 
 
+def _write_positions_history(
+    root: Path, source: str, day: str, positions: list[dict[str, object]],
+    *, hour: int = 7,
+) -> Path:
+    source_id = f"{source}_self"
+    local_day = date.fromisoformat(day)
+    observed = datetime.combine(
+        local_day, time(hour, 0), tzinfo=KST,
+    ).astimezone(timezone.utc)
+    folder = root / "data/local/account_positions_history" / source_id
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{day}.json"
+    fields = (
+        "symbol", "name", "currency",
+        "market_country" if source == "toss" else "classification",
+        "quantity", "average_purchase_price",
+    )
+    path.write_text(json.dumps({
+        "schema_version": 1,
+        "source_id": source_id,
+        "observed_at": observed.isoformat().replace("+00:00", "Z"),
+        "positions": [{field: position[field] for field in fields} for position in positions],
+    }, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
 def _write_parquet(root: Path, relative: str, frame: pd.DataFrame) -> None:
     path = root / relative
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -142,6 +168,67 @@ def test_buy_sell_new_gone_and_fractional_rows_are_one_daily_event() -> None:
     assert by_key[("kb_self", "2026-08-30", "KBNEW", "BUY")]["price"] == 50_000
     assert by_key[("kb_self", "2026-08-31", "KBNEW", "SELL")]["price"] == 60_000
     assert by_key[("kb_self", "2026-09-01", "KBNEW", "SELL")]["price"] == 60_000
+
+
+def test_positions_history_wins_over_landing_and_same_day_overwrite_invalidates_cache(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path
+    _write_snapshot(root, "toss", "2026-09-01", [], 1_000_000)
+    _write_snapshot(root, "toss", "2026-09-02", [
+        _position("PREFERRED", "9", "100", "110"),
+    ], 999_000)
+    _write_positions_history(root, "toss", "2026-09-01", [])
+    history = _write_positions_history(root, "toss", "2026-09-02", [
+        _position("PREFERRED", "2", "100", "110"),
+    ])
+
+    first = derive_trade_events(root)
+    assert len(first) == 1
+    assert first[0]["quantity"] == 2
+
+    _write_positions_history(root, "toss", "2026-09-02", [
+        _position("PREFERRED", "3", "100", "110"),
+    ])
+    assert history.is_file()
+    second = derive_trade_events(root)
+    assert len(second) == 1
+    assert second[0]["quantity"] == 3
+
+
+def test_positions_history_quantity_decrease_remains_visible_without_price_or_cash(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path
+    _write_positions_history(root, "kb", "2026-09-01", [
+        _position("MINIMAL", "2", "100", "110", source="kb"),
+    ])
+    _write_positions_history(root, "kb", "2026-09-02", [
+        _position("MINIMAL", "1", "100", "120", source="kb"),
+    ])
+
+    event = derive_trade_events(root)[0]
+
+    assert event["side"] == "SELL" and event["quantity"] == 1
+    assert event["price"] is None and event["amount"] is None
+    assert event["realized_pnl_est"] is None
+    assert event["price_basis"] == "unavailable"
+
+
+def test_trade_journal_still_reads_landing_when_positions_history_is_absent(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path
+    _write_snapshot(root, "kb", "2026-09-01", [], 100_000)
+    _write_snapshot(root, "kb", "2026-09-02", [
+        _position("LANDING", "1", "100", "110", source="kb"),
+    ], 99_900)
+
+    event = derive_trade_events(root)[0]
+
+    assert event["source"] == "kb_self"
+    assert event["symbol"] == "LANDING" and event["quantity"] == 1
+    assert event["price"] == 100
 
 
 def test_third_buy_in_last_five_snapshot_days_is_recurring_like() -> None:

@@ -8,42 +8,58 @@ without an API (for example 미래에셋) use explicit manual entries. The journ
 is explanatory and estimated; it is not a broker statement, tax ledger, order
 history, or execution interface.
 
-The service is provider-free and network-free. It reads immutable Landing
-snapshots, normalized dividend identity/reference data, and the local cash-flow
-ledger. It never calls or mutates a broker. Manual journal writes and the
-derivation cache are limited to `artifacts/local_user/` and use atomic
-replacement. Balances, holdings, entries, or direct account identifiers must
-not be copied to Obsidian, a vault, or any location outside this project's
-`artifacts/` and `data/` trees.
+The service is provider-free and network-free. It prefers the privacy-minimized
+daily positions history, uses retained Landing snapshots only for dates absent
+from that history, and also reads normalized dividend identity/reference data
+and the local cash-flow ledger. It never calls or mutates a broker. Manual
+journal writes and the derivation cache are limited to `artifacts/local_user/`
+and use atomic replacement. Balances, holdings, entries, or direct account
+identifiers must not be copied to Obsidian, a vault, or any location outside
+this project's `artifacts/` and `data/` trees.
 
-## Inputs and daily selection
+## Inputs, privacy boundary, and daily selection
 
-- Toss: `data/landing/tossinvest/account_snapshot/*.json`
-- KB: `data/landing/kbsec/account_snapshot/*.json`
+- Preferred Toss positions: `data/local/account_positions_history/toss_self/YYYY-MM-DD.json`
+- Preferred KB positions: `data/local/account_positions_history/kb_self/YYYY-MM-DD.json`
+- Toss fallback: `data/landing/tossinvest/account_snapshot/*.json`
+- KB fallback: `data/landing/kbsec/account_snapshot/*.json`
 - Cash flows: `artifacts/local_user/cash_flows.json`
 - Korean equity identity: `data/normalized/kr_equity_master`
 - Korean dividends: `data/normalized/kr_equity_dividend`
 - Manual journal: `artifacts/local_user/trade_journal_manual.json`
 
-`collected_at` is converted to the KST calendar date. If more than one file is
-present for a date, only the newest collection timestamp is used. A comparison
+Each history file contains only `schema_version`, `source_id`, `observed_at`,
+and `positions`. Toss position rows contain only `symbol`, security `name`,
+`currency`, `market_country`, `quantity`, and `average_purchase_price`; KB rows
+replace `market_country` with `classification`. The history contains no cash,
+balances, totals, account identifiers, current prices, market values, costs,
+fees, taxes, or P&L fields. The existing remove-retained-account-snapshots
+privacy action deletes both brokers' history files.
+
+`observed_at` or fallback `collected_at` is converted to the KST calendar date.
+History wins for an exact `(source_id, KST date)`; Landing is read only for a
+date not covered by valid history. If more than one Landing file is present for
+a fallback date, only the newest collection timestamp is used. A comparison
 is made only when the two selected dates are adjacent calendar days. A missing
 day creates a reported gap; the service does not interpolate across it.
 
 ## Trade derivation
 
 For each source, day, and symbol, the selected snapshots are reduced to one
-position with quantity, average purchase price, snapshot current/last price,
-currency, and display identity. Position changes produce at most one event per
+position with quantity, average purchase price, currency, and display identity.
+Landing-only fallback dates may additionally provide a snapshot current/last
+price and cash. Position changes produce at most one event per
 `(source, day, symbol, side)`, so multiple intraday fills and Toss 모으기 fills
 collapse into one daily estimate.
 
 - Quantity increase: `BUY` for `q1 - q0`.
 - New symbol: `BUY` for the full `q1` at the new average purchase price.
-- Quantity decrease: `SELL` for `q0 - q1` at day 1's snapshot current/last
-  price. Estimated realized P&L is `(price - average0) × sold quantity`.
-- Disappeared symbol: `SELL` for the full `q0` at day 0's snapshot current/last
-  price.
+- Quantity decrease: `SELL` for `q0 - q1`. A fallback Landing current/last
+  price may support an estimated amount and realized P&L; minimal-history pairs
+  retain the quantity event with `price_basis: unavailable` and null price,
+  amount, and realized P&L.
+- Disappeared symbol: `SELL` for the full `q0`, with the same price-availability
+  rule.
 
 Fractional quantities are retained to six decimal places. Every auto-derived
 event has `estimated: true`, the two `snapshot_dates`, a machine-readable
@@ -60,8 +76,9 @@ The identity is used only when both averages exist and the inferred price is
 positive. Otherwise day 1's snapshot current/last price is used and
 `price_basis` is `last_price`. A new position uses its day 1 average purchase
 price when positive; otherwise it also falls back to day 1's snapshot price.
-Sell estimates always use snapshot prices because daily holdings do not reveal
-the actual sale fill.
+Sell estimates use snapshot prices only when a Landing fallback supplies one,
+because daily holdings do not reveal the actual sale fill. Minimal history
+does not retain a current price and therefore does not invent one.
 
 ### 모으기/소액 hint
 
@@ -83,7 +100,10 @@ whose account label matches the source and whose date is in `(d0, d1]` are
 subtracted, so a registered deposit is not presented as income. The service
 does not convert a KRW ledger entry into USD.
 
-A positive residual is considered only at KRW 1,000 or USD 1 and above. When a
+A cash residual can be calculated only for an adjacent pair whose selected
+fallback Landing snapshots both contain cash-like fields; positions-history
+files deliberately contain none. A positive residual is considered only at
+KRW 1,000 or USD 1 and above. When a
 Korean symbol held at day 0 has a dividend `cash_payment_date` in `(d0, d1]`, a
 `DIVIDEND` estimate is emitted with `shares × ordinary_dividend_amount` as the
 pre-tax expected amount and the cash residual as separate observational
@@ -103,9 +123,11 @@ are marked `estimated: false` and are never inferred from account snapshots.
 
 ## Cache and response
 
-`trade_journal_cache.json` is keyed by the sorted set of Toss and KB Landing
-snapshot file names. It retains sanitized day-level derivation inputs and
-events so normal requests do not reread the full immutable JSON history.
+`trade_journal_cache.json` is keyed by the sorted Landing file names plus a
+content digest for each small positions-history file. The digest makes a later
+same-day history overwrite invalidate the cache. It retains sanitized day-level
+derivation inputs and events so normal requests do not reparse the full JSON
+history.
 Cash-flow and dividend matching are performed against current retained inputs
 after cache loading. `GET /api/trade-journal?days=N` merges derived trades,
 dividend estimates, and manual entries, filters by KST date, sorts newest first,

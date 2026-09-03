@@ -24,7 +24,10 @@ from stock_data.orchestration.toss_account_runtime import (
     load_toss_account_environment,
     run_toss_account_daily,
 )
-from stock_data.orchestration.toss_account_snapshot import TossAccountRefreshResult
+from stock_data.orchestration.toss_account_snapshot import (
+    AccountRefreshTrigger,
+    TossAccountRefreshResult,
+)
 from stock_data.orchestration.account_privacy import account_snapshot_lifecycle_lock
 
 
@@ -168,6 +171,101 @@ def test_runtime_factory_failure_is_secret_safe_and_disabled(tmp_path):
     assert wiring.reason == "CLIENT_INITIALIZATION_FAILED"
     assert "fixture-client" not in repr(wiring)
     assert "fixture-secret" not in repr(wiring)
+
+
+def test_success_retains_only_minimal_toss_positions_and_same_day_overwrites(
+    tmp_path, monkeypatch,
+):
+    snapshots = [
+        {
+            "collected_at": "2026-09-03T00:00:00+00:00",
+            "positions": [{
+                "symbol": "TSLA", "name": "Tesla", "currency": "USD",
+                "market_country": "US", "quantity": "0.25",
+                "average_purchase_price": "250", "last_price": "260",
+                "market_value": "65", "purchase_amount": "62.5",
+                "commission": "0", "tax": "0", "profit_loss": "2.5",
+            }],
+            "summaries": [], "buying_power": [{"cash_buying_power": "100"}],
+        },
+        {
+            "collected_at": "2026-09-03T01:00:00+00:00",
+            "positions": [{
+                "symbol": "TSLA", "name": "Tesla", "currency": "USD",
+                "market_country": "US", "quantity": "0.5",
+                "average_purchase_price": "255", "last_price": "270",
+                "market_value": "135", "purchase_amount": "127.5",
+                "commission": "0", "tax": "0", "profit_loss": "7.5",
+            }],
+            "summaries": [], "buying_power": [{"cash_buying_power": "50"}],
+        },
+    ]
+
+    class StubCoordinator:
+        def __init__(self, **_kwargs):
+            pass
+
+        def refresh(self, trigger):
+            snapshot = snapshots.pop(0)
+            normalized = tmp_path / "data/normalized/toss_account_snapshot/latest.json"
+            normalized.parent.mkdir(parents=True, exist_ok=True)
+            normalized.write_text(
+                json.dumps(snapshot, ensure_ascii=False), encoding="utf-8"
+            )
+            return TossAccountRefreshResult(
+                "SUCCEEDED", trigger, 3, token_calls=0,
+                collected_at=snapshot["collected_at"],
+                normalized_path="data/normalized/toss_account_snapshot/latest.json",
+            )
+
+    monkeypatch.setattr(runtime, "TossAccountSnapshotRefresher", StubCoordinator)
+    wiring = build_toss_account_runtime(tmp_path, {
+        TOSS_ACCOUNT_CLIENT_ID_ENV: "fixture-client",
+        TOSS_ACCOUNT_CLIENT_SECRET_ENV: "fixture-secret",
+        TOSS_ACCOUNT_SEQ_ENV: "7",
+    }, client_factory=lambda **_kwargs: FakeClient())
+
+    assert wiring.refresher(AccountRefreshTrigger.MANUAL).status == "SUCCEEDED"
+    history = (
+        tmp_path / "data/local/account_positions_history/toss_self/2026-09-03.json"
+    )
+    first = json.loads(history.read_text(encoding="utf-8"))
+    assert set(first) == {"schema_version", "source_id", "observed_at", "positions"}
+    assert set(first["positions"][0]) == {
+        "symbol", "name", "currency", "market_country", "quantity",
+        "average_purchase_price",
+    }
+
+    assert wiring.refresher(AccountRefreshTrigger.MANUAL).status == "SUCCEEDED"
+    second = json.loads(history.read_text(encoding="utf-8"))
+    assert second["positions"][0]["quantity"] == "0.5"
+    assert len(list(history.parent.glob("*.json"))) == 1
+    rendered = json.dumps(second, ensure_ascii=False)
+    assert all(key not in rendered for key in (
+        "market_value", "profit_loss", "commission", "tax", "cash",
+    ))
+
+
+def test_failed_toss_refresh_writes_no_positions_history(tmp_path, monkeypatch):
+    class StubCoordinator:
+        def __init__(self, **_kwargs):
+            pass
+
+        def refresh(self, trigger):
+            return TossAccountRefreshResult(
+                "FAILED_PRESERVED_PRIOR", trigger, 1, token_calls=1,
+                reason="ACCOUNT_REFRESH_FAILED_CLOSED",
+            )
+
+    monkeypatch.setattr(runtime, "TossAccountSnapshotRefresher", StubCoordinator)
+    wiring = build_toss_account_runtime(tmp_path, {
+        TOSS_ACCOUNT_CLIENT_ID_ENV: "fixture-client",
+        TOSS_ACCOUNT_CLIENT_SECRET_ENV: "fixture-secret",
+        TOSS_ACCOUNT_SEQ_ENV: "7",
+    }, client_factory=lambda **_kwargs: FakeClient())
+
+    assert wiring.refresher(AccountRefreshTrigger.MANUAL).status == "FAILED_PRESERVED_PRIOR"
+    assert not (tmp_path / "data/local/account_positions_history").exists()
 
 
 def _enabled_wiring(refresher):

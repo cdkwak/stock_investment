@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
 
 from stock_data.orchestration.kbsec_account_runtime import (
     KBSEC_ACCOUNT_REQUIRED_ENV_NAMES,
@@ -38,6 +39,25 @@ def _empty_account_payload() -> dict:
             "Record1": [],
         },
     }
+
+
+def _position_account_payload(quantity: str) -> dict:
+    purchase = str(int(quantity) * 100)
+    value = str(int(quantity) * 110)
+    pnl = str(int(quantity) * 10)
+    payload = _empty_account_payload()
+    payload["dataBody"].update({
+        "grid_cnt1": "1", "tl_data_cnt": "1",
+        "nt_asts_val_amt": value, "scrts_nt_val_amt": value,
+        "byng_amt_sum": purchase, "val_amt_sum": value, "val_pl_sum": pnl,
+        "Record1": [{
+            "is_cd": "005930", "is_nm": "삼성전자", "clsf": "주식",
+            "ec_q_p6": quantity, "ordr_psbl_q_p6": quantity,
+            "byng_avr_prc": "100", "now_prc": "110",
+            "byng_amt": purchase, "val_amt": value, "val_pl": pnl,
+        }],
+    })
+    return payload
 
 
 class _Client:
@@ -100,6 +120,47 @@ def test_periodic_refresh_uses_same_single_call_readonly_boundary(tmp_path) -> N
 
     assert result.status == "SUCCEEDED"
     assert result.supplier_calls == 1 and client.calls == 1
+
+
+def test_success_retains_only_minimal_kb_positions_and_same_day_overwrites(tmp_path) -> None:
+    client = _Client(_position_account_payload("2"))
+    wiring = build_kbsec_account_runtime(
+        tmp_path, _environment(), client_factory=lambda **kwargs: client
+    )
+
+    assert wiring.refresher(AccountRefreshTrigger.MANUAL).status == "SUCCEEDED"
+    history_files = list(
+        (tmp_path / "data/local/account_positions_history/kb_self").glob("*.json")
+    )
+    assert len(history_files) == 1
+    first = json.loads(history_files[0].read_text(encoding="utf-8"))
+    assert set(first) == {"schema_version", "source_id", "observed_at", "positions"}
+    assert set(first["positions"][0]) == {
+        "symbol", "name", "currency", "classification", "quantity",
+        "average_purchase_price",
+    }
+
+    client.payload = _position_account_payload("3")
+    assert wiring.refresher(AccountRefreshTrigger.MANUAL).status == "SUCCEEDED"
+    assert len(list(history_files[0].parent.glob("*.json"))) == 1
+    second = json.loads(history_files[0].read_text(encoding="utf-8"))
+    assert second["positions"][0]["quantity"] == "3"
+    rendered = json.dumps(second, ensure_ascii=False)
+    assert all(key not in rendered for key in (
+        "market_value", "profit_loss", "unrealized_pnl", "cash", "total_assets",
+    ))
+
+
+def test_failed_kb_refresh_writes_no_positions_history(tmp_path) -> None:
+    client = _Client(error=TimeoutError("synthetic timeout"))
+    wiring = build_kbsec_account_runtime(
+        tmp_path, _environment(), client_factory=lambda **kwargs: client
+    )
+
+    result = wiring.refresher(AccountRefreshTrigger.MANUAL)
+
+    assert result.status == "FAILED_PRESERVED_PRIOR"
+    assert not (tmp_path / "data/local/account_positions_history").exists()
 
 
 def test_environment_loader_selects_only_approved_names(tmp_path) -> None:
