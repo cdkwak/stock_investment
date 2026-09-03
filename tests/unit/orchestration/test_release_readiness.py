@@ -478,7 +478,7 @@ def test_scheduler_accepts_each_slot_completed_result(task_name: str) -> None:
 def _write_required_scheduler_results(
     root: Path, *, finished: datetime, scheduled_slot: str | None = None,
     dataset_count: int = 80, validated_count: int = 21,
-    lane_contract_version: int | None = 5,
+    lane_contract_version: int | None = 7,
 ) -> dict[str, object]:
     log_root = root / "artifacts/scheduler_logs"
     log_root.mkdir(parents=True, exist_ok=True)
@@ -814,8 +814,9 @@ def test_kr_scheduler_lane_contract_has_bounded_legacy_cutover(
     tmp_path: Path,
 ) -> None:
     assert "DERIVATIVES_PRICE_DAILY" in subject.KR_MARKET_DAILY_SLOT_LANES["20:30"]
-    assert subject.KR_MARKET_DAILY_SLOT_LANES["20:30"][:2] == (
-        "CANONICAL_EQUITY_DAILY", "KOSPI200_BREADTH_DAILY",
+    assert subject.KR_MARKET_DAILY_SLOT_LANES["20:30"][:3] == (
+        "CANONICAL_EQUITY_DAILY", "KR_EQUITY_PROVISIONAL_DAILY",
+        "KR_ETF_PRICE_DAILY",
     )
 
     cutover_clock = datetime(2026, 8, 26, 22, 0, tzinfo=subject.KST)
@@ -856,7 +857,7 @@ def test_kr_scheduler_lane_contract_has_bounded_legacy_cutover(
         finished=post_cutover_clock - timedelta(minutes=10),
         scheduled_slot="20:30",
     )
-    assert current["lane_contract_version"] == 5
+    assert current["lane_contract_version"] == 7
     assert subject.assess_scheduler_results(
         tmp_path, now=post_cutover_clock,
     ).status == "PASS"

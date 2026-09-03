@@ -304,6 +304,7 @@ def _watchlist_row(
             "list_id": list_id, "list_name": list_name, **_identity_payload(identity),
             "price_available": False, "unavailable_reason": "로컬 가격 없음",
             "condition_matches": [], "flag": "",
+            "price_basis": None,
         }
     last = candles[-1]
     previous = candles[-2] if len(candles) > 1 else None
@@ -330,9 +331,17 @@ def _watchlist_row(
         float(last["v"]) / baseline if last.get("v") is not None and baseline else None
     )
     matches = evaluate_conditions(metrics, conditions, scope="watchlist")
+    provisional_dates = chart.get("provisional_dates", [])
+    price_basis = (
+        "provisional"
+        if chart.get("as_of") in provisional_dates
+        else "canonical"
+    )
     return {
         "list_id": list_id, "list_name": list_name, **_identity_payload(identity),
-        "price_available": True, "as_of": chart.get("as_of"), "price": close,
+        "price_available": True, "as_of": chart.get("as_of"),
+        "provisional_dates": provisional_dates, "price_basis": price_basis,
+        "price": close,
         **metrics, "condition_matches": matches,
         "flag": " · ".join(str(match["name"]) for match in matches),
     }
@@ -371,6 +380,8 @@ def build_home_watchlist(project_root: Path) -> dict[str, object]:
             "drawdown_pct": item.get("drawdown_pct"), "rsi14": item.get("rsi14"),
             "flow_foreign": None, "flow_inst": None, "flow_indiv": None,
             "flag": item.get("flag", ""), "as_of": item.get("as_of"),
+            "provisional_dates": item.get("provisional_dates", []),
+            "price_basis": item.get("price_basis"),
         })
     return {
         "rows": rows, "held_count": 0, "watch_count": len(rows),

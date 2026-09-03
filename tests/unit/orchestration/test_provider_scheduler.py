@@ -117,6 +117,33 @@ def test_kr_etf_provider_lag_remains_an_expected_lane_outcome(
     assert result["reason"] == "EXPECTED_PROVIDER_LAG"
 
 
+def test_provisional_equity_lane_dry_run_is_registered_and_network_free(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        scheduler,
+        "run_kr_equity_provisional_daily",
+        lambda *_args, **_kwargs: pytest.fail("dry-run entered provisional provider operation"),
+    )
+
+    result = run_lane(
+        tmp_path,
+        "KR_EQUITY_PROVISIONAL_DAILY",
+        as_of=datetime(2026, 9, 3, 11, 30, tzinfo=timezone.utc),
+        dry_run=True,
+    )
+
+    assert result["status"] == "DRY_RUN_PASS"
+    assert result["api_calls"] == 0
+    assert result["phase_targets"] == {"kr_equity_provisional": "2026-09-03"}
+    assert result["automation_dataset_ids"] == [
+        "kr_equity_price_provisional_daily",
+    ]
+    assert result["provider_availability_policies"] == {
+        "kr_equity_provisional": "KRX_POST_CLOSE_2030",
+    }
+
+
 @pytest.mark.parametrize(
     ("as_of", "expected_target"),
     (
@@ -448,7 +475,7 @@ def test_bok_fx_lane_dry_run_is_registered_and_network_free(
     assert result["phase_targets"] == {"bok_fx": "2026-09-03"}
     assert result["automation_dataset_ids"] == ["bok_ecos_usd_krw_daily"]
     assert result["provider_availability_policies"] == {
-        "bok_fx": "BOK_ECOS_FX_DAILY_1700_KST",
+        "bok_fx": "BOK_ECOS_FX_DAILY_1600_KST",
     }
 
 

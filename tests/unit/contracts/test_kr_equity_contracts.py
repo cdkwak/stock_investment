@@ -3,6 +3,9 @@ from stock_data.contracts.kr_equity import (
     KR_EQUITY_MASTER,
     KR_EQUITY_PRICE_DAILY,
 )
+from stock_data.contracts.kr_equity_provisional import (
+    KR_EQUITY_PRICE_PROVISIONAL_DAILY,
+)
 
 
 def test_equity_contracts_are_separate_normalized_parquet_datasets() -> None:
@@ -35,3 +38,16 @@ def test_daily_equity_contracts_use_market_year_partitions() -> None:
     assert KR_EQUITY_MARKET_CAP_DAILY.partition_by == ("market", "year")
     assert KR_EQUITY_MASTER.partition_by == ("market",)
     assert KR_EQUITY_MASTER.source == "data_go_kr_stock_issuance+daily_source_identity"
+
+
+def test_provisional_equity_contract_extends_canonical_ohlcv_without_relabeling_it() -> None:
+    assert KR_EQUITY_PRICE_PROVISIONAL_DAILY.layer == "normalized"
+    assert KR_EQUITY_PRICE_PROVISIONAL_DAILY.partition_by == ("market", "year")
+    assert KR_EQUITY_PRICE_PROVISIONAL_DAILY.primary_key == (
+        "date", "market", "symbol",
+    )
+    assert KR_EQUITY_PRICE_PROVISIONAL_DAILY.column_names == (
+        *KR_EQUITY_PRICE_DAILY.column_names,
+        "provisional",
+        "observed_at",
+    )

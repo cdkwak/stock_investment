@@ -19,6 +19,9 @@ if str(ROOT / "src") not in sys.path:
 from stock_data.orchestration.provider_scheduler import LANE_SCHEDULES, run_lane
 from stock_data.orchestration.daily_operations import DailyRunLock, DailyRunLockError
 from stock_data.orchestration.exchange_calendar import ExchangeMarket, ExchangeTradingCalendar
+from stock_data.orchestration.kr_equity_provisional_daily import (
+    cleanup_canonicalized_provisional_rows,
+)
 from stock_data.orchestration.market_daily_incremental import (
     execute_liquidity_credit_two_pass,
     plan_liquidity_credit_two_pass,
@@ -48,7 +51,7 @@ from stock_data.providers.pykrx.kr_equity_fundamental_observation import (
 
 
 KR_MARKET_DAILY_BUNDLE = "KR_MARKET_DAILY"
-KR_MARKET_DAILY_LANE_CONTRACT_VERSION = 6
+KR_MARKET_DAILY_LANE_CONTRACT_VERSION = 7
 KR_MARKET_DAILY_TIMEZONE = ZoneInfo("Asia/Seoul")
 KR_MARKET_DAILY_SLOTS = (
     (
@@ -68,6 +71,7 @@ KR_MARKET_DAILY_SLOTS = (
         time(20, 30),
         (
             "CANONICAL_EQUITY_DAILY",
+            "KR_EQUITY_PROVISIONAL_DAILY",
             "KR_ETF_PRICE_DAILY",
             "KOSPI200_BREADTH_DAILY",
             "SHORT_SELLING_DAILY",
@@ -81,6 +85,7 @@ KR_MARKET_DAILY_SLOTS = (
             "LIQUIDITY_CREDIT_DAILY",
             "LS_T8462_DAILY",
             "TOSS_KR_TREASURY_DAILY",
+            "BOK_FX_DAILY",
         ),
     ),
 )
@@ -514,10 +519,21 @@ def _run_bundle_lane(
             "stages": list(last_result.stages) if last_result is not None else [],
             "rows": dict(last_result.rows) if last_result is not None else {},
         }
-    return run_lane(
+    result = run_lane(
         project_root, lane, as_of=started_at, scheduled_for=scheduled_for,
         dry_run=dry_run,
     )
+    if (
+        lane == "CANONICAL_EQUITY_DAILY"
+        and not dry_run
+        and scheduled_for.astimezone(KR_MARKET_DAILY_TIMEZONE).time().replace(tzinfo=None)
+        == time(14, 10)
+    ):
+        target = date.fromisoformat(str(result["target_session"]))
+        result["provisional_cleanup"] = cleanup_canonicalized_provisional_rows(
+            project_root, reference_session=target,
+        )
+    return result
 
 
 def _run_equity_fundamental_current_observation(

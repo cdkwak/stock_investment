@@ -34,7 +34,7 @@ class ProviderAvailabilityPolicy(StrEnum):
     KRX_SHORT_BALANCE_T_PLUS_2_1810 = "KRX_SHORT_BALANCE_T_PLUS_2_1810"
     KRX_SHORT_INVESTOR_SAME_DAY_1810 = "KRX_SHORT_INVESTOR_SAME_DAY_1810"
     KRX_COMPLETED_SUCCESSOR_SESSION = "KRX_COMPLETED_SUCCESSOR_SESSION"
-    BOK_ECOS_FX_DAILY_1700_KST = "BOK_ECOS_FX_DAILY_1700_KST"
+    BOK_ECOS_FX_DAILY_1600_KST = "BOK_ECOS_FX_DAILY_1600_KST"
     MANUAL_OBSERVATION = "MANUAL_OBSERVATION"
     NOT_APPLICABLE = "NOT_APPLICABLE"
 
@@ -104,7 +104,7 @@ KR_DAILY_LANES = frozenset({
     "SHORT_SELLING_DAILY", "LENDING_DAILY", "LIQUIDITY_CREDIT_DAILY",
     "SHORT_SELLING_BALANCE_DAILY", "SHORT_SELLING_INVESTOR_DAILY",
     "MARKET_INVESTOR_DAILY", "TOSS_KR_TREASURY_DAILY", "LS_T8462_DAILY",
-    "KR_ETF_PRICE_DAILY",
+    "KR_ETF_PRICE_DAILY", "KR_EQUITY_PROVISIONAL_DAILY",
 })
 US_DAILY_LANES = frozenset({
     "GLOBAL_INDEX_DAILY", "GLOBAL_ETF_DAILY", "GLOBAL_COMMODITY_DAILY",
@@ -145,7 +145,7 @@ def policy_for_dataset(dataset: str, lane: str) -> ExpectedLatestPolicy | None:
     if dataset == "bok_ecos_usd_krw_daily" and lane == "BOK_FX_DAILY":
         return ExpectedLatestPolicy(
             ObservationCalendar.PROVIDER_BUSINESS_DAY,
-            ProviderAvailabilityPolicy.BOK_ECOS_FX_DAILY_1700_KST,
+            ProviderAvailabilityPolicy.BOK_ECOS_FX_DAILY_1600_KST,
             ExpectedLagPolicy.NONE,
             ProviderFinality.UNKNOWN,
         )
@@ -250,6 +250,14 @@ def policy_for_dataset(dataset: str, lane: str) -> ExpectedLatestPolicy | None:
             ProviderFinality.AS_RETRIEVED,
             ExchangeMarket.KR,
         )
+    if lane == "KR_EQUITY_PROVISIONAL_DAILY":
+        return ExpectedLatestPolicy(
+            ObservationCalendar.XKRX,
+            ProviderAvailabilityPolicy.KRX_POST_CLOSE_2030,
+            ExpectedLagPolicy.NONE,
+            ProviderFinality.AS_RETRIEVED,
+            ExchangeMarket.KR,
+        )
     if lane == "TOSS_KR_TREASURY_DAILY":
         return ExpectedLatestPolicy(
             ObservationCalendar.XKRX,
@@ -315,7 +323,7 @@ def _previous_weekday(day: date) -> date:
 
 def _bok_fx_target(as_of: datetime) -> date:
     local = as_of.astimezone(ZoneInfo("Asia/Seoul"))
-    candidate = local.date() if local.time() >= time(17, 0) else local.date() - timedelta(days=1)
+    candidate = local.date() if local.time() >= time(16, 0) else local.date() - timedelta(days=1)
     while candidate.weekday() >= 5:
         candidate -= timedelta(days=1)
     return candidate
@@ -419,7 +427,7 @@ def resolve_expected_latest(
         return None
     if (
         policy.provider_availability_policy
-        is ProviderAvailabilityPolicy.BOK_ECOS_FX_DAILY_1700_KST
+        is ProviderAvailabilityPolicy.BOK_ECOS_FX_DAILY_1600_KST
     ):
         target = _bok_fx_target(as_of)
         effective_availability = availability or ProviderAvailability.AVAILABLE
@@ -428,7 +436,7 @@ def resolve_expected_latest(
         elif retained_latest >= target:
             freshness = ExpectedFreshness.CURRENT
         elif retained_latest >= _previous_weekday(target):
-            # The 17:00 clock is operational, not a verified publication SLA.
+            # The 16:00 clock is operational, not a verified publication SLA.
             # One absent target row is expected provider lag, not stale/failure.
             freshness = ExpectedFreshness.EXPECTED_LAG
         else:

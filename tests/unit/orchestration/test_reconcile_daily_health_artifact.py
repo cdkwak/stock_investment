@@ -22,7 +22,7 @@ def test_freshness_is_independent_of_operational_block():
 
 
 def test_reconcile_rejects_partial_registry():
-    with pytest.raises(ValueError, match="43-entry"):
+    with pytest.raises(ValueError, match="44-entry"):
         MODULE.reconcile({"datasets": []}, run_id="x", as_of="2026-08-18T18:00:00+09:00")
 
 
@@ -54,19 +54,19 @@ def test_universe_health_v2_preserves_all_axes_without_inventing_expected_dates(
         {"datasets": rows}, run_id="universe-v2", as_of="2026-08-18T23:00:00+09:00",
     )
     result = MODULE.reconcile_universe(core)
-    assert result["dataset_count"] == 86
-    assert result["core_operations_count"] == 43
-    assert result["automation_enabled_count"] == 42
-    assert result["operations_registry_count"] == 43
+    assert result["dataset_count"] == 87
+    assert result["core_operations_count"] == 44
+    assert result["automation_enabled_count"] == 43
+    assert result["operations_registry_count"] == 44
     assert result["core_operation_missing"] == []
     assert result["generated_at"] == "2026-08-18T23:00:00+09:00"
     assert result["core_reference_time"] == "2026-08-18T23:00:00+09:00"
-    assert result["dimension_summary"]["grain"]["DAILY"] == 66
+    assert result["dimension_summary"]["grain"]["DAILY"] == 67
     assert result["dimension_summary"]["operational"]["BLOCKED"] == 8
     assert result["schema_version"] == 2
-    assert sum(result["dimension_summary"]["display_consumer_eligibility"].values()) == 86
-    assert sum(result["dimension_summary"]["research_consumer_eligibility"].values()) == 86
-    assert sum(result["dimension_summary"]["predictive_consumer_eligibility"].values()) == 86
+    assert sum(result["dimension_summary"]["display_consumer_eligibility"].values()) == 87
+    assert sum(result["dimension_summary"]["research_consumer_eligibility"].values()) == 87
+    assert sum(result["dimension_summary"]["predictive_consumer_eligibility"].values()) == 87
     assert all(
         row["display_consumer_eligibility"]
         and row["display_consumer_reason"]
@@ -190,9 +190,9 @@ def test_universe_health_accepts_historical_core_subset_and_exposes_registry_gap
         "datasets": rows,
     })
 
-    assert result["dataset_count"] == 86
-    assert result["core_operations_count"] == 40
-    assert result["operations_registry_count"] == 43
+    assert result["dataset_count"] == 87
+    assert result["core_operations_count"] == 41
+    assert result["operations_registry_count"] == 44
     assert result["core_operation_missing"] == sorted(omitted)
     bounded = next(
         row for row in result["datasets"]
@@ -504,6 +504,9 @@ def test_runtime_coverage_probes_all_automated_partitioned_daily_outputs():
             "artifacts/analysis/kospi200_option_wall_recent_250.csv"
         ),
         "bok_ecos_usd_krw_daily": "data/normalized/bok_ecos_usd_krw_daily",
+        "kr_equity_price_provisional_daily": (
+            "data/normalized/kr_equity_price_provisional_daily"
+        ),
     }.items() <= probes.items()
 
 

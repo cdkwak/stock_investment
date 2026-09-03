@@ -68,8 +68,34 @@ def _ohlcv(project_root: Path, symbol: str) -> tuple[pd.DataFrame | None, str]:
         frame = dsx.load(project_root, root, filter_expr=(field(col) == val))
         return frame, name
     if len(symbol) == 6 and symbol.isalnum() and symbol[0].isdigit():
-        frame = dsx.load(project_root, "data/normalized/kr_equity_price_daily", filter_expr=(field("symbol") == symbol))
-        if frame is not None and not frame.empty:
+        canonical = dsx.load(
+            project_root,
+            "data/normalized/kr_equity_price_daily",
+            filter_expr=(field("symbol") == symbol),
+        )
+        provisional = dsx.load(
+            project_root,
+            "data/normalized/kr_equity_price_provisional_daily",
+            filter_expr=(field("symbol") == symbol),
+        )
+        parts: list[pd.DataFrame] = []
+        if canonical is not None and not canonical.empty:
+            canonical = canonical.copy()
+            canonical["provisional"] = False
+            parts.append(canonical)
+            if provisional is not None and not provisional.empty:
+                latest_canonical = pd.to_datetime(canonical["date"], errors="raise").max()
+                provisional = provisional.loc[
+                    pd.to_datetime(provisional["date"], errors="raise") > latest_canonical
+                ].copy()
+        if provisional is not None and not provisional.empty:
+            provisional = provisional.copy()
+            provisional["provisional"] = True
+            parts.append(provisional)
+        if parts:
+            frame = pd.concat(parts, ignore_index=True, sort=False).sort_values(
+                "date", kind="stable"
+            ).reset_index(drop=True)
             return frame, _stock_name(project_root, symbol)
         # Korean ETFs live in their own retained dataset (pykrx, kr_etf_price_daily).
         frame = dsx.load(
@@ -139,7 +165,13 @@ def build_chart_payload(project_root: Path, *, symbol: str, range_key: str) -> d
     stats.update(_valuation(project_root, symbol))
     return {
         "symbol": symbol, "symbol_name": name, "range": range_key,
-        "as_of": str(dates.iloc[-1]), "candles": candles, "ma": ma, "stats": stats,
+        "as_of": str(dates.iloc[-1]),
+        "provisional_dates": (
+            view.loc[view["provisional"].fillna(False).astype(bool), "date"]
+            .dt.strftime("%Y-%m-%d").tolist()
+            if "provisional" in view.columns else []
+        ),
+        "candles": candles, "ma": ma, "stats": stats,
     }
 
 

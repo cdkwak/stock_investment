@@ -232,16 +232,16 @@ def test_bok_treasury_expected_latest_is_unknown_without_publication_evidence() 
     assert result.collection_required is False
 
 
-def test_bok_fx_uses_1700_kst_target_and_one_day_expected_lag() -> None:
+def test_bok_fx_uses_1600_kst_target_and_one_day_expected_lag() -> None:
     before = resolve_expected_latest(
         dataset="bok_ecos_usd_krw_daily", lane="BOK_FX_DAILY",
         retained_latest=date(2026, 9, 2),
-        as_of=datetime(2026, 9, 3, 7, 59, tzinfo=timezone.utc),
+        as_of=datetime(2026, 9, 3, 6, 59, tzinfo=timezone.utc),
     )
     after = resolve_expected_latest(
         dataset="bok_ecos_usd_krw_daily", lane="BOK_FX_DAILY",
         retained_latest=date(2026, 9, 2),
-        as_of=datetime(2026, 9, 3, 8, 0, tzinfo=timezone.utc),
+        as_of=datetime(2026, 9, 3, 7, 0, tzinfo=timezone.utc),
     )
 
     assert before is not None and after is not None
@@ -250,5 +250,25 @@ def test_bok_fx_uses_1700_kst_target_and_one_day_expected_lag() -> None:
     assert after.expected_available_observation == date(2026, 9, 3)
     assert after.freshness is ExpectedFreshness.EXPECTED_LAG
     assert after.provider_availability_policy is (
-        ProviderAvailabilityPolicy.BOK_ECOS_FX_DAILY_1700_KST
+        ProviderAvailabilityPolicy.BOK_ECOS_FX_DAILY_1600_KST
     )
+
+
+def test_provisional_equity_uses_same_session_only_at_2030() -> None:
+    before = resolve_expected_latest(
+        dataset="kr_equity_price_provisional_daily",
+        lane="KR_EQUITY_PROVISIONAL_DAILY",
+        retained_latest=date(2026, 9, 2),
+        as_of=datetime(2026, 9, 3, 11, 29, tzinfo=timezone.utc),
+    )
+    after = resolve_expected_latest(
+        dataset="kr_equity_price_provisional_daily",
+        lane="KR_EQUITY_PROVISIONAL_DAILY",
+        retained_latest=date(2026, 9, 2),
+        as_of=datetime(2026, 9, 3, 11, 30, tzinfo=timezone.utc),
+    )
+
+    assert before is not None and after is not None
+    assert before.expected_available_observation == date(2026, 9, 2)
+    assert after.expected_available_observation == date(2026, 9, 3)
+    assert after.provider_availability_policy is ProviderAvailabilityPolicy.KRX_POST_CLOSE_2030

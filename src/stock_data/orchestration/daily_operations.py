@@ -1535,6 +1535,15 @@ PROVIDER_AUTH_METADATA: Mapping[str, ProviderAuthMetadata] = MappingProxyType({
 
 
 DAILY_LANE_READINESS = (
+    LaneReadiness("KR_EQUITY_PROVISIONAL_DAILY", LaneReadinessStatus.READY,
+        "KRX/pykrx market-wide equity OHLCV", "KR trading daily",
+        "same completed XKRX session after 20:30 KST",
+        "two-call KOSPI/KOSDAQ Landing-first capture and atomic append",
+        "date-scoped immutable Landing plus checkpoint and latest-completed state",
+        "offline frame parsing, target lag, atomic promotion, and API-zero idempotency",
+        "display and condition alerts only; canonical rows take precedence; backtest blocked",
+        True, None,
+        "run immediately after Canonical Equity in the 20:30 bundle; missing both market frames is EXPECTED_PROVIDER_LAG"),
     LaneReadiness("KR_ETF_PRICE_DAILY", LaneReadinessStatus.READY,
         "authenticated KRX/pykrx", "KR trading daily", "latest completed XKRX session",
         "watchlist-plus-retained-master symbol resolution and per-symbol 30-session range capture",
@@ -1669,13 +1678,13 @@ DAILY_LANE_READINESS = (
     LaneReadiness("BOK_FX_DAILY", LaneReadinessStatus.READY,
         "BOK ECOS StatisticSearch 731Y001 item 0000001",
         "provider weekday daily observations; BOK holiday calendar is unverified",
-        "today at/after 17:00 KST, otherwise previous business day",
+        "today at/after 16:00 KST, otherwise previous business day",
         "one retry-zero range call from retained latest + 1 through target, capped at 30 sessions",
         "immutable raw JSON, redacted call ledger, manifest, and atomic append-only Parquet",
         "offline fixture parsing, range cap, target lag, idempotency, and read-back validation",
         "display and account valuation; finality unknown and predictive/backtest use blocked",
         True, None,
-        "run in the existing 17:10 BOK task after the Treasury observation lane; a missing target row is EXPECTED_PROVIDER_LAG"),
+        "run in the existing 20:30 KR market bundle; a missing target row is EXPECTED_PROVIDER_LAG"),
     LaneReadiness("TOSS_KR_TREASURY_DAILY", LaneReadinessStatus.READY,
         "Toss Invest market-indicator candles", "KR government-bond daily OHLC",
         "T+1 completed XKRX successor session; retained AS_RETRIEVED",
@@ -1857,6 +1866,19 @@ def _registered_manual_spec(
 # is health/planning metadata only; Data Status plus an active runbook remains
 # required before any provider call or production mutation.
 CORE_DATASET_SPECS = REPRESENTATIVE_DATASET_SPECS + (
+    _registered_manual_spec(
+        "kr_equity_price_provisional_daily",
+        "Same-session provisional Korean equity daily prices",
+        "KRX/pykrx stock.get_market_ohlcv_by_ticker",
+        1,
+        provider_auth_id="pykrx_login",
+        status=OperationalStatus.AUTO_READY,
+        pit=PitStatus.NON_PREDICTIVE,
+        tier=DatasetTier.TIER_1_CRITICAL,
+        idempotency=IdempotencyStatus.CONFIRMED,
+        dashboard_required=True,
+        automation_enabled=True,
+    ),
     _registered_manual_spec("kr_equity_price_daily", "Korean equity daily prices", "data.go.kr",
         2, provider_auth_id="data_go_kr", status=OperationalStatus.AUTO_READY,
         pit=PitStatus.PIT_LIMITED, tier=DatasetTier.TIER_1_CRITICAL,
@@ -2018,9 +2040,9 @@ CORE_DATASET_SPECS = REPRESENTATIVE_DATASET_SPECS + (
         contract_version=1,
         operational_status=OperationalStatus.AUTO_READY,
         freshness_policy=FreshnessPolicy(
-            "bok_ecos_fx_daily_1700_kst",
+            "bok_ecos_fx_daily_1600_kst",
             "Asia/Seoul",
-            "today at or after 17:00 KST, otherwise previous provider business day",
+            "today at or after 16:00 KST, otherwise previous provider business day",
             FinalityPolicy(
                 FinalityEvidence.UNKNOWN,
                 "Asia/Seoul",
@@ -2030,7 +2052,7 @@ CORE_DATASET_SPECS = REPRESENTATIVE_DATASET_SPECS + (
                 provider_final_rule=(
                     "UNVERIFIED publication/revision timing; descriptive use only"
                 ),
-                collection_window="existing BOK task at 17:10 KST after Treasury observation",
+                collection_window="existing KR market task at 20:30 KST",
             ),
         ),
         pipeline_dependencies=(),
@@ -2132,7 +2154,7 @@ def build_daily_universe_gap_status(
             plan_status=status,
             pre_network_noop=noop,
         ))
-    if len(rows) != 66:
+    if len(rows) != 67:
         raise RuntimeError("daily-grain universe count differs from the typed registry")
     return tuple(rows)
 

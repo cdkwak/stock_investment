@@ -206,3 +206,42 @@ def test_home_account_fx_prefers_newer_bok_and_keeps_source_as_appended_field() 
     assert (value, observed, source) == (
         1337.5, "2026-09-03", "BOK 매매기준율 09-03",
     )
+
+
+def test_korean_equity_reader_prefers_canonical_overlap_and_appends_only_newer_provisional() -> None:
+    root = make_project(new_temp_root())
+    _write_parquet(
+        root,
+        "data/normalized/kr_equity_price_provisional_daily/market=KOSPI/year=2026/data.parquet",
+        pd.DataFrame({
+            "date": pd.to_datetime(["2026-09-02", "2026-09-03"]),
+            "market": ["KOSPI", "KOSPI"],
+            "symbol": ["005930", "005930"],
+            "open": [888, 199], "high": [889, 205], "low": [887, 195],
+            "close": [888, 200], "volume": [10, 20],
+            "trading_value": [8_880, 4_000],
+            "source": ["pykrx", "pykrx"],
+            "source_operation": [
+                "stock.get_market_ohlcv_by_ticker",
+                "stock.get_market_ohlcv_by_ticker",
+            ],
+            "source_date": pd.to_datetime(["2026-09-02", "2026-09-03"]),
+            "provisional": [True, True],
+            "observed_at": pd.to_datetime([
+                "2026-09-02T11:31:00Z", "2026-09-03T11:31:00Z",
+            ]),
+        }),
+    )
+
+    frame, _name = home_data._ohlcv(root, "005930")
+    payload = home_data.build_chart_payload(root, symbol="005930", range_key="3M")
+
+    assert frame is not None
+    assert frame.iloc[-2]["date"].strftime("%Y-%m-%d") == "2026-09-02"
+    assert frame.iloc[-2]["close"] != 888
+    assert not bool(frame.iloc[-2]["provisional"])
+    assert frame.iloc[-1][["date", "close", "provisional"]].tolist() == [
+        pd.Timestamp("2026-09-03"), 200, True,
+    ]
+    assert payload["as_of"] == "2026-09-03"
+    assert payload["provisional_dates"] == ["2026-09-03"]

@@ -38,6 +38,9 @@ from stock_data.orchestration.kr_index_fundamental_daily import (
     run_index_fundamental_daily,
 )
 from stock_data.orchestration.kr_etf_daily import run_kr_etf_scheduler_lane
+from stock_data.orchestration.kr_equity_provisional_daily import (
+    run_kr_equity_provisional_daily,
+)
 from stock_data.orchestration.bok_ecos_fx_daily import run_daily_lane as run_bok_fx_daily_lane
 from stock_data.orchestration.toss_market_investor_daily import (
     is_toss_market_investor_date_complete, refresh_toss_market_investor_daily,
@@ -132,9 +135,19 @@ LANE_SCHEDULES = MappingProxyType({
         ),
         accepted_source="FRED fredgraph CSV",
     ),
+    "KR_EQUITY_PROVISIONAL_DAILY": LaneSchedule(
+        lane="KR_EQUITY_PROVISIONAL_DAILY",
+        cadence_group="KR_POST_CLOSE_2030",
+        market=ExchangeMarket.KR,
+        phases=("kr_equity_provisional",),
+        dataset_ids=("kr_equity_price_provisional_daily",),
+        accepted_source=(
+            "KRX/pykrx stock.get_market_ohlcv_by_ticker exact-date KOSPI/KOSDAQ"
+        ),
+    ),
     "BOK_FX_DAILY": LaneSchedule(
         lane="BOK_FX_DAILY",
-        cadence_group="BOK_PROVIDER_DAILY_1700",
+        cadence_group="KR_POST_CLOSE_2030",
         market=ExchangeMarket.KR,
         phases=("bok_fx",),
         dataset_ids=("bok_ecos_usd_krw_daily",),
@@ -382,6 +395,24 @@ def _run_bok_fx_phase(
     return {
         **result,
         "http_calls": int(result.get("api_calls", 0) or 0),
+    }
+
+
+def _run_kr_equity_provisional_phase(
+    project_root: Path, phase: str, target: object,
+) -> dict[str, object]:
+    if phase != "kr_equity_provisional" or not isinstance(target, date):
+        raise ProviderSchedulerError("invalid provisional Korean equity scheduler phase")
+    result = run_kr_equity_provisional_daily(project_root, target_session=target)
+    phase_status = {
+        "ALREADY_CURRENT": "NOOP_IDEMPOTENT",
+        "UPDATED": "COMPLETE",
+    }.get(str(result["status"]), str(result["status"]))
+    return {
+        **result,
+        "status": phase_status,
+        "http_calls": result["api_calls"],
+        "reason": str(result["status"]),
     }
 
 
@@ -1049,6 +1080,7 @@ def run_lane(
         "fred_vix": "fred_vix_daily",
         "bok_fx": "bok_ecos_usd_krw_daily",
         "canonical_equity": "kr_equity_canonical_universe_daily",
+        "kr_equity_provisional": "kr_equity_price_provisional_daily",
         "kr_etf_prices": "kr_etf_price_daily",
         "kospi200_breadth": "kr_kospi200_breadth_daily",
         "detail": "kr_stock_lending_daily",
@@ -1112,6 +1144,7 @@ def run_lane(
             "FRED_DAILY": _run_accepted_phase,
             "BOK_FX_DAILY": _run_bok_fx_phase,
             "CANONICAL_EQUITY_DAILY": _run_canonical_equity_phase,
+            "KR_EQUITY_PROVISIONAL_DAILY": _run_kr_equity_provisional_phase,
             "KR_ETF_PRICE_DAILY": _run_kr_etf_price_phase,
             "KOSPI200_BREADTH_DAILY": _run_kospi200_breadth_phase,
             "LENDING_DAILY": _run_lending_phase,

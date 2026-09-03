@@ -24,7 +24,7 @@ shape differs.
 
 The provider's exact publication timestamp, holiday calendar, revision policy,
 vintage semantics, and finality are **UNVERIFIED**. The operational target is a
-bounded project rule, not an official timing claim: today after 17:00 KST;
+bounded project rule, not an official timing claim: today after 16:00 KST;
 otherwise the previous weekday. An absent target row is
 `EXPECTED_PROVIDER_LAG`, not a failed collection. Predictive/backtest use remains
 blocked until publication timing and PIT/finality are verified.
@@ -77,6 +77,6 @@ $env:PYTHONIOENCODING='utf-8'
 .\.venv\Scripts\python.exe .\scripts\maintenance\run_provider_scheduler.py --project-root . --lane BOK_FX_DAILY
 ```
 
-The scheduler lane belongs to the existing 17:10 KST BOK task mapping and follows
-the Treasury observation lane. This change does not install or mutate the Windows
-task; task-definition deployment remains governed by the scheduler runbook.
+The scheduler lane belongs to the existing 20:30 KST Korean market provider-
+scheduler bundle. The 17:10 BOK Treasury task runs a different entry point and
+does not execute this lane. This change does not install or mutate a Windows task.

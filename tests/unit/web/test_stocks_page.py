@@ -8,7 +8,11 @@ from stock_data.gui.watchlist_service import LocalWatchlistService
 from stock_web.api import home_data
 from stock_web.api import scanner as scanner_api
 from stock_web.api.scanner import build_scanner
-from stock_web.api.stocks_page import evaluate_conditions, save_conditions
+from stock_web.api.stocks_page import (
+    build_stocks_page_data,
+    evaluate_conditions,
+    save_conditions,
+)
 from stock_web.app import create_app
 from tests.unit.web import ASGITestClient, make_project, new_temp_root
 
@@ -266,3 +270,45 @@ def test_home_symbol_query_is_embedded_for_chart_preselection() -> None:
 
     assert response.status_code == 200
     assert 'data-initial-symbol="005930"' in response.text
+
+
+def test_stocks_page_labels_provisional_basis_and_conditions_use_same_day_close() -> None:
+    root = make_project(new_temp_root())
+    path = (
+        root / "data/normalized/kr_equity_price_provisional_daily/"
+        "market=KOSPI/year=2026/data.parquet"
+    )
+    path.parent.mkdir(parents=True)
+    pd.DataFrame({
+        "date": [pd.Timestamp("2026-09-03")],
+        "market": ["KOSPI"], "symbol": ["005930"],
+        "open": [195], "high": [205], "low": [190], "close": [200],
+        "volume": [2_000_000], "trading_value": [400_000_000],
+        "source": ["pykrx"],
+        "source_operation": ["stock.get_market_ohlcv_by_ticker"],
+        "source_date": [pd.Timestamp("2026-09-03")],
+        "provisional": [True],
+        "observed_at": [pd.Timestamp("2026-09-03T11:31:00Z")],
+    }).to_parquet(path, index=False)
+    client = ASGITestClient(create_app(root))
+    assert client.post(
+        "/api/watchlist/items",
+        json={"list_id": "favorites", "market": "KOSPI", "symbol": "005930"},
+        client_host="127.0.0.1",
+    ).status_code == 200
+    save_conditions(root, {
+        "schema_version": 1,
+        "conditions": [{
+            "id": "same-day-jump", "name": "당일 상승",
+            "field": "change_pct", "op": ">=", "value": 10,
+            "scope": "watchlist",
+        }],
+    })
+
+    row = build_stocks_page_data(root)["table"][0]
+
+    assert row["as_of"] == "2026-09-03"
+    assert row["price_basis"] == "provisional"
+    assert row["provisional_dates"] == ["2026-09-03"]
+    assert row["price"] == 200
+    assert row["flag"] == "당일 상승"

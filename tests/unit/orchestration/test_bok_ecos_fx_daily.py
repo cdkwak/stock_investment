@@ -48,10 +48,10 @@ class _Session:
         return type("Response", (), {"status_code": 200, "content": self.body})()
 
 
-def test_target_uses_1700_kst_and_previous_weekday() -> None:
-    assert target_session(datetime(2026, 9, 3, 16, 59, tzinfo=KST)) == date(2026, 9, 2)
-    assert target_session(datetime(2026, 9, 3, 17, 0, tzinfo=KST)) == date(2026, 9, 3)
-    assert target_session(datetime(2026, 9, 7, 16, 0, tzinfo=KST)) == date(2026, 9, 4)
+def test_target_uses_1600_kst_and_previous_weekday() -> None:
+    assert target_session(datetime(2026, 9, 3, 15, 59, tzinfo=KST)) == date(2026, 9, 2)
+    assert target_session(datetime(2026, 9, 3, 16, 0, tzinfo=KST)) == date(2026, 9, 3)
+    assert target_session(datetime(2026, 9, 7, 15, 0, tzinfo=KST)) == date(2026, 9, 4)
 
 
 def test_daily_window_is_oldest_first_and_capped_at_30_sessions() -> None:

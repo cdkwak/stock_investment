@@ -1,6 +1,6 @@
 """Bounded daily orchestration for official BOK ECOS USD/KRW observations.
 
-The 17:00 KST availability clock is a project operating assumption requested
+The 16:00 KST availability clock is a project operating assumption requested
 for current display, not a verified BOK publication guarantee.  Missing target
 rows are therefore ``EXPECTED_PROVIDER_LAG`` and never overwrite prior data.
 """
@@ -78,7 +78,7 @@ def business_sessions(start: date, end: date) -> tuple[date, ...]:
 
 
 def target_session(now: datetime) -> date:
-    """Return the requested 17:00 KST weekday target.
+    """Return the requested 16:00 KST weekday target.
 
     ECOS holiday/publication timing remains unverified, so this is deliberately
     a Monday-Friday operational calendar rather than an asserted BOK calendar.
@@ -86,7 +86,7 @@ def target_session(now: datetime) -> date:
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("now must be timezone-aware")
     local = now.astimezone(KST)
-    candidate = local.date() if local.hour >= 17 else local.date() - timedelta(days=1)
+    candidate = local.date() if local.hour >= 16 else local.date() - timedelta(days=1)
     while candidate.weekday() >= 5:
         candidate -= timedelta(days=1)
     return candidate

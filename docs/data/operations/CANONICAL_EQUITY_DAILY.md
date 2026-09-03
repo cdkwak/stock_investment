@@ -14,6 +14,9 @@ not change its predictive-use classification.
 - Lane: `CANONICAL_EQUITY_DAILY`.
 - Eligible bundle occurrences: 14:10 and 20:30 KST.
 - Provider availability: D+1 XKRX business day at or after 13:00 KST.
+- Same-session pykrx rows are never accepted into this dataset. They remain in
+  `kr_equity_price_provisional_daily` for display and condition alerts until the
+  D+1 canonical row takes reader precedence.
 - Each occurrence advances consecutive oldest-missing eligible XKRX sessions,
   stopping after at most three sessions, six logical API calls, ten elapsed
   minutes, or the first unresolved date.
