@@ -452,13 +452,16 @@ def build_health(project_root: Path) -> dict[str, object]:
         as_of = payload.get("as_of") or payload.get("generated_at")
     except (OSError, UnicodeError, json.JSONDecodeError):
         pass
-    current = int(summary.get("managed_current", 0))
-    lag = int(summary.get("managed_expected_lag", 0))
-    managed = int(summary.get("managed_total", 0))
+    # Same classes as the 데이터 page: 정상 / 지연 / 실패 (수동·보존·참고 rows are not counted).
+    from stock_data.gui.health_service import _effective_display_status
+
+    statuses = [_effective_display_status(row) for row in view.rows]
     return {
-        "current": current,
-        "lag": lag,
-        "fail": max(0, managed - current - lag),
+        "current": statuses.count("CURRENT"),
+        "lag": statuses.count("LATE"),
+        "fail": statuses.count("FAILED"),
+        "preserved": statuses.count("PRESERVED"),
+        "reference": statuses.count("REFERENCE"),
         "as_of": format_kst(as_of),
         "overall": summary.get("overall", "UNKNOWN"),
     }
