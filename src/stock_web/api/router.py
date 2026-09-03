@@ -50,7 +50,18 @@ def build_router(project_root: Path) -> APIRouter:
     router = APIRouter()
 
     def loopback(request: Request) -> bool:
-        return request.client is not None and request.client.host in {"127.0.0.1", "::1"}
+        """True only for a direct connection from this machine.
+
+        Requests relayed by `tailscale serve` arrive from 127.0.0.1 but carry forwarding
+        headers; those are remote users and must not unlock the write endpoints.
+        """
+        if request.client is None or request.client.host not in {"127.0.0.1", "::1"}:
+            return False
+        headers = request.headers
+        return not any(
+            name in headers
+            for name in ("x-forwarded-for", "tailscale-user-login", "tailscale-user-name")
+        )
 
     def clear_home_cache() -> None:
         from stock_web.api import home_data

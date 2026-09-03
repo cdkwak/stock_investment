@@ -36,12 +36,14 @@ class ASGITestClient:
     def _request(
         self, method: str, url: str, *, params: dict[str, str] | None = None,
         json_body: object | None = None, client_host: str = "testclient",
+        headers: dict[str, str] | None = None,
     ) -> ASGITestResponse:
         split = urlsplit(url)
         query = split.query
         if params:
             encoded = urlencode(params)
             query = f"{query}&{encoded}" if query else encoded
+        request_headers = dict(headers or {})
 
         async def request() -> ASGITestResponse:
             messages: list[dict[str, object]] = []
@@ -66,6 +68,7 @@ class ASGITestClient:
                 "root_path": "", "headers": [
                     (b"host", b"testserver"),
                     *(([(b"content-type", b"application/json")]) if json_body is not None else []),
+                    *((k.lower().encode("latin-1"), v.encode("latin-1")) for k, v in request_headers.items()),
                 ],
                 "client": (client_host, 50000), "server": ("testserver", 80),
                 "state": {},
@@ -86,14 +89,15 @@ class ASGITestClient:
 
     def get(
         self, url: str, *, params: dict[str, str] | None = None,
-        client_host: str = "testclient",
+        client_host: str = "testclient", headers: dict[str, str] | None = None,
     ) -> ASGITestResponse:
-        return self._request("GET", url, params=params, client_host=client_host)
+        return self._request("GET", url, params=params, client_host=client_host, headers=headers)
 
     def post(
         self, url: str, *, json: object, client_host: str = "testclient",
+        headers: dict[str, str] | None = None,
     ) -> ASGITestResponse:
-        return self._request("POST", url, json_body=json, client_host=client_host)
+        return self._request("POST", url, json_body=json, client_host=client_host, headers=headers)
 
     def delete(
         self, url: str, *, json: object, client_host: str = "testclient",

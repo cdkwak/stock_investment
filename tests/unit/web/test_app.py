@@ -123,3 +123,22 @@ def test_private_network_guard_allows_loopback_and_tailscale_only() -> None:
         "/api/watchlist/items", json={"list_id": "favorites", "market": "KRX", "symbol": "123320"},
         client_host="100.107.40.4",
     ).status_code == 403
+
+
+def test_tailscale_serve_relay_is_treated_as_remote() -> None:
+    from tests.unit.web import ASGITestClient, make_project, new_temp_root
+
+    client = ASGITestClient(create_app(make_project(new_temp_root())))
+    relayed = {"X-Forwarded-For": "100.86.222.47", "Tailscale-User-Login": "user@example.com"}
+    # A tailnet peer relayed by `tailscale serve` (hop = loopback) may read...
+    assert client.get("/", client_host="127.0.0.1", headers=relayed).status_code == 200
+    # ...but must not unlock loopback-only writes.
+    assert client.post(
+        "/api/watchlist/items", json={"list_id": "favorites", "market": "KRX", "symbol": "123320"},
+        client_host="127.0.0.1", headers=relayed,
+    ).status_code == 403
+    # A forwarded header from a non-local hop is refused, and a forwarded public address too.
+    assert client.get("/", client_host="192.168.0.20", headers=relayed).status_code == 403
+    assert client.get(
+        "/", client_host="127.0.0.1", headers={"X-Forwarded-For": "8.8.8.8"},
+    ).status_code == 403

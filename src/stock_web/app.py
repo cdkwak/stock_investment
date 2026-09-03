@@ -29,6 +29,14 @@ def client_allowed(request: Request) -> bool:
     if client is None:
         return True  # in-process test clients without a transport address
     host = str(client.host)
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        # `tailscale serve` (HTTPS on the tailnet) relays from loopback and reports the real
+        # peer here; judge that address, never the loopback hop. Only trust the header when
+        # the hop itself is local — a remote client cannot forge its way in by adding it.
+        if host not in LOOPBACK_HOSTS:
+            return False
+        host = forwarded.split(",")[0].strip()
     if host in LOOPBACK_HOSTS:
         return True
     try:
