@@ -1,0 +1,66 @@
+:root {
+  color-scheme: dark;
+  font-family: Pretendard, "Noto Sans KR", system-ui, sans-serif;
+  background: #0b1120;
+  color: #e5edf8;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: radial-gradient(circle at top, #172554, #0b1120 55%);
+}
+
+.auth-card {
+  width: min(100%, 380px);
+  padding: 32px;
+  border: 1px solid #334155;
+  border-radius: 16px;
+  background: #111827;
+  box-shadow: 0 24px 64px rgb(0 0 0 / 35%);
+}
+
+h1 { margin: 0 0 12px; font-size: 1.65rem; }
+.auth-description, .auth-note { color: #aebed3; line-height: 1.55; }
+.auth-description { margin: 0 0 24px; }
+.auth-note { margin: 20px 0 0; font-size: 0.9rem; }
+.auth-error { color: #fecaca; margin: 0 0 16px; }
+
+form { display: grid; gap: 10px; }
+label { font-weight: 700; }
+
+input, button {
+  width: 100%;
+  min-height: 46px;
+  border-radius: 9px;
+  font: inherit;
+}
+
+input {
+  border: 1px solid #64748b;
+  padding: 10px 12px;
+  background: #0f172a;
+  color: #f8fafc;
+}
+
+input:focus-visible, button:focus-visible {
+  outline: 3px solid #7dd3fc;
+  outline-offset: 2px;
+}
+
+button {
+  margin-top: 8px;
+  border: 0;
+  padding: 10px 16px;
+  background: #38bdf8;
+  color: #082f49;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+button:hover { background: #7dd3fc; }

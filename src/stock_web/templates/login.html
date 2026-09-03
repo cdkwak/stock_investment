@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>대시보드 잠금</title>
+  <link rel="stylesheet" href="/static/auth.css?v={{ static_version }}">
+</head>
+<body>
+  <main class="auth-card">
+    <h1>대시보드 잠금</h1>
+    <p class="auth-description">Tailscale에서 대시보드를 열려면 PIN을 입력하세요.</p>
+    {% if error %}<p class="auth-error" role="alert">{{ error }}</p>{% endif %}
+    <form action="/login" method="post">
+      <input type="hidden" name="next" value="{{ next_path }}">
+      <label for="pin">PIN</label>
+      <input
+        id="pin"
+        name="pin"
+        type="password"
+        minlength="4"
+        maxlength="12"
+        autocomplete="current-password"
+        autofocus
+        required
+      >
+      <button type="submit">열기</button>
+    </form>
+    <p class="auth-note">로컬 PC에서는 PIN이 필요하지 않습니다</p>
+  </main>
+</body>
+</html>
