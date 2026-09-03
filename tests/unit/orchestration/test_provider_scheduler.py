@@ -109,6 +109,23 @@ def test_fundamentals_weekly_dry_run_reports_count_budget_and_gate(
     assert result["api_calls"] == 0
 
 
+def test_research_forward_test_lane_is_registered_and_provider_free(
+    tmp_path: Path,
+) -> None:
+    config = scheduler.LANE_SCHEDULES["RESEARCH_FORWARD_TEST_DAILY"]
+    assert config.phases == ("research_forward_test",)
+    assert config.dataset_ids == ()
+    result = run_lane(
+        tmp_path, "RESEARCH_FORWARD_TEST_DAILY", as_of=AS_OF, dry_run=True,
+    )
+    assert result["status"] == "DRY_RUN_PASS"
+    assert result["api_calls"] == 0
+    assert result["automation_dataset_ids"] == []
+    assert result["provider_availability_policies"] == {
+        "research_forward_test": "RETAINED_PARQUET_ONLY"
+    }
+
+
 def test_kospi200_it_validation_and_one_call_backfill(tmp_path: Path) -> None:
     raw = pd.DataFrame(
         {

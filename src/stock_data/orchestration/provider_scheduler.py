@@ -268,6 +268,14 @@ LANE_SCHEDULES = MappingProxyType({
             "completed daily bars"
         ),
     ),
+    "RESEARCH_FORWARD_TEST_DAILY": LaneSchedule(
+        lane="RESEARCH_FORWARD_TEST_DAILY",
+        cadence_group="KR_POST_CLOSE_2030",
+        market=ExchangeMarket.KR,
+        phases=("research_forward_test",),
+        dataset_ids=(),
+        accepted_source="retained Parquet research inputs only; zero provider calls",
+    ),
 })
 
 
@@ -1150,6 +1158,27 @@ def _run_futures_phase(project_root: Path, phase: str, target: object) -> dict[s
     )
 
 
+def _run_research_forward_test_phase(
+    project_root: Path, phase: str, target: object,
+) -> dict[str, object]:
+    if phase != "research_forward_test" or not isinstance(target, date):
+        raise ProviderSchedulerError("invalid research forward-test scheduler phase")
+    from stock_data.research.forward_test import record_forward_signals
+
+    result = record_forward_signals(project_root, as_of=target)
+    return {
+        "status": (
+            "NOOP_IDEMPOTENT"
+            if result["status"] == "NOOP_IDEMPOTENT"
+            else "COMPLETE"
+        ),
+        "http_calls": 0,
+        "run_id": None,
+        "latest_after": result["as_of"],
+        "reason": "RETAINED_PARQUET_FORWARD_STATE_RECORDED",
+    }
+
+
 def run_lane(
     project_root: Path, lane: str, *, as_of: datetime | None = None,
     scheduled_for: datetime | None = None, dry_run: bool = False,
@@ -1161,7 +1190,7 @@ def run_lane(
     config = LANE_SCHEDULES[lane]
     readiness = next((item for item in DAILY_LANE_READINESS if item.lane == lane), None)
     if (
-        lane != "KR_FUNDAMENTALS_WEEKLY"
+        lane not in {"KR_FUNDAMENTALS_WEEKLY", "RESEARCH_FORWARD_TEST_DAILY"}
         and (readiness is None or not readiness.scheduler_eligible)
     ):
         raise ProviderSchedulerError(f"lane is not scheduler eligible: {lane}")
@@ -1212,10 +1241,15 @@ def run_lane(
         "global_indices": "global_index_price_daily",
         "global_etfs": "global_etf_price_daily",
         "dashboard_futures": "global_commodity_futures_daily",
+        "research_forward_test": "research_forward_test_signals",
     }
     phase_targets = {}
     availability_policies = {}
     for phase in config.phases:
+        if phase == "research_forward_test":
+            phase_targets[phase] = market_target
+            availability_policies[phase] = "RETAINED_PARQUET_ONLY"
+            continue
         if phase == "kospi200_breadth":
             phase_targets[phase] = latest_accepted_canonical_target(root)
             availability_policies[phase] = "CANONICAL_ACCEPTED_DATE_ONLY"
@@ -1292,6 +1326,7 @@ def run_lane(
             "GLOBAL_INDEX_DAILY": _run_global_index_phase,
             "GLOBAL_ETF_DAILY": _run_etf_phase,
             "GLOBAL_COMMODITY_DAILY": _run_futures_phase,
+            "RESEARCH_FORWARD_TEST_DAILY": _run_research_forward_test_phase,
         }[lane]
         for phase in config.phases:
             result = execute(root, phase, phase_targets[phase])
