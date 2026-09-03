@@ -702,11 +702,20 @@ def build_api_account_data(project_root: Path) -> dict[str, object]:
         if snapshot.currency:
             currency = snapshot.currency
             cash = snapshot.cash_balance
-            if cash is None:
+            component_cash = cash
+            if source_id == "toss_self":
+                # Toss exposes order buying power, not a settled cash balance.
+                # Keep it in the explicitly documented account-value component
+                # while leaving the generic cash column unavailable.
+                component_cash = snapshot.available_cash
+            elif cash is None:
                 cash = snapshot.available_cash
+                component_cash = cash
             total = snapshot.total_assets
             if total is None and snapshot.securities_value is not None:
-                total = float(snapshot.securities_value) + float(cash or 0.0)
+                total = (
+                    float(snapshot.securities_value) + float(component_cash or 0.0)
+                )
             converted_total = _convert(total, currency, fx)
             converted_cash = _convert(cash, currency, fx)
             converted_pnl = _convert(snapshot.unrealized_pnl, currency, fx)
@@ -728,9 +737,13 @@ def build_api_account_data(project_root: Path) -> dict[str, object]:
                 reported_pnl_seen = True
         else:
             for summary in snapshot.currency_summaries:
-                cash = summary.cash_buying_power
+                component_cash = summary.cash_buying_power
+                cash = None if source_id == "toss_self" else component_cash
                 securities = summary.securities_value
-                total = None if securities is None else float(securities) + float(cash or 0.0)
+                total = (
+                    None if securities is None
+                    else float(securities) + float(component_cash or 0.0)
+                )
                 converted_total = _convert(total, summary.currency, fx)
                 converted_cash = _convert(cash, summary.currency, fx)
                 converted_pnl = _convert(summary.unrealized_pnl, summary.currency, fx)

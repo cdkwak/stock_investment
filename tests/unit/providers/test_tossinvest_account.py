@@ -127,6 +127,8 @@ def test_buying_power_pair_is_currency_exact_and_identifier_free():
     assert snapshot["schema_version"] == 2
     assert snapshot["buying_power"][0]["cash_buying_power"] == "5000000"
     assert snapshot["buying_power"][1]["cash_buying_power"] == "3500.5"
+    assert snapshot["cash_balance"] is None
+    assert snapshot["unsupported_fields"] == ["cash_balance", "realized_pnl"]
     assert "account" not in repr(snapshot).lower()
 
 

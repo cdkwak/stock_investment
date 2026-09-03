@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -13,6 +14,11 @@ from stock_data.gui.manual_account_store import (
     ManualAccountRegistry,
 )
 from stock_data.gui.net_worth_service import LocalNetWorthHistoryStore
+from stock_data.providers.tossinvest import (
+    attach_buying_power,
+    normalize_buying_power_payload,
+    normalize_holdings_payload,
+)
 from stock_web.api import account_page, home_data
 from stock_web.api.account_page import calculate_return_metrics
 from stock_web.app import create_app
@@ -45,6 +51,37 @@ def _local_mock_snapshot() -> dict[str, object]:
         }],
         "asset_history": [],
     }
+
+
+def _toss_buying_power_snapshot() -> dict[str, object]:
+    holdings = normalize_holdings_payload(
+        {"result": {
+            "totalPurchaseAmount": {"krw": "0"},
+            "marketValue": {
+                "amount": {"krw": "0"},
+                "amountAfterCost": {"krw": "0"},
+            },
+            "profitLoss": {
+                "amount": {"krw": "0"},
+                "amountAfterCost": {"krw": "0"},
+                "rate": "0", "rateAfterCost": "0",
+            },
+            "dailyProfitLoss": {"amount": {"krw": "0"}, "rate": "0"},
+            "items": [],
+        }},
+        collected_at=datetime(2026, 9, 3, tzinfo=timezone.utc),
+    )
+    buying_power = [
+        normalize_buying_power_payload(
+            {"result": {"currency": "KRW", "cashBuyingPower": "24680"}},
+            expected_currency="KRW",
+        ),
+        normalize_buying_power_payload(
+            {"result": {"currency": "USD", "cashBuyingPower": "12.5"}},
+            expected_currency="USD",
+        ),
+    ]
+    return attach_buying_power(holdings, buying_power)
 
 
 def _manual_post_payload() -> dict[str, object]:
@@ -189,6 +226,26 @@ def test_account_totals_use_local_prices_fx_and_exclude_unpriced_holdings() -> N
     ).load()
     assert [account.source_id for account in stored.accounts] == ["manual:mirae"]
     assert len(LocalNetWorthHistoryStore(root / "data/local/net_worth_history").load_history()) == 1
+
+
+def test_toss_buying_power_is_not_rendered_as_cash_balance() -> None:
+    root = _account_project()
+    snapshot_path = root / "data/normalized/toss_account_snapshot/latest.json"
+    snapshot_path.write_text(
+        json.dumps(_toss_buying_power_snapshot(), ensure_ascii=False), encoding="utf-8",
+    )
+    client = ASGITestClient(create_app(root))
+
+    response = client.get("/api/account")
+
+    assert response.status_code == 200
+    toss = next(row for row in response.json()["rows"] if row["source_id"] == "toss_self")
+    assert toss["included"] is True
+    assert toss["value_krw"] is not None
+    assert toss["cash_krw"] is None
+    account_javascript = client.get("/static/account.js").text
+    assert '${money(row.cash_krw)}' in account_javascript
+    assert 'value === null || value === undefined ? "—"' in account_javascript
 
 
 def test_account_posts_are_loopback_only_and_pages_and_get_apis_render() -> None:
