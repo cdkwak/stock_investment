@@ -644,9 +644,12 @@ _PROBES = (
 )
 
 
-def validated_runtime_coverage(project_root: Path) -> RuntimeCoverageResult:
+def validated_runtime_coverage(
+    project_root: Path, *, as_of: date | None = None,
+) -> RuntimeCoverageResult:
     """Read Dashboard-facing artifacts and contract-validate current partitions."""
     root = Path(project_root).resolve()
+    reference_date = as_of or date.today()
     latest: dict[str, str] = {}
     failures: dict[str, str] = {}
     derivatives_completed: date | None = None
@@ -667,6 +670,18 @@ def validated_runtime_coverage(project_root: Path) -> RuntimeCoverageResult:
             values = pd.to_datetime(frame[probe.date_column], errors="coerce")
             if values.empty or values.isna().any():
                 raise ValueError("validated dataset has no canonical latest date")
+            if probe.dataset_id == "kr_fundamentals_quarterly":
+                cutoff = reference_date
+                if "rcept_no" in frame.columns:
+                    receipts = pd.to_datetime(
+                        frame["rcept_no"].astype(str).str[:8],
+                        format="%Y%m%d", errors="coerce",
+                    )
+                    if receipts.notna().any():
+                        cutoff = min(cutoff, receipts.max().date())
+                values = values[values.dt.date <= cutoff]
+                if values.empty:
+                    raise ValueError("fundamentals has no non-future reference period")
             actual_latest = values.max().date()
             if (
                 probe.dataset_id in _DERIVATIVES_CHAIN_IDS

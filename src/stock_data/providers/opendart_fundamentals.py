@@ -6,11 +6,12 @@ uses corp/year/report/scope parameters; interim income-statement
 ``thstrm_amount`` is the three-month value and ``thstrm_add_amount`` is
 cumulative; status ``013`` is no data and ``020`` is request-limit exceeded.
 
-UNVERIFIED by the guide: issuer account-ID uniformity and calendar-quarter
-period-end inference. Name fallbacks and period-end mapping are therefore
-explicit, deterministic project policy rather than provider claims. The guide
-documents ``fs_div`` as a request parameter, not as an account-row response
-field; this module binds it from the validated request scope.
+UNVERIFIED by the guide: issuer account-ID uniformity. Name fallbacks are
+therefore explicit, deterministic project policy rather than provider claims.
+Period ends use a response ``thstrm_dt`` date when present and retain the
+calendar-quarter mapping only as a missing-field fallback. The guide documents
+``fs_div`` as a request parameter, not as an account-row response field; this
+module binds it from the validated request scope.
 """
 
 from __future__ import annotations
@@ -41,6 +42,9 @@ _STOCK_CODE = re.compile(r"[0-9A-Z]{6}\Z")
 _RECEIPT = re.compile(r"\d{14}\Z")
 _YEAR = re.compile(r"\d{4}\Z")
 _MODIFY_DATE = re.compile(r"\d{8}\Z")
+_PERIOD_DATE = re.compile(
+    r"(?<!\d)(?P<year>\d{4})[.\-/](?P<month>\d{1,2})[.\-/](?P<day>\d{1,2})(?!\d)"
+)
 
 _REQUIRED_ACCOUNT_FIELDS = (
     "rcept_no", "reprt_code", "bsns_year", "corp_code", "sj_div", "account_nm", "thstrm_amount",
@@ -84,6 +88,14 @@ class OpenDartFundamentalsError(ValueError):
 
 class OpenDartDailyLimitError(OpenDartFundamentalsError):
     """Provider status 020 requires a hard stop for the current provider day."""
+
+
+class OpenDartPeriodEndError(OpenDartFundamentalsError):
+    """A response period end is unsafe to normalize or promote."""
+
+    def __init__(self, message: str, *, reason: str):
+        super().__init__(message)
+        self.reason = reason
 
 
 @dataclass(frozen=True)
@@ -273,13 +285,22 @@ def normalize_quarter(
         metric: _select_account(rows, metric) for metric in _ACCOUNT_IDS
     }
     _require_one_currency([row for row in selected.values() if row is not None])
+    actual_period_end = report_period_end(
+        rows, bsns_year=int(year_text), reprt_code=reprt_code,
+    )
+    receipt_date = _receipt_date(receipt)
+    if actual_period_end > receipt_date:
+        raise OpenDartPeriodEndError(
+            "financial period_end is later than its receipt date",
+            reason="PERIOD_END_AFTER_RECEIPT_DATE",
+        )
     result: dict[str, object] = {
         "symbol": symbol,
         "corp_code": corp_code,
         "bsns_year": int(year_text),
         "reprt_code": reprt_code,
         "fs_div": fs_div,
-        "period_end": period_end(int(year_text), reprt_code).isoformat(),
+        "period_end": actual_period_end.isoformat(),
         "rcept_no": receipt,
         "retrieved_at": retrieved.isoformat(),
         "source_terms_ref": OPEN_DART_TERMS_URL,
@@ -306,12 +327,66 @@ def normalize_quarter(
 
 
 def period_end(bsns_year: int, reprt_code: str) -> date:
-    """Return the explicit calendar-quarter project convention (UNVERIFIED)."""
+    """Return the calendar-quarter fallback used when ``thstrm_dt`` is absent."""
     month_day = {"11013": (3, 31), "11012": (6, 30), "11014": (9, 30), "11011": (12, 31)}
     if reprt_code not in month_day or bsns_year < 2015:
         raise OpenDartFundamentalsError("unsupported business year/report code")
     month, day = month_day[reprt_code]
     return date(bsns_year, month, day)
+
+
+def report_period_end(
+    rows: Sequence[Mapping[str, object]], *, bsns_year: int, reprt_code: str,
+) -> date:
+    """Return one response's actual period end, or the explicit fallback.
+
+    OpenDART period ranges may contain both a start and end date. The final
+    date token in each non-blank ``thstrm_dt`` is the statement period end.
+    Mixed or malformed non-blank values fail closed instead of being guessed.
+    """
+    values = {
+        str(row.get("thstrm_dt") or "").strip()
+        for row in rows
+        if str(row.get("thstrm_dt") or "").strip()
+    }
+    if not values:
+        return period_end(bsns_year, reprt_code)
+    parsed: set[date] = set()
+    for value in values:
+        matches = list(_PERIOD_DATE.finditer(value))
+        if not matches:
+            raise OpenDartPeriodEndError(
+                "financial thstrm_dt has no calendar date",
+                reason="INVALID_THSTRM_DT",
+            )
+        match = matches[-1]
+        try:
+            parsed.add(date(
+                int(match.group("year")),
+                int(match.group("month")),
+                int(match.group("day")),
+            ))
+        except ValueError as error:
+            raise OpenDartPeriodEndError(
+                "financial thstrm_dt has an invalid calendar date",
+                reason="INVALID_THSTRM_DT",
+            ) from error
+    if len(parsed) != 1:
+        raise OpenDartPeriodEndError(
+            "financial rows contain mixed thstrm_dt period ends",
+            reason="MIXED_THSTRM_DT",
+        )
+    return next(iter(parsed))
+
+
+def _receipt_date(receipt: str) -> date:
+    try:
+        return datetime.strptime(receipt[:8], "%Y%m%d").date()
+    except (TypeError, ValueError) as error:
+        raise OpenDartPeriodEndError(
+            "financial receipt prefix is not a calendar date",
+            reason="INVALID_RECEIPT_DATE",
+        ) from error
 
 
 def _select_account(
@@ -386,8 +461,8 @@ def _aware_utc(value: str) -> datetime:
 __all__ = [
     "CORP_CODE_URL", "DAILY_LIMIT_STATUS", "DOCUMENTED_DAILY_LIMIT",
     "FINANCIAL_STATEMENT_URL", "NO_DATA_STATUS", "OpenDartDailyLimitError",
-    "OpenDartFundamentalsError", "OpenDartRequest", "REPORT_CODES",
+    "OpenDartFundamentalsError", "OpenDartPeriodEndError", "OpenDartRequest", "REPORT_CODES",
     "STATEMENT_SCOPES", "corp_code_request", "financial_statement_request",
     "normalize_quarter", "parse_corp_code_zip", "parse_financial_statement",
-    "period_end",
+    "period_end", "report_period_end",
 ]

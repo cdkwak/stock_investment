@@ -27,9 +27,11 @@ FRED `VIXCLS`는 다음 미국 영업일 약 08:40 CT에 공개된다. 06:00 KST
 
 ## 호환성과 경고
 
-`artifacts/daily_health/universe_data_v2_20260819.json` 파일명 날짜는 호환 경로일 뿐
-신선도 기준이 아니다. 코드가 파일명으로 최신본을 고르지 않으며, 파일 내부의
-timezone-aware `as_of`가 생성 기준시각이다.
+`artifacts/daily_health/universe_data_v2_20260819.json` 파일명 날짜는 기존 소비자를
+위한 호환 경로일 뿐 신선도 기준이 아니다. 재생성기는 이 파일과 함께 안정 최신
+포인터 `artifacts/daily_health/universe_data_v2_latest.json`도 원자적으로 쓴다.
+데이터 페이지는 최신 포인터를 우선 읽고, 포인터가 없을 때만 호환 경로를 읽는다.
+두 파일 모두 내부의 timezone-aware `as_of`가 생성 기준시각이다.
 
 실행 중인 코드보다 새 artifact에 등록 ID가 먼저 생겨도 알려진 행은 계속 표시한다.
 모르는 ID는 정렬된 경고 목록과 데이터 페이지의 `미등록 N`으로 노출하며 전체 화면을
@@ -44,6 +46,10 @@ timezone-aware `as_of`가 생성 기준시각이다.
 $env:PYTHONIOENCODING = "utf-8"
 .venv\Scripts\python.exe scripts\maintenance\reconcile_daily_health_artifact.py --artifact artifacts\daily_health\core_data_20260818.json --universe-output artifacts\daily_health\universe_data_v2_20260819.json --execution-log artifacts\scheduler_logs\STOCK_DATA_DAILY_HEALTH_last.json --universe-only
 ```
+
+위 호환 경로를 `--universe-output`으로 유지하면 같은 내용의
+`universe_data_v2_latest.json`이 자동으로 함께 갱신된다. Windows 예약 작업 정의는
+변경할 필요가 없다.
 
 재생성 뒤에는 JSON의 `as_of`, `dataset_count`, `dimension_summary.display_status`,
 `runtime_coverage_failures`와 데이터 페이지의 다섯 타일 및 `미등록 N`을 확인한다.

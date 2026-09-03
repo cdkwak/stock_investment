@@ -892,13 +892,36 @@ def build_chart_symbols(project_root: Path) -> list[dict[str, str]]:
     ]
 
 
+def _normalize_regime_cash_label(
+    regime: dict[str, object], account: dict[str, object],
+) -> dict[str, object]:
+    """Keep an unknown cash balance separate from numeric Treasury weight."""
+    if not account.get("cash_unknown"):
+        return regime
+    rules = regime.get("rules")
+    rows = rules.get("rows") if isinstance(rules, dict) else None
+    if not isinstance(rows, list):
+        return regime
+    try:
+        short_treasury = float(account.get("short_treasury_pct") or 0.0)
+    except (TypeError, ValueError):
+        short_treasury = 0.0
+    for row in rows:
+        if isinstance(row, list) and len(row) >= 3 and row[0] == "현금 · 단기국채":
+            row[1] = f"현금 — · 단기국채 {short_treasury:.0f}%"
+            row[2] = ""
+    return regime
+
+
 def _build_home_payload_uncached(project_root: Path) -> dict[str, object]:
     from stock_web.api.regime import build_regime
 
     sections: dict[str, object] = {}
     account = build_account(project_root)
     sections["account"] = account
-    sections["regime"] = build_regime(project_root, account)
+    sections["regime"] = _normalize_regime_cash_label(
+        build_regime(project_root, account), account,
+    )
     sections["derivatives"] = build_derivatives(project_root)
     sections["health"] = build_health(project_root)
     sections["schedule"] = build_schedule(project_root)

@@ -7,6 +7,7 @@ import pytest
 from stock_data.providers.opendart_fundamentals import (
     OpenDartDailyLimitError,
     OpenDartFundamentalsError,
+    OpenDartPeriodEndError,
     financial_statement_request,
     normalize_quarter,
     parse_corp_code_zip,
@@ -35,11 +36,13 @@ def _account(
     add_amount: str = "",
     report: str = "11014",
     receipt: str = "20260901000001",
+    bsns_year: str = "2025",
+    thstrm_dt: str | None = None,
 ) -> dict[str, object]:
     return {
         "rcept_no": receipt,
         "reprt_code": report,
-        "bsns_year": "2025",
+        "bsns_year": bsns_year,
         "corp_code": "00126380",
         "sj_div": sj_div,
         "sj_nm": "재무제표",
@@ -47,6 +50,7 @@ def _account(
         "account_nm": account_nm,
         "account_detail": "",
         "thstrm_nm": "제 10 기",
+        "thstrm_dt": thstrm_dt,
         "thstrm_amount": amount,
         "thstrm_add_amount": add_amount,
         "frmtrm_nm": "제 9 기",
@@ -146,3 +150,58 @@ def test_request_validation_is_bounded_to_official_codes():
     assert financial_statement_request("00126380", 2025, "11013", "CFS").public_parameters["fs_div"] == "CFS"
     with pytest.raises(OpenDartFundamentalsError):
         financial_statement_request("00126380", 2014, "11013", "CFS")
+
+
+def test_period_end_uses_actual_response_period_for_june_fiscal_year_company():
+    source = [_account(
+        "ifrs-full_Revenue", "매출액", "IS", "120",
+        report="11014", receipt="20260515000001", bsns_year="2026",
+        thstrm_dt="2025.07.01 ~ 2026.03.31",
+    )]
+    _, rows = parse_financial_statement(
+        _payload(source), expected_corp_code="00126380", expected_year=2026,
+        expected_report_code="11014", requested_fs_div="CFS",
+    )
+
+    normalized = normalize_quarter(
+        symbol="093240", rows=rows, retrieved_at="2026-05-15T00:00:00Z",
+    )
+
+    assert normalized["period_end"] == "2026-03-31"
+
+
+def test_period_end_uses_actual_response_period_for_december_fiscal_year_company():
+    source = [_account(
+        "ifrs-full_Revenue", "매출액", "IS", "120",
+        report="11012", receipt="20260814000001", bsns_year="2026",
+        thstrm_dt="2026.01.01 ~ 2026.06.30",
+    )]
+    _, rows = parse_financial_statement(
+        _payload(source), expected_corp_code="00126380", expected_year=2026,
+        expected_report_code="11012", requested_fs_div="CFS",
+    )
+
+    normalized = normalize_quarter(
+        symbol="005930", rows=rows, retrieved_at="2026-08-14T00:00:00Z",
+    )
+
+    assert normalized["period_end"] == "2026-06-30"
+
+
+def test_normalizer_rejects_period_end_later_than_receipt_date():
+    source = [_account(
+        "ifrs-full_Revenue", "매출액", "IS", "120",
+        report="11014", receipt="20260515000001", bsns_year="2026",
+        thstrm_dt="제 57 기 3분기말 2026.09.30 현재",
+    )]
+    _, rows = parse_financial_statement(
+        _payload(source), expected_corp_code="00126380", expected_year=2026,
+        expected_report_code="11014", requested_fs_div="CFS",
+    )
+
+    with pytest.raises(OpenDartPeriodEndError) as raised:
+        normalize_quarter(
+            symbol="093240", rows=rows, retrieved_at="2026-05-15T00:00:00Z",
+        )
+
+    assert raised.value.reason == "PERIOD_END_AFTER_RECEIPT_DATE"

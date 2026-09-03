@@ -288,6 +288,20 @@ def test_home_account_marks_unknown_cash_and_defaults_short_history_to_all() -> 
     assert account["period_label"] == "ALL"
 
 
+def test_regime_cash_label_keeps_unknown_cash_separate_from_treasury_percentage() -> None:
+    regime = {"rules": {"rows": [
+        ["현금 · 단기국채", "표시 불가 · 0%", "/ 최소 0%"],
+    ]}}
+
+    result = home_data._normalize_regime_cash_label(
+        regime, {"cash_unknown": True, "short_treasury_pct": 0.0},
+    )
+
+    assert result["rules"]["rows"][0] == [
+        "현금 · 단기국채", "현금 — · 단기국채 0%", "",
+    ]
+
+
 def test_home_javascript_formatters_cover_tiny_shares_compact_krw_and_pnl_fallback() -> None:
     node = shutil.which("node")
     if node is None:

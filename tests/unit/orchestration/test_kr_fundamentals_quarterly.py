@@ -16,6 +16,7 @@ from stock_data.orchestration.kr_fundamentals_quarterly import (
     prepare_collection,
     promote_checkpoint,
     read_api_key,
+    repair_period_end,
 )
 from stock_data.orchestration.dataset_universe import (
     ConsumerEligibility,
@@ -178,6 +179,36 @@ def test_api_key_compatibility_spelling_and_status_020_checkpoint(tmp_path, monk
     assert blocked_session.calls == []
 
 
+def test_live_phase_counts_and_drops_future_period_end(tmp_path, monkeypatch):
+    monkeypatch.setenv("OPENDART_API_KEY", API_KEY)
+    future_q1 = json.loads(
+        _statement("11013", "20250515000001", revenue=100, op=10, net=8),
+    )
+    for row in future_q1["list"]:
+        row["thstrm_dt"] = "2025.01.01 ~ 2025.06.30"
+    session = _Session([
+        _corp_zip(), json.dumps(future_q1, ensure_ascii=False).encode(),
+        *_operation_bodies(q1_fallback=False)[1:],
+    ])
+
+    result = prepare_collection(
+        tmp_path, symbols=("005930",), years=(2025,), max_calls=6,
+        session=session, sleeper=lambda _: None,
+        now=datetime(2026, 9, 3, 1, 0, tzinfo=timezone.utc),
+    )
+
+    assert result["new_normalized_rows"] == 3
+    assert result["dropped_normalized_rows"] == 1
+    assert result["dropped_rows_by_reason"] == {
+        "PERIOD_END_AFTER_RECEIPT_DATE": 1,
+    }
+    checkpoint = json.loads(Path(result["checkpoint"]).read_text(encoding="utf-8"))
+    assert checkpoint["dropped_normalized_rows"] == 1
+    completed = checkpoint["completed_queries"][0]
+    assert completed["normalization"] == "DROPPED"
+    assert completed["drop_reason"] == "PERIOD_END_AFTER_RECEIPT_DATE"
+
+
 def _normalized_row(
     report: str,
     period_end: str,
@@ -188,9 +219,12 @@ def _normalized_row(
     retrieved_at: str,
     *,
     scope: str = "CFS",
+    symbol: str = "005930",
+    corp_code: str = "00126380",
+    bsns_year: int = 2025,
 ) -> dict[str, object]:
     return {
-        "symbol": "005930", "corp_code": "00126380", "bsns_year": 2025,
+        "symbol": symbol, "corp_code": corp_code, "bsns_year": bsns_year,
         "reprt_code": report, "fs_div": scope, "period_end": period_end,
         "revenue": revenue, "operating_income": op, "net_income": net,
         "total_liabilities": 150, "total_equity": 100, "debt_ratio_pct": 150.0,
@@ -246,3 +280,48 @@ def test_health_refuses_to_mix_cfs_and_ofs_across_four_quarters(tmp_path):
     assert result["net_income_positive_4q"] is None
     assert result["revenue_trend"] == "UNAVAILABLE"
     assert result["debt_ratio_pct"] == 150.0
+
+
+def test_repair_period_end_uses_landing_or_removes_unsafe_row_atomically(tmp_path):
+    rows = [
+        _normalized_row(
+            "11014", "2026-09-30", 100, 10, 8,
+            "20260515000001", "2026-05-15T00:00:00Z",
+            symbol="093240", corp_code="00111111", bsns_year=2026,
+        ),
+        _normalized_row(
+            "11011", "2026-12-31", 100, 10, 8,
+            "20260813000001", "2026-08-13T00:00:00Z",
+            symbol="417310", corp_code="00222222", bsns_year=2026,
+        ),
+    ]
+    target = tmp_path / "data/normalized/kr_fundamentals_quarterly"
+    _write_candidate(
+        pd.DataFrame(rows, columns=KR_FUNDAMENTALS_QUARTERLY.column_names),
+        target, KR_FUNDAMENTALS_QUARTERLY,
+    )
+    landing = (
+        tmp_path / "data/landing/opendart/kr_fundamentals_quarterly"
+        / "20260515T000000Z_00000000000000000000000000000000"
+    )
+    landing.mkdir(parents=True)
+    landing.joinpath("response_0001_financial_statement.json").write_text(
+        json.dumps({"status": "000", "message": "정상", "list": [{
+            "rcept_no": "20260515000001", "corp_code": "00111111",
+            "bsns_year": "2026", "reprt_code": "11014",
+            "thstrm_dt": "2025.07.01 ~ 2026.03.31",
+        }]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    result = repair_period_end(tmp_path)
+
+    assert result == {
+        "status": "REPAIRED", "rows_before": 2, "rows_after": 1,
+        "corrected_rows": 1, "removed_rows": 1,
+    }
+    stored = pd.read_parquet(target / "data.parquet")
+    assert stored[["symbol", "period_end"]].astype(str).to_dict("records") == [{
+        "symbol": "093240", "period_end": "2026-03-31",
+    }]
+    assert not list(target.parent.glob(".kr_fundamentals_quarterly.repair.*"))

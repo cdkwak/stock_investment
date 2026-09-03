@@ -8,6 +8,7 @@ dataset roots. Provider status 020 is terminal for the current provider day.
 
 from __future__ import annotations
 
+from collections import Counter
 from datetime import date, datetime, time as daytime, timedelta, timezone
 import hashlib
 import json
@@ -32,12 +33,14 @@ from stock_data.providers.opendart_fundamentals import (
     DOCUMENTED_DAILY_LIMIT,
     OpenDartDailyLimitError,
     OpenDartFundamentalsError,
+    OpenDartPeriodEndError,
     REPORT_CODES,
     corp_code_request,
     financial_statement_request,
     normalize_quarter,
     parse_corp_code_zip,
     parse_financial_statement,
+    report_period_end,
 )
 from stock_data.storage.contract_arrow import (
     dataframe_to_contract_table,
@@ -202,6 +205,7 @@ def prepare_collection(
     http = session or requests.Session()
     raw_by_query: dict[tuple[str, int, str, str], list[dict[str, object]]] = {}
     new_rows: list[dict[str, object]] = []
+    dropped_rows_by_reason: Counter[str] = Counter()
     try:
         if refresh_map:
             body, retrieved = _capture_request(
@@ -270,9 +274,15 @@ def prepare_collection(
             if chosen_rows and chosen_scope is not None:
                 raw_by_query[(symbol, year, report, chosen_scope)] = chosen_rows
                 q3 = raw_by_query.get((symbol, year, "11014", chosen_scope))
-                new_rows.append(normalize_quarter(
-                    symbol=symbol, rows=chosen_rows, retrieved_at=retrieved_at, q3_rows=q3,
-                ))
+                try:
+                    new_rows.append(normalize_quarter(
+                        symbol=symbol, rows=chosen_rows, retrieved_at=retrieved_at, q3_rows=q3,
+                    ))
+                    completed["normalization"] = "NORMALIZED"
+                except OpenDartPeriodEndError as error:
+                    dropped_rows_by_reason[error.reason] += 1
+                    completed["normalization"] = "DROPPED"
+                    completed["drop_reason"] = error.reason
             _atomic_json(checkpoint_path, checkpoint)
         existing = _read_dataset_optional(normalized_fund_root, KR_FUNDAMENTALS_QUARTERLY)
         incoming = pd.DataFrame(new_rows, columns=KR_FUNDAMENTALS_QUARTERLY.column_names)
@@ -282,6 +292,9 @@ def prepare_collection(
             candidate_frame = existing
         else:
             candidate_frame = pd.concat([existing, incoming], ignore_index=True)
+        candidate_frame, retained_future_drops = _drop_future_period_end_rows(candidate_frame)
+        if retained_future_drops:
+            dropped_rows_by_reason["PERIOD_END_AFTER_RECEIPT_DATE"] += retained_future_drops
         if not candidate_frame.empty:
             candidate_frame = candidate_frame.drop_duplicates(
                 list(KR_FUNDAMENTALS_QUARTERLY.primary_key), keep="first"
@@ -308,6 +321,8 @@ def prepare_collection(
             ),
             "candidate_fundamentals_fingerprint": _fingerprint(fund_candidate),
             "new_normalized_rows": len(new_rows),
+            "dropped_normalized_rows": sum(dropped_rows_by_reason.values()),
+            "dropped_rows_by_reason": dict(sorted(dropped_rows_by_reason.items())),
             "completed_at_utc": datetime.now(timezone.utc).isoformat(),
         })
         checkpoint["approval_digest"] = approval_digest(checkpoint)
@@ -316,6 +331,8 @@ def prepare_collection(
             "event": "RUN_COMPLETED", "recorded_at_utc": datetime.now(timezone.utc).isoformat(),
             "provider_day_kst": provider_day, "http_calls": checkpoint["http_calls"],
             "calls_today": checkpoint["calls_today"], "documented_daily_limit": DOCUMENTED_DAILY_LIMIT,
+            "dropped_normalized_rows": checkpoint["dropped_normalized_rows"],
+            "dropped_rows_by_reason": checkpoint["dropped_rows_by_reason"],
         }, key)
         return {
             "status": checkpoint["status"],
@@ -324,6 +341,8 @@ def prepare_collection(
             "http_calls": checkpoint["http_calls"],
             "calls_today": checkpoint["calls_today"],
             "new_normalized_rows": len(new_rows),
+            "dropped_normalized_rows": checkpoint["dropped_normalized_rows"],
+            "dropped_rows_by_reason": checkpoint["dropped_rows_by_reason"],
             "remaining_queries": checkpoint["remaining_queries"],
         }
     except Exception as error:
@@ -359,6 +378,7 @@ def approval_digest(checkpoint: Mapping[str, object]) -> str:
         "candidate_fundamentals", "candidate_map_fingerprint", "candidate_map_state",
         "candidate_map_state_fingerprint",
         "candidate_fundamentals_fingerprint", "new_normalized_rows",
+        "dropped_normalized_rows", "dropped_rows_by_reason",
     )
     payload = {key: checkpoint.get(key) for key in keys}
     return hashlib.sha256(
@@ -431,6 +451,73 @@ def promote_checkpoint(
 
     _replace_roots(replacements, finalize=finalize)
     return promoted
+
+
+def repair_period_end(project_root: Path) -> dict[str, object]:
+    """Repair unsafe retained period ends from immutable Landing responses.
+
+    Only rows whose period end is later than the filing receipt are candidates.
+    A row is corrected when retained Landing data supplies one unambiguous safe
+    ``thstrm_dt`` end date; otherwise it is removed. The complete dataset root
+    is replaced atomically and no credential or network access is used.
+    """
+    project_root = Path(project_root).resolve()
+    target = project_root / "data/normalized/kr_fundamentals_quarterly"
+    frame = _read_dataset_optional(target, KR_FUNDAMENTALS_QUARTERLY)
+    if frame.empty:
+        return {
+            "status": "NO_CHANGES", "rows_before": 0, "rows_after": 0,
+            "corrected_rows": 0, "removed_rows": 0,
+        }
+    unsafe = _future_period_end_mask(frame)
+    if not unsafe.any():
+        _validate_fundamentals(frame)
+        return {
+            "status": "NO_CHANGES", "rows_before": len(frame), "rows_after": len(frame),
+            "corrected_rows": 0, "removed_rows": 0,
+        }
+
+    landing = _landing_period_ends(
+        project_root / "data/landing/opendart/kr_fundamentals_quarterly"
+    )
+    repaired = frame.copy()
+    remove_indices: list[object] = []
+    corrected = 0
+    for index, row in repaired.loc[unsafe].iterrows():
+        key = (
+            str(row["rcept_no"]), str(row["corp_code"]),
+            int(row["bsns_year"]), str(row["reprt_code"]),
+        )
+        receipt_date = datetime.strptime(key[0][:8], "%Y%m%d").date()
+        candidates = {
+            value for value in landing.get(key, set()) if value <= receipt_date
+        }
+        if len(candidates) == 1:
+            repaired.at[index, "period_end"] = next(iter(candidates))
+            corrected += 1
+        else:
+            remove_indices.append(index)
+    if remove_indices:
+        repaired = repaired.drop(index=remove_indices)
+    repaired = repaired.sort_values(
+        list(KR_FUNDAMENTALS_QUARTERLY.sort_key), kind="stable",
+    ).reset_index(drop=True)
+    _validate_fundamentals(repaired)
+
+    candidate = target.with_name(f".{target.name}.repair.{uuid4().hex}")
+    try:
+        _write_candidate(repaired, candidate, KR_FUNDAMENTALS_QUARTERLY)
+        _replace_roots(((candidate, target),))
+    finally:
+        if candidate.exists():
+            shutil.rmtree(candidate)
+    return {
+        "status": "REPAIRED",
+        "rows_before": len(frame),
+        "rows_after": len(repaired),
+        "corrected_rows": corrected,
+        "removed_rows": len(remove_indices),
+    }
 
 
 def latest_fundamental_rows(frame: pd.DataFrame, as_of: date | datetime) -> pd.DataFrame:
@@ -606,18 +693,16 @@ def _validate_fundamentals(frame: pd.DataFrame) -> None:
     retrieved = pd.to_datetime(frame["retrieved_at"], utc=True, errors="coerce")
     if retrieved.isna().any():
         raise FundamentalsRefreshError("fundamentals retrieved_at is invalid")
-    expected_periods = frame.apply(
-        lambda row: {
-            "11013": f"{int(row['bsns_year']):04d}-03-31",
-            "11012": f"{int(row['bsns_year']):04d}-06-30",
-            "11014": f"{int(row['bsns_year']):04d}-09-30",
-            "11011": f"{int(row['bsns_year']):04d}-12-31",
-        }[row["reprt_code"]],
-        axis=1,
+    actual_periods = pd.to_datetime(frame["period_end"], errors="coerce")
+    if actual_periods.isna().any():
+        raise FundamentalsRefreshError("fundamentals period_end is invalid")
+    receipt_dates = pd.to_datetime(
+        frame["rcept_no"].astype(str).str[:8], format="%Y%m%d", errors="coerce",
     )
-    actual_periods = pd.to_datetime(frame["period_end"], errors="coerce").dt.strftime("%Y-%m-%d")
-    if actual_periods.isna().any() or not actual_periods.equals(expected_periods):
-        raise FundamentalsRefreshError("fundamentals period_end differs from report convention")
+    if receipt_dates.isna().any():
+        raise FundamentalsRefreshError("fundamentals receipt date is invalid")
+    if _future_period_end_mask(frame).any():
+        raise FundamentalsRefreshError("fundamentals period_end is later than receipt date")
     if not frame["source_terms_ref"].eq("https://opendart.fss.or.kr/intro/terms.do").all():
         raise FundamentalsRefreshError("fundamentals source terms reference differs")
     equity = pd.to_numeric(frame["total_equity"], errors="coerce")
@@ -627,6 +712,58 @@ def _validate_fundamentals(frame: pd.DataFrame) -> None:
     actual = pd.to_numeric(frame["debt_ratio_pct"], errors="coerce")
     if not ((actual.isna() & expected.isna()) | (actual.sub(expected).abs() <= 1e-9)).all():
         raise FundamentalsRefreshError("fundamentals debt ratio differs from inputs")
+
+
+def _future_period_end_mask(frame: pd.DataFrame) -> pd.Series:
+    periods = pd.to_datetime(frame["period_end"], errors="coerce")
+    receipts = pd.to_datetime(
+        frame["rcept_no"].astype(str).str[:8], format="%Y%m%d", errors="coerce",
+    )
+    return periods.notna() & receipts.notna() & (periods > receipts)
+
+
+def _drop_future_period_end_rows(frame: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    if frame.empty:
+        return frame, 0
+    mask = _future_period_end_mask(frame)
+    return frame.loc[~mask].reset_index(drop=True), int(mask.sum())
+
+
+def _landing_period_ends(
+    landing_root: Path,
+) -> dict[tuple[str, str, int, str], set[date]]:
+    results: dict[tuple[str, str, int, str], set[date]] = {}
+    if not landing_root.exists():
+        return results
+    for path in sorted(landing_root.glob("*/response_*_financial_statement.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+        items = payload.get("list") if isinstance(payload, dict) else None
+        if not isinstance(items, list):
+            continue
+        grouped: dict[tuple[str, str, int, str], list[Mapping[str, object]]] = {}
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            try:
+                key = (
+                    str(item["rcept_no"]), str(item["corp_code"]),
+                    int(item["bsns_year"]), str(item["reprt_code"]),
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+            grouped.setdefault(key, []).append(item)
+        for key, rows in grouped.items():
+            try:
+                value = report_period_end(
+                    rows, bsns_year=key[2], reprt_code=key[3],
+                )
+            except OpenDartFundamentalsError:
+                continue
+            results.setdefault(key, set()).add(value)
+    return results
 
 
 def _read_dataset(root: Path, contract: object) -> pd.DataFrame:
@@ -821,5 +958,5 @@ __all__ = [
     "REQUEST_SPACING_SECONDS", "REQUEST_TIMEOUT_SECONDS", "approval_digest",
     "fundamental_health", "latest_fundamental_rows", "load_universe_symbols",
     "load_watchlist_symbols", "prepare_collection", "promote_checkpoint",
-    "read_api_key",
+    "read_api_key", "repair_period_end",
 ]

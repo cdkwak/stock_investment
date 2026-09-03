@@ -66,6 +66,12 @@ an account-row response field. The collector therefore validates the request
 scope and attaches it to every parsed row. If a payload happens to include an
 `fs_div` field, it must agree with the request.
 
+`period_end` uses the final date token in a non-blank response `thstrm_dt`
+(including range forms such as `2026.01.01 ~ 2026.06.30`). The calendar-quarter
+mapping by `reprt_code` is used only when `thstrm_dt` is absent. Every normalized
+row must satisfy `period_end <= rcept_no[:8]`; an unsafe row is excluded and its
+reason is counted in the run checkpoint/receipt before candidate promotion.
+
 ## Account mapping and quarter values
 
 | Scanner fact | Preferred standard IDs | Explicit Korean-name fallback | Statement / amount |
@@ -93,9 +99,9 @@ missing or equity is zero/negative.
 - The guide does not guarantee that the listed standard account IDs or Korean
   names are uniform across all issuers. The deterministic ID/name table above
   is project mapping policy and must be extended only with retained evidence.
-- The guide does not publish an exact fiscal-period-end response field for this
-  endpoint. `03-31`, `06-30`, `09-30`, and `12-31` are a calendar-quarter
-  project convention and may be wrong for non-calendar-year issuers.
+- When a response omits `thstrm_dt`, `03-31`, `06-30`, `09-30`, and `12-31`
+  remain an explicit fallback convention. This fallback is not evidence of a
+  non-calendar-year issuer's actual fiscal period.
 - `013` is officially no data, but using an OFS call after a CFS `013` is a
   project fallback rule, not an OpenDART guarantee that no consolidated filing
   exists or will later appear.
@@ -130,6 +136,17 @@ zero network access:
 $env:PYTHONIOENCODING='utf-8'
 .\.venv\Scripts\python.exe scripts\manual\collect\refresh_kr_fundamentals.py --project-root . --promote-checkpoint <checkpoint.json> --confirm-offline-promotion --approval-digest <approval_digest>
 ```
+
+To repair retained unsafe period ends without a network call or API key, run:
+
+```powershell
+$env:PYTHONIOENCODING = "utf-8"
+.\.venv\Scripts\python.exe -c "from pathlib import Path; from stock_data.orchestration.kr_fundamentals_quarterly import repair_period_end; print(repair_period_end(Path('.')))"
+```
+
+The repair recomputes an unsafe row from a matching immutable Landing response
+when it contains one unambiguous safe `thstrm_dt`; otherwise it removes that row.
+It validates the complete result and replaces the Normalized root atomically.
 
 ## Code routes
 

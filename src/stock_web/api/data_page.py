@@ -28,12 +28,17 @@ OPERATIONAL = {
     "READY": "운영 가능",
     "READY_WITH_LIMITS": "제한 운영",
     "READY_WITH_FINALITY_GATE": "확정 대기",
+    "IMPLEMENTATION_READY": "구현 준비",
     "MANUAL_ONLY": "수동",
     "BLOCKED": "차단",
     "NOT_APPLICABLE": "해당 없음",
     "UNKNOWN": "미확인",
 }
-BLOCKERS = {"N/A": "없음", "PERMISSION": "권한", "SEMANTICS": "의미 검증"}
+BLOCKERS = {
+    "N/A": "없음", "SOURCE_CONTRACT": "원천 계약", "FINALITY": "확정성",
+    "PERMISSION": "권한", "IMPLEMENTATION": "구현", "ACL": "접근 권한",
+    "SEMANTICS": "의미 검증", "PIT_ONLY": "시점 재현성", "INTENTIONAL": "의도적 중단",
+}
 AUTOMATION = {
     "AUTO_ELIGIBLE": "자동",
     "DEPENDENCY_DRIVEN": "의존 실행",
@@ -46,6 +51,7 @@ AUTOMATION = {
 CADENCE = {
     "DAILY": "일별", "INTRADAY": "장중", "WEEKLY": "주별",
     "SNAPSHOT": "스냅샷", "EVENT_DRIVEN": "이벤트",
+    "MONTHLY": "월별", "ON_DEMAND": "요청 시", "NONE": "해당 없음",
 }
 ROLE = {
     "DERIVED": "파생 데이터", "HISTORICAL_SEGMENT": "과거 구간",
@@ -62,14 +68,14 @@ def _enum(raw: object, labels: dict[str, str]) -> dict[str, str]:
     value = str(raw or "UNKNOWN")
     return {
         "raw": value,
-        "label": labels.get(value, "미확인" if value == "UNKNOWN" else value),
+        "label": labels.get(value, "미확인"),
     }
 
 
 def _automation(raw: object) -> dict[str, str]:
     value = str(raw or "UNKNOWN")
     label = " / ".join(
-        AUTOMATION.get(part.strip(), "미확인" if part.strip() == "UNKNOWN" else part.strip())
+        AUTOMATION.get(part.strip(), "미확인")
         for part in value.split("/")
     )
     return {"raw": value, "label": label}
@@ -110,14 +116,19 @@ def _health_row(row: object) -> dict[str, object]:
     return {
         "dataset": dataset,
         "description": f"{CADENCE.get(cadence, cadence)} · {_dataset_subject(dataset, role)}",
-        "latest": str(getattr(row, "latest")),
-        "expected": str(getattr(row, "expected")),
+        "latest": _display_date(getattr(row, "latest")),
+        "expected": _display_date(getattr(row, "expected")),
         "freshness": {"raw": freshness_raw, "label": freshness_label, "class": freshness_class},
         "operational": _enum(getattr(row, "operational"), OPERATIONAL),
         "blocker": _enum(getattr(row, "blocker"), BLOCKERS),
         "automation": _automation(getattr(row, "automation")),
         "display_reason": str(getattr(row, "display_reason")),
     }
+
+
+def _display_date(raw: object) -> str:
+    value = str(raw or "N/A")
+    return "해당 없음" if value == "N/A" else value
 
 
 def _receipt_time(payload: dict[str, object]) -> str:
@@ -156,7 +167,7 @@ def _result_code(raw: object) -> dict[str, str]:
     ):
         label = f"실패 (코드 {value})"
     elif value in {"—", ""}:
-        label = "기록 없음"
+        label = "—"
     else:
         label = FILTER_LABELS.get(upper, "미확인")
     return {"raw": value, "label": label}
@@ -200,6 +211,7 @@ def load_scheduler_receipts(
             "api_calls": payload.get("api_calls", "—"),
             "result_code": result_code,
             "result_code_display": _result_code(result_code),
+            "has_result_code": str(result_code) not in {"—", ""},
             "failed": failed,
             "older_than_7_days": sort_time == float("-inf") or sort_time < cutoff.timestamp(),
         })
@@ -247,7 +259,10 @@ def load_credential_expiries(project_root: Path, *, today: date | None = None) -
 
 
 def build_data_page_context(project_root: Path, status_filter: str) -> dict[str, object]:
-    service = DailyHealthArtifactService(project_root)
+    latest_artifact = project_root / "artifacts/daily_health/universe_data_v2_latest.json"
+    service = DailyHealthArtifactService(
+        project_root, latest_artifact if latest_artifact.is_file() else None,
+    )
     view = service.load()
     selected = status_filter if status_filter in FILTERS else "OPERATIONAL"
     selected_rows = service.filter_rows(view.rows, selected) if view.artifact_state == "READY" else ()
@@ -263,6 +278,7 @@ def build_data_page_context(project_root: Path, status_filter: str) -> dict[str,
         for raw, (label, css_class) in FRESHNESS.items()
     ]
     receipts = load_scheduler_receipts(project_root)
+    show_result_code = sum(bool(row["has_result_code"]) for row in receipts) >= 2
     return {
         "filters": FILTERS,
         "filter_labels": FILTER_LABELS,
@@ -275,6 +291,7 @@ def build_data_page_context(project_root: Path, status_filter: str) -> dict[str,
         "health_groups": groups,
         "receipts": tuple(row for row in receipts if not row["older_than_7_days"]),
         "older_receipts": tuple(row for row in receipts if row["older_than_7_days"]),
+        "show_result_code": show_result_code,
         "web_preserved_datasets": tuple(
             {"dataset": dataset, "reason": reason}
             for dataset, reason in WEB_PRESERVED_DATASETS.items()

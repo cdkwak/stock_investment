@@ -93,7 +93,7 @@
     <div class="card-head"><b>최근 스케줄러 영수증</b><span class="muted">실패 우선 · 각 상태에서 최근 실행순</span></div>
     <div class="data-table-wrap receipt-wrap">
       <table class="data-table receipt-table">
-        <thead><tr><th>작업명</th><th>상태</th><th>마지막 실행(KST)</th><th>API 호출</th><th>결과 코드</th></tr></thead>
+        <thead><tr><th>작업명</th><th>상태</th><th>마지막 실행(KST)</th><th>API 호출</th>{% if show_result_code %}<th>결과 코드</th>{% endif %}</tr></thead>
         <tbody>
         {% for row in receipts %}
           <tr class="{% if row.failed %}receipt-failed{% endif %}">
@@ -101,10 +101,10 @@
             <td data-label="상태">{{ row.status.label }}</td>
             <td data-label="마지막 실행(KST)" class="num">{{ format_kst(row.finished) }}</td>
             <td data-label="API 호출" class="num">{{ row.api_calls }}</td>
-            <td data-label="결과 코드" class="num">{{ row.result_code_display.label }}</td>
+            {% if show_result_code %}<td data-label="결과 코드" class="num">{{ row.result_code_display.label }}</td>{% endif %}
           </tr>
         {% else %}
-          <tr><td colspan="5" class="muted">최근 7일 스케줄러 영수증 없음</td></tr>
+          <tr><td colspan="{{ 5 if show_result_code else 4 }}" class="muted">최근 7일 스케줄러 영수증 없음</td></tr>
         {% endfor %}
         </tbody>
       </table>
@@ -114,7 +114,7 @@
         <summary>이전 영수증 보기 <span class="num">{{ older_receipts|length }}</span></summary>
         <div class="data-table-wrap receipt-wrap">
           <table class="data-table receipt-table">
-            <thead><tr><th>작업명</th><th>상태</th><th>마지막 실행(KST)</th><th>API 호출</th><th>결과 코드</th></tr></thead>
+            <thead><tr><th>작업명</th><th>상태</th><th>마지막 실행(KST)</th><th>API 호출</th>{% if show_result_code %}<th>결과 코드</th>{% endif %}</tr></thead>
             <tbody>
             {% for row in older_receipts %}
               <tr class="{% if row.failed %}receipt-failed{% endif %}">
@@ -122,7 +122,7 @@
                 <td data-label="상태">{{ row.status.label }}</td>
                 <td data-label="마지막 실행(KST)" class="num">{{ row.finished_label }}</td>
                 <td data-label="API 호출" class="num">{{ row.api_calls }}</td>
-                <td data-label="결과 코드" class="num">{{ row.result_code_display.label }}</td>
+                {% if show_result_code %}<td data-label="결과 코드" class="num">{{ row.result_code_display.label }}</td>{% endif %}
               </tr>
             {% endfor %}
             </tbody>

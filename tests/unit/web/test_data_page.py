@@ -5,6 +5,8 @@ from pathlib import Path
 from stock_web.api.data_page import (
     FILTER_LABELS,
     FRESHNESS,
+    _display_date,
+    _result_code,
     build_data_page_context,
     load_credential_expiries,
     load_scheduler_receipts,
@@ -23,6 +25,8 @@ def test_data_page_uses_five_truthful_korean_health_classes() -> None:
         "OPERATIONAL": "운영 데이터", "DAILY": "일별", "BLOCKED": "차단",
         "ALL": "전체", "UNKNOWN": "미확인",
     }
+    assert _display_date("N/A") == "해당 없음"
+    assert _result_code("—")["label"] == "—"
 
 
 def test_credential_expiries_read_only_dates_and_flag_soon_or_expired(tmp_path: Path) -> None:
@@ -66,10 +70,38 @@ def test_data_page_context_survives_unregistered_health_dataset(tmp_path: Path) 
     assert context["unregistered_dataset_ids"] == ("future_dataset",)
     assert "future_dataset" in str(context["health_warning"])
     assert context["health_summary"]["unregistered_count"] == 1
+    assert context["show_result_code"] is False
     assert next(
         row for group in context["health_groups"] for row in group["rows"]
         if row["dataset"] == "kr_index_daily"
     )["freshness"]["label"] == "정상"
+
+
+def test_data_page_prefers_stable_latest_health_pointer(tmp_path: Path) -> None:
+    root = tmp_path / "artifacts/daily_health"
+    root.mkdir(parents=True)
+    old = {"datasets": [{
+        "dataset": "kr_index_daily", "latest": "2026-09-01",
+        "expected": "2026-09-02", "freshness": "STALE",
+    }]}
+    latest = {"datasets": [{
+        "dataset": "kr_index_daily", "latest": "2026-09-02",
+        "expected": "2026-09-02", "freshness": "CURRENT",
+    }]}
+    (root / "universe_data_v2_20260819.json").write_text(
+        json.dumps(old), encoding="utf-8",
+    )
+    (root / "universe_data_v2_latest.json").write_text(
+        json.dumps(latest), encoding="utf-8",
+    )
+
+    context = build_data_page_context(tmp_path, "ALL")
+    row = next(
+        row for group in context["health_groups"] for row in group["rows"]
+        if row["dataset"] == "kr_index_daily"
+    )
+
+    assert row["latest"] == "2026-09-02"
 
 
 def test_old_scheduler_failure_is_separated_from_recent_receipts(tmp_path: Path) -> None:
@@ -92,6 +124,23 @@ def test_old_scheduler_failure_is_separated_from_recent_receipts(tmp_path: Path)
     assert rows[0]["result_code_display"]["label"] == "성공"
     assert rows[1]["result_code_display"]["label"] == "실패 (코드 1)"
     assert [row["older_than_7_days"] for row in rows] == [False, True]
+    assert build_data_page_context(tmp_path, "ALL")["show_result_code"] is True
+
+
+def test_missing_scheduler_result_code_uses_dash(tmp_path: Path) -> None:
+    root = tmp_path / "artifacts/scheduler_logs"
+    root.mkdir(parents=True)
+    (root / "NO_CODE_last.json").write_text(json.dumps({
+        "task_name": "NO_CODE", "status": "SUCCESS",
+        "finished_at_utc": "2026-09-02T00:00:00+00:00",
+    }), encoding="utf-8")
+
+    row = load_scheduler_receipts(
+        tmp_path, now=datetime(2026, 9, 3, tzinfo=timezone.utc),
+    )[0]
+
+    assert row["result_code_display"]["label"] == "—"
+    assert row["has_result_code"] is False
 
 
 def test_data_template_links_scoped_mobile_css_and_old_receipt_toggle() -> None:
@@ -103,6 +152,7 @@ def test_data_template_links_scoped_mobile_css_and_old_receipt_toggle() -> None:
     assert "이전 영수증 보기" in template
     assert "정상: 최신 ≥ 예상" in template
     assert "수동/보존 {{ health_summary.display_preserved }}" in template
+    assert "{% if show_result_code %}<th>결과 코드</th>{% endif %}" in template
     assert "overflow-x: auto" in css
     assert ".data-page .card-head b { white-space: nowrap; }" in css
     assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in css

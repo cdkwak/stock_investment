@@ -1,4 +1,6 @@
 import importlib.util
+from datetime import date
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,6 +15,31 @@ SPEC = importlib.util.spec_from_file_location("reconcile_daily_health_artifact",
 MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(MODULE)
+
+
+def test_universe_writer_also_updates_stable_latest_pointer(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        MODULE, "validated_runtime_coverage",
+        lambda _root: SimpleNamespace(latest={}, failures={}),
+    )
+    core = tmp_path / "artifacts/daily_health/core.json"
+    core.parent.mkdir(parents=True)
+    core.write_text(json.dumps({
+        "run_id": "stable-latest",
+        "as_of": "2026-09-04T20:30:00+09:00",
+        "datasets": [],
+    }), encoding="utf-8")
+    compatibility = core.parent / "universe_data_v2_20260819.json"
+
+    MODULE.write_universe_health_artifact(
+        project_root=tmp_path, core_artifact=core,
+        universe_output=compatibility,
+        as_of="2026-09-04T20:30:00+09:00",
+    )
+
+    latest = core.parent / "universe_data_v2_latest.json"
+    assert latest.read_bytes() == compatibility.read_bytes()
+    assert json.loads(latest.read_text(encoding="utf-8"))["run_id"] == "stable-latest"
 
 
 def test_freshness_is_independent_of_operational_block():
@@ -607,7 +634,9 @@ def test_opendart_runtime_coverage_uses_latest_source_and_period_dates(
         ),
     ))
 
-    result = runtime_coverage.validated_runtime_coverage(tmp_path)
+    result = runtime_coverage.validated_runtime_coverage(
+        tmp_path, as_of=date(2026, 9, 4),
+    )
 
     assert corp.date_column == "modify_date"
     assert fundamentals.date_column == "period_end"
@@ -615,6 +644,26 @@ def test_opendart_runtime_coverage_uses_latest_source_and_period_dates(
         "kr_corp_code_map": "2026-09-02",
         "kr_fundamentals_quarterly": "2026-06-30",
     }
+
+
+def test_opendart_runtime_coverage_never_exposes_future_period_end(
+    tmp_path, monkeypatch,
+) -> None:
+    monkeypatch.setattr(runtime_coverage, "_PROBES", (
+        runtime_coverage._CoverageProbe(
+            "kr_fundamentals_quarterly", "unused", "period_end",
+            lambda _root: pd.DataFrame({
+                "period_end": ["2026-06-30", "2026-09-30", "2026-12-31"],
+                "rcept_no": ["20260813000001", "20260515000001", "20260813000002"],
+            }),
+        ),
+    ))
+
+    result = runtime_coverage.validated_runtime_coverage(
+        tmp_path, as_of=date(2026, 9, 4),
+    )
+
+    assert result.latest == {"kr_fundamentals_quarterly": "2026-06-30"}
 
 
 def test_derivatives_runtime_coverage_requires_checkpoint_exact_latest(

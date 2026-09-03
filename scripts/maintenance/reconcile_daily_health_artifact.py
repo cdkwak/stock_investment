@@ -19,6 +19,9 @@ from stock_data.orchestration.expected_latest import resolve_expected_latest
 from stock_data.orchestration.runtime_coverage import validated_runtime_coverage
 
 
+LATEST_UNIVERSE_FILENAME = "universe_data_v2_latest.json"
+
+
 def _freshness(row: dict[str, object]) -> str:
     if row.get("freshness_status") == "EXPECTED_LAG":
         return "EXPECTED_LAG"
@@ -344,13 +347,7 @@ def write_universe_health_artifact(
         as_of_override=as_of or datetime.now(timezone.utc).isoformat(),
         project_root=root,
     )
-    universe_output.parent.mkdir(parents=True, exist_ok=True)
-    temporary = universe_output.with_suffix(universe_output.suffix + ".tmp")
-    temporary.write_text(
-        json.dumps(universe, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n",
-        encoding="utf-8",
-    )
-    temporary.replace(universe_output)
+    latest_output = _write_universe_outputs(universe, universe_output)
     if execution_log:
         execution_log.parent.mkdir(parents=True, exist_ok=True)
         log_temporary = execution_log.with_suffix(execution_log.suffix + ".tmp")
@@ -361,9 +358,32 @@ def write_universe_health_artifact(
             "runtime_coverage_validated_count": universe["runtime_coverage_validated_count"],
             "runtime_coverage_failure_count": universe["runtime_coverage_failure_count"],
             "source": str(core_artifact), "output": str(universe_output),
+            "latest_output": str(latest_output),
         }, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
         log_temporary.replace(execution_log)
     return universe
+
+
+def _atomic_json_write(path: Path, payload: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+
+
+def _write_universe_outputs(
+    universe: dict[str, object], universe_output: Path,
+) -> Path:
+    """Write the requested compatibility path and the stable latest pointer."""
+    output = Path(universe_output)
+    latest = output.parent / LATEST_UNIVERSE_FILENAME
+    _atomic_json_write(output, universe)
+    if latest != output:
+        _atomic_json_write(latest, universe)
+    return latest
 
 
 def main() -> int:
@@ -426,13 +446,7 @@ def main() -> int:
     temporary.replace(args.artifact)
     if args.universe_output:
         universe = reconcile_universe(result)
-        args.universe_output.parent.mkdir(parents=True, exist_ok=True)
-        universe_temporary = args.universe_output.with_suffix(args.universe_output.suffix + ".tmp")
-        universe_temporary.write_text(
-            json.dumps(universe, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n",
-            encoding="utf-8",
-        )
-        universe_temporary.replace(args.universe_output)
+        _write_universe_outputs(universe, args.universe_output)
     return 0
 
 
