@@ -234,6 +234,7 @@ def test_representative_registry_is_typed_unique_and_contract_bound() -> None:
         "kr_stock_lending_participant_daily", "kr_vkospi_daily",
         "kr_index_daily", "kr_kospi200_index_daily",
         "kr_index_fundamental_daily", "global_etf_price_daily",
+        "kr_etf_master", "kr_etf_price_daily",
         "global_index_price_daily",
         "kr_market_investor_net_purchase_bridge_daily",
         "kr_short_selling_trading_daily",
@@ -264,11 +265,11 @@ def test_representative_registry_is_typed_unique_and_contract_bound() -> None:
 
 def test_full_dataset_universe_reconciles_contracts_retained_research_and_operations() -> None:
     assert tuple(DATASET_UNIVERSE) == tuple(sorted(DATASET_UNIVERSE))
-    assert len(DATASET_UNIVERSE) == 84
+    assert len(DATASET_UNIVERSE) == 85
     assert set(CONTRACTS) <= set(DATASET_UNIVERSE)
     assert set(DATASET_OPERATIONS) <= set(DATASET_UNIVERSE)
     assert Counter(item.data_role for item in DATASET_UNIVERSE.values()) == {
-        DataRole.SOURCE: 43,
+        DataRole.SOURCE: 44,
         DataRole.SOURCE_OBSERVATION: 8,
         DataRole.RAW_OBSERVATION: 12,
         DataRole.DERIVED: 6,
@@ -277,26 +278,26 @@ def test_full_dataset_universe_reconciles_contracts_retained_research_and_operat
         DataRole.HISTORICAL_SEGMENT: 3,
     }
     assert Counter(item.data_grain for item in DATASET_UNIVERSE.values()) == {
-        DataGrain.DAILY: 63,
+        DataGrain.DAILY: 65,
         DataGrain.WEEKLY: 5,
-        DataGrain.EVENT_DRIVEN: 7,
+        DataGrain.EVENT_DRIVEN: 6,
         DataGrain.SNAPSHOT: 7,
         DataGrain.INTRADAY: 2,
     }
     assert Counter(item.refresh_policy for item in DATASET_UNIVERSE.values()) == {
-        RefreshPolicy.GAP_FILL: 32,
-        RefreshPolicy.APPEND_EVENT: 7,
+        RefreshPolicy.GAP_FILL: 33,
+        RefreshPolicy.APPEND_EVENT: 6,
         RefreshPolicy.UPSTREAM_DEPENDENCY: 11,
         RefreshPolicy.SNAPSHOT_CAPTURE: 7,
         RefreshPolicy.STATIC_COMPLETE: 9,
-        RefreshPolicy.MANUAL_RESEARCH: 10,
+        RefreshPolicy.MANUAL_RESEARCH: 11,
         RefreshPolicy.DISABLED_PENDING_CONTRACT: 8,
     }
     assert Counter(item.operational_status for item in DATASET_UNIVERSE.values()) == {
         UniverseOperationalStatus.READY: 7,
         UniverseOperationalStatus.READY_WITH_FINALITY_GATE: 19,
-        UniverseOperationalStatus.READY_WITH_LIMITS: 13,
-        UniverseOperationalStatus.MANUAL_ONLY: 23,
+        UniverseOperationalStatus.READY_WITH_LIMITS: 15,
+        UniverseOperationalStatus.MANUAL_ONLY: 22,
         UniverseOperationalStatus.BLOCKED: 8,
         UniverseOperationalStatus.NOT_APPLICABLE: 14,
     }
@@ -305,17 +306,17 @@ def test_full_dataset_universe_reconciles_contracts_retained_research_and_operat
         PredictivePitStatus.PIT_LIMITED: 10,
         PredictivePitStatus.PIT_BLOCKED: 55,
         PredictivePitStatus.NON_PREDICTIVE: 9,
-        PredictivePitStatus.RESEARCH_ONLY: 1,
+        PredictivePitStatus.RESEARCH_ONLY: 2,
     }
     assert Counter(item.automation_policy for item in DATASET_UNIVERSE.values()) == {
-        AutomationPolicy.MANUAL_GATE: 18,
+        AutomationPolicy.MANUAL_GATE: 16,
         AutomationPolicy.DEPENDENCY_DRIVEN: 11,
         AutomationPolicy.NO_REFRESH: 9,
-        AutomationPolicy.RESEARCH_ONLY: 10,
+        AutomationPolicy.RESEARCH_ONLY: 11,
         AutomationPolicy.DISABLED: 8,
-        AutomationPolicy.AUTO_ELIGIBLE: 28,
+        AutomationPolicy.AUTO_ELIGIBLE: 30,
     }
-    assert all(sum(counts.values()) == 84 for counts in (
+    assert all(sum(counts.values()) == 85 for counts in (
         Counter(item.data_role for item in DATASET_UNIVERSE.values()),
         Counter(item.data_grain for item in DATASET_UNIVERSE.values()),
         Counter(item.refresh_policy for item in DATASET_UNIVERSE.values()),
@@ -325,7 +326,7 @@ def test_full_dataset_universe_reconciles_contracts_retained_research_and_operat
     ))
     assert Counter(item.prior_disposition for item in DATASET_UNIVERSE.values()) == {
         RegistryDisposition.REGISTERED: 42,
-        RegistryDisposition.INTENTIONALLY_EXCLUDED: 26,
+        RegistryDisposition.INTENTIONALLY_EXCLUDED: 27,
         RegistryDisposition.REGISTRY_MISSING: 16,
     }
     assert {item.dataset_id for item in DATASET_UNIVERSE.values() if item.automation_enabled} == {
@@ -335,6 +336,7 @@ def test_full_dataset_universe_reconciles_contracts_retained_research_and_operat
         "kr_stock_lending_participant_daily", "kr_vkospi_daily",
         "kr_index_daily", "kr_kospi200_index_daily",
         "kr_index_fundamental_daily", "global_etf_price_daily",
+        "kr_etf_master", "kr_etf_price_daily",
         "global_index_price_daily", "global_commodity_futures_daily",
         "kr_market_investor_net_purchase_bridge_daily",
         "kr_short_selling_trading_daily",
@@ -356,8 +358,8 @@ def test_full_dataset_universe_reconciles_contracts_retained_research_and_operat
     }
     assert all(item.registry_present and item.registry_entry == item.dataset_id for item in DATASET_UNIVERSE.values())
     assert sum(item.scheduler_management is SchedulerManagement.NO_REFRESH for item in DATASET_UNIVERSE.values()) == 9
-    assert len(set(item.economic_variable for item in DATASET_UNIVERSE.values())) == 54
-    assert len({path for item in DATASET_UNIVERSE.values() for path in item.physical_artifacts}) == 81
+    assert len(set(item.economic_variable for item in DATASET_UNIVERSE.values())) == 55
+    assert len({path for item in DATASET_UNIVERSE.values() for path in item.physical_artifacts}) == 83
     assert all(
         item.display_consumer_eligibility is not ConsumerEligibility.UNKNOWN
         and item.research_consumer_eligibility is not ConsumerEligibility.UNKNOWN
@@ -378,13 +380,13 @@ def test_dated_dataset_universe_artifact_remains_a_compatible_snapshot() -> None
     assert artifact_ids < set(DATASET_UNIVERSE)
     assert set(DATASET_UNIVERSE) - artifact_ids == {
         "kr_etf_master", "kr_etf_price_daily", "kr_corp_code_map",
-        "kr_fundamentals_quarterly",
+        "kr_fundamentals_quarterly", "research_target_price_consensus",
     }
     enabled = {row["dataset_id"] for row in rows if row["automation_enabled"] == "True"}
     assert enabled == {
         item.dataset_id for item in DATASET_UNIVERSE.values()
         if item.automation_enabled
-    }
+    } - {"kr_etf_master", "kr_etf_price_daily"}
     assert all(row["data_role"] and row["data_grain"] and row["refresh_policy"] for row in rows)
     def artifact_value(value: object) -> str:
         if value is None:
@@ -556,14 +558,14 @@ def test_yahoo_daily_dataset_symbol_registry_includes_new_uncollected_scope() ->
     )
 
 
-def test_daily_gap_status_covers_63_rows_and_never_infers_a_calendar() -> None:
+def test_daily_gap_status_covers_65_rows_and_never_infers_a_calendar() -> None:
     target = date(2026, 8, 17)
     rows = build_daily_universe_gap_status(
         expected_dates={"fred_vix_daily": (target,)},
         retained_dates={"fred_vix_daily": (target,)},
         finality_by_dataset={"fred_vix_daily": "AS_RETRIEVED"},
     )
-    assert len(rows) == 63
+    assert len(rows) == 65
     by_id = {row.dataset_id: row for row in rows}
     assert by_id["fred_vix_daily"].plan_status == "NOOP_IDEMPOTENT"
     assert by_id["fred_vix_daily"].pre_network_noop is True
@@ -623,6 +625,7 @@ def test_disabled_sox_like_candidate_onboards_without_core_branch() -> None:
         "kr_stock_lending_participant_daily", "kr_vkospi_daily",
         "kr_index_daily", "kr_kospi200_index_daily",
         "kr_index_fundamental_daily", "global_etf_price_daily",
+        "kr_etf_master", "kr_etf_price_daily",
         "global_index_price_daily",
         "kr_market_investor_net_purchase_bridge_daily",
         "kr_short_selling_trading_daily",
@@ -890,6 +893,7 @@ def test_daily_lane_readiness_is_complete_and_fail_closed_for_scheduler() -> Non
     expected = {
         "KR_INDEX_DAILY", "KR_INDEX_FUNDAMENTAL_DAILY", "GLOBAL_INDEX_DAILY",
         "FRED_DAILY", "GLOBAL_ETF_DAILY",
+        "KR_ETF_PRICE_DAILY",
         "GLOBAL_COMMODITY_DAILY",
         "MARKET_INVESTOR_DAILY",
         "VKOSPI_DAILY", "CANONICAL_EQUITY_DAILY", "KOSPI200_BREADTH_DAILY",
@@ -906,6 +910,7 @@ def test_daily_lane_readiness_is_complete_and_fail_closed_for_scheduler() -> Non
             "FRED_DAILY", "LENDING_DAILY", "VKOSPI_DAILY", "KR_INDEX_DAILY",
             "KR_INDEX_FUNDAMENTAL_DAILY",
             "GLOBAL_INDEX_DAILY", "GLOBAL_ETF_DAILY", "GLOBAL_COMMODITY_DAILY",
+            "KR_ETF_PRICE_DAILY",
             "MARKET_INVESTOR_DAILY",
             "SHORT_SELLING_DAILY",
             "SHORT_SELLING_BALANCE_DAILY", "SHORT_SELLING_INVESTOR_DAILY",
@@ -990,6 +995,7 @@ def test_core_registry_covers_each_retained_operations_family_without_enabling_s
         "kr_stock_lending_participant_daily", "kr_vkospi_daily",
         "kr_index_daily", "kr_kospi200_index_daily",
         "kr_index_fundamental_daily", "global_etf_price_daily",
+        "kr_etf_master", "kr_etf_price_daily",
         "global_index_price_daily",
         "kr_market_investor_net_purchase_bridge_daily",
         "kr_short_selling_trading_daily",

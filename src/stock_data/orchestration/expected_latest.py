@@ -28,6 +28,7 @@ class ProviderAvailabilityPolicy(StrEnum):
         "CANONICAL_EQUITY_ACCEPTED_D_PLUS_1_1300"
     )
     KRX_POST_CLOSE_1830 = "KRX_POST_CLOSE_1830"
+    KRX_POST_CLOSE_2030 = "KRX_POST_CLOSE_2030"
     KRX_NEXT_TRADING_DAY_0910 = "KRX_NEXT_TRADING_DAY_0910"
     KRX_SHORT_TRADING_T_PLUS_1 = "KRX_SHORT_TRADING_T_PLUS_1"
     KRX_SHORT_BALANCE_T_PLUS_2_1810 = "KRX_SHORT_BALANCE_T_PLUS_2_1810"
@@ -102,6 +103,7 @@ KR_DAILY_LANES = frozenset({
     "SHORT_SELLING_DAILY", "LENDING_DAILY", "LIQUIDITY_CREDIT_DAILY",
     "SHORT_SELLING_BALANCE_DAILY", "SHORT_SELLING_INVESTOR_DAILY",
     "MARKET_INVESTOR_DAILY", "TOSS_KR_TREASURY_DAILY", "LS_T8462_DAILY",
+    "KR_ETF_PRICE_DAILY",
 })
 US_DAILY_LANES = frozenset({
     "GLOBAL_INDEX_DAILY", "GLOBAL_ETF_DAILY", "GLOBAL_COMMODITY_DAILY",
@@ -232,6 +234,14 @@ def policy_for_dataset(dataset: str, lane: str) -> ExpectedLatestPolicy | None:
             ProviderFinality.CONFIRMED,
             ExchangeMarket.KR,
         )
+    if lane == "KR_ETF_PRICE_DAILY":
+        return ExpectedLatestPolicy(
+            ObservationCalendar.XKRX,
+            ProviderAvailabilityPolicy.KRX_POST_CLOSE_2030,
+            ExpectedLagPolicy.NONE,
+            ProviderFinality.AS_RETRIEVED,
+            ExchangeMarket.KR,
+        )
     if lane == "TOSS_KR_TREASURY_DAILY":
         return ExpectedLatestPolicy(
             ObservationCalendar.XKRX,
@@ -339,6 +349,11 @@ def _provider_target(
     if policy.provider_availability_policy is ProviderAvailabilityPolicy.KRX_POST_CLOSE_1830:
         latest_completed = sessions[-1]
         if _at(latest_completed, time(18, 30), "Asia/Seoul") <= as_of:
+            return latest_completed, ProviderAvailability.AVAILABLE
+        return calendar.previous_trading_day(latest_completed), ProviderAvailability.AVAILABLE
+    if policy.provider_availability_policy is ProviderAvailabilityPolicy.KRX_POST_CLOSE_2030:
+        latest_completed = sessions[-1]
+        if _at(latest_completed, time(20, 30), "Asia/Seoul") <= as_of:
             return latest_completed, ProviderAvailability.AVAILABLE
         return calendar.previous_trading_day(latest_completed), ProviderAvailability.AVAILABLE
     if policy.provider_availability_policy is ProviderAvailabilityPolicy.KRX_SHORT_INVESTOR_SAME_DAY_1810:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 import hashlib
 import json
@@ -7,7 +8,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
-from typing import Mapping
+from typing import Callable, Mapping
 from uuid import uuid4
 
 import pandas as pd
@@ -17,7 +18,12 @@ from stock_data.contracts.kr_etf import (
     KR_ETF_PRICE_DAILY,
     infer_kr_etf_leverage_multiple,
 )
+from stock_data.orchestration.exchange_calendar import (
+    ExchangeMarket,
+    ExchangeTradingCalendar,
+)
 from stock_data.providers.pykrx.kr_etf import KrEtfProvider
+from stock_data.providers.pykrx.kr_etf import PykrxEtfClient
 from stock_data.storage.contract_parquet import read_dataset, write_dataset_atomic
 from stock_data.validation.kr_etf import (
     validate_kr_etf_master,
@@ -33,7 +39,10 @@ STATE_SCHEMA = "stock_data.kr_etf_daily_state.v1"
 CHECKPOINT_SCHEMA = "stock_data.kr_etf_daily_checkpoint.v1"
 MAX_SYMBOLS = 10
 MAX_CALENDAR_DAYS = 10
+MAX_SCHEDULER_SESSIONS = 30
 MARKET = "KRX"
+SCHEDULER_LANE = "KR_ETF_PRICE_DAILY"
+WATCHLIST_PATH = Path("artifacts/local_user/watchlists.json")
 
 PYKRX_PRICE_COLUMNS = {
     "시가": "open",
@@ -50,6 +59,15 @@ class KrEtfDailyError(RuntimeError):
     pass
 
 
+@dataclass(frozen=True)
+class KrEtfSymbolWindow:
+    symbol: str
+    start: date
+    end: date
+    latest_before: date | None
+    sessions: tuple[date, ...]
+
+
 def normalize_symbols(values: tuple[str, ...] | list[str]) -> tuple[str, ...]:
     symbols = tuple(str(value).strip() for value in values)
     if not symbols or len(symbols) > MAX_SYMBOLS:
@@ -61,13 +79,155 @@ def normalize_symbols(values: tuple[str, ...] | list[str]) -> tuple[str, ...]:
     return symbols
 
 
-def validate_window(start: date, end: date) -> int:
+def validate_window(
+    start: date, end: date, *, max_calendar_days: int | None = MAX_CALENDAR_DAYS,
+) -> int:
     days = (end - start).days + 1
-    if days < 1 or days > MAX_CALENDAR_DAYS:
+    if days < 1 or (max_calendar_days is not None and days > max_calendar_days):
+        upper = str(max_calendar_days) if max_calendar_days is not None else "unbounded"
         raise ValueError(
-            f"Korean ETF live range must contain 1..{MAX_CALENDAR_DAYS} calendar days"
+            f"Korean ETF live range must contain 1..{upper} calendar days"
         )
     return days
+
+
+def resolve_kr_etf_symbols(project_root: Path) -> tuple[str, ...]:
+    """Return the bounded union of watchlisted and retained current-list ETFs."""
+
+    root = project_root.resolve()
+    selected: set[str] = set()
+    watchlist_path = root / WATCHLIST_PATH
+    if watchlist_path.is_file():
+        payload = _read_json(watchlist_path)
+        lists = payload.get("lists") if payload is not None else None
+        if not isinstance(lists, list):
+            raise KrEtfDailyError("Korean ETF watchlist lists are invalid")
+        for watchlist in lists:
+            if not isinstance(watchlist, dict) or not isinstance(watchlist.get("items"), list):
+                raise KrEtfDailyError("Korean ETF watchlist items are invalid")
+            for item in watchlist["items"]:
+                if not isinstance(item, dict):
+                    raise KrEtfDailyError("Korean ETF watchlist item is invalid")
+                if item.get("market") == MARKET and item.get("security_type") == "ETF":
+                    selected.add(str(item.get("symbol", "")).strip())
+
+    master_root = root / MASTER_ROOT
+    if master_root.exists() and any(master_root.rglob("data.parquet")):
+        master = read_dataset(master_root, KR_ETF_MASTER, validate_kr_etf_master)
+        selected.update(master["symbol"].astype(str))
+
+    if not selected:
+        return ()
+    return normalize_symbols(sorted(selected))
+
+
+def plan_kr_etf_symbol_windows(
+    project_root: Path,
+    *,
+    symbols: tuple[str, ...] | list[str],
+    target_session: date,
+    max_sessions: int = MAX_SCHEDULER_SESSIONS,
+) -> tuple[KrEtfSymbolWindow, ...]:
+    """Plan recent, per-symbol XKRX windows without exceeding the session cap."""
+
+    selected = normalize_symbols(symbols)
+    if max_sessions < 1 or max_sessions > MAX_SCHEDULER_SESSIONS:
+        raise ValueError(f"max_sessions must be between 1 and {MAX_SCHEDULER_SESSIONS}")
+    calendar = ExchangeTradingCalendar(ExchangeMarket.KR)
+    if tuple(calendar.sessions_in_range(target_session, target_session)) != (target_session,):
+        raise ValueError("Korean ETF target must be an XKRX session")
+    latest = _retained_latest_by_symbol(project_root.resolve(), selected)
+    windows: list[KrEtfSymbolWindow] = []
+    for symbol in selected:
+        retained = latest[symbol]
+        if retained is not None and retained >= target_session:
+            continue
+        if retained is None:
+            start = target_session
+            for _ in range(max_sessions - 1):
+                start = calendar.previous_trading_day(start)
+            sessions = tuple(calendar.sessions_in_range(start, target_session))
+        else:
+            start = calendar.next_trading_day(retained)
+            sessions = tuple(calendar.sessions_in_range(start, target_session))
+            if len(sessions) > max_sessions:
+                sessions = sessions[-max_sessions:]
+        if not sessions:
+            continue
+        windows.append(KrEtfSymbolWindow(
+            symbol=symbol,
+            start=sessions[0],
+            end=target_session,
+            latest_before=retained,
+            sessions=sessions,
+        ))
+    return tuple(windows)
+
+
+def run_kr_etf_scheduler_lane(
+    project_root: Path,
+    *,
+    target_session: date,
+    provider_factory: Callable[[], KrEtfProvider] | None = None,
+) -> dict[str, object]:
+    """Run the bounded selected-ETF lane for one completed KRX target session."""
+
+    root = project_root.resolve()
+    symbols = resolve_kr_etf_symbols(root)
+    if not symbols:
+        return _scheduler_result(
+            status="NO_SYMBOLS_CONFIGURED", target_session=target_session,
+            latest_before={}, latest_after={}, api_calls=0, symbols=(),
+        )
+    latest_before = _retained_latest_by_symbol(root, symbols)
+    windows = plan_kr_etf_symbol_windows(
+        root, symbols=symbols, target_session=target_session,
+    )
+    if not windows:
+        return _scheduler_result(
+            status="ALREADY_CURRENT", target_session=target_session,
+            latest_before=latest_before, latest_after=latest_before,
+            api_calls=0, symbols=symbols,
+        )
+
+    active = tuple(window.symbol for window in windows)
+    starts = {window.symbol: window.start for window in windows}
+    provider = (
+        provider_factory()
+        if provider_factory is not None
+        else PykrxEtfClient(manual=True, requested_days=1)
+    )
+    operation = run_kr_etf_daily(
+        root,
+        symbols=active,
+        start=min(starts.values()),
+        end=target_session,
+        provider=provider,
+        symbol_starts=starts,
+        max_calendar_days=None,
+    )
+    latest_after = _retained_latest_by_symbol(root, symbols)
+    observed = _retained_dates_by_symbol(root, active)
+    gaps = {
+        window.symbol: [
+            session.isoformat() for session in window.sessions
+            if session not in observed[window.symbol]
+        ]
+        for window in windows
+    }
+    gaps = {symbol: values for symbol, values in gaps.items() if values}
+    target_missing = any(
+        target_session not in observed[window.symbol] for window in windows
+    )
+    return _scheduler_result(
+        status="EXPECTED_PROVIDER_LAG" if target_missing else "UPDATED",
+        target_session=target_session,
+        latest_before=latest_before,
+        latest_after=latest_after,
+        api_calls=int(operation.get("provider_calls", 0) or 0),
+        symbols=symbols,
+        provider_gap_dates=gaps or None,
+    )
 
 
 def normalize_master(names: Mapping[str, str], *, source_date: date) -> pd.DataFrame:
@@ -131,13 +291,18 @@ def run_kr_etf_daily(
     provider: KrEtfProvider,
     run_id: str | None = None,
     now: datetime | None = None,
+    symbol_starts: Mapping[str, date] | None = None,
+    max_calendar_days: int | None = MAX_CALENDAR_DAYS,
 ) -> dict[str, object]:
     """Capture, read back, validate, and atomically promote one bounded ETF run."""
 
     root = project_root.resolve()
     selected = normalize_symbols(symbols)
-    days = validate_window(start, end)
-    request_key = _request_key(selected, start, end)
+    days = validate_window(start, end, max_calendar_days=max_calendar_days)
+    starts = _normalize_symbol_starts(selected, start, end, symbol_starts)
+    request_key = _request_key(
+        selected, start, end, starts if symbol_starts is not None else None,
+    )
     prior = _successful_request(root, request_key, selected)
     if prior is not None:
         return {
@@ -169,6 +334,7 @@ def run_kr_etf_daily(
         "symbols": list(selected),
         "start": start.isoformat(),
         "end": end.isoformat(),
+        "symbol_starts": {symbol: starts[symbol].isoformat() for symbol in selected},
         "calendar_days": days,
         "max_provider_calls": max_calls,
         "provider_calls": 0,
@@ -198,7 +364,7 @@ def run_kr_etf_daily(
             name = provider.get_etf_ticker_name(symbol)
             name_receipt = _capture_json_new(symbol_dir / "name.json", {"name": name})
             name_receipt["path"] = (symbol_dir / "name.json").relative_to(root).as_posix()
-            raw = provider.get_etf_ohlcv_by_date(start, end, symbol)
+            raw = provider.get_etf_ohlcv_by_date(starts[symbol], end, symbol)
             raw_receipt = _capture_frame_new(symbol_dir / "ohlcv.parquet", raw)
             raw_receipt["path"] = (symbol_dir / "ohlcv.parquet").relative_to(root).as_posix()
             names[symbol] = name
@@ -214,7 +380,9 @@ def run_kr_etf_daily(
 
         incoming_master = normalize_master(names, source_date=end)
         normalized = [
-            normalize_prices(raw_prices[symbol], symbol=symbol, start=start, end=end)
+            normalize_prices(
+                raw_prices[symbol], symbol=symbol, start=starts[symbol], end=end,
+            )
             for symbol in selected
         ]
         nonempty = [frame for frame in normalized if not frame.empty]
@@ -303,7 +471,7 @@ def _successful_request(
     if state.get("schema") != STATE_SCHEMA or not isinstance(state.get("runs"), dict):
         raise KrEtfDailyError("Korean ETF state schema differs")
     record = state["runs"].get(request_key)
-    if not isinstance(record, dict) or not str(record.get("status", "")).startswith("SUCCEEDED"):
+    if not isinstance(record, dict) or record.get("status") != "SUCCEEDED":
         return None
     checkpoint_path = _safe_relative(root, record.get("checkpoint"))
     checkpoint = _read_json(checkpoint_path)
@@ -347,7 +515,7 @@ def _merge_master(root: Path, incoming: pd.DataFrame) -> pd.DataFrame:
     common = set(map(tuple, existing[keys].to_numpy())) & set(map(tuple, incoming[keys].to_numpy()))
     if common:
         compare = [
-            "name", "market", "symbol", "security_type", "listing_status",
+            "name", "security_type", "listing_status",
             "listing_date", "leverage_multiple", "source", "source_operation",
         ]
         old = existing.set_index(keys).loc[sorted(common), compare].reset_index(drop=True)
@@ -466,11 +634,88 @@ def _dataset_manifest(path: Path) -> dict[str, object]:
     return {"files": files, "sha256": digest.hexdigest()}
 
 
-def _request_key(symbols: tuple[str, ...], start: date, end: date) -> str:
-    body = json.dumps({
+def _request_key(
+    symbols: tuple[str, ...], start: date, end: date,
+    symbol_starts: Mapping[str, date] | None,
+) -> str:
+    payload: dict[str, object] = {
         "symbols": list(symbols), "start": start.isoformat(), "end": end.isoformat(),
-    }, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    }
+    if symbol_starts is not None:
+        payload["symbol_starts"] = {
+            symbol: symbol_starts[symbol].isoformat() for symbol in symbols
+        }
+    body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(body).hexdigest()
+
+
+def _normalize_symbol_starts(
+    symbols: tuple[str, ...], start: date, end: date,
+    supplied: Mapping[str, date] | None,
+) -> dict[str, date]:
+    starts = {symbol: start for symbol in symbols} if supplied is None else dict(supplied)
+    if set(starts) != set(symbols):
+        raise ValueError("symbol_starts must define every selected Korean ETF exactly once")
+    if any(not isinstance(value, date) or value < start or value > end for value in starts.values()):
+        raise ValueError("symbol_starts must stay inside the requested range")
+    return starts
+
+
+def _retained_dates_by_symbol(
+    root: Path, symbols: tuple[str, ...],
+) -> dict[str, set[date]]:
+    observed = {symbol: set() for symbol in symbols}
+    price_root = root / PRICE_ROOT
+    if not price_root.exists() or not any(price_root.rglob("data.parquet")):
+        return observed
+    prices = read_dataset(
+        price_root, KR_ETF_PRICE_DAILY, validate_kr_etf_price_daily,
+    )
+    for symbol, group in prices.loc[prices["symbol"].astype(str).isin(symbols)].groupby("symbol"):
+        observed[str(symbol)] = set(pd.to_datetime(group["date"], errors="raise").dt.date)
+    return observed
+
+
+def _retained_latest_by_symbol(
+    root: Path, symbols: tuple[str, ...],
+) -> dict[str, date | None]:
+    return {
+        symbol: max(values) if values else None
+        for symbol, values in _retained_dates_by_symbol(root, symbols).items()
+    }
+
+
+def _scheduler_result(
+    *,
+    status: str,
+    target_session: date,
+    latest_before: Mapping[str, date | None],
+    latest_after: Mapping[str, date | None],
+    api_calls: int,
+    symbols: tuple[str, ...],
+    provider_gap_dates: Mapping[str, list[str]] | None = None,
+) -> dict[str, object]:
+    result: dict[str, object] = {
+        "schema_version": 1,
+        "lane": SCHEDULER_LANE,
+        "status": status,
+        "target_session": target_session.isoformat(),
+        "latest_before": {
+            symbol: value.isoformat() if value is not None else None
+            for symbol, value in latest_before.items()
+        },
+        "latest_after": {
+            symbol: value.isoformat() if value is not None else None
+            for symbol, value in latest_after.items()
+        },
+        "api_calls": api_calls,
+        "retry_count": 0,
+        "predictive_use": False,
+        "symbols": list(symbols),
+    }
+    if provider_gap_dates:
+        result["provider_gap_dates"] = dict(provider_gap_dates)
+    return result
 
 
 def _atomic_json(path: Path, payload: Mapping[str, object]) -> None:
@@ -518,7 +763,9 @@ def _safe_relative(root: Path, value: object) -> Path:
 
 
 __all__ = [
-    "CHECKPOINT_SCHEMA", "KrEtfDailyError", "MAX_CALENDAR_DAYS", "MAX_SYMBOLS",
-    "normalize_master", "normalize_prices", "normalize_symbols", "run_kr_etf_daily",
-    "validate_window",
+    "CHECKPOINT_SCHEMA", "KrEtfDailyError", "KrEtfSymbolWindow",
+    "MAX_CALENDAR_DAYS", "MAX_SCHEDULER_SESSIONS", "MAX_SYMBOLS",
+    "normalize_master", "normalize_prices", "normalize_symbols",
+    "plan_kr_etf_symbol_windows", "resolve_kr_etf_symbols", "run_kr_etf_daily",
+    "run_kr_etf_scheduler_lane", "validate_window",
 ]

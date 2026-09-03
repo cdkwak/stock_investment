@@ -60,6 +60,7 @@ from stock_data.contracts.kr_equity import (
     KR_EQUITY_PRICE_DAILY,
     KR_EQUITY_UNIVERSE_DAILY,
 )
+from stock_data.contracts.kr_etf import KR_ETF_MASTER, KR_ETF_PRICE_DAILY
 from stock_data.contracts.kr_market import KR_MARKET_BREADTH_DAILY
 from stock_data.contracts.kr_short_selling import (
     KR_SHORT_SELLING_BALANCE_DAILY,
@@ -106,6 +107,10 @@ from stock_data.validation.kr_index_fundamental_daily import (
 from stock_data.validation.kr_equity import (
     validate_equity_market_cap,
     validate_equity_price,
+)
+from stock_data.validation.kr_etf import (
+    validate_kr_etf_master,
+    validate_kr_etf_price_daily,
 )
 from stock_data.validation.kr_market import validate_market_breadth
 from stock_data.validation.market_60m import validate_market_price_60m
@@ -327,6 +332,14 @@ _PROBES = (
     _CoverageProbe(
         "kr_equity_price_daily", "data/normalized/kr_equity_price_daily", "date",
         _latest_year_contract_reader(KR_EQUITY_PRICE_DAILY, validate_equity_price),
+    ),
+    _CoverageProbe(
+        "kr_etf_master", "data/normalized/kr_etf_master", "source_date",
+        _contract_reader(KR_ETF_MASTER, validate_kr_etf_master),
+    ),
+    _CoverageProbe(
+        "kr_etf_price_daily", "data/normalized/kr_etf_price_daily", "date",
+        _contract_reader(KR_ETF_PRICE_DAILY, validate_kr_etf_price_daily),
     ),
     _CoverageProbe(
         "kr_equity_market_cap_daily",

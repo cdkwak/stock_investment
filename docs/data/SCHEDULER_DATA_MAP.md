@@ -5,7 +5,7 @@
 기준 시각: `2026-08-27 KST`
 
 이 문서는 Windows 작업 스케줄러의 Data 작업, 논리 스케줄러 레인,
-82개 Dataset Universe, 그리고 Universe 밖의 운영 작업을 사람이 읽기 쉽게
+85개 Dataset Universe, 그리고 Universe 밖의 운영 작업을 사람이 읽기 쉽게
 연결한다. 다음 두 질문에 답하는 문서다.
 
 - 어떤 작업이 어떤 데이터를 담당하는가?
@@ -29,10 +29,10 @@
 
 | 구분 | 개수 | 의미 |
 |---|---:|---|
-| 전체 Dataset Universe | 82 | 논리적 보존·현재 데이터셋 기록 |
-| 자동화 활성 | 39 | 19개 논리 레인에 연결됨. 미연결 0개 |
-| 자동화 비활성 | 43 | 조사한 27개 중 1개는 자동화로 이동, 나머지 수동·연구·이벤트 26, 계약·의미 미확정 8, 갱신하지 않는 보존 자료 9 |
-| 활성 Windows Data 작업 | 13 | 8개 작업이 39개 등록 데이터셋을 담당하고, 5개 작업은 Health·계좌·현재 화면용 운영을 담당 |
+| 전체 Dataset Universe | 85 | 논리적 보존·현재 데이터셋 기록 |
+| 자동화 활성 | 41 | 20개 논리 레인에 연결됨. 미연결 0개 |
+| 자동화 비활성 | 44 | 수동·연구·이벤트, 계약·의미 미확정, 갱신하지 않는 보존 자료 |
+| 활성 Windows Data 작업 | 13 | 8개 작업이 41개 등록 데이터셋을 담당하고, 5개 작업은 Health·계좌·현재 화면용 운영을 담당 |
 | 비활성 과거 작업 | 1 | KB IVSA0070 시장 스냅샷이며 KB 계좌 작업이 아님 |
 
 Windows 작업 하나가 여러 레인을 담당할 수 있고, 레인 하나가 여러 데이터셋을
@@ -45,14 +45,14 @@ Windows 작업 하나가 여러 레인을 담당할 수 있고, 레인 하나가
 | `STOCK_DATA_FRED_DAILY` | 매일 06:00 | `FRED_DAILY`; 자동화 활성 거시경제 데이터 4개 |
 | `STOCK_DATA_GLOBAL_ETF_SOXX_DAILY` | 매일 06:10 | `GLOBAL_ETF_DAILY`; 등록된 8개 심볼의 자동화 활성 ETF 데이터 1개 |
 | `STOCK_DATA_GLOBAL_INDEX_DAILY` | 매일 06:20 | `GLOBAL_INDEX_DAILY`; 자동화 활성 글로벌 지수 데이터 1개 |
-| `STOCK_DATA_DAILY_HEALTH` | 매일 06:30 | 외부 API 호출 없이 82개 typed universe의 Health 산출물 생성·검증; 공급자 데이터 없음 |
-| `STOCK_DATA_TOSS_ACCOUNT_DAILY` | 매일 07:00 | 식별자를 제거한 Toss 읽기 전용 계좌 스냅샷; 82개 시장 데이터 Universe 밖 |
-| `STOCK_DATA_KBSEC_ACCOUNT_DAILY` | 매일 07:10 | 식별자를 제거한 KB `SSQM2952` 읽기 전용 계좌 스냅샷; 82개 시장 데이터 Universe 밖 |
+| `STOCK_DATA_DAILY_HEALTH` | 매일 06:30 | 외부 API 호출 없이 85개 typed universe의 Health 산출물 생성·검증; 공급자 데이터 없음 |
+| `STOCK_DATA_TOSS_ACCOUNT_DAILY` | 매일 07:00 | 식별자를 제거한 Toss 읽기 전용 계좌 스냅샷; 85개 시장 데이터 Universe 밖 |
+| `STOCK_DATA_KBSEC_ACCOUNT_DAILY` | 매일 07:10 | 식별자를 제거한 KB `SSQM2952` 읽기 전용 계좌 스냅샷; 85개 시장 데이터 Universe 밖 |
 | `STOCK_DATA_TOSS_DOMESTIC_30M` | 평일 09:00~15:00, 30분마다 | `000660`, `005930`, `KOSPI`, `KOSDAQ`의 화면용 현재 관측값; 정규화 이력·Canonical 이력 미기록 |
 | `STOCK_DATA_KR_MARKET_DAILY_0910` | 매일 09:10 | `KR_INDEX_FUNDAMENTAL_DAILY`, `SHORT_SELLING_DAILY`, `LIQUIDITY_CREDIT_DAILY` 확인 관측 및 설명용 주식 밸류에이션 관측 |
 | `STOCK_DATA_KR_MARKET_DAILY_1410` | 매일 14:10 | `CANONICAL_EQUITY_DAILY`, `SHORT_SELLING_DAILY`, `LENDING_DAILY` |
 | `STOCK_DATA_BOK_TREASURY_DAILY` | 매일 17:10 | `BOK_TREASURY_OBSERVATION_DAILY`; BOK 국채 발표·최종성 증거를 Landing-first로 수집하며 Canonical 금리로 승격하지 않음 |
-| `STOCK_DATA_KR_MARKET_DAILY_2030` | 매일 20:30 | Canonical·KOSPI200 폭·공매도 거래/잔고/투자자·대차·VKOSPI·국내지수·파생·시장 투자자·유동성/신용·LS t8462 Raw·Toss 국채 OHLC |
+| `STOCK_DATA_KR_MARKET_DAILY_2030` | 매일 20:30 | Canonical 다음 `KR_ETF_PRICE_DAILY`; KOSPI200 폭·공매도 거래/잔고/투자자·대차·VKOSPI·국내지수·파생·시장 투자자·유동성/신용·LS t8462 Raw·Toss 국채 OHLC |
 | `STOCK_DATA_GLOBAL_FUTURES_DAILY` | 매일 22:10 | `GLOBAL_COMMODITY_DAILY`; 자동화 활성 상품선물 데이터 1개 |
 | `STOCK_DATA_YAHOO_MARKET_30M` | 매시 :02/:32 | 현재 화면용 17개 경로: 완료된 30분봉 13개와 공급자 원형 15분봉 4개; 정규화 이력·Backtest 미기록 |
 
@@ -60,7 +60,7 @@ Windows 작업 하나가 여러 레인을 담당할 수 있고, 레인 하나가
 아니다. 비활성 `StockInvestmentRev1-KBSecDailySnapshot` 작업은 별도의
 IVSA0070 시장 스냅샷이며 KB 계좌 자동화로 세면 안 된다.
 
-## 자동화 활성 Dataset Universe: 39개
+## 자동화 활성 Dataset Universe: 41개
 
 | 논리 레인 | 담당 작업·슬롯 | 개수 | 데이터셋 ID |
 |---|---|---:|---|
@@ -71,6 +71,7 @@ IVSA0070 시장 스냅샷이며 KB 계좌 자동화로 세면 안 된다.
 | `BOK_TREASURY_OBSERVATION_DAILY` | `STOCK_DATA_BOK_TREASURY_DAILY` 17:10 | 1 | `bok_ecos_kr_treasury_yield_source_observation` |
 | `KR_INDEX_FUNDAMENTAL_DAILY` | 한국장 09:10 | 1 | `kr_index_fundamental_daily` |
 | `CANONICAL_EQUITY_DAILY` | 한국장 14:10·20:30 | 5 | `kr_equity_canonical_universe_daily`, `kr_equity_market_cap_daily`, `kr_equity_price_daily`, `kr_equity_universe_daily`, `kr_market_breadth_daily` |
+| `KR_ETF_PRICE_DAILY` | 한국장 20:30, Canonical 주식 가격 레인 직후 | 2 | `kr_etf_master`, `kr_etf_price_daily`; 로컬 KRX/ETF 관심종목과 보존 master의 합집합만 수집 |
 | `SHORT_SELLING_DAILY` | 한국장 09:10·14:10·20:30 | 1 | `kr_short_selling_trading_daily` |
 | `SHORT_SELLING_BALANCE_DAILY` | 한국장 20:30 | 1 | `kr_short_selling_balance_daily` |
 | `SHORT_SELLING_INVESTOR_DAILY` | 한국장 20:30 | 1 | `kr_short_selling_investor_daily` |
@@ -83,12 +84,12 @@ IVSA0070 시장 스냅샷이며 KB 계좌 자동화로 세면 안 된다.
 | `VKOSPI_DAILY` | 한국장 20:30 | 1 | `kr_vkospi_daily` |
 | `LS_T8462_DAILY` | 한국장 20:30 | 1 | `ls_t8462_daily_raw`; Raw 전용, Normalized·예측 승격 없음 |
 | `TOSS_KR_TREASURY_DAILY` | 한국장 20:30, T+1 | 1 | `kr_treasury_yield_daily`; 6개 만기 OHLC 원자적 갱신 |
-| **합계** |  | **39** | 자동화 활성 데이터셋은 모두 연결됨 |
+| **합계** |  | **41** | 자동화 활성 데이터셋은 모두 연결됨 |
 
 한국장 슬롯에서 일부 레인을 반복하는 것은 발표 시각, 실패 격리와 제한된 따라잡기를
 위한 의도된 구성이다. 반복 실행이 중복 데이터셋을 만드는 것은 아니다.
 
-## 39개 자동화 데이터셋 밖의 예약 작업
+## 41개 자동화 데이터셋 밖의 예약 작업
 
 아래 작업도 예약 실행되지만, 자동화 활성 이력 데이터셋이 추가된 것으로 세면 안 된다.
 
@@ -99,13 +100,13 @@ IVSA0070 시장 스냅샷이며 KB 계좌 자동화로 세면 안 된다.
 | Toss 국내 현재값 | 정확한 식별자 `000660`, `005930`, `KOSPI`, `KOSDAQ`; 현재 화면 전용 |
 | Toss 계좌 | 식별자를 제거한 읽기 전용 계좌 스냅샷; 종목 탐색·주문·이체·브로커 변경 없음 |
 | KB 계좌 | 식별자를 제거한 읽기 전용 `SSQM2952` 스냅샷; 7개 `kb_*_snapshot` 시장 데이터와 별개 |
-| Daily Health | 외부 API 호출 없이 82개 typed universe를 투영·검증 |
-| BOK 국채 증거 | 17:10 자동 원천 관찰은 39개에 포함되지만 Canonical 금리 승격은 계속 차단 |
+| Daily Health | 외부 API 호출 없이 85개 typed universe를 투영·검증 |
+| BOK 국채 증거 | 17:10 자동 원천 관찰은 41개에 포함되지만 Canonical 금리 승격은 계속 차단 |
 
 보존된 `market_price_15m_observation`과 `market_price_60m_observation` 이력은
 `STATIC_COMPLETE / NO_REFRESH` 상태다. Yahoo 작업은 별도의 현재 상태만 갱신한다.
 
-## 자동화 비활성 Dataset Universe: 43개
+## 자동화 비활성 Dataset Universe: 44개
 
 자동화 비활성이 곧 스케줄러 누락을 뜻하지는 않는다. 현재 분류는 다음과 같다.
 
@@ -120,11 +121,11 @@ IVSA0070 시장 스냅샷이며 KB 계좌 자동화로 세면 안 된다.
 | `bok_ecos_kr_treasury_yield_source_observation` | BOK 원천 발표 관찰이며 Canonical 금리 아님 | 기존 BOK 17:10 작업 유지; 한국장 묶음에 중복 추가하지 않음 |
 | `kr_treasury_yield_daily` | Toss의 6개 만기 국채 OHLC, BOK 데이터와 의미가 다름 | 기존 한국장 20:30, T+1 대상까지 6회 호출·전 만기 원자적 갱신 |
 
-### 수동·연구·이벤트·미구현 27개 재분류
+### 수동·연구·이벤트·미구현 재분류
 
-판정 결과는 **즉시 자동화 1 / 이벤트형 유지 6 / 수동 스냅샷 유지 7 /
-수동 가격 수집 1 / Raw·연구 유지 7 / 미구현 연구 계약 유지 5**다. 즉시 자동화한
-1개를 제외한 26개는 자동화 비활성 43개에 남는다.
+아래 표는 자동화 비활성 데이터의 상세 경계를 기록한다.
+`kr_etf_master`와 `kr_etf_price_daily`는 검증된 첫 수집 뒤
+`KR_ETF_PRICE_DAILY`로 이동했으므로 더 이상 이 비활성 목록에 포함하지 않는다.
 
 | 데이터셋 ID | 판정 | 스케줄 편입 여부와 이유 |
 |---|---|---|
@@ -132,7 +133,6 @@ IVSA0070 시장 스냅샷이며 KB 계좌 자동화로 세면 안 된다.
 | `kr_equity_dividend` | 이벤트형 유지 | 배당 발생·공시 때 추가하는 이벤트 데이터다. 빈 날까지 매일 행을 만들지 않음 |
 | `kr_equity_dividend_source_observation` | 이벤트형 유지 | 배당 원천 증거다. 이벤트 감지·공식 원천 계약이 확정될 때 이벤트 작업으로 편입 |
 | `kr_equity_master` | 이벤트형 유지 | 종목 신규·변경·상장폐지 이벤트용이다. 일일 가격 레인과 혼합하지 않음 |
-| `kr_etf_master` | 이벤트형 유지 | 명시 심볼의 실행일 현재 KRX 상장 여부와 이름을 보존한다. 현재 목록을 과거로 역투영하지 않으며 가격 자동화와 분리 |
 | `kr_equity_rights_schedule` | 이벤트형 유지 | 권리 일정이 있을 때만 갱신. 일정 의미와 발표 시각 계약 전에는 정기 API 작업 미생성 |
 | `kr_equity_stock_issuance_source_observation` | 이벤트형 유지 | 발행 이벤트 원천 증거이며 Canonical 기업행위 승격 규칙이 먼저 필요 |
 | `kb_derivatives_summary_snapshot` | 수동 스냅샷 유지 | KB 현재값 조각이다. 이력 일봉이나 계좌 스냅샷이 아니며 전체 조각 원자성·복구 계약이 없음 |
@@ -143,7 +143,6 @@ IVSA0070 시장 스냅샷이며 KB 계좌 자동화로 세면 안 된다.
 | `kb_market_liquidity_snapshot` | 수동 스냅샷 유지 | 현재 유동성 조각. 일별 `kr_market_liquidity_daily`와 자동 병합 금지 |
 | `kb_program_trading_snapshot` | 수동 스냅샷 유지 | 현재 프로그램매매 조각. LS 일별 후보와 키·시점이 다름 |
 | `kr_credit_benchmark_yield_daily` | Raw 연구 유지 | 보존 Raw만 있고 채택 계약·현재 소비자가 없다. 국채·신용잔고와 다른 변수이므로 대신 연결하지 않음 |
-| `kr_etf_price_daily` | 수동 가격 수집 | 명시 심볼·최대 10일의 Landing-first 경로는 준비됐지만 첫 검토 전이며 자동화 비활성. 기존 전시장 Raw ETF 이력과 병합하지 않음 |
 | `kr_equity_foreign_ownership_daily` | Raw 연구 유지 | 전 종목 일별 비용, 공급자 최종성·PIT와 현재 소비 경계가 미확정 |
 | `kr_equity_fundamental_daily` | Raw 연구 유지 | 전 종목 이력 후보다. 현재 화면용 지수/주식 밸류에이션 관찰과 별개라 중복 수집하지 않음 |
 | `kr_etf_ohlcv_daily` | Raw 연구 유지 | ETF 생존편향 없는 유니버스와 최종성 계약이 먼저 필요 |
@@ -208,7 +207,7 @@ IVSA0070 시장 스냅샷이며 KB 계좌 자동화로 세면 안 된다.
 데이터셋의 `automation_enabled`, `scheduler_lane`, 담당 작업 또는 편입 예정 묶음이
 바뀌면 이 표도 갱신한다. 다음 자료와 대조한다.
 
-1. `src/stock_data/orchestration/dataset_universe.py`와 보존된 82행 typed universe
+1. `src/stock_data/orchestration/dataset_universe.py`와 보존된 85행 typed universe
 2. `src/stock_data/orchestration/daily_operations.py`와 공급자별 스케줄러 레인 정의
 3. `scripts/register_data_operations_tasks.ps1`와 배포 준비 작업 정의 정책
 4. 현재 Data Status와 Scheduler Status

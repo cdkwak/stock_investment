@@ -65,6 +65,58 @@ def test_index_fundamental_lane_dry_run_is_registered_and_network_free(
     assert result["phase_targets"] == {"index_fundamentals": "2026-08-14"}
 
 
+def test_kr_etf_lane_dry_run_is_registered_and_network_free(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        scheduler, "run_kr_etf_scheduler_lane",
+        lambda *_args, **_kwargs: pytest.fail("dry-run entered ETF provider operation"),
+    )
+
+    result = run_lane(
+        tmp_path, "KR_ETF_PRICE_DAILY", as_of=AS_OF, dry_run=True,
+    )
+
+    assert result["status"] == "DRY_RUN_PASS"
+    assert result["api_calls"] == 0
+    assert result["automation_dataset_ids"] == [
+        "kr_etf_master", "kr_etf_price_daily",
+    ]
+    assert result["phase_targets"] == {"kr_etf_prices": "2026-08-18"}
+    assert result["provider_availability_policies"] == {
+        "kr_etf_prices": "KRX_POST_CLOSE_2030",
+    }
+
+
+def test_kr_etf_provider_lag_remains_an_expected_lane_outcome(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        scheduler, "run_kr_etf_scheduler_lane",
+        lambda *_args, **_kwargs: {
+            "schema_version": 1,
+            "lane": "KR_ETF_PRICE_DAILY",
+            "status": "EXPECTED_PROVIDER_LAG",
+            "target_session": "2026-08-18",
+            "latest_before": {"123320": "2026-08-17"},
+            "latest_after": {"123320": "2026-08-17"},
+            "api_calls": 3,
+            "retry_count": 0,
+            "predictive_use": False,
+            "symbols": ["123320"],
+            "provider_gap_dates": {"123320": ["2026-08-18"]},
+        },
+    )
+
+    result = scheduler._run_kr_etf_price_phase(
+        tmp_path, "kr_etf_prices", date(2026, 8, 18),
+    )
+
+    assert result["status"] == "EXPECTED_PROVIDER_LAG"
+    assert result["http_calls"] == 3
+    assert result["reason"] == "EXPECTED_PROVIDER_LAG"
+
+
 @pytest.mark.parametrize(
     ("as_of", "expected_target"),
     (

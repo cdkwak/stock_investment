@@ -54,19 +54,19 @@ def test_universe_health_v2_preserves_all_axes_without_inventing_expected_dates(
         {"datasets": rows}, run_id="universe-v2", as_of="2026-08-18T23:00:00+09:00",
     )
     result = MODULE.reconcile_universe(core)
-    assert result["dataset_count"] == 84
+    assert result["dataset_count"] == 85
     assert result["core_operations_count"] == 42
-    assert result["automation_enabled_count"] == 39
+    assert result["automation_enabled_count"] == 41
     assert result["operations_registry_count"] == 42
     assert result["core_operation_missing"] == []
     assert result["generated_at"] == "2026-08-18T23:00:00+09:00"
     assert result["core_reference_time"] == "2026-08-18T23:00:00+09:00"
-    assert result["dimension_summary"]["grain"]["DAILY"] == 63
+    assert result["dimension_summary"]["grain"]["DAILY"] == 65
     assert result["dimension_summary"]["operational"]["BLOCKED"] == 8
     assert result["schema_version"] == 2
-    assert sum(result["dimension_summary"]["display_consumer_eligibility"].values()) == 84
-    assert sum(result["dimension_summary"]["research_consumer_eligibility"].values()) == 84
-    assert sum(result["dimension_summary"]["predictive_consumer_eligibility"].values()) == 84
+    assert sum(result["dimension_summary"]["display_consumer_eligibility"].values()) == 85
+    assert sum(result["dimension_summary"]["research_consumer_eligibility"].values()) == 85
+    assert sum(result["dimension_summary"]["predictive_consumer_eligibility"].values()) == 85
     assert all(
         row["display_consumer_eligibility"]
         and row["display_consumer_reason"]
@@ -106,6 +106,43 @@ def test_universe_health_v2_preserves_all_axes_without_inventing_expected_dates(
         row for row in result["datasets"] if row["dataset"] == "kr_kospi200_index_daily"
     )
     assert pit_safe["predictive_consumer_eligibility"] == "ELIGIBLE"
+
+
+def test_kr_etf_health_rows_use_retained_latest_and_post_close_expectation(
+    tmp_path, monkeypatch,
+) -> None:
+    rows = [{
+        "dataset_id": dataset_id, "actual_latest": None,
+        "expected_latest": None, "freshness_status": "UNKNOWN",
+    } for dataset_id in MODULE.DATASET_OPERATIONS]
+    monkeypatch.setattr(
+        MODULE, "validated_runtime_coverage",
+        lambda _root: SimpleNamespace(
+            latest={
+                "kr_etf_master": "2026-09-02",
+                "kr_etf_price_daily": "2026-09-02",
+            },
+            failures={},
+        ),
+    )
+
+    result = MODULE.reconcile_universe({
+        "run_id": "kr-etf-health",
+        "as_of": "2026-09-02T20:31:00+09:00",
+        "datasets": rows,
+    }, project_root=tmp_path)
+    etf_rows = {
+        row["dataset"]: row for row in result["datasets"]
+        if row["dataset"] in {"kr_etf_master", "kr_etf_price_daily"}
+    }
+
+    assert set(etf_rows) == {"kr_etf_master", "kr_etf_price_daily"}
+    assert all(row["latest"] == "2026-09-02" for row in etf_rows.values())
+    assert all(row["expected"] == "2026-09-02" for row in etf_rows.values())
+    assert all(row["freshness"] == "CURRENT" for row in etf_rows.values())
+    assert all(row["scheduler_lane"] == "KR_ETF_PRICE_DAILY" for row in etf_rows.values())
+    assert all(row["automation_enabled"] is True for row in etf_rows.values())
+    assert all(row["predictive_consumer_eligibility"] == "BLOCKED" for row in etf_rows.values())
 
 
 def test_core_health_projection_serializes_consumer_triage_from_typed_universe():
@@ -153,7 +190,7 @@ def test_universe_health_accepts_historical_core_subset_and_exposes_registry_gap
         "datasets": rows,
     })
 
-    assert result["dataset_count"] == 84
+    assert result["dataset_count"] == 85
     assert result["core_operations_count"] == 39
     assert result["operations_registry_count"] == 42
     assert result["core_operation_missing"] == sorted(omitted)

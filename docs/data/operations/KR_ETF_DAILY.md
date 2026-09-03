@@ -1,49 +1,77 @@
 # Korean watchlist ETF daily operation
 
-Status: `MANUAL_ONLY / AUTOMATION_DISABLED / NOT_YET_COLLECTED / PIT_BLOCKED`.
+Status: `20:30_KST_AUTOMATION_ACTIVE / DISPLAY_ONLY / PIT_BLOCKED`.
 
-This operation retains current-list identity and daily prices for explicitly
-requested Korean ETFs. It does not replace or promote the retained full-market
-Raw `kr_etf_universe_daily` and `kr_etf_ohlcv_daily` research artifacts.
+`KR_ETF_PRICE_DAILY` runs immediately after `CANONICAL_EQUITY_DAILY` in the
+existing 20:30 KST Korean-market bundle. It retains current-list identity and
+daily prices only for a small selected-symbol set. It does not collect the full
+ETF universe and does not replace the retained full-market Raw
+`kr_etf_universe_daily` or `kr_etf_ohlcv_daily` research artifacts.
 
-## Contracts
+## Contracts and symbol scope
 
-- `kr_etf_master`: `symbol`, `name`, provider-level market `KRX`, constant
-  `security_type=ETF`, current `listing_status`, nullable `listing_date`,
-  `leverage_multiple`, and source provenance.
-- `kr_etf_price_daily`: `date`, `symbol`, provider-native OHLC, volume,
-  trading value, nullable NAV, and source provenance. Valid zero no-trade values
-  are retained.
+- `kr_etf_master`: current KRX identity with `security_type=ETF`, listing
+  status, nullable listing date, leverage multiple, and source provenance.
+- `kr_etf_price_daily`: provider-native OHLC, volume, trading value, nullable
+  NAV, and source provenance. Valid zero no-trade values are retained.
+- Scheduled symbols are the sorted union of Korean ETF entries in
+  `artifacts/local_user/watchlists.json` (`market="KRX"` and
+  `security_type="ETF"`) and symbols already present in
+  `data/normalized/kr_etf_master`.
+- Symbols must be six-character uppercase KRX codes; alphanumeric codes such
+  as `0193M0` are valid. The union remains capped at 10 symbols.
 
-The selected pykrx calls do not expose a KOSPI/KOSDAQ board or listing date, so
-the master records `market=KRX` and null listing date. Exposure is the only
-name-derived field: a whitespace-insensitive `인버스2X` token maps to `-2`;
-otherwise `레버리지` or `2X` maps to `2`; every other name maps to `1`. No
-other wording is interpreted.
+To add an ETF, add a matching KRX/ETF entry to the local watchlist. The lane
+discovers it on its next run; no scheduler or registry edit is required.
 
-## Bounded Landing-first flow
+## Scheduled window and result
 
-`scripts/manual/collect/refresh_kr_etf_daily.py` requires explicit `--symbols`,
-`--start`, and `--end`. One occurrence permits at most 10 symbols and 10
-calendar days, uses no retries, and performs exactly `1 + 2 × symbol_count`
-provider calls:
+The lane uses the exchange-calendar helper to select the latest completed XKRX
+session on or before the occurrence time. For each symbol it plans
+`latest retained date + 1` through that target, capped to the most recent 30
+XKRX sessions. An empty retained symbol starts with the same 30-session cap.
+Symbols already covering the target are skipped. If every symbol is current,
+the lane returns `ALREADY_CURRENT` with zero provider calls.
 
-1. `get_etf_ticker_list(end)` proves exact-date current membership;
-2. `get_etf_ticker_name(symbol)` captures each identity;
-3. `get_etf_ohlcv_by_date(start, end, symbol)` captures each price frame,
-   including NAV when provided.
+The result records `schema_version`, `lane`, `status`, `target_session`,
+per-symbol `latest_before` and `latest_after`, `api_calls`, `retry_count=0`,
+`predictive_use=false`, `symbols`, and any `provider_gap_dates`. If a captured
+frame does not contain the target session, the lane returns
+`EXPECTED_PROVIDER_LAG`; this is expected lag, not a failed bundle lane.
 
-Every provider-returned list, name, and frame is written to immutable Landing,
-read back, hashed, and recorded in the run checkpoint before normalization.
-Validated master and price tables use atomic Parquet generations followed by
-contract read-back. Durable request-key state makes an identical successful
-replay a pre-network no-op. Overlapping identity or price conflicts fail closed
-without overwriting prior valid data.
+## Landing-first call boundary
 
-`get_etf_portfolio_deposit_file` is not called: portfolio holdings are not part
-of either contract. Current-list membership must never be backprojected into a
-historical universe, and as-retrieved values do not establish revision finality
-or predictive PIT safety.
+The scheduled wrapper reuses `run_kr_etf_daily`; Landing capture, read-back,
+validation, atomic Parquet promotion, state, and checkpoint logic are not
+duplicated. `PykrxEtfClient(manual=True, requested_days=1)` satisfies the same
+automated pykrx safety gate as the other scheduled pykrx lanes. Credentials are
+loaded from `.env` by the provider and must never be printed.
 
-No Windows task is installed. Automation remains disabled until the first live
-receipt and normalized outputs are reviewed.
+For `N` symbols that need collection, the reused operation performs
+`1 + 2 * N` pykrx data-method calls: one exact-target ticker list, one ticker
+name per symbol, and one OHLCV range per symbol. At the current two-symbol scope
+that is five calls. It makes no retries, never calls the portfolio-deposit-file
+endpoint, and never backprojects current membership. Each response is written
+to immutable Landing and read back before validated Normalized data is written
+atomically.
+
+## Human-run commands
+
+Run from the repository root with Python 3.13 after the 20:30 KST slot. The dry
+run performs no provider calls:
+
+```powershell
+$env:PYTHONIOENCODING='utf-8'; .venv\Scripts\python.exe scripts\maintenance\run_provider_scheduler.py --project-root . --lane KR_ETF_PRICE_DAILY --dry-run
+```
+
+First bounded live lane run (the lane itself enforces at most 10 symbols, 30
+XKRX sessions per symbol, and retry zero):
+
+```powershell
+$env:PYTHONIOENCODING='utf-8'; .venv\Scripts\python.exe scripts\maintenance\run_provider_scheduler.py --project-root . --lane KR_ETF_PRICE_DAILY
+```
+
+The direct manual collector remains available for an explicitly bounded
+diagnostic or recovery range. It retains its separate 10-calendar-day limit.
+Both datasets are display-only: as-retrieved membership and values do not
+establish revision finality or predictive PIT safety.

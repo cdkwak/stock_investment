@@ -48,7 +48,7 @@ from stock_data.providers.pykrx.kr_equity_fundamental_observation import (
 
 
 KR_MARKET_DAILY_BUNDLE = "KR_MARKET_DAILY"
-KR_MARKET_DAILY_LANE_CONTRACT_VERSION = 5
+KR_MARKET_DAILY_LANE_CONTRACT_VERSION = 6
 KR_MARKET_DAILY_TIMEZONE = ZoneInfo("Asia/Seoul")
 KR_MARKET_DAILY_SLOTS = (
     (
@@ -68,6 +68,7 @@ KR_MARKET_DAILY_SLOTS = (
         time(20, 30),
         (
             "CANONICAL_EQUITY_DAILY",
+            "KR_ETF_PRICE_DAILY",
             "KOSPI200_BREADTH_DAILY",
             "SHORT_SELLING_DAILY",
             "SHORT_SELLING_BALANCE_DAILY",
@@ -774,6 +775,8 @@ def _advancement_status(result: dict[str, object]) -> str:
             "CANONICAL_ACCEPTED_DATE", "PARTIAL_LIMIT_REACHED",
         }:
             return "UPDATED"
+        if "EXPECTED_PROVIDER_LAG" in statuses:
+            return "EXPECTED_LAG"
     if result.get("status") in {
         "NOOP", "NOOP_IDEMPOTENT", "CURRENT", "SKIPPED_NON_TRADING_DAY",
     }:
@@ -783,6 +786,8 @@ def _advancement_status(result: dict[str, object]) -> str:
         "CAPTURED_CURRENT_OBSERVATION", "COMPLETE",
     }:
         return "UPDATED"
+    if result.get("status") == "EXPECTED_PROVIDER_LAG":
+        return "EXPECTED_LAG"
     return "UNKNOWN"
 
 

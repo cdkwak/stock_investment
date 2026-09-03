@@ -184,7 +184,7 @@ def test_terminal_occurrence_readback_mismatch_fails_closed(
     assert claimed is True
     assert json.loads(receipt.read_text(encoding="utf-8"))[
         "lane_contract_version"
-    ] == 5
+    ] == 6
     original_replace = MODULE.os.replace
 
     def corrupt_after_replace(source: Path, target: Path) -> None:
@@ -197,7 +197,7 @@ def test_terminal_occurrence_readback_mismatch_fails_closed(
         MODULE._finalize_kr_occurrence_receipt(
             tmp_path, receipt, {
                 "schema_version": 1,
-                "lane_contract_version": 5,
+                "lane_contract_version": 6,
                 "bundle": "KR_MARKET_DAILY",
                 "scheduled_slot": "09:10",
                 "scheduled_for": scheduled_for.isoformat(), "status": "PASS",
@@ -377,6 +377,7 @@ def test_equity_fundamental_valid_empty_waits_for_next_natural_occurrence(
     assert result["target_session"] == "2026-08-26"
     assert result["api_calls"] == 1 and result["retry_count"] == 0
     assert result["reason"] == "VALID_EMPTY_RETRY_NEXT_NATURAL_OCCURRENCE"
+    assert MODULE._advancement_status(result) == "EXPECTED_LAG"
 
 
 def test_equity_fundamental_current_observation_is_api_zero_when_current(
@@ -404,7 +405,8 @@ def test_equity_fundamental_current_observation_is_api_zero_when_current(
         "CANONICAL_EQUITY_DAILY", "SHORT_SELLING_DAILY", "LENDING_DAILY",
     )
     assert MODULE._kr_market_daily_lanes("20:30") == (
-        "CANONICAL_EQUITY_DAILY", "KOSPI200_BREADTH_DAILY",
+        "CANONICAL_EQUITY_DAILY", "KR_ETF_PRICE_DAILY",
+        "KOSPI200_BREADTH_DAILY",
         "SHORT_SELLING_DAILY",
         "SHORT_SELLING_BALANCE_DAILY", "SHORT_SELLING_INVESTOR_DAILY",
         "LENDING_DAILY", "VKOSPI_DAILY",
@@ -570,14 +572,15 @@ def test_kr_market_daily_bundle_contains_lane_failure_and_preserves_gates(
     assert exit_code == 1
     assert payload["status"] == "DEGRADED"
     assert calls == [
-        "CANONICAL_EQUITY_DAILY", "KOSPI200_BREADTH_DAILY",
+        "CANONICAL_EQUITY_DAILY", "KR_ETF_PRICE_DAILY",
+        "KOSPI200_BREADTH_DAILY",
         "SHORT_SELLING_DAILY",
         "SHORT_SELLING_BALANCE_DAILY", "SHORT_SELLING_INVESTOR_DAILY",
         "LENDING_DAILY", "VKOSPI_DAILY",
         "KR_INDEX_DAILY", "DERIVATIVES_PRICE_DAILY", "MARKET_INVESTOR_DAILY",
         "LIQUIDITY_CREDIT_DAILY", "LS_T8462_DAILY", "TOSS_KR_TREASURY_DAILY",
     ]
-    assert payload["outcomes"][2] == {
+    assert payload["outcomes"][3] == {
         "lane": "SHORT_SELLING_DAILY",
         "status": "FAIL",
         "advancement_status": "UNKNOWN",
@@ -588,14 +591,14 @@ def test_kr_market_daily_bundle_contains_lane_failure_and_preserves_gates(
         "started_at_utc": "2026-08-24T11:30:00+00:00",
     }
     assert payload["gated_lanes"] == []
-    assert payload["lane_contract_version"] == 5
+    assert payload["lane_contract_version"] == 6
     assert "sensitive" not in json.dumps(payload)
     assert not (
         tmp_path / "data/state/provider_scheduler/kr_market_daily_bundle.lock"
     ).exists()
 
 
-def test_kr_bundle_keeps_twelve_good_lane_statuses_after_one_lane_failure(
+def test_kr_bundle_keeps_thirteen_good_lane_statuses_after_one_lane_failure(
     tmp_path: Path, monkeypatch,
 ) -> None:
     failed_dataset = "TOSS_KR_TREASURY_DAILY"
@@ -624,7 +627,7 @@ def test_kr_bundle_keeps_twelve_good_lane_statuses_after_one_lane_failure(
     assert terminal["health_projection"] == _health_degraded(failed_dataset)
     good = [item for item in terminal["outcomes"] if item["lane"] != failed_dataset]
     failed = [item for item in terminal["outcomes"] if item["lane"] == failed_dataset]
-    assert len(good) == 12 and len(failed) == 1
+    assert len(good) == 13 and len(failed) == 1
     assert all(item["result"]["scheduler_process_status"] == "SUCCESS" for item in good)
     failed_log = json.loads((
         tmp_path / "artifacts/scheduler_logs/STOCK_DATA_TOSS_KR_TREASURY_DAILY_last.json"
@@ -722,7 +725,8 @@ def test_kr_bundle_malformed_health_report_still_fails_every_lane_after_health(
         (
             "20:30", datetime(2026, 8, 24, 15, 5, tzinfo=timezone.utc),
             (
-                "CANONICAL_EQUITY_DAILY", "KOSPI200_BREADTH_DAILY",
+                "CANONICAL_EQUITY_DAILY", "KR_ETF_PRICE_DAILY",
+                "KOSPI200_BREADTH_DAILY",
                 "SHORT_SELLING_DAILY",
                 "SHORT_SELLING_BALANCE_DAILY", "SHORT_SELLING_INVESTOR_DAILY",
                 "LENDING_DAILY", "VKOSPI_DAILY",
@@ -1057,11 +1061,11 @@ def test_kr_bundle_claims_occurrence_before_lanes_and_repeat_is_api_zero(
 
     assert first_exit == second_exit == 0
     assert first["status"] == "PASS"
-    assert first["lane_contract_version"] == 5
+    assert first["lane_contract_version"] == 6
     assert first_calls
     assert tuple(calls) == first_calls
     assert second["status"] == "NOOP_OCCURRENCE_ALREADY_CLAIMED"
-    assert second["lane_contract_version"] == 5
+    assert second["lane_contract_version"] == 6
     assert second["api_calls"] == 0
     assert second["scheduler_process_status"] == "NOOP_TERMINAL_SUCCESS_PRESERVED"
     receipt = MODULE._kr_occurrence_receipt_path(
@@ -1069,7 +1073,7 @@ def test_kr_bundle_claims_occurrence_before_lanes_and_repeat_is_api_zero(
     )
     terminal = json.loads(receipt.read_text(encoding="utf-8"))
     assert terminal["occurrence_status"] == "TERMINAL_SUCCESS"
-    assert terminal["lane_contract_version"] == 5
+    assert terminal["lane_contract_version"] == 6
     assert terminal["terminal_exit_code"] == 0
     assert terminal["scheduled_for"] == occurrence.isoformat()
     assert terminal["eligible_lanes"] == list(first_calls)

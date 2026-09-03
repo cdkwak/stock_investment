@@ -36,6 +36,7 @@ from stock_data.orchestration.kr_index_daily_live import capture_one_finalized_d
 from stock_data.orchestration.kr_index_fundamental_daily import (
     run_index_fundamental_daily,
 )
+from stock_data.orchestration.kr_etf_daily import run_kr_etf_scheduler_lane
 from stock_data.orchestration.toss_market_investor_daily import (
     is_toss_market_investor_date_complete, refresh_toss_market_investor_daily,
 )
@@ -95,6 +96,14 @@ LANE_SCHEDULES = MappingProxyType({
             "kr_market_breadth_daily",
         ),
         accepted_source="data.go.kr exact-date price/cap and provider-universe streams",
+    ),
+    "KR_ETF_PRICE_DAILY": LaneSchedule(
+        lane="KR_ETF_PRICE_DAILY",
+        cadence_group="KR_POST_CLOSE_2030",
+        market=ExchangeMarket.KR,
+        phases=("kr_etf_prices",),
+        dataset_ids=("kr_etf_master", "kr_etf_price_daily"),
+        accepted_source="KRX/pykrx current ETF identity and selected-symbol OHLCV",
     ),
     "KOSPI200_BREADTH_DAILY": LaneSchedule(
         lane="KOSPI200_BREADTH_DAILY",
@@ -274,6 +283,26 @@ def _run_kospi200_breadth_phase(
         "run_id": None,
         "latest_after": result.market_date,
         "reason": "COMPLETE_EXACT_DATE_KOSPI200_SCOPE",
+    }
+
+
+def _run_kr_etf_price_phase(
+    project_root: Path, phase: str, target: object,
+) -> dict[str, object]:
+    if phase != "kr_etf_prices" or not isinstance(target, date):
+        raise ProviderSchedulerError("invalid Korean ETF price scheduler phase")
+    result = run_kr_etf_scheduler_lane(project_root, target_session=target)
+    phase_status = {
+        "ALREADY_CURRENT": "NOOP_IDEMPOTENT",
+        "NO_SYMBOLS_CONFIGURED": "NOOP_IDEMPOTENT",
+        "UPDATED": "COMPLETE",
+    }.get(str(result["status"]), str(result["status"]))
+    return {
+        **result,
+        "status": phase_status,
+        "http_calls": result["api_calls"],
+        "run_id": None,
+        "reason": str(result["status"]),
     }
 
 
@@ -989,6 +1018,7 @@ def run_lane(
         "fred_fx": "fred_usd_fx_daily",
         "fred_vix": "fred_vix_daily",
         "canonical_equity": "kr_equity_canonical_universe_daily",
+        "kr_etf_prices": "kr_etf_price_daily",
         "kospi200_breadth": "kr_kospi200_breadth_daily",
         "detail": "kr_stock_lending_daily",
         "market": "kr_stock_lending_market_daily",
@@ -1050,6 +1080,7 @@ def run_lane(
         execute = phase_runner or {
             "FRED_DAILY": _run_accepted_phase,
             "CANONICAL_EQUITY_DAILY": _run_canonical_equity_phase,
+            "KR_ETF_PRICE_DAILY": _run_kr_etf_price_phase,
             "KOSPI200_BREADTH_DAILY": _run_kospi200_breadth_phase,
             "LENDING_DAILY": _run_lending_phase,
             "SHORT_SELLING_DAILY": _run_short_selling_phase,
@@ -1077,6 +1108,9 @@ def run_lane(
                 "promoted_symbols": result.get("promoted_symbols"),
                 "failed_symbols": result.get("failed_symbols"),
                 "symbol_results": result.get("symbol_results"),
+                "symbols": result.get("symbols"),
+                "provider_gap_dates": result.get("provider_gap_dates"),
+                "predictive_use": result.get("predictive_use"),
                 "expected_latest": phase_targets[phase].isoformat(),
                 "latest_before": result.get("latest_before"),
                 "latest_after": result.get("latest_after"),

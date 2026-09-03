@@ -11,12 +11,16 @@ from stock_data.contracts.kr_index_fundamental_daily import (
 )
 from stock_data.contracts.global_etf import GLOBAL_ETF_DAILY_SYMBOLS
 from stock_data.contracts.kr_fundamentals import KR_FUNDAMENTALS_CONTRACTS
+from stock_data.contracts.research_target_prices import (
+    RESEARCH_TARGET_PRICE_CONSENSUS,
+)
 
 
 CONTRACTS = {
     **REGISTERED_CONTRACTS,
     KR_INDEX_FUNDAMENTAL_DAILY.name: KR_INDEX_FUNDAMENTAL_DAILY,
     **{contract.name: contract for contract in KR_FUNDAMENTALS_CONTRACTS},
+    RESEARCH_TARGET_PRICE_CONSENSUS.name: RESEARCH_TARGET_PRICE_CONSENSUS,
 }
 
 # Canonical provider-symbol membership for the three Yahoo daily datasets.
@@ -437,7 +441,7 @@ _CLASSIFICATION_IDS = {
     DatasetRefreshClass.DAILY_SOURCE: frozenset("""
         kr_index_daily kr_index_fundamental_daily kr_equity_price_daily
         kr_equity_market_cap_daily kr_equity_universe_daily
-        kr_etf_price_daily
+        kr_etf_master kr_etf_price_daily
         global_index_price_daily global_etf_price_daily global_commodity_futures_daily
         fred_treasury_yield_daily fred_usd_fx_daily fred_vix_daily
         kr_short_selling_balance_daily kr_short_selling_investor_daily kr_market_liquidity_daily
@@ -465,7 +469,7 @@ _CLASSIFICATION_IDS = {
     DatasetRefreshClass.MONTHLY: frozenset(),
     DatasetRefreshClass.EVENT_DRIVEN: frozenset("""
         kr_fundamentals_quarterly
-        kr_equity_master kr_etf_master kr_equity_dividend kr_equity_rights_schedule
+        kr_equity_master kr_equity_dividend kr_equity_rights_schedule
         kr_equity_dividend_source_observation kr_equity_stock_issuance_source_observation
     """.split()),
     DatasetRefreshClass.SNAPSHOT: frozenset("""
@@ -480,7 +484,11 @@ _CLASSIFICATION_IDS = {
         kr_credit_benchmark_yield_daily
     """.split()),
     DatasetRefreshClass.RESEARCH_ONLY: frozenset(
-        {"ls_t1633_program_trading_candidate", "ls_t8462_daily_raw"}
+        {
+            "ls_t1633_program_trading_candidate",
+            "ls_t8462_daily_raw",
+            "research_target_price_consensus",
+        }
     ),
     DatasetRefreshClass.BLOCKED: frozenset("""
         kr_derivatives_futures_daily kr_derivatives_options_daily
@@ -619,7 +627,7 @@ _LANE_GROUPS = {
     "GLOBAL_INDEX_DAILY": frozenset({"global_index_price_daily"}),
     "FRED_DAILY": frozenset({"fred_treasury_yield_daily", "fred_usd_fx_daily", "fred_vix_daily", "us_treasury_spread_daily"}),
     "GLOBAL_ETF_DAILY": frozenset({"global_etf_price_daily"}),
-    "KR_ETF_DAILY": frozenset({"kr_etf_master", "kr_etf_price_daily"}),
+    "KR_ETF_PRICE_DAILY": frozenset({"kr_etf_master", "kr_etf_price_daily"}),
     "GLOBAL_COMMODITY_DAILY": frozenset({"global_commodity_futures_daily"}),
     "VKOSPI_DAILY": frozenset({"kr_vkospi_daily"}),
     "LS_T8462_DAILY": frozenset({"ls_t8462_daily_raw"}),
@@ -664,6 +672,7 @@ _LANE_GROUPS = {
 
 
 _ECONOMIC_GROUPS = {
+    "watchlist_target_price_consensus": ("research_target_price_consensus",),
     "kr_issuer_fundamentals": ("kr_corp_code_map", "kr_fundamentals_quarterly"),
     "kr_equity_universe": ("kr_equity_universe_daily", "kr_equity_canonical_universe_daily"),
     "kr_equity_index_level": ("kr_index_daily", "kr_kospi200_index_daily", "kb_domestic_index_snapshot"),
@@ -694,6 +703,7 @@ _ECONOMIC_GROUPS = {
 
 
 _ECONOMIC_LABELS = {
+    "watchlist_target_price_consensus": "Dated watchlist analyst target-price consensus",
     "kr_issuer_fundamentals": "Korean issuer identity and quarterly financial health",
     "kr_equity_universe": "Korean equity point-in-time universe",
     "kr_equity_index_level": "Korean equity index levels and OHLCV",
@@ -761,7 +771,7 @@ _INTENTIONALLY_EXCLUDED = frozenset("""
     kr_equity_foreign_ownership_daily kr_equity_fundamental_daily kr_etf_universe_daily
     kr_etf_ohlcv_daily kr_index_fundamental_daily kr_credit_benchmark_yield_daily
     kr_equity_sector_classification
-    ls_t1633_program_trading_candidate
+    ls_t1633_program_trading_candidate research_target_price_consensus
 """.split())
 
 
@@ -808,9 +818,10 @@ _SOURCE_OBSERVATION_IDS = frozenset({
 })
 _EVENT_IDS = frozenset({
     "kr_fundamentals_quarterly",
-    "kr_equity_master", "kr_etf_master", "kr_equity_dividend", "kr_equity_rights_schedule",
+    "kr_equity_master", "kr_equity_dividend", "kr_equity_rights_schedule",
     "kr_equity_dividend_source_observation", "kr_equity_stock_issuance_source_observation",
 })
+_CADENCE_OVERRIDES = {"kr_etf_master": "daily"}
 _STATIC_COMPLETE_IDS = _HISTORICAL_SEGMENT_IDS | _RETAINED_HISTORY_ONLY_IDS | frozenset({
     "us_cftc_legacy_futures_only_raw", "us_cftc_legacy_futures_options_combined_raw",
     "us_cftc_tff_futures_only_raw", "us_cftc_disaggregated_futures_only_raw",
@@ -822,6 +833,7 @@ _MANUAL_RESEARCH_IDS = frozenset({
     "kr_equity_short_selling_daily", "kr_equity_program_trading_daily",
     "kr_equity_securities_lending_daily", "kr_equity_credit_trading_daily",
     "kr_investor_flow_daily",
+    "research_target_price_consensus",
 })
 _DISABLED_PENDING_CONTRACT_IDS = frozenset({
     "kr_derivatives_futures_daily", "kr_derivatives_options_daily",
@@ -845,6 +857,7 @@ _FINALITY_GATE_IDS = frozenset({
 })
 _READY_WITH_LIMITS_IDS = frozenset({
     "global_index_price_daily", "global_etf_price_daily", "global_commodity_futures_daily",
+    "kr_etf_master", "kr_etf_price_daily",
     "fred_treasury_yield_daily", "fred_usd_fx_daily", "fred_vix_daily",
     "us_treasury_spread_daily", "kr_treasury_yield_daily",
     "bok_ecos_kr_treasury_yield_source_observation",
@@ -879,6 +892,10 @@ _BLOCK_REASONS = {
 
 
 _PHYSICAL_OVERRIDES = {
+    "research_target_price_consensus": (
+        "landing/research/target_prices/<run_id>",
+        "normalized/research_target_price_consensus",
+    ),
     "kr_corp_code_map": (
         "landing/opendart/kr_fundamentals_quarterly",
         "normalized/kr_corp_code_map",
@@ -1012,7 +1029,9 @@ def _operational_status(dataset_id: str, policy: RefreshPolicy) -> UniverseOpera
 
 
 def _predictive_status(dataset_id: str, operation: object | None) -> PredictivePitStatus:
-    if dataset_id == "ls_t1633_program_trading_candidate":
+    if dataset_id in {
+        "ls_t1633_program_trading_candidate", "research_target_price_consensus",
+    }:
         return PredictivePitStatus.RESEARCH_ONLY
     if dataset_id in _NON_PREDICTIVE:
         return PredictivePitStatus.NON_PREDICTIVE
@@ -1032,6 +1051,7 @@ _AUTO_ENABLED_IDS: frozenset[str] = frozenset({
     "kr_vkospi_daily",
     "kr_index_daily", "kr_kospi200_index_daily", "kr_index_fundamental_daily",
     "global_etf_price_daily",
+    "kr_etf_master", "kr_etf_price_daily",
     "global_index_price_daily", "global_commodity_futures_daily",
     "kr_market_investor_net_purchase_bridge_daily",
     "kr_short_selling_trading_daily",
@@ -1128,6 +1148,7 @@ def build_dataset_universe(operations_registry: Mapping[str, object]) -> Dataset
         else:
             description, layer, source = contract.description, contract.layer, contract.source
             contract_version, cadence = contract.version, contract.frequency
+        cadence = _CADENCE_OVERRIDES.get(dataset_id, cadence)
         refresh_class = _classification(dataset_id)  # deprecated compatibility projection
         operation = operations_registry.get(dataset_id)
         registered = operation is not None
@@ -1159,7 +1180,7 @@ def build_dataset_universe(operations_registry: Mapping[str, object]) -> Dataset
         pit = _predictive_status(dataset_id, operation)
         automation_policy = _automation_policy(dataset_id, role, refresh_policy, operational_status)
         management = _scheduler_management(role, grain, refresh_policy, operational_status)
-        if dataset_id == "ls_t8462_daily_raw":
+        if dataset_id in {"ls_t8462_daily_raw", "research_target_price_consensus"}:
             gui_use = GuiUse.DESCRIPTIVE
         elif dataset_id in _DIRECT_GUI:
             gui_use = GuiUse.DIRECT
