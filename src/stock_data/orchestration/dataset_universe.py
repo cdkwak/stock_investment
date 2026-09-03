@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
+from datetime import date
 from enum import StrEnum
 from types import MappingProxyType
 
@@ -286,6 +287,16 @@ class SchedulerManagement(StrEnum):
     BLOCKED = "BLOCKED"
 
 
+class HealthDisplayStatus(StrEnum):
+    """User-facing operational freshness, separate from provider lag semantics."""
+
+    CURRENT = "CURRENT"
+    LATE = "LATE"
+    FAILED = "FAILED"
+    PRESERVED = "PRESERVED"
+    REFERENCE = "REFERENCE"
+
+
 @dataclass(frozen=True)
 class DatasetUniverseSpec:
     dataset_id: str
@@ -312,6 +323,7 @@ class DatasetUniverseSpec:
     predictive_consumer_eligibility: ConsumerEligibility
     predictive_consumer_reason: ConsumerReasonCode
     scheduler_management: SchedulerManagement
+    health_preservation_reason: str | None
     # Deprecated compatibility fields. New logic must use the orthogonal axes above.
     primary_classification: DatasetRefreshClass
     secondary_roles: tuple[DatasetRefreshClass, ...]
@@ -367,6 +379,8 @@ class DatasetUniverseSpec:
                 raise ValueError("BLOCKED datasets require operational_blocker_reason")
         elif self.operational_blocker_reason is not None:
             raise ValueError("only BLOCKED datasets may carry operational_blocker_reason")
+        if self.health_preservation_reason is not None and not self.health_preservation_reason.strip():
+            raise ValueError("health_preservation_reason must be non-empty text or None")
         if self.data_role in {DataRole.DERIVED, DataRole.PUBLISHED_BRIDGE}:
             if self.refresh_policy is not RefreshPolicy.UPSTREAM_DEPENDENCY:
                 raise ValueError("derived/bridge datasets must refresh from upstream dependencies")
@@ -833,6 +847,7 @@ _EVENT_IDS = frozenset({
     "kr_equity_master", "kr_equity_dividend", "kr_equity_rights_schedule",
     "kr_equity_dividend_source_observation", "kr_equity_stock_issuance_source_observation",
 })
+_HEALTH_REFERENCE_IDS = _EVENT_IDS | frozenset({"kr_corp_code_map"})
 _CADENCE_OVERRIDES = {"kr_etf_master": "daily"}
 _STATIC_COMPLETE_IDS = _HISTORICAL_SEGMENT_IDS | _RETAINED_HISTORY_ONLY_IDS | frozenset({
     "us_cftc_legacy_futures_only_raw", "us_cftc_legacy_futures_options_combined_raw",
@@ -902,6 +917,81 @@ _BLOCK_REASONS = {
     "ls_t8428_surrounding_funds_source_observation": OperationalBlockerReason.SEMANTICS,
     "kr_equity_sector_classification": OperationalBlockerReason.SEMANTICS,
 }
+
+
+_HEALTH_PRESERVATION_REASONS: Mapping[str, str] = MappingProxyType({
+    "bok_ecos_kr_treasury_yield_source_observation": "수동 발행·확정성 관측",
+    "kr_equity_foreign_ownership_daily": "수동 수집 전용",
+    "kr_kospi200_futures_investor_net_purchase_daily": "수동 수집 전용",
+    "kr_etf_ohlcv_daily": "kr_etf_price_daily로 대체됨",
+    "kr_etf_universe_daily": "kr_etf_master로 대체됨",
+    "krx_legacy_kospi200_futures_daily": "레거시 보관본",
+    "krx_legacy_kospi200_options_daily": "레거시 보관본",
+    "kr_kosdaq150_futures_daily": "레거시 보관본",
+    "kr_kosdaq150_options_daily": "레거시 보관본",
+    "research_target_price_consensus": "웹 화면용 수동 참고값",
+})
+
+
+def _health_preservation_reason(
+    dataset_id: str,
+    *,
+    automation_enabled: bool,
+    refresh_policy: RefreshPolicy,
+    operational_status: UniverseOperationalStatus,
+) -> str | None:
+    if dataset_id in _HEALTH_REFERENCE_IDS:
+        return None
+    if dataset_id in _HEALTH_PRESERVATION_REASONS:
+        return _HEALTH_PRESERVATION_REASONS[dataset_id]
+    if automation_enabled:
+        return None
+    if refresh_policy is RefreshPolicy.STATIC_COMPLETE:
+        return "과거 자료 보관본"
+    if operational_status is UniverseOperationalStatus.BLOCKED:
+        return "계약 확인 전 수집 중지"
+    if refresh_policy is RefreshPolicy.MANUAL_RESEARCH:
+        return "연구 근거 보관본"
+    return "수동 수집 전용"
+
+
+def classify_health_display(
+    spec: DatasetUniverseSpec,
+    *,
+    latest: str | None,
+    expected: str | None,
+    freshness: str,
+    runtime_coverage: str = "NOT_PROBED",
+    last_run: object = None,
+) -> tuple[HealthDisplayStatus, str]:
+    """Return one truthful web grade without turning retained data into incidents."""
+
+    if spec.dataset_id in _HEALTH_REFERENCE_IDS:
+        return HealthDisplayStatus.REFERENCE, "최근 보존 이벤트·기간"
+    if spec.health_preservation_reason is not None:
+        return HealthDisplayStatus.PRESERVED, spec.health_preservation_reason
+    last_run_text = (
+        " ".join(str(value) for value in last_run.values())
+        if isinstance(last_run, Mapping)
+        else str(last_run or "")
+    ).upper()
+    if any(token in last_run_text for token in ("FAIL", "ERROR", "BLOCKED")):
+        return HealthDisplayStatus.FAILED, "마지막 실행 실패"
+    try:
+        latest_value = date.fromisoformat(latest) if latest else None
+        expected_value = date.fromisoformat(expected) if expected else None
+    except ValueError:
+        latest_value = expected_value = None
+    if latest_value is not None and expected_value is not None:
+        if latest_value >= expected_value:
+            return HealthDisplayStatus.CURRENT, "최신일이 예상일 이상"
+        if spec.automation_enabled and spec.scheduler_lane != "NO_SCHEDULER_LANE":
+            return HealthDisplayStatus.LATE, "활성 자동화가 예상일보다 늦음"
+    if freshness in {"CURRENT", "EXPECTED_LAG"}:
+        return HealthDisplayStatus.CURRENT, "제공처 발행 정책 내 정상"
+    if freshness == "STALE" and spec.automation_enabled:
+        return HealthDisplayStatus.LATE, "활성 자동화가 예상일보다 늦음"
+    return HealthDisplayStatus.PRESERVED, "실행 가능한 신선도 기준 없음"
 
 
 _PHYSICAL_OVERRIDES = {
@@ -1194,6 +1284,7 @@ def build_dataset_universe(operations_registry: Mapping[str, object]) -> Dataset
         blocker_reason = _BLOCK_REASONS.get(dataset_id)
         pit = _predictive_status(dataset_id, operation)
         automation_policy = _automation_policy(dataset_id, role, refresh_policy, operational_status)
+        automation_enabled = dataset_id in _AUTO_ENABLED_IDS
         management = _scheduler_management(role, grain, refresh_policy, operational_status)
         if dataset_id in {"ls_t8462_daily_raw", "research_target_price_consensus"}:
             gui_use = GuiUse.DESCRIPTIVE
@@ -1228,7 +1319,7 @@ def build_dataset_universe(operations_registry: Mapping[str, object]) -> Dataset
             operational_blocker_reason=blocker_reason,
             predictive_pit_status=pit,
             automation_policy=automation_policy,
-            automation_enabled=dataset_id in _AUTO_ENABLED_IDS,
+            automation_enabled=automation_enabled,
             scheduler_lane=_lane(dataset_id),
             gui_use=gui_use,
             display_consumer_eligibility=display_eligibility,
@@ -1238,6 +1329,12 @@ def build_dataset_universe(operations_registry: Mapping[str, object]) -> Dataset
             predictive_consumer_eligibility=predictive_eligibility,
             predictive_consumer_reason=predictive_reason,
             scheduler_management=management,
+            health_preservation_reason=_health_preservation_reason(
+                dataset_id,
+                automation_enabled=automation_enabled,
+                refresh_policy=refresh_policy,
+                operational_status=operational_status,
+            ),
             primary_classification=refresh_class,
             secondary_roles=(DatasetRefreshClass.BLOCKED,) if pit is PredictivePitStatus.PIT_BLOCKED and refresh_class is not DatasetRefreshClass.BLOCKED else (),
             operations_registry_present_before=registered,
@@ -1264,9 +1361,10 @@ def build_dataset_universe(operations_registry: Mapping[str, object]) -> Dataset
 __all__ = [
     "AutomationPolicy", "ConsumerEligibility", "ConsumerReasonCode",
     "DataGrain", "DataRole", "DatasetRefreshClass",
-    "DatasetUniverseRegistry", "DatasetUniverseSpec", "GuiUse",
+    "DatasetUniverseRegistry", "DatasetUniverseSpec", "GuiUse", "HealthDisplayStatus",
     "OperationalBlockerReason", "PredictivePitStatus", "RefreshPolicy",
     "RegistryDisposition", "SchedulerGroup", "SchedulerManagement",
     "UniverseOperationalStatus", "DATASET_SYMBOL_REGISTRY", "build_dataset_universe",
+    "classify_health_display",
     "validate_consumer_decision",
 ]

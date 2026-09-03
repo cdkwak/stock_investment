@@ -113,6 +113,7 @@ US_DAILY_LANES = frozenset({
 _FRED_H15 = frozenset({"fred_treasury_yield_daily", "us_treasury_spread_daily"})
 _FRED_H10 = frozenset({"fred_usd_fx_daily"})
 _FRED_VIX = frozenset({"fred_vix_daily"})
+_FRED_DAILY_RUN_KST = time(6, 0)
 _XKRX_MANUAL_DATASETS = frozenset({
     "kr_equity_foreign_ownership_daily", "kr_equity_fundamental_daily",
     "kr_equity_program_trading_daily", "kr_equity_sector_classification",
@@ -329,6 +330,12 @@ def _bok_fx_target(as_of: datetime) -> date:
     return candidate
 
 
+def _latest_daily_run(as_of: datetime, run_time: time, zone: str) -> datetime:
+    local = as_of.astimezone(ZoneInfo(zone))
+    run_day = local.date() if local.time() >= run_time else local.date() - timedelta(days=1)
+    return _at(run_day, run_time, zone)
+
+
 def _provider_target(
     policy: ExpectedLatestPolicy, calendar: ExchangeTradingCalendar, as_of: datetime,
 ) -> tuple[date, ProviderAvailability]:
@@ -343,13 +350,15 @@ def _provider_target(
         return calendar.previous_trading_day(release), ProviderAvailability.AVAILABLE
     if policy.provider_availability_policy is ProviderAvailabilityPolicy.FRED_VIX_NEXT_BUSINESS_DAY_0840_CT:
         available = []
-        # VIXCLS is released at 08:40 CT on the next provider business day,
-        # before that day's XNYS session completes.  The most recent completed
-        # observation therefore remains eligible for this release-clock test;
-        # dropping sessions[-1] delays collection by an extra business day.
+        # Health is evaluated against the latest 06:00 KST FRED occurrence.
+        # VIXCLS publishes at about 08:40 CT, well after that run, so a value
+        # that appeared later the same KST day is due at the next occurrence.
+        evaluation_time = _latest_daily_run(
+            as_of, _FRED_DAILY_RUN_KST, "Asia/Seoul",
+        )
         for observation in sessions:
             release = calendar.next_trading_day(observation)
-            if _at(release, time(8, 40), "America/Chicago") <= as_of:
+            if _at(release, time(8, 40), "America/Chicago") <= evaluation_time:
                 available.append(observation)
         return available[-1], ProviderAvailability.AVAILABLE
     if policy.provider_availability_policy is ProviderAvailabilityPolicy.YAHOO_FUTURES_NEXT_BUSINESS_DAY_0800_ET:

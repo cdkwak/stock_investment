@@ -38,6 +38,7 @@ from stock_data.orchestration.kr_index_fundamental_daily import (
     run_index_fundamental_daily,
 )
 from stock_data.orchestration.kr_etf_daily import run_kr_etf_scheduler_lane
+from stock_data.providers.pykrx.kr_etf import PykrxEtfClient
 from stock_data.orchestration.kr_equity_provisional_daily import (
     run_kr_equity_provisional_daily,
 )
@@ -51,6 +52,8 @@ from stock_data.orchestration.toss_kr_treasury_daily import (
 from stock_data.providers.tossinvest import TossInvestClient
 from stock_data.storage.atomic_parquet import read_kr_index_daily
 from stock_data.storage.contract_parquet import read_dataset
+from stock_data.storage.contract_parquet import write_dataset_atomic
+from stock_data.contracts.kr_etf import KR_ETF_MASTER
 from stock_data.contracts.kospi200_index_daily import KR_KOSPI200_INDEX_DAILY
 from stock_data.contracts.global_etf import (
     GLOBAL_ETF_DAILY_SYMBOLS,
@@ -73,6 +76,7 @@ from stock_data.validation.global_market import (
     validate_global_commodity_futures, validate_global_etf, validate_global_index,
 )
 from stock_data.validation.data_v1 import validate_data_v1
+from stock_data.validation.kr_etf import validate_kr_etf_master
 
 
 class ProviderSchedulerError(RuntimeError):
@@ -309,23 +313,105 @@ def _run_kospi200_breadth_phase(
     }
 
 
+def _refresh_kr_etf_master_once(
+    project_root: Path, target: date,
+) -> dict[str, object]:
+    """Refresh retained ETF membership date with one Landing-first ticker-list call."""
+
+    master_root = project_root / "data/normalized/kr_etf_master"
+    master = read_dataset(master_root, KR_ETF_MASTER, validate_kr_etf_master)
+    latest = pd.to_datetime(master["source_date"], errors="raise").max().date()
+    if latest >= target:
+        return {"status": "MASTER_ALREADY_CURRENT", "api_calls": 0}
+
+    provider = PykrxEtfClient(manual=True, requested_days=1)
+    listed = tuple(str(value).strip() for value in provider.get_etf_ticker_list(target))
+    if provider.request_count != 1 or not listed or len(listed) != len(set(listed)):
+        raise ProviderSchedulerError("Korean ETF master ticker-list call is invalid")
+    missing = sorted(set(master["symbol"].astype(str)) - set(listed))
+    if missing:
+        raise ProviderSchedulerError(
+            f"retained Korean ETF identity is absent from target list: {missing}"
+        )
+
+    run_id = f"master-{target:%Y%m%d}-{uuid4().hex}"
+    landing = (
+        project_root / "data/landing/pykrx/kr_etf_daily/master_refresh"
+        / f"date={target:%Y%m%d}" / f"run={run_id}" / "ticker_list.json"
+    )
+    body = (json.dumps(listed, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
+    landing.parent.mkdir(parents=True, exist_ok=False)
+    temporary = landing.with_suffix(".json.tmp")
+    temporary.write_bytes(body)
+    temporary.replace(landing)
+    if landing.read_bytes() != body or tuple(json.loads(body)) != listed:
+        raise ProviderSchedulerError("Korean ETF master Landing read-back differs")
+
+    refreshed = master.copy(deep=True)
+    refreshed["source_date"] = target
+    validate_kr_etf_master(refreshed)
+    write_dataset_atomic(
+        refreshed, master_root, KR_ETF_MASTER, validate_kr_etf_master,
+    )
+    read_back = read_dataset(master_root, KR_ETF_MASTER, validate_kr_etf_master)
+    try:
+        expected_read_back = refreshed.reset_index(drop=True).copy()
+        actual_read_back = read_back.reset_index(drop=True).copy()
+        expected_read_back["source_date"] = pd.to_datetime(
+            expected_read_back["source_date"], errors="raise",
+        )
+        actual_read_back["source_date"] = pd.to_datetime(
+            actual_read_back["source_date"], errors="raise",
+        )
+        pd.testing.assert_frame_equal(
+            expected_read_back, actual_read_back,
+            check_dtype=False,
+        )
+    except AssertionError as error:
+        raise ProviderSchedulerError("Korean ETF master read-back differs") from error
+    return {
+        "status": "MASTER_REFRESHED",
+        "api_calls": 1,
+        "latest_before": latest.isoformat(),
+        "latest_after": target.isoformat(),
+        "landing": landing.relative_to(project_root).as_posix(),
+    }
+
+
 def _run_kr_etf_price_phase(
     project_root: Path, phase: str, target: object,
 ) -> dict[str, object]:
     if phase != "kr_etf_prices" or not isinstance(target, date):
         raise ProviderSchedulerError("invalid Korean ETF price scheduler phase")
     result = run_kr_etf_scheduler_lane(project_root, target_session=target)
+    master_refresh = (
+        _refresh_kr_etf_master_once(project_root, target)
+        if result.get("status") == "ALREADY_CURRENT"
+        else None
+    )
+    total_calls = int(result.get("api_calls", 0) or 0) + int(
+        (master_refresh or {}).get("api_calls", 0) or 0
+    )
     phase_status = {
-        "ALREADY_CURRENT": "NOOP_IDEMPOTENT",
+        "ALREADY_CURRENT": (
+            "COMPLETE"
+            if master_refresh and master_refresh["status"] == "MASTER_REFRESHED"
+            else "NOOP_IDEMPOTENT"
+        ),
         "NO_SYMBOLS_CONFIGURED": "NOOP_IDEMPOTENT",
         "UPDATED": "COMPLETE",
     }.get(str(result["status"]), str(result["status"]))
     return {
         **result,
         "status": phase_status,
-        "http_calls": result["api_calls"],
+        "api_calls": total_calls,
+        "http_calls": total_calls,
         "run_id": None,
-        "reason": str(result["status"]),
+        "reason": (
+            str(master_refresh["status"])
+            if master_refresh is not None else str(result["status"])
+        ),
+        "master_refresh": master_refresh,
     }
 
 

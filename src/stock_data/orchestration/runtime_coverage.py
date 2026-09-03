@@ -67,6 +67,10 @@ from stock_data.contracts.kr_equity_provisional import (
     validate_kr_equity_price_provisional_daily,
 )
 from stock_data.contracts.kr_etf import KR_ETF_MASTER, KR_ETF_PRICE_DAILY
+from stock_data.contracts.kr_fundamentals import (
+    KR_CORP_CODE_MAP,
+    KR_FUNDAMENTALS_QUARTERLY,
+)
 from stock_data.contracts.kr_market import KR_MARKET_BREADTH_DAILY
 from stock_data.contracts.kr_short_selling import (
     KR_SHORT_SELLING_BALANCE_DAILY,
@@ -357,6 +361,21 @@ _PROBES = (
     _CoverageProbe(
         "kr_etf_price_daily", "data/normalized/kr_etf_price_daily", "date",
         _contract_reader(KR_ETF_PRICE_DAILY, validate_kr_etf_price_daily),
+    ),
+    _CoverageProbe(
+        "kr_corp_code_map", "data/normalized/kr_corp_code_map", "modify_date",
+        _contract_reader(
+            KR_CORP_CODE_MAP, _contract_integrity_validator(KR_CORP_CODE_MAP),
+        ),
+    ),
+    _CoverageProbe(
+        "kr_fundamentals_quarterly",
+        "data/normalized/kr_fundamentals_quarterly",
+        "period_end",
+        _contract_reader(
+            KR_FUNDAMENTALS_QUARTERLY,
+            _contract_integrity_validator(KR_FUNDAMENTALS_QUARTERLY),
+        ),
     ),
     _CoverageProbe(
         "kr_equity_market_cap_daily",

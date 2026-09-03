@@ -260,6 +260,38 @@ def test_health_preserves_typed_current_when_retained_date_is_ahead_of_availabil
     assert row.freshness == "CURRENT"
 
 
+def test_health_ignores_one_unregistered_artifact_row_and_reports_warning(tmp_path):
+    _write_health(tmp_path, [
+        _row("kr_index_daily", "CURRENT", latest="2026-09-02", expected="2026-09-02"),
+        _row("future_registry_dataset", "UNKNOWN", latest=None, expected=None),
+    ])
+
+    view = DailyHealthArtifactService(tmp_path).load()
+
+    assert view.artifact_state == "READY"
+    assert len(view.rows) == 87
+    assert view.unregistered_dataset_ids == ("future_registry_dataset",)
+    assert "future_registry_dataset" in str(view.warning)
+    assert next(row for row in view.rows if row.dataset == "kr_index_daily").display_status == "CURRENT"
+
+
+def test_health_failure_requires_an_enabled_lane_and_failed_last_run(tmp_path):
+    enabled = _row("kr_index_daily", "CURRENT", latest="2026-09-02", expected="2026-09-02")
+    enabled["last_run"] = {"status": "FAILED"}
+    preserved = _row(
+        "kr_equity_foreign_ownership_daily", "STALE",
+        latest="2026-08-12", expected="2026-09-02",
+    )
+    preserved["last_run"] = {"status": "FAILED"}
+    _write_health(tmp_path, [enabled, preserved])
+
+    view = DailyHealthArtifactService(tmp_path).load()
+
+    rows = {row.dataset: row for row in view.rows}
+    assert rows["kr_index_daily"].display_status == "FAILED"
+    assert rows["kr_equity_foreign_ownership_daily"].display_status == "PRESERVED"
+
+
 def test_current_retained_health_artifact_has_useful_compatibility_view():
     from pathlib import Path
 
@@ -300,7 +332,7 @@ def test_health_summary_separates_managed_automation_from_full_inventory():
 
     assert summary["overall"] == "DEGRADED"
     assert summary["managed_total"] == 5
-    assert summary["managed_acceptable"] == 2
+    assert summary["managed_acceptable"] == 4
     assert summary["managed_current"] == 1
     assert summary["managed_expected_lag"] == 1
     assert summary["managed_stale"] == 1
@@ -367,7 +399,7 @@ def test_data_health_projects_numeric_free_kospi200_decision_hold(tmp_path):
     )
 
 
-def test_health_summary_and_surface_expose_unmanaged_display_gaps(tmp_path):
+def test_health_summary_and_surface_preserve_unmanaged_stale_rows(tmp_path):
     current = HealthDatasetRow(
         "managed", "SOURCE", "DAILY", "2026-08-26", "2026-08-26", "CURRENT",
         "READY", "N/A", "PIT_LIMITED", "SCHEDULED / ENABLED",
@@ -382,20 +414,20 @@ def test_health_summary_and_surface_expose_unmanaged_display_gaps(tmp_path):
         HealthArtifactView("READY", "fixture", (current, stale_display))
     )
 
-    assert summary["overall"] == "DEGRADED"
+    assert summary["overall"] == "CURRENT"
     assert summary["managed_acceptable"] == summary["managed_total"] == 1
     assert summary["display_total"] == 2
-    assert summary["display_stale"] == 1
-    assert summary["display_gap"] == 1
+    assert summary["display_stale"] == 0
+    assert summary["display_gap"] == 0
 
     projection = project_refresh_status(
         tmp_path, health=summary, metrics={}, account=None,
         generated_at_utc="2026-08-26T11:40:00+00:00",
     )
     surface = projection.surface("DATA_HEALTH")
-    assert surface.operation_state == "PARTIAL_FAILURE"
-    assert surface.freshness_state == "STALE"
-    assert "VISIBLE_DATA_GAPS" in surface.reason_codes
+    assert surface.operation_state == "SUCCEEDED"
+    assert surface.freshness_state == "CURRENT"
+    assert "VISIBLE_DATA_GAPS" not in surface.reason_codes
 
 
 def test_current_retained_health_artifact_managed_automation_regression():

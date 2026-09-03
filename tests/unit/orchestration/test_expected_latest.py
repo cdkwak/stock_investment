@@ -28,27 +28,27 @@ def test_fred_series_have_independent_provider_targets() -> None:
     assert yields.observation_calendar is ObservationCalendar.PROVIDER_BUSINESS_DAY
     assert fx.expected_available_observation == date(2026, 8, 14)
     assert fx.provider_availability_policy is ProviderAvailabilityPolicy.FRED_H10_WEEKLY_1615_ET
-    assert vix.expected_available_observation == date(2026, 8, 17)
-    assert vix.freshness is ExpectedFreshness.STALE
+    assert vix.expected_available_observation == date(2026, 8, 14)
+    assert vix.freshness is ExpectedFreshness.EXPECTED_LAG
 
 
-def test_fred_vix_advances_at_next_business_day_0840_ct_before_xnys_close() -> None:
-    before_release = resolve_expected_latest(
-        dataset="fred_vix_daily", lane="FRED_DAILY",
-        retained_latest=date(2026, 8, 24),
-        as_of=datetime(2026, 8, 26, 13, 39, 59, tzinfo=timezone.utc),
-    )
-    at_release = resolve_expected_latest(
+def test_fred_vix_advances_at_the_first_daily_run_after_0840_ct_release() -> None:
+    after_release_before_next_run = resolve_expected_latest(
         dataset="fred_vix_daily", lane="FRED_DAILY",
         retained_latest=date(2026, 8, 24),
         as_of=datetime(2026, 8, 26, 13, 40, tzinfo=timezone.utc),
     )
+    at_next_run = resolve_expected_latest(
+        dataset="fred_vix_daily", lane="FRED_DAILY",
+        retained_latest=date(2026, 8, 24),
+        as_of=datetime(2026, 8, 26, 21, 0, tzinfo=timezone.utc),
+    )
 
-    assert before_release.expected_available_observation == date(2026, 8, 24)
-    assert before_release.freshness is ExpectedFreshness.EXPECTED_LAG
-    assert at_release.expected_available_observation == date(2026, 8, 25)
-    assert at_release.freshness is ExpectedFreshness.STALE
-    assert at_release.collection_required
+    assert after_release_before_next_run.expected_available_observation == date(2026, 8, 24)
+    assert after_release_before_next_run.freshness is ExpectedFreshness.EXPECTED_LAG
+    assert at_next_run.expected_available_observation == date(2026, 8, 25)
+    assert at_next_run.freshness is ExpectedFreshness.STALE
+    assert at_next_run.collection_required
 
 
 def test_h15_target_advances_only_after_official_release_clock() -> None:

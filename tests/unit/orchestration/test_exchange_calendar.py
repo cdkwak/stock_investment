@@ -64,7 +64,7 @@ def test_expected_latest_separates_session_availability_finality_and_retention()
     )
     assert result is not None
     assert result.expected_market_date == date(2026, 8, 18)
-    assert result.freshness is ExpectedFreshness.STALE
+    assert result.freshness is ExpectedFreshness.EXPECTED_LAG
     assert result.finality is ProviderFinality.AS_RETRIEVED
     assert result.collection_required is False
     assert result.calendar == "XNYS"
@@ -78,7 +78,7 @@ def test_expected_latest_requires_explicit_provider_availability_for_collection(
         as_of=datetime(2026, 8, 18, 20, 1, tzinfo=timezone.utc),
         availability=ProviderAvailability.AVAILABLE,
     )
-    assert result is not None and result.collection_required
+    assert result is not None and not result.collection_required
     assert resolve_expected_latest(
         dataset="weekly", lane="WEEKLY", retained_latest=None,
         as_of=datetime(2026, 8, 18, tzinfo=timezone.utc),

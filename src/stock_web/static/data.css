@@ -1,0 +1,77 @@
+.health-legend,
+.health-warning,
+.preserved-consumers {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.55;
+}
+
+.health-warning {
+  margin-bottom: 8px;
+  color: var(--amber);
+}
+
+.preserved-consumers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-bottom: 8px;
+}
+
+.freshness-summary-item.late,
+.freshness-summary-item.failed { border-color: #e2b5af; }
+.freshness-summary-item.preserved { border-color: #d7d2c8; }
+.freshness-summary-item.reference { border-color: #b8cbdc; }
+.freshness-dot.late,
+.freshness-dot.failed { background: var(--up); }
+.freshness-dot.preserved { background: var(--muted); }
+.freshness-dot.reference { background: #5f7f9d; }
+.freshness-cell.late,
+.freshness-cell.failed { color: var(--up); font-weight: 600; }
+.freshness-cell.preserved { color: var(--muted); }
+.freshness-cell.reference { color: #456986; font-weight: 600; }
+
+.data-page .card-head b { white-space: nowrap; }
+.data-page .data-table-wrap { max-width: 100%; overflow-x: auto; }
+.data-page .data-health-table { min-width: 1080px; }
+.data-page .receipt-table { min-width: 680px; }
+.older-receipts { margin-top: 10px; border-top: 1px solid var(--grid); padding-top: 8px; }
+.older-receipts summary { cursor: pointer; color: var(--muted); font-size: 11px; }
+.older-receipts[open] summary { margin-bottom: 8px; }
+
+@media (max-width: 599px) {
+  html,
+  body { max-width: 100%; overflow-x: hidden; }
+  .topbar { flex-wrap: wrap; }
+  .topbar-right { width: 100%; margin-left: 0; }
+  .topbar-right .chip { max-width: 100%; }
+  .freshness-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .freshness-summary-item { min-width: 0; }
+  .data-page .data-health-wrap,
+  .data-page .receipt-wrap { overflow-x: auto; }
+  .data-page .data-health-table,
+  .data-page .receipt-table { display: table; }
+  .data-page .data-health-table thead,
+  .data-page .receipt-table thead { display: table-header-group; }
+  .data-page .data-health-table tbody,
+  .data-page .receipt-table tbody { display: table-row-group; }
+  .data-page .data-health-table tr,
+  .data-page .receipt-table tr { display: table-row; border: 0; padding: 0; }
+  .data-page .data-health-table tr.data-group-row th {
+    display: table-cell;
+    padding: 7px 8px;
+    border-bottom: 1px solid var(--grid);
+  }
+  .data-page .data-health-table th,
+  .data-page .data-health-table td,
+  .data-page .receipt-table th,
+  .data-page .receipt-table td {
+    display: table-cell;
+    white-space: nowrap;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--grid);
+  }
+  .data-page .data-health-table td::before,
+  .data-page .receipt-table td::before { content: none; }
+}

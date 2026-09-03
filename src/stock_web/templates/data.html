@@ -6,6 +6,7 @@
   <title>Stock Investment · 데이터</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="/static/app.css?v={{ static_version }}">
+  <link rel="stylesheet" href="/static/data.css?v={{ static_version }}">
 </head>
 <body>
 <header class="topbar">
@@ -15,7 +16,7 @@
   </nav>
   <div class="topbar-right">
     <span class="muted">로컬 보존 데이터</span>
-    <span class="chip{% if health_summary.overall not in ['CURRENT', 'EXPECTED_LAG'] %} dashed{% endif %}">{{ health_summary.overall }}</span>
+    <span class="chip{% if health_summary.display_late or health_summary.display_failed %} dashed{% endif %}">정상 {{ health_summary.display_current }} · 지연 {{ health_summary.display_late }} · 실패 {{ health_summary.display_failed }} · 수동/보존 {{ health_summary.display_preserved }} · 참고 {{ health_summary.display_reference }}{% if health_summary.unregistered_count %} · 미등록 {{ health_summary.unregistered_count }}{% endif %}</span>
   </div>
 </header>
 
@@ -25,6 +26,7 @@
       <div class="freshness-summary-item {{ item.class }}" title="{{ item.raw }}"><span>{{ item.label }}</span><b class="num">{{ item.count }}</b></div>
     {% endfor %}
   </section>
+  <p class="health-legend">정상: 최신 ≥ 예상 · 지연: 활성 자동화가 예상보다 늦음 · 실패: 마지막 실행 실패 · 수동/보존: 자동 갱신 대상 아님 · 참고: 이벤트·분기 기준일</p>
 
   <section class="card">
     <div class="card-head">
@@ -33,28 +35,31 @@
     </div>
     <div class="data-controls">
       <nav class="filter-chips" aria-label="데이터 상태 필터">
-        {% for item in filters %}<a class="chip{% if item == selected_filter %} on{% endif %}" href="/data?status={{ item }}">{{ item }}</a>{% endfor %}
+        {% for item in filters %}<a class="chip{% if item == selected_filter %} on{% endif %}" href="/data?status={{ item }}">{{ filter_labels[item] }}</a>{% endfor %}
       </nav>
       <label class="data-text-filter"><span class="sr-only">데이터셋 검색</span><input id="data-text-filter" type="search" placeholder="데이터셋·상태 검색" autocomplete="off"></label>
     </div>
     {% if health_state != 'READY' %}
-      <div class="unavailable">표시 불가 · {{ health_warning or health_state }}</div>
+      <div class="unavailable">표시 불가 · 로컬 상태 파일을 확인하세요</div>
     {% else %}
+      {% if health_warning %}<div class="health-warning">미등록 {{ health_summary.unregistered_count }} · {{ unregistered_dataset_ids|join(', ') }}</div>{% endif %}
+      {% if web_preserved_datasets %}<div class="preserved-consumers">화면 사용 보존 데이터: {% for item in web_preserved_datasets %}<span><b>{{ item.dataset }}</b> — {{ item.reason }}</span>{% endfor %}</div>{% endif %}
       <div class="data-table-wrap data-health-wrap">
         <table class="data-table data-health-table">
-          <thead><tr><th>데이터셋</th><th>신선도</th><th>최신</th><th>예상</th><th>운영 상태</th><th>차단 사유</th><th>자동화</th></tr></thead>
+          <thead><tr><th>데이터셋</th><th>상태</th><th>최신</th><th>예상</th><th>분류 사유</th><th>운영 상태</th><th>차단 사유</th><th>자동화</th></tr></thead>
           <tbody>
           {% for group in health_groups %}
-            <tr class="data-group-row" data-group="{{ group.raw }}"><th colspan="7"><span class="freshness-dot {{ group.class }}"></span>{{ group.label }} <small class="num">{{ group.rows|length }}</small></th></tr>
+            <tr class="data-group-row" data-group="{{ group.raw }}"><th colspan="8"><span class="freshness-dot {{ group.class }}"></span>{{ group.label }} <small class="num">{{ group.rows|length }}</small></th></tr>
             {% for row in group.rows %}
               <tr class="data-health-row" data-group-member="{{ group.raw }}" data-search="{{ row.dataset }} {{ row.description }} {{ row.freshness.label }} {{ row.operational.label }} {{ row.blocker.label }} {{ row.automation.label }}">
                 <td data-label="데이터셋"><b>{{ row.dataset }}</b><small>{{ row.description }}</small></td>
-                <td data-label="신선도" class="freshness-cell {{ row.freshness.class }}" title="{{ row.freshness.raw }}">{{ row.freshness.label }}</td>
+                <td data-label="상태" class="freshness-cell {{ row.freshness.class }}">{{ row.freshness.label }}</td>
                 <td data-label="최신" class="num">{{ row.latest }}</td>
                 <td data-label="예상" class="num">{{ row.expected }}</td>
-                <td data-label="운영 상태" title="{{ row.operational.raw }}">{{ row.operational.label }}</td>
-                <td data-label="차단 사유" title="{{ row.blocker.raw }}">{{ row.blocker.label }}</td>
-                <td data-label="자동화" title="{{ row.automation.raw }}">{{ row.automation.label }}</td>
+                <td data-label="분류 사유">{{ row.display_reason }}</td>
+                <td data-label="운영 상태">{{ row.operational.label }}</td>
+                <td data-label="차단 사유">{{ row.blocker.label }}</td>
+                <td data-label="자동화">{{ row.automation.label }}</td>
               </tr>
             {% endfor %}
           {% endfor %}
@@ -93,17 +98,38 @@
         {% for row in receipts %}
           <tr class="{% if row.failed %}receipt-failed{% endif %}">
             <td data-label="작업명"><b>{{ row.task }}</b></td>
-            <td data-label="상태" title="{{ row.status.raw }}">{{ row.status.label }}</td>
+            <td data-label="상태">{{ row.status.label }}</td>
             <td data-label="마지막 실행(KST)" class="num">{{ format_kst(row.finished) }}</td>
             <td data-label="API 호출" class="num">{{ row.api_calls }}</td>
-            <td data-label="결과 코드" class="num">{{ row.result_code }}</td>
+            <td data-label="결과 코드" class="num">{{ row.result_code_display.label }}</td>
           </tr>
         {% else %}
-          <tr><td colspan="5" class="muted">보존된 스케줄러 영수증 없음</td></tr>
+          <tr><td colspan="5" class="muted">최근 7일 스케줄러 영수증 없음</td></tr>
         {% endfor %}
         </tbody>
       </table>
     </div>
+    {% if older_receipts %}
+      <details class="older-receipts">
+        <summary>이전 영수증 보기 <span class="num">{{ older_receipts|length }}</span></summary>
+        <div class="data-table-wrap receipt-wrap">
+          <table class="data-table receipt-table">
+            <thead><tr><th>작업명</th><th>상태</th><th>마지막 실행(KST)</th><th>API 호출</th><th>결과 코드</th></tr></thead>
+            <tbody>
+            {% for row in older_receipts %}
+              <tr class="{% if row.failed %}receipt-failed{% endif %}">
+                <td data-label="작업명"><b>{{ row.task }}</b></td>
+                <td data-label="상태">{{ row.status.label }}</td>
+                <td data-label="마지막 실행(KST)" class="num">{{ row.finished_label }}</td>
+                <td data-label="API 호출" class="num">{{ row.api_calls }}</td>
+                <td data-label="결과 코드" class="num">{{ row.result_code_display.label }}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    {% endif %}
   </section>
 </main>
 <script>

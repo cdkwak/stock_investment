@@ -78,8 +78,9 @@ def test_universe_health_v2_preserves_all_axes_without_inventing_expected_dates(
     )
     assert sum(row["gap_status"] == "CALENDAR_RESOLVED" for row in result["datasets"]) > 0
     outside_core = next(row for row in result["datasets"] if row["dataset"] == "kr_equity_foreign_ownership_daily")
-    assert outside_core["expected"] == "2026-08-18"
-    assert outside_core["freshness"] == "STALE"
+    assert outside_core["freshness"] == "NOT_APPLICABLE"
+    assert outside_core["display_status"] == "PRESERVED"
+    assert outside_core["display_reason"] == "수동 수집 전용"
     assert outside_core["pit"] == "PIT_BLOCKED"
     assert outside_core["display_consumer_eligibility"] == "BLOCKED"
     assert outside_core["research_consumer_eligibility"] == "LIMITED"
@@ -377,7 +378,7 @@ def test_universe_health_prefers_contract_validated_runtime_coverage(tmp_path, m
     assert result["runtime_coverage_failure_count"] == 1
 
 
-def test_scheduled_manual_publication_observation_is_expected_lag_when_validated(
+def test_scheduled_manual_publication_observation_is_preserved_when_validated(
     tmp_path, monkeypatch,
 ):
     rows = [{
@@ -404,7 +405,28 @@ def test_scheduled_manual_publication_observation_is_expected_lag_when_validated
     )
 
     assert bok["expected"] is None
-    assert bok["freshness"] == "EXPECTED_LAG"
+    assert bok["freshness"] == "NOT_APPLICABLE"
+    assert bok["display_status"] == "PRESERVED"
+
+
+def test_vix_health_waits_for_the_next_morning_lane_after_evening_release() -> None:
+    rows = [{
+        "dataset_id": dataset_id,
+        "actual_latest": "2026-09-01" if dataset_id == "fred_vix_daily" else None,
+        "expected_latest": None,
+        "freshness_status": "UNKNOWN",
+    } for dataset_id in MODULE.DATASET_OPERATIONS]
+
+    result = MODULE.reconcile_universe({
+        "run_id": "vix-morning-policy",
+        "as_of": "2026-09-03T22:53:07+09:00",
+        "datasets": rows,
+    })
+    vix = next(row for row in result["datasets"] if row["dataset"] == "fred_vix_daily")
+
+    assert vix["expected"] == "2026-09-01"
+    assert vix["freshness"] == "EXPECTED_LAG"
+    assert vix["display_status"] == "CURRENT"
 
 
 def test_runtime_coverage_latest_year_reader_supports_nested_market_partitions(
@@ -563,7 +585,36 @@ def test_runtime_coverage_probes_all_automated_partitioned_daily_outputs():
         "kr_equity_price_provisional_daily": (
             "data/normalized/kr_equity_price_provisional_daily"
         ),
+        "kr_corp_code_map": "data/normalized/kr_corp_code_map",
+        "kr_fundamentals_quarterly": "data/normalized/kr_fundamentals_quarterly",
     }.items() <= probes.items()
+
+
+def test_opendart_runtime_coverage_uses_latest_source_and_period_dates(
+    tmp_path, monkeypatch,
+) -> None:
+    probes = {probe.dataset_id: probe for probe in runtime_coverage._PROBES}
+    corp = probes["kr_corp_code_map"]
+    fundamentals = probes["kr_fundamentals_quarterly"]
+    monkeypatch.setattr(runtime_coverage, "_PROBES", (
+        runtime_coverage._CoverageProbe(
+            corp.dataset_id, corp.relative_root, corp.date_column,
+            lambda _root: pd.DataFrame({"modify_date": ["2026-08-29", "2026-09-02"]}),
+        ),
+        runtime_coverage._CoverageProbe(
+            fundamentals.dataset_id, fundamentals.relative_root, fundamentals.date_column,
+            lambda _root: pd.DataFrame({"period_end": ["2026-03-31", "2026-06-30"]}),
+        ),
+    ))
+
+    result = runtime_coverage.validated_runtime_coverage(tmp_path)
+
+    assert corp.date_column == "modify_date"
+    assert fundamentals.date_column == "period_end"
+    assert result.latest == {
+        "kr_corp_code_map": "2026-09-02",
+        "kr_fundamentals_quarterly": "2026-06-30",
+    }
 
 
 def test_derivatives_runtime_coverage_requires_checkpoint_exact_latest(

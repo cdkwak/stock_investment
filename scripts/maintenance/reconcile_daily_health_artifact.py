@@ -13,6 +13,7 @@ if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
 from stock_data.orchestration.daily_operations import DATASET_OPERATIONS, DATASET_UNIVERSE
+from stock_data.orchestration.dataset_universe import classify_health_display
 from stock_data.orchestration.exchange_calendar import ExchangeMarket, ExchangeTradingCalendar
 from stock_data.orchestration.expected_latest import resolve_expected_latest
 from stock_data.orchestration.runtime_coverage import validated_runtime_coverage
@@ -210,9 +211,14 @@ def reconcile_universe(
             if resolved is not None and resolved.finality.value != "UNKNOWN"
             else core.get("finality_classification")
         )
-        no_freshness_required = spec.refresh_policy.value in {
+        no_freshness_required = (
+            not spec.automation_enabled
+            or spec.health_preservation_reason is not None
+            or spec.refresh_policy.value in {
             "STATIC_COMPLETE", "MANUAL_RESEARCH", "DISABLED_PENDING_CONTRACT",
-        } or spec.operational_status.value == "NOT_APPLICABLE"
+            }
+            or spec.operational_status.value == "NOT_APPLICABLE"
+        )
         freshness_value = (
             "NOT_APPLICABLE" if no_freshness_required
             else "UNKNOWN" if dataset_id in runtime_failures
@@ -223,14 +229,19 @@ def reconcile_universe(
             dataset_id, actual=actual, expected=expected, as_of=as_of,
         ):
             freshness_value = "EXPECTED_LAG"
-        if (
-            freshness_value == "UNKNOWN"
-            and spec.automation_enabled
-            and dataset_id in runtime_latest
-            and resolved is not None
-            and resolved.provider_availability_policy.value == "MANUAL_OBSERVATION"
-        ):
-            freshness_value = "EXPECTED_LAG"
+        runtime_coverage = (
+            "VALIDATED" if dataset_id in runtime_latest
+            else f"FAILED:{runtime_failures[dataset_id]}" if dataset_id in runtime_failures
+            else "NOT_PROBED"
+        )
+        display_status, display_reason = classify_health_display(
+            spec,
+            latest=actual if isinstance(actual, str) else None,
+            expected=expected if isinstance(expected, str) else None,
+            freshness=freshness_value,
+            runtime_coverage=runtime_coverage,
+            last_run=core.get("last_run"),
+        )
         row = {
             "dataset": dataset_id,
             "role": spec.data_role.value,
@@ -238,6 +249,8 @@ def reconcile_universe(
             "latest": actual,
             "expected": expected,
             "freshness": freshness_value,
+            "display_status": display_status.value,
+            "display_reason": display_reason,
             "finality": finality or "UNKNOWN",
             "operational": spec.operational_status.value,
             "pit": spec.predictive_pit_status.value,
@@ -271,11 +284,7 @@ def reconcile_universe(
             "calendar_version": resolved.calendar_version if resolved is not None else None,
             "pre_network_noop": bool(spec.automation_enabled and freshness_value == "CURRENT"),
             "missing_dates": None,
-            "runtime_coverage": (
-                "VALIDATED" if dataset_id in runtime_latest
-                else f"FAILED:{runtime_failures[dataset_id]}" if dataset_id in runtime_failures
-                else "NOT_PROBED"
-            ),
+            "runtime_coverage": runtime_coverage,
         }
         if spec.data_grain.value == "INTRADAY":
             row.update({
@@ -289,7 +298,7 @@ def reconcile_universe(
         rows.append(row)
     dimensions = {}
     for field in (
-        "role", "grain", "freshness", "finality", "refresh", "operational", "pit",
+        "role", "grain", "freshness", "display_status", "finality", "refresh", "operational", "pit",
         "display_consumer_eligibility", "research_consumer_eligibility",
         "predictive_consumer_eligibility", "automation_policy", "scheduler_management",
     ):
@@ -297,10 +306,7 @@ def reconcile_universe(
     actionable_incidents = sum(
         bool(row["automation_enabled"])
         and row["operational"] not in {"BLOCKED", "MANUAL_ONLY", "NOT_APPLICABLE"}
-        and (
-            row["freshness"] in {"STALE", "UNKNOWN"}
-            or str(row["runtime_coverage"]).startswith("FAILED:")
-        )
+        and row["display_status"] in {"LATE", "FAILED"}
         for row in rows
     )
     return {

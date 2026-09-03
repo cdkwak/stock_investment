@@ -6,6 +6,7 @@ from datetime import date
 from pathlib import Path
 
 from stock_data.orchestration.daily_operations import DATASET_UNIVERSE
+from stock_data.orchestration.dataset_universe import classify_health_display
 
 
 HEALTH_RELATIVE_PATH = Path("artifacts/daily_health/universe_data_v2_20260819.json")
@@ -41,6 +42,8 @@ class HealthDatasetRow:
     research_consumer_reason: str = "UNKNOWN"
     predictive_consumer_eligibility: str = "UNKNOWN"
     predictive_consumer_reason: str = "UNKNOWN"
+    display_status: str = "UNSET"
+    display_reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -49,6 +52,23 @@ class HealthArtifactView:
     source: str
     rows: tuple[HealthDatasetRow, ...]
     warning: str | None = None
+    unregistered_dataset_ids: tuple[str, ...] = ()
+
+
+def _effective_display_status(row: HealthDatasetRow) -> str:
+    if row.display_status in {"CURRENT", "LATE", "FAILED", "PRESERVED", "REFERENCE"}:
+        return row.display_status
+    if not row.automation.endswith(" / ENABLED"):
+        return "PRESERVED"
+    return {
+        "CURRENT": "CURRENT",
+        "EXPECTED_LAG": "CURRENT",
+        "STALE": "LATE",
+        # UNKNOWN means that freshness could not be established.  It is not
+        # evidence that the last scheduled run failed.
+        "UNKNOWN": "PRESERVED",
+        "NOT_APPLICABLE": "PRESERVED",
+    }.get(row.freshness, "PRESERVED")
 
 
 def summarize_health_artifact(view: HealthArtifactView) -> dict[str, object]:
@@ -64,6 +84,9 @@ def summarize_health_artifact(view: HealthArtifactView) -> dict[str, object]:
             "managed_not_applicable": 0,
             "display_total": 0, "display_stale": 0,
             "display_unknown": 0, "display_gap": 0,
+            "display_current": 0, "display_late": 0, "display_failed": 0,
+            "display_preserved": 0, "display_reference": 0,
+            "unregistered_count": 0,
             "decision_hold_causes": (),
             "source": getattr(view, "source", "local health artifact"),
         }
@@ -72,6 +95,12 @@ def summarize_health_artifact(view: HealthArtifactView) -> dict[str, object]:
     expected_lag = freshness.count("EXPECTED_LAG")
     stale = freshness.count("STALE")
     unknown = freshness.count("UNKNOWN")
+    display_statuses = [_effective_display_status(row) for row in view.rows]
+    display_current = display_statuses.count("CURRENT")
+    display_late = display_statuses.count("LATE")
+    display_failed = display_statuses.count("FAILED")
+    display_preserved = display_statuses.count("PRESERVED")
+    display_reference = display_statuses.count("REFERENCE")
     operational_blocked = sum(row.operational == "BLOCKED" for row in view.rows)
     predictive_blocked = sum(row.pit == "PIT_BLOCKED" for row in view.rows)
     research_only = sum(row.pit == "RESEARCH_ONLY" for row in view.rows)
@@ -84,14 +113,17 @@ def summarize_health_artifact(view: HealthArtifactView) -> dict[str, object]:
     managed_stale = managed_freshness.count("STALE")
     managed_unknown = managed_freshness.count("UNKNOWN")
     managed_not_applicable = managed_freshness.count("NOT_APPLICABLE")
-    managed_acceptable = managed_current + managed_expected_lag
+    managed_acceptable = sum(
+        _effective_display_status(row) not in {"LATE", "FAILED"}
+        for row in managed_rows
+    )
     display_rows = tuple(
         row for row in view.rows
         if row.display_consumer_eligibility in {"ELIGIBLE", "LIMITED"}
     )
-    display_freshness = [row.freshness for row in display_rows]
-    display_stale = display_freshness.count("STALE")
-    display_unknown = display_freshness.count("UNKNOWN")
+    display_freshness = [_effective_display_status(row) for row in display_rows]
+    display_stale = display_freshness.count("LATE")
+    display_unknown = display_freshness.count("FAILED")
     display_gap = display_stale + display_unknown
     decision_hold_causes = tuple(
         cause
@@ -101,20 +133,12 @@ def summarize_health_artifact(view: HealthArtifactView) -> dict[str, object]:
             for row in view.rows
         )
     )
-    overall = (
-        "UNKNOWN"
-        if not managed_rows
-        else "DEGRADED"
-        if managed_acceptable != len(managed_rows) or display_gap
-        else "EXPECTED_LAG"
-        if managed_expected_lag
-        else "CURRENT"
-    )
+    overall = "FAILED" if display_failed else "DEGRADED" if display_late else "CURRENT"
     return {
         "overall": overall, "current": current, "expected_lag": expected_lag,
         "stale": stale, "operational_blocked": operational_blocked,
         "predictive_blocked": predictive_blocked,
-        "research_only": research_only, "failed": unknown,
+        "research_only": research_only, "failed": display_failed,
         "managed_total": len(managed_rows),
         "managed_acceptable": managed_acceptable,
         "managed_current": managed_current,
@@ -126,6 +150,12 @@ def summarize_health_artifact(view: HealthArtifactView) -> dict[str, object]:
         "display_stale": display_stale,
         "display_unknown": display_unknown,
         "display_gap": display_gap,
+        "display_current": display_current,
+        "display_late": display_late,
+        "display_failed": display_failed,
+        "display_preserved": display_preserved,
+        "display_reference": display_reference,
+        "unregistered_count": len(view.unregistered_dataset_ids),
         "decision_hold_causes": decision_hold_causes,
         "source": view.source,
     }
@@ -146,16 +176,32 @@ class DailyHealthArtifactService:
             payload = json.loads(self.artifact_path.read_text(encoding="utf-8"))
             if not isinstance(payload, dict) or not isinstance(payload.get("datasets"), list):
                 raise ValueError("health artifact must contain a datasets array")
-            health_rows = {row.dataset: row for row in (self._parse_row(item) for item in payload["datasets"])}
+            health_rows: dict[str, HealthDatasetRow] = {}
+            unregistered: list[str] = []
+            seen: set[str] = set()
+            for item in payload["datasets"]:
+                if not isinstance(item, dict):
+                    raise ValueError("health dataset rows must be objects")
+                dataset = self._required_text(item, "dataset", legacy="dataset_id")
+                if dataset in seen:
+                    raise ValueError("health artifact contains duplicate dataset rows")
+                seen.add(dataset)
+                if dataset not in DATASET_UNIVERSE:
+                    unregistered.append(dataset)
+                    continue
+                health_rows[dataset] = self._parse_row(item)
             if not health_rows:
                 raise ValueError("health artifact datasets array is empty")
-            if len(health_rows) != len(payload["datasets"]):
-                raise ValueError("health artifact contains duplicate dataset rows")
             rows = tuple(
                 health_rows.get(dataset_id, self._universe_only_row(dataset_id))
                 for dataset_id in DATASET_UNIVERSE
             )
-            return HealthArtifactView("READY", source, rows)
+            unknown_ids = tuple(sorted(unregistered))
+            warning = (
+                "health artifact contains unregistered datasets: " + ", ".join(unknown_ids)
+                if unknown_ids else None
+            )
+            return HealthArtifactView("READY", source, rows, warning, unknown_ids)
         except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError) as error:
             return HealthArtifactView("REPORT NOT AVAILABLE", source, (), f"local health artifact is invalid: {error}")
 
@@ -186,6 +232,15 @@ class DailyHealthArtifactService:
         universe = DATASET_UNIVERSE.get(dataset)
         if universe is None:
             raise ValueError(f"health dataset is outside the typed universe: {dataset}")
+        runtime_coverage = cls._optional_text(value.get("runtime_coverage"))
+        display_status, display_reason = classify_health_display(
+            universe,
+            latest=None if latest == "N/A" else latest,
+            expected=None if expected == "N/A" else expected,
+            freshness=freshness,
+            runtime_coverage=runtime_coverage,
+            last_run=value.get("last_run"),
+        )
         artifact_blocker = value.get("blocker")
         blocker = (
             artifact_blocker.strip()
@@ -209,18 +264,26 @@ class DailyHealthArtifactService:
                 f"{'ENABLED' if universe.automation_enabled else 'DISABLED'}"
             ),
             source=universe.source,
-            runtime_coverage=cls._optional_text(value.get("runtime_coverage")),
+            runtime_coverage=runtime_coverage,
             display_consumer_eligibility=universe.display_consumer_eligibility.value,
             display_consumer_reason=universe.display_consumer_reason.value,
             research_consumer_eligibility=universe.research_consumer_eligibility.value,
             research_consumer_reason=universe.research_consumer_reason.value,
             predictive_consumer_eligibility=universe.predictive_consumer_eligibility.value,
             predictive_consumer_reason=universe.predictive_consumer_reason.value,
+            display_status=display_status.value,
+            display_reason=display_reason,
         )
 
     @staticmethod
     def _universe_only_row(dataset: str) -> HealthDatasetRow:
         universe = DATASET_UNIVERSE[dataset]
+        display_status, display_reason = classify_health_display(
+            universe,
+            latest=universe.retained_latest,
+            expected=None,
+            freshness="UNKNOWN",
+        )
         return HealthDatasetRow(
             dataset=dataset,
             role=universe.data_role.value,
@@ -246,6 +309,8 @@ class DailyHealthArtifactService:
             research_consumer_reason=universe.research_consumer_reason.value,
             predictive_consumer_eligibility=universe.predictive_consumer_eligibility.value,
             predictive_consumer_reason=universe.predictive_consumer_reason.value,
+            display_status=display_status.value,
+            display_reason=display_reason,
         )
 
     @staticmethod

@@ -11,6 +11,10 @@ import pandas as pd
 from stock_data.orchestration.daily_operations import (
     DAILY_LANE_READINESS, DailyRunLock, DailyRunLockError, LaneReadinessStatus,
 )
+from stock_data.contracts.kr_etf import KR_ETF_MASTER
+from stock_data.orchestration.kr_etf_daily import normalize_master
+from stock_data.storage.contract_parquet import read_dataset, write_dataset_atomic
+from stock_data.validation.kr_etf import validate_kr_etf_master
 import stock_data.orchestration.provider_scheduler as scheduler
 from stock_data.orchestration.provider_scheduler import ProviderSchedulerError, run_lane
 
@@ -42,7 +46,7 @@ def test_scheduler_dry_run_is_zero_network(tmp_path: Path, monkeypatch) -> None:
     assert result["status"] == "DRY_RUN_PASS"
     assert result["target_session"] == "2026-08-18"
     assert result["phase_targets"] == {
-        "fred_yields": "2026-08-14", "fred_fx": "2026-08-14", "fred_vix": "2026-08-17",
+        "fred_yields": "2026-08-14", "fred_fx": "2026-08-14", "fred_vix": "2026-08-14",
     }
     assert result["api_calls"] == 0
 
@@ -115,6 +119,48 @@ def test_kr_etf_provider_lag_remains_an_expected_lane_outcome(
     assert result["status"] == "EXPECTED_PROVIDER_LAG"
     assert result["http_calls"] == 3
     assert result["reason"] == "EXPECTED_PROVIDER_LAG"
+
+
+def test_kr_etf_current_price_lane_refreshes_stale_master_with_one_list_call(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    master_root = tmp_path / "data/normalized/kr_etf_master"
+    write_dataset_atomic(
+        normalize_master({"123320": "TIGER 레버리지"}, source_date=date(2026, 9, 2)),
+        master_root, KR_ETF_MASTER, validate_kr_etf_master,
+    )
+
+    class OneCallProvider:
+        request_count = 0
+
+        def get_etf_ticker_list(self, source_date):
+            assert source_date == date(2026, 9, 3)
+            self.request_count += 1
+            return ("123320", "243880")
+
+    provider = OneCallProvider()
+    monkeypatch.setattr(scheduler, "PykrxEtfClient", lambda **_kwargs: provider)
+    monkeypatch.setattr(
+        scheduler, "run_kr_etf_scheduler_lane",
+        lambda *_args, **_kwargs: {
+            "status": "ALREADY_CURRENT", "api_calls": 0,
+            "latest_before": {"123320": "2026-09-03"},
+            "latest_after": {"123320": "2026-09-03"},
+            "symbols": ["123320"],
+        },
+    )
+
+    result = scheduler._run_kr_etf_price_phase(
+        tmp_path, "kr_etf_prices", date(2026, 9, 3),
+    )
+
+    refreshed = read_dataset(master_root, KR_ETF_MASTER, validate_kr_etf_master)
+    assert provider.request_count == 1
+    assert result["status"] == "COMPLETE"
+    assert result["http_calls"] == 1
+    assert result["reason"] == "MASTER_REFRESHED"
+    assert refreshed["source_date"].astype(str).unique().tolist() == ["2026-09-03"]
+    assert (tmp_path / result["master_refresh"]["landing"]).is_file()
 
 
 def test_provisional_equity_lane_dry_run_is_registered_and_network_free(
