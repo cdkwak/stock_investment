@@ -105,6 +105,17 @@ class SchedulerHealthProjectionError(RuntimeError):
     pass
 
 
+
+def _receipt_error(error: BaseException) -> dict[str, str]:
+    """Only our own scheduler messages are serialized (e.g. 'retained unregistered symbols');
+    provider/HTTP exception text is never written to receipts because it may echo secrets.
+    Returns an empty mapping otherwise so receipt shapes stay unchanged."""
+    from stock_data.orchestration.provider_scheduler import ProviderSchedulerError
+
+    if isinstance(error, ProviderSchedulerError):
+        return {"error": str(error)[:300]}
+    return {}
+
 def _append_event_safely(store: LocalUpdateEventLog, event: UpdateEvent) -> bool:
     """Surface only a safe logging status and never change scheduler control flow."""
 
@@ -911,6 +922,8 @@ def _run_kr_market_daily_bundle_unlocked(
                 "advancement_status": "UNKNOWN",
                 "api_calls": None,
                 "error_type": type(error).__name__,
+            **_receipt_error(error),
+                **_receipt_error(error),
                 **identity,
             })
 
@@ -1105,6 +1118,7 @@ class _BoundTerminalEmitter:
             "schema_version": 1,
             "status": "FAIL",
             "error_type": type(error).__name__,
+            **_receipt_error(error),
             "api_calls": 0,
         }
         _append_event_safely(
@@ -1191,6 +1205,8 @@ def _main(terminal: _BoundTerminalEmitter) -> int:
                 "scheduled_slot": args.scheduled_slot,
                 "status": "FAIL_OCCURRENCE",
                 "error_type": type(error).__name__,
+            **_receipt_error(error),
+                **_receipt_error(error),
                 "scheduler_process_status": "FAIL_BEFORE_LANES",
             }
             if not args.dry_run:
@@ -1203,6 +1219,8 @@ def _main(terminal: _BoundTerminalEmitter) -> int:
                 "scheduled_slot": args.scheduled_slot,
                 "status": "FAIL_LOCK",
                 "error_type": type(error).__name__,
+            **_receipt_error(error),
+                **_receipt_error(error),
                 "scheduler_process_status": "FAIL_BEFORE_LANES",
             }
             return finish(payload, 1)
@@ -1213,6 +1231,8 @@ def _main(terminal: _BoundTerminalEmitter) -> int:
                 "scheduled_slot": args.scheduled_slot,
                 "status": "FAIL_LOCK_RELEASE",
                 "error_type": type(error).__name__,
+            **_receipt_error(error),
+                **_receipt_error(error),
                 "scheduler_process_status": "FAIL_AFTER_BUNDLE",
             }
             return finish(payload, 1)
@@ -1241,6 +1261,7 @@ def _main(terminal: _BoundTerminalEmitter) -> int:
             "lane": lane,
             "status": "FAIL",
             "error_type": type(error).__name__,
+            **_receipt_error(error),
             "api_calls": None,
             "finished_at_utc": datetime.now(timezone.utc).isoformat(),
             "health_projection": "NOT_RUN",

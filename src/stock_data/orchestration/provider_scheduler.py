@@ -639,6 +639,7 @@ _GLOBAL_INDEX_TICKERS = MappingProxyType({
     "NASDAQ100": "^NDX",
     "SOX": "^SOX",
     "DOW_JONES": "^DJI",
+    "DOLLAR_INDEX": "DX-Y.NYB",  # ICE dollar index; provider_native endpoint window (see global_market.py)
 })
 _GLOBAL_ETF_SYMBOLS = GLOBAL_ETF_DAILY_SYMBOLS
 _GLOBAL_FUTURES_SYMBOLS = (
