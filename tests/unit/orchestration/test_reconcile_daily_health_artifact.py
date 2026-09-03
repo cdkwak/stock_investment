@@ -83,7 +83,7 @@ def test_universe_health_v2_preserves_all_axes_without_inventing_expected_dates(
     result = MODULE.reconcile_universe(core)
     assert result["dataset_count"] == 87
     assert result["core_operations_count"] == 44
-    assert result["automation_enabled_count"] == 43
+    assert result["automation_enabled_count"] == 45
     assert result["operations_registry_count"] == 44
     assert result["core_operation_missing"] == []
     assert result["generated_at"] == "2026-08-18T23:00:00+09:00"
@@ -294,7 +294,6 @@ def test_kr_post_close_outputs_wait_for_2030_occurrence_before_stale(
         "kr_index_constituent_daily": ("2026-08-31", "2026-09-01"),
         "kr_kospi200_constituent_price_daily": ("2026-08-31", "2026-09-01"),
         "kr_kospi200_breadth_daily": ("2026-08-31", "2026-09-01"),
-        "kr_credit_balance_daily": ("2026-09-01", "2026-09-02"),
         "kr_kospi200_futures_daily": ("2026-08-31", "2026-09-01"),
         "kr_kospi200_futures_nearest_listed_daily": ("2026-08-31", "2026-09-01"),
         "kr_kospi200_futures_provider_bridge_daily": ("2026-08-31", "2026-09-01"),
@@ -561,7 +560,7 @@ def test_credit_stale_normalized_latest_degrades_health_after_lane_cutoff(
     )
 
     assert credit["latest"] == "2026-08-06"
-    assert credit["expected"] == "2026-09-03"
+    assert credit["expected"] == "2026-09-01"
     assert credit["freshness"] == "STALE"
     assert result["actionable_incident_count"] >= 1
 

@@ -281,8 +281,8 @@ def test_full_dataset_universe_reconciles_contracts_retained_research_and_operat
     }
     assert Counter(item.data_grain for item in DATASET_UNIVERSE.values()) == {
         DataGrain.DAILY: 67,
-        DataGrain.WEEKLY: 5,
-        DataGrain.EVENT_DRIVEN: 6,
+        DataGrain.WEEKLY: 6,
+        DataGrain.EVENT_DRIVEN: 5,
         DataGrain.SNAPSHOT: 7,
         DataGrain.INTRADAY: 2,
     }
@@ -298,8 +298,8 @@ def test_full_dataset_universe_reconciles_contracts_retained_research_and_operat
     assert Counter(item.operational_status for item in DATASET_UNIVERSE.values()) == {
         UniverseOperationalStatus.READY: 7,
         UniverseOperationalStatus.READY_WITH_FINALITY_GATE: 19,
-        UniverseOperationalStatus.READY_WITH_LIMITS: 17,
-        UniverseOperationalStatus.MANUAL_ONLY: 22,
+        UniverseOperationalStatus.READY_WITH_LIMITS: 19,
+        UniverseOperationalStatus.MANUAL_ONLY: 20,
         UniverseOperationalStatus.BLOCKED: 8,
         UniverseOperationalStatus.NOT_APPLICABLE: 14,
     }
@@ -311,12 +311,12 @@ def test_full_dataset_universe_reconciles_contracts_retained_research_and_operat
         PredictivePitStatus.RESEARCH_ONLY: 2,
     }
     assert Counter(item.automation_policy for item in DATASET_UNIVERSE.values()) == {
-        AutomationPolicy.MANUAL_GATE: 16,
+        AutomationPolicy.MANUAL_GATE: 14,
         AutomationPolicy.DEPENDENCY_DRIVEN: 11,
         AutomationPolicy.NO_REFRESH: 9,
         AutomationPolicy.RESEARCH_ONLY: 11,
         AutomationPolicy.DISABLED: 8,
-        AutomationPolicy.AUTO_ELIGIBLE: 32,
+        AutomationPolicy.AUTO_ELIGIBLE: 34,
     }
     assert all(sum(counts.values()) == 87 for counts in (
         Counter(item.data_role for item in DATASET_UNIVERSE.values()),
@@ -328,8 +328,8 @@ def test_full_dataset_universe_reconciles_contracts_retained_research_and_operat
     ))
     assert Counter(item.prior_disposition for item in DATASET_UNIVERSE.values()) == {
         RegistryDisposition.REGISTERED: 44,
-        RegistryDisposition.INTENTIONALLY_EXCLUDED: 27,
-        RegistryDisposition.REGISTRY_MISSING: 16,
+        RegistryDisposition.INTENTIONALLY_EXCLUDED: 25,
+        RegistryDisposition.REGISTRY_MISSING: 18,
     }
     assert {item.dataset_id for item in DATASET_UNIVERSE.values() if item.automation_enabled} == {
         "fred_treasury_yield_daily", "fred_usd_fx_daily", "fred_vix_daily",
@@ -359,6 +359,7 @@ def test_full_dataset_universe_reconciles_contracts_retained_research_and_operat
         "bok_ecos_kr_treasury_yield_source_observation",
         "bok_ecos_usd_krw_daily",
         "kr_market_investor_trading_daily",
+        "kr_corp_code_map", "kr_fundamentals_quarterly",
     }
     assert all(item.registry_present and item.registry_entry == item.dataset_id for item in DATASET_UNIVERSE.values())
     assert sum(item.scheduler_management is SchedulerManagement.NO_REFRESH for item in DATASET_UNIVERSE.values()) == 9
@@ -395,6 +396,7 @@ def test_dated_dataset_universe_artifact_remains_a_compatible_snapshot() -> None
     } - {
         "bok_ecos_usd_krw_daily", "kr_equity_price_provisional_daily",
         "kr_etf_master", "kr_etf_price_daily",
+        "kr_corp_code_map", "kr_fundamentals_quarterly",
     }
     assert all(row["data_role"] and row["data_grain"] and row["refresh_policy"] for row in rows)
     def artifact_value(value: object) -> str:

@@ -1,7 +1,8 @@
 from datetime import date, datetime, timezone
 
 from stock_data.orchestration.expected_latest import (
-    ExpectedFreshness, ObservationCalendar, ProviderAvailabilityPolicy,
+    ExpectedFreshness, ExpectedLagPolicy, ObservationCalendar,
+    ProviderAvailabilityPolicy,
     resolve_expected_latest,
 )
 
@@ -151,6 +152,44 @@ def test_short_balance_and_investor_use_distinct_official_release_clocks() -> No
     assert investor.provider_availability_policy is (
         ProviderAvailabilityPolicy.KRX_SHORT_INVESTOR_SAME_DAY_1810
     )
+
+
+def test_credit_balance_uses_two_provider_business_day_expectation() -> None:
+    as_of = datetime(2026, 9, 3, 11, 30, tzinfo=timezone.utc)
+    expected = resolve_expected_latest(
+        dataset="kr_credit_balance_daily",
+        lane="LIQUIDITY_CREDIT_DAILY",
+        retained_latest=date(2026, 9, 1),
+        as_of=as_of,
+    )
+    late = resolve_expected_latest(
+        dataset="kr_credit_balance_daily",
+        lane="LIQUIDITY_CREDIT_DAILY",
+        retained_latest=date(2026, 8, 31),
+        as_of=as_of,
+    )
+
+    assert expected.expected_market_date == date(2026, 9, 3)
+    assert expected.expected_available_observation == date(2026, 9, 1)
+    assert expected.freshness is ExpectedFreshness.EXPECTED_LAG
+    assert expected.expected_lag_policy is ExpectedLagPolicy.TWO_PROVIDER_BUSINESS_DAYS
+    assert expected.provider_availability_policy is (
+        ProviderAvailabilityPolicy.KOFIA_T_PLUS_2_2030
+    )
+    assert late.freshness is ExpectedFreshness.STALE
+    assert late.collection_required is True
+
+
+def test_market_liquidity_keeps_manual_policy_without_matching_retained_lag() -> None:
+    result = resolve_expected_latest(
+        dataset="kr_market_liquidity_daily",
+        lane="LIQUIDITY_CREDIT_DAILY",
+        retained_latest=date(2026, 8, 6),
+        as_of=datetime(2026, 9, 3, 11, 30, tzinfo=timezone.utc),
+    )
+
+    assert result.expected_lag_policy is ExpectedLagPolicy.MANUAL
+    assert result.freshness is ExpectedFreshness.STALE
 
 
 def test_toss_korean_treasury_uses_completed_successor_session() -> None:

@@ -1,6 +1,6 @@
-"""Bounded live capture for the two Korean daily index contracts.
+"""Bounded live capture for the Korean daily index contracts.
 
-The live boundary is intentionally Landing-only.  It performs exactly three
+The live boundary is intentionally Landing-only.  It performs exactly four
 retry-zero KRX/pykrx calls for one explicitly finalized trading date, persists
 each source response before normalization, and never writes production data.
 Promotion is delegated to :mod:`kr_index_daily_incremental`.
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from io import StringIO
 import hashlib
 import json
@@ -26,7 +26,12 @@ from stock_data.providers.pykrx.kr_index_daily import (
 )
 from stock_data.providers.pykrx.kospi200_index_daily import normalize_response as normalize_kospi200
 from stock_data.providers.pykrx.safety import PykrxRequestPolicy, require_manual_live_access
-from stock_data.validation.kr_index_daily import validate_kr_index_daily
+from stock_data.contracts.kr_index_daily import KR_INDEX_MARKETS, KR_INDEX_TICKERS
+from stock_data.orchestration.kr_index_daily_incremental import (
+    read_registered_kr_index_daily,
+    validate_registered_kr_index_daily,
+    write_registered_kr_index_daily,
+)
 from stock_data.validation.kospi200_index_daily import validate_kospi200_index_daily
 
 
@@ -47,7 +52,21 @@ class IndexDailyLiveCaptureResult:
     checkpoint_path: Path
 
 
-SCOPES = (("KOSPI", "1001"), ("KOSDAQ", "2001"), ("KOSPI200", "1028"))
+SCOPES = (
+    *(tuple((symbol, ticker, KR_INDEX_MARKETS[symbol])) for symbol, ticker in KR_INDEX_TICKERS.items()),
+    ("KOSPI200", "1028", "KOSPI200"),
+)
+
+
+def _normalize_registered_response(
+    response: pd.DataFrame, *, symbol: str, market: str,
+) -> pd.DataFrame:
+    normalized = normalize_market_response(response, market)
+    normalized["symbol"] = symbol
+    normalized["market"] = market
+    normalized = normalized.sort_values(["date", "symbol"], kind="stable").reset_index(drop=True)
+    validate_registered_kr_index_daily(normalized)
+    return normalized
 
 
 def _atomic_json(path: Path, payload: object) -> None:
@@ -103,7 +122,7 @@ def capture_one_finalized_date(
     policy: PykrxRequestPolicy | None = None,
     now: datetime | None = None,
 ) -> IndexDailyLiveCaptureResult:
-    """Capture one reviewed trading date with three calls and retry zero."""
+    """Capture one reviewed trading date with four calls and retry zero."""
     target = _parse_date(market_date)
     if not finality_confirmed:
         raise IndexDailyLiveCaptureError("explicit source finality confirmation is required")
@@ -137,7 +156,7 @@ def capture_one_finalized_date(
 
     request_policy = policy or PykrxRequestPolicy(
         min_interval_seconds=2.0,
-        max_consecutive_requests=3,
+        max_consecutive_requests=len(SCOPES),
         max_consecutive_failures=1,
     )
     stock = stock_module or _stock_module()
@@ -153,12 +172,12 @@ def capture_one_finalized_date(
         "finalized_at": finalized_at.isoformat(),
         "finality_confirmed": True,
         "source": "pykrx/KRX",
-        "planned_calls": 3,
+        "planned_calls": len(SCOPES),
         "retry_count": 0,
     }
     _atomic_json(checkpoint, base_checkpoint)
     try:
-        for scope, ticker in SCOPES:
+        for scope, ticker, market in SCOPES:
             try:
                 with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
                     request_policy.before_request()
@@ -178,17 +197,21 @@ def capture_one_finalized_date(
             if scope == "KOSPI200":
                 frame = normalize_kospi200(response)
             else:
-                frame = normalize_market_response(response, scope)
+                frame = _normalize_registered_response(
+                    response, symbol=scope, market=market,
+                )
             if frame["date"].astype(str).tolist() != [target.isoformat()]:
                 raise IndexDailyLiveCaptureError(f"{scope} returned a non-target date")
             normalized[scope] = frame
             request_policy.record_success()
             _atomic_json(checkpoint, {**base_checkpoint, "business_calls": call_count, "raw": raw_manifest})
 
-        kr_index = pd.concat([normalized["KOSPI"], normalized["KOSDAQ"]], ignore_index=True)
+        kr_index = pd.concat(
+            [normalized[symbol] for symbol in KR_INDEX_TICKERS], ignore_index=True,
+        )
         kr_index = kr_index.sort_values(["date", "symbol"], kind="stable").reset_index(drop=True)
         kospi200 = normalized["KOSPI200"].reset_index(drop=True)
-        validate_kr_index_daily(kr_index)
+        validate_registered_kr_index_daily(kr_index)
         validate_kospi200_index_daily(kospi200)
         kr_path = job_root / "normalized" / "kr_index_daily.parquet"
         k200_path = job_root / "normalized" / "kr_kospi200_index_daily.parquet"
@@ -236,8 +259,120 @@ def capture_one_finalized_date(
             pass
 
 
+def backfill_kospi200_it_history(
+    project_root: Path,
+    *,
+    start_date: str | date,
+    end_date: str | date,
+    confirm_live: bool,
+    stock_module=None,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    """Fetch ticker 1155 history in one call, retain Landing, then atomically merge."""
+    if not confirm_live:
+        raise IndexDailyLiveCaptureError("explicit live backfill confirmation is required")
+    start = _parse_date(start_date)
+    end = _parse_date(end_date)
+    if start > end:
+        raise IndexDailyLiveCaptureError("backfill start_date must not follow end_date")
+    captured_at = now or datetime.now(timezone.utc)
+    if captured_at.tzinfo is None or captured_at.utcoffset() is None:
+        raise IndexDailyLiveCaptureError("backfill clock must be timezone-aware")
+    root = Path(project_root).resolve()
+    run_id = f"kospi200-it-{captured_at.astimezone(timezone.utc):%Y%m%dT%H%M%SZ}"
+    job_root = root / "data/landing/kr_index_daily_backfill" / run_id
+    if job_root.exists():
+        raise IndexDailyLiveCaptureError("backfill run_id already has retained Landing")
+    stock = stock_module or _stock_module()
+    try:
+        with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+            response = stock.get_index_ohlcv(
+                start.strftime("%Y%m%d"), end.strftime("%Y%m%d"),
+                KR_INDEX_TICKERS["KOSPI200_IT"],
+            )
+    except Exception as error:
+        raise IndexDailyLiveCaptureError(
+            f"KOSPI200_IT one-call backfill failed: {type(error).__name__}"
+        ) from None
+    raw_path = job_root / "source/kospi200_it.parquet"
+    raw_sha = _write_parquet_create_only(response.reset_index(), raw_path)
+    incoming = _normalize_registered_response(
+        response, symbol="KOSPI200_IT", market="KOSPI",
+    )
+    if incoming.empty:
+        raise IndexDailyLiveCaptureError("KOSPI200_IT backfill returned no rows")
+    observed = pd.to_datetime(incoming["date"], errors="raise").dt.date
+    if observed.min() < start or observed.max() > end:
+        raise IndexDailyLiveCaptureError("KOSPI200_IT backfill returned rows outside range")
+    normalized_path = job_root / "normalized/kr_index_daily.parquet"
+    normalized_sha = _write_parquet_create_only(incoming, normalized_path)
+
+    target = root / "data/normalized/kr_index_daily"
+    try:
+        existing = read_registered_kr_index_daily(target)
+    except FileNotFoundError:
+        existing = pd.DataFrame(columns=incoming.columns)
+    existing_keys = set(existing[["date", "symbol"]].astype(str).itertuples(index=False, name=None))
+    for _, row in incoming.iterrows():
+        key = (str(row["date"]), str(row["symbol"]))
+        if key in existing_keys:
+            retained = existing.loc[
+                existing["date"].astype(str).eq(key[0])
+                & existing["symbol"].astype(str).eq(key[1])
+            ].iloc[0]
+            if retained.to_dict() != row.to_dict():
+                raise IndexDailyLiveCaptureError(
+                    f"KOSPI200_IT backfill conflicts with retained row: {key[0]}"
+                )
+    new_rows = incoming.loc[
+        ~incoming.apply(
+            lambda row: (str(row["date"]), str(row["symbol"])) in existing_keys,
+            axis=1,
+        )
+    ]
+    combined = (
+        new_rows.copy().reset_index(drop=True)
+        if existing.empty
+        else pd.concat([existing, new_rows], ignore_index=True)
+    )
+    combined = combined.sort_values(["date", "symbol"], kind="stable").reset_index(drop=True)
+    validate_registered_kr_index_daily(combined)
+    write_registered_kr_index_daily(combined, target)
+    restored = read_registered_kr_index_daily(target)
+    try:
+        pd.testing.assert_frame_equal(restored, combined, check_dtype=False)
+    except AssertionError:
+        raise IndexDailyLiveCaptureError("KOSPI200_IT atomic backfill readback differs")
+    receipt = {
+        "schema_version": 1,
+        "lane": "KR_INDEX_DAILY",
+        "operation": "KOSPI200_IT_ONE_CALL_BACKFILL",
+        "status": "SUCCEEDED",
+        "run_id": run_id,
+        "symbol": "KOSPI200_IT",
+        "ticker": KR_INDEX_TICKERS["KOSPI200_IT"],
+        "requested_start": start.isoformat(),
+        "requested_end": end.isoformat(),
+        "retained_start": str(incoming["date"].astype(str).min()),
+        "retained_end": str(incoming["date"].astype(str).max()),
+        "provider_calls": 1,
+        "fetched_rows": len(incoming),
+        "inserted_rows": len(new_rows),
+        "raw_sha256": raw_sha,
+        "normalized_sha256": normalized_sha,
+        "landing_root": job_root.relative_to(root).as_posix(),
+    }
+    _atomic_json(
+        root / "artifacts/scheduler_logs/KR_INDEX_DAILY_BACKFILL_1155_last.json",
+        receipt,
+    )
+    return receipt
+
+
 __all__ = [
     "IndexDailyLiveCaptureError",
     "IndexDailyLiveCaptureResult",
+    "SCOPES",
+    "backfill_kospi200_it_history",
     "capture_one_finalized_date",
 ]

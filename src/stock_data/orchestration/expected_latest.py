@@ -33,6 +33,7 @@ class ProviderAvailabilityPolicy(StrEnum):
     KRX_SHORT_TRADING_T_PLUS_1 = "KRX_SHORT_TRADING_T_PLUS_1"
     KRX_SHORT_BALANCE_T_PLUS_2_1810 = "KRX_SHORT_BALANCE_T_PLUS_2_1810"
     KRX_SHORT_INVESTOR_SAME_DAY_1810 = "KRX_SHORT_INVESTOR_SAME_DAY_1810"
+    KOFIA_T_PLUS_2_2030 = "KOFIA_T_PLUS_2_2030"
     KRX_COMPLETED_SUCCESSOR_SESSION = "KRX_COMPLETED_SUCCESSOR_SESSION"
     BOK_ECOS_FX_DAILY_1600_KST = "BOK_ECOS_FX_DAILY_1600_KST"
     MANUAL_OBSERVATION = "MANUAL_OBSERVATION"
@@ -227,6 +228,14 @@ def policy_for_dataset(dataset: str, lane: str) -> ExpectedLatestPolicy | None:
             ProviderFinality.AS_RETRIEVED,
             ExchangeMarket.KR,
         )
+    if dataset == "kr_credit_balance_daily" and lane == "LIQUIDITY_CREDIT_DAILY":
+        return ExpectedLatestPolicy(
+            ObservationCalendar.XKRX,
+            ProviderAvailabilityPolicy.KOFIA_T_PLUS_2_2030,
+            ExpectedLagPolicy.TWO_PROVIDER_BUSINESS_DAYS,
+            ProviderFinality.UNKNOWN,
+            ExchangeMarket.KR,
+        )
     if lane == "DERIVATIVES_PRICE_DAILY":
         return ExpectedLatestPolicy(
             ObservationCalendar.XKRX,
@@ -407,6 +416,14 @@ def _provider_target(
             first = calendar.next_trading_day(observation)
             second = calendar.next_trading_day(first)
             if _at(second, time(18, 10), "Asia/Seoul") <= as_of:
+                eligible.append(observation)
+        return eligible[-1], ProviderAvailability.AVAILABLE
+    if policy.provider_availability_policy is ProviderAvailabilityPolicy.KOFIA_T_PLUS_2_2030:
+        eligible = []
+        for observation in sessions:
+            first = calendar.next_trading_day(observation)
+            second = calendar.next_trading_day(first)
+            if _at(second, time(20, 30), "Asia/Seoul") <= as_of:
                 eligible.append(observation)
         return eligible[-1], ProviderAvailability.AVAILABLE
     if policy.provider_availability_policy is ProviderAvailabilityPolicy.KRX_COMPLETED_SUCCESSOR_SESSION:

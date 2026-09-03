@@ -13,6 +13,12 @@ from stock_data.orchestration.daily_operations import (
 )
 from stock_data.contracts.kr_etf import KR_ETF_MASTER
 from stock_data.orchestration.kr_etf_daily import normalize_master
+from stock_data.orchestration.kr_index_daily_incremental import (
+    validate_registered_kr_index_daily,
+)
+from stock_data.orchestration.kr_index_daily_live import (
+    backfill_kospi200_it_history,
+)
 from stock_data.storage.contract_parquet import read_dataset, write_dataset_atomic
 from stock_data.validation.kr_etf import validate_kr_etf_master
 import stock_data.orchestration.provider_scheduler as scheduler
@@ -67,6 +73,80 @@ def test_index_fundamental_lane_dry_run_is_registered_and_network_free(
     assert result["api_calls"] == 0
     assert result["automation_dataset_ids"] == ["kr_index_fundamental_daily"]
     assert result["phase_targets"] == {"index_fundamentals": "2026-08-14"}
+
+
+def test_kr_index_dry_run_lists_kospi200_it_ticker(tmp_path: Path) -> None:
+    result = run_lane(
+        tmp_path, "KR_INDEX_DAILY", as_of=AS_OF, dry_run=True,
+    )
+
+    assert {tuple(item.values()) for item in result["registered_indices"]} >= {
+        ("KOSPI200_IT", "1155"),
+    }
+
+
+def test_fundamentals_weekly_dry_run_reports_count_budget_and_gate(
+    tmp_path: Path,
+) -> None:
+    watchlist = tmp_path / "artifacts/local_user/watchlists.json"
+    watchlist.parent.mkdir(parents=True)
+    watchlist.write_text(json.dumps({
+        "lists": [{"items": [{"market": "KOSPI", "symbol": "005930"}]}],
+    }), encoding="utf-8")
+
+    result = run_lane(
+        tmp_path,
+        "KR_FUNDAMENTALS_WEEKLY",
+        as_of=datetime(2026, 9, 4, 11, 30, tzinfo=timezone.utc),
+        dry_run=True,
+    )
+
+    assert result["status"] == "DRY_RUN_PASS"
+    assert result["planned_lane_status"] == "REFRESH_DUE"
+    assert result["planned_symbol_count"] == 1
+    assert result["max_api_calls"] == 2_600
+    assert result["years"] == (2026, 2025, 2024)
+    assert result["api_calls"] == 0
+
+
+def test_kospi200_it_validation_and_one_call_backfill(tmp_path: Path) -> None:
+    raw = pd.DataFrame(
+        {
+            "시가": [100.0, 101.0], "고가": [102.0, 103.0],
+            "저가": [99.0, 100.0], "종가": [101.0, 102.0],
+            "거래량": [10, 11], "거래대금": [1000, 1100],
+            "상장시가총액": [10000, 11000],
+        },
+        index=pd.to_datetime(["2010-01-04", "2010-01-05"]),
+    )
+
+    class Stock:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str, str]] = []
+
+        def get_index_ohlcv(self, start: str, end: str, ticker: str):
+            self.calls.append((start, end, ticker))
+            return raw
+
+    stock = Stock()
+    receipt = backfill_kospi200_it_history(
+        tmp_path,
+        start_date="2010-01-04",
+        end_date="2010-01-05",
+        confirm_live=True,
+        stock_module=stock,
+        now=datetime(2026, 9, 3, 12, 0, tzinfo=timezone.utc),
+    )
+
+    assert stock.calls == [("20100104", "20100105", "1155")]
+    assert receipt["provider_calls"] == 1
+    assert receipt["inserted_rows"] == 2
+    stored = pd.concat([
+        pd.read_parquet(path)
+        for path in (tmp_path / "data/normalized/kr_index_daily").rglob("data.parquet")
+    ], ignore_index=True).sort_values(["date", "symbol"]).reset_index(drop=True)
+    validate_registered_kr_index_daily(stored)
+    assert stored["symbol"].tolist() == ["KOSPI200_IT", "KOSPI200_IT"]
 
 
 def test_kr_etf_lane_dry_run_is_registered_and_network_free(

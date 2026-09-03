@@ -113,7 +113,10 @@ preserving the dataset-specific finality rules below.
 - Credit now makes one extra call only after an empty target, selecting one of the prior 1–3 sessions.
 - A stable-empty date is reopened; a newly complete row is `REVISED` until an identical second pass.
 - This keeps two-pass promotion (no single-observation shortcut); market-liquidity fallback is unchanged.
-- Credit health now reports the contract-valid Normalized max, so an old row is `STALE`/`지연/경고`.
+- Credit health now reports the contract-valid Normalized max against a two-XKRX-business-day
+  availability target. A retained T-2 row is `EXPECTED_LAG`; anything older remains
+  `STALE`/`지연/경고`. Market liquidity remains on its manual policy because its retained
+  2026-08-06 maximum does not demonstrate the same T-2 behavior.
 
 Human-run commands (the live command performs public-provider calls):
 

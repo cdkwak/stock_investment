@@ -462,6 +462,7 @@ def test_current_retained_health_artifact_managed_automation_regression():
     assert summary["managed_not_applicable"] == managed_counts["NOT_APPLICABLE"]
     assert summary["managed_acceptable"] == (
         managed_counts["CURRENT"] + managed_counts["EXPECTED_LAG"]
+        + managed_counts["NOT_APPLICABLE"]
     )
     assert sum(managed_counts.values()) == summary["managed_total"]
 

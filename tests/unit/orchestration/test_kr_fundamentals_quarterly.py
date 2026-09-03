@@ -13,10 +13,14 @@ from stock_data.orchestration.kr_fundamentals_quarterly import (
     _write_candidate,
     fundamental_health,
     latest_fundamental_rows,
+    is_weekly_refresh_session,
+    plan_weekly_fundamentals_refresh,
     prepare_collection,
     promote_checkpoint,
     read_api_key,
     repair_period_end,
+    run_weekly_fundamentals_refresh,
+    weekly_refresh_symbols,
 )
 from stock_data.orchestration.dataset_universe import (
     ConsumerEligibility,
@@ -28,13 +32,113 @@ from stock_data.providers.opendart_fundamentals import OpenDartDailyLimitError
 API_KEY = "k" * 40
 
 
-def test_dataset_universe_registers_both_manual_display_datasets():
+def _write_watchlist(root: Path, symbols: list[str]) -> None:
+    path = root / "artifacts/local_user/watchlists.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "lists": [{
+            "items": [{"market": "KOSPI", "symbol": symbol} for symbol in symbols],
+        }],
+    }), encoding="utf-8")
+
+
+def test_dataset_universe_registers_both_weekly_display_datasets():
     universe = build_dataset_universe({})
     for dataset_id in ("kr_corp_code_map", "kr_fundamentals_quarterly"):
         spec = universe[dataset_id]
-        assert spec.automation_enabled is False
+        assert spec.automation_enabled is True
+        assert spec.scheduler_lane == "KR_FUNDAMENTALS_WEEKLY"
         assert spec.display_consumer_eligibility is ConsumerEligibility.ELIGIBLE
         assert spec.predictive_consumer_eligibility is ConsumerEligibility.BLOCKED
+
+
+def test_weekly_gate_uses_last_xkrx_session_of_iso_week() -> None:
+    assert not is_weekly_refresh_session(datetime(2026, 9, 3).date())
+    assert is_weekly_refresh_session(datetime(2026, 9, 4).date())
+
+
+def test_weekly_symbol_union_prioritizes_watchlist_and_caps_at_200(tmp_path: Path) -> None:
+    symbols = [f"{index:06d}" for index in range(205)]
+    _write_watchlist(tmp_path, symbols)
+
+    selected = weekly_refresh_symbols(tmp_path)
+
+    assert len(selected) == 200
+    assert selected == tuple(symbols[:200])
+
+
+def test_weekly_budget_guard_covers_base_plan_and_hard_cap(tmp_path: Path) -> None:
+    _write_watchlist(tmp_path, ["005930"])
+
+    with pytest.raises(FundamentalsRefreshError, match="base query plan"):
+        plan_weekly_fundamentals_refresh(
+            tmp_path, market_date=datetime(2026, 9, 4).date(), max_calls=12,
+        )
+    with pytest.raises(FundamentalsRefreshError, match="between 1 and 2600"):
+        plan_weekly_fundamentals_refresh(
+            tmp_path, market_date=datetime(2026, 9, 4).date(), max_calls=2_601,
+        )
+
+
+def test_weekly_lane_receipt_shape_and_non_refresh_skip(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    _write_watchlist(tmp_path, ["005930"])
+    skipped = run_weekly_fundamentals_refresh(
+        tmp_path, market_date=datetime(2026, 9, 3).date(), dry_run=False,
+    )
+    assert skipped["status"] == "SKIPPED_NOT_REFRESH_DAY"
+    assert skipped["api_calls"] == 0
+
+    checkpoint = (
+        tmp_path / "data/state/kr_fundamentals_quarterly"
+        / "20260904T113000Z_00000000000000000000000000000000/checkpoint.json"
+    )
+    monkeypatch.setattr(
+        "stock_data.orchestration.kr_fundamentals_quarterly.prepare_collection",
+        lambda *_args, **_kwargs: {
+            "checkpoint": str(checkpoint), "approval_digest": "a" * 64,
+            "http_calls": 13, "calls_today": 13, "remaining_queries": 0,
+            "new_normalized_rows": 4, "dropped_normalized_rows": 0,
+        },
+    )
+    monkeypatch.setattr(
+        "stock_data.orchestration.kr_fundamentals_quarterly.promote_checkpoint",
+        lambda *_args, **_kwargs: {
+            "run_id": checkpoint.parent.name, "normalized_mutation": True,
+        },
+    )
+
+    receipt = run_weekly_fundamentals_refresh(
+        tmp_path,
+        market_date=datetime(2026, 9, 4).date(),
+        dry_run=False,
+        now=datetime(2026, 9, 4, 11, 30, tzinfo=timezone.utc),
+    )
+
+    assert receipt == {
+        "schema_version": 1,
+        "lane": "KR_FUNDAMENTALS_WEEKLY",
+        "target_session": "2026-09-04",
+        "refresh_day": True,
+        "planned_lane_status": "REFRESH_DUE",
+        "planned_symbol_count": 1,
+        "symbol_cap": 200,
+        "years": (2026, 2025, 2024),
+        "base_query_calls": 12,
+        "max_api_calls": 2600,
+        "symbol_source": "WATCHLIST_UNION_RETAINED_FUNDAMENTALS_FALLBACK",
+        "receipt_date_validation": "PERIOD_END_NOT_AFTER_RCEPT_NO_DATE",
+        "status": "COMPLETE",
+        "api_calls": 13,
+        "calls_today": 13,
+        "remaining_queries": 0,
+        "new_normalized_rows": 4,
+        "dropped_normalized_rows": 0,
+        "run_id": checkpoint.parent.name,
+        "checkpoint": checkpoint.relative_to(tmp_path).as_posix(),
+        "normalized_mutation": True,
+    }
 
 
 class _Response:

@@ -32,10 +32,17 @@ from stock_data.orchestration.market_daily_incremental import (
 from stock_data.pipelines.short_selling_backfill import (
     AppendOnlyRedactedLedger, AuthenticatedPykrxRawClient, ConservativeThrottle,
 )
-from stock_data.orchestration.kr_index_daily_incremental import run_atomic_lane_append
+from stock_data.orchestration.kr_index_daily_incremental import (
+    read_registered_kr_index_daily,
+    run_atomic_lane_append,
+)
 from stock_data.orchestration.kr_index_daily_live import capture_one_finalized_date
 from stock_data.orchestration.kr_index_fundamental_daily import (
     run_index_fundamental_daily,
+)
+from stock_data.orchestration.kr_fundamentals_quarterly import (
+    plan_weekly_fundamentals_refresh,
+    run_weekly_fundamentals_refresh,
 )
 from stock_data.orchestration.kr_etf_daily import run_kr_etf_scheduler_lane
 from stock_data.providers.pykrx.kr_etf import PykrxEtfClient
@@ -50,7 +57,7 @@ from stock_data.orchestration.toss_kr_treasury_daily import (
     refresh_toss_kr_treasury_daily,
 )
 from stock_data.providers.tossinvest import TossInvestClient
-from stock_data.storage.atomic_parquet import read_kr_index_daily
+from stock_data.contracts.kr_index_daily import KR_INDEX_TICKERS
 from stock_data.storage.contract_parquet import read_dataset
 from stock_data.storage.contract_parquet import write_dataset_atomic
 from stock_data.contracts.kr_etf import KR_ETF_MASTER
@@ -211,6 +218,14 @@ LANE_SCHEDULES = MappingProxyType({
         market=ExchangeMarket.KR, phases=("index_fundamentals",),
         dataset_ids=("kr_index_fundamental_daily",),
         accepted_source="KRX MDCSTAT00702 exact 1001/2001 range responses",
+    ),
+    "KR_FUNDAMENTALS_WEEKLY": LaneSchedule(
+        lane="KR_FUNDAMENTALS_WEEKLY",
+        cadence_group="KR_LAST_XKRX_SESSION_OF_ISO_WEEK_2030",
+        market=ExchangeMarket.KR,
+        phases=("fundamentals_weekly",),
+        dataset_ids=("kr_corp_code_map", "kr_fundamentals_quarterly"),
+        accepted_source="OpenDART corpCode.xml and fnlttSinglAcntAll.json",
     ),
     "MARKET_INVESTOR_DAILY": LaneSchedule(
         lane="MARKET_INVESTOR_DAILY", cadence_group="KR_POST_CLOSE_1830",
@@ -658,7 +673,7 @@ def _run_index_phase(project_root: Path, phase: str, target: object) -> dict[str
     normalized = project_root / "data/normalized"
     kr_root = normalized / "kr_index_daily"
     k200_root = normalized / "kr_kospi200_index_daily"
-    kr = read_kr_index_daily(kr_root)
+    kr = read_registered_kr_index_daily(kr_root)
     k200 = read_dataset(k200_root, KR_KOSPI200_INDEX_DAILY, validate_kospi200_index_daily)
     latest = {
         "kr_index_daily": date.fromisoformat(str(kr["date"].astype(str).max())),
@@ -714,6 +729,16 @@ def _run_index_fundamental_phase(
         "latest_after": result.latest_after,
         "reason": result.reason,
     }
+
+
+def _run_fundamentals_weekly_phase(
+    project_root: Path, phase: str, target: object,
+) -> dict[str, object]:
+    if phase != "fundamentals_weekly" or not isinstance(target, date):
+        raise ProviderSchedulerError("invalid KR fundamentals weekly scheduler phase")
+    return run_weekly_fundamentals_refresh(
+        project_root, market_date=target, dry_run=False,
+    )
 
 
 def _run_market_investor_phase(
@@ -1135,7 +1160,10 @@ def run_lane(
         raise ProviderSchedulerError(f"lane is not registered for unattended execution: {lane}")
     config = LANE_SCHEDULES[lane]
     readiness = next((item for item in DAILY_LANE_READINESS if item.lane == lane), None)
-    if readiness is None or not readiness.scheduler_eligible:
+    if (
+        lane != "KR_FUNDAMENTALS_WEEKLY"
+        and (readiness is None or not readiness.scheduler_eligible)
+    ):
         raise ProviderSchedulerError(f"lane is not scheduler eligible: {lane}")
     core_enabled = {
         spec.dataset_id for spec in DATASET_OPERATIONS.select(executable_only=True)
@@ -1178,6 +1206,7 @@ def run_lane(
         "vkospi": "kr_vkospi_daily",
         "indices": "kr_index_daily",
         "index_fundamentals": "kr_index_fundamental_daily",
+        "fundamentals_weekly": "kr_fundamentals_quarterly",
         "market_investor": "kr_market_investor_net_purchase_bridge_daily",
         "toss_kr_treasury": "kr_treasury_yield_daily",
         "global_indices": "global_index_price_daily",
@@ -1190,6 +1219,10 @@ def run_lane(
         if phase == "kospi200_breadth":
             phase_targets[phase] = latest_accepted_canonical_target(root)
             availability_policies[phase] = "CANONICAL_ACCEPTED_DATE_ONLY"
+            continue
+        if phase == "fundamentals_weekly":
+            phase_targets[phase] = market_target
+            availability_policies[phase] = "LAST_XKRX_SESSION_OF_ISO_WEEK"
             continue
         resolved = resolve_expected_latest(
             dataset=phase_dataset[phase], lane=lane, retained_latest=None, as_of=clock,
@@ -1214,6 +1247,19 @@ def run_lane(
         "retry_count": 0,
         "dry_run": dry_run,
     }
+    if lane == "KR_INDEX_DAILY":
+        base["registered_indices"] = [
+            {"symbol": symbol, "ticker": ticker}
+            for symbol, ticker in KR_INDEX_TICKERS.items()
+        ] + [{"symbol": "KOSPI200", "ticker": "1028"}]
+    if lane == "KR_FUNDAMENTALS_WEEKLY":
+        plan = plan_weekly_fundamentals_refresh(
+            root, market_date=market_target,
+        )
+        base.update({
+            key: value for key, value in plan.items()
+            if key not in {"schema_version", "lane", "target_session", "symbols"}
+        })
     if scheduled_for is not None:
         base.update({
             "scheduled_for": scheduled_for.isoformat(),
@@ -1240,6 +1286,7 @@ def run_lane(
             "VKOSPI_DAILY": _run_vkospi_phase,
             "KR_INDEX_DAILY": _run_index_phase,
             "KR_INDEX_FUNDAMENTAL_DAILY": _run_index_fundamental_phase,
+            "KR_FUNDAMENTALS_WEEKLY": _run_fundamentals_weekly_phase,
             "MARKET_INVESTOR_DAILY": _run_market_investor_phase,
             "TOSS_KR_TREASURY_DAILY": _run_toss_kr_treasury_phase,
             "GLOBAL_INDEX_DAILY": _run_global_index_phase,
@@ -1268,6 +1315,12 @@ def run_lane(
                 "reason": result.get("reason"),
                 "attempted_dates": result.get("attempted_dates"),
                 "accepted_dates": result.get("accepted_dates"),
+                "planned_symbol_count": result.get("planned_symbol_count"),
+                "symbol_cap": result.get("symbol_cap"),
+                "years": result.get("years"),
+                "max_api_calls": result.get("max_api_calls"),
+                "remaining_queries": result.get("remaining_queries"),
+                "receipt_date_validation": result.get("receipt_date_validation"),
             }
             outcomes.append(outcome)
     finally:

@@ -1,13 +1,30 @@
 from __future__ import annotations
 
+from types import MappingProxyType
+
 from stock_data.contracts.base import ColumnContract, DatasetContract
+
+
+KR_INDEX_TICKERS = MappingProxyType({
+    "KOSPI": "1001",
+    "KOSDAQ": "2001",
+    "KOSPI200_IT": "1155",
+})
+KR_INDEX_MARKETS = MappingProxyType({
+    "KOSPI": "KOSPI",
+    "KOSDAQ": "KOSDAQ",
+    "KOSPI200_IT": "KOSPI",
+})
 
 
 KR_INDEX_DAILY = DatasetContract(
     name="kr_index_daily",
     version=2,
     status="active",
-    description="Daily OHLCV and market aggregates for broad Korean equity indices.",
+    description=(
+        "Daily OHLCV and market aggregates for registered Korean equity indices, "
+        "including KOSPI 200 Information Technology."
+    ),
     source="pykrx",
     layer="normalized",
     storage_format="parquet",

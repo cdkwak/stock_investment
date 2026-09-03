@@ -46,12 +46,19 @@ from stock_data.storage.contract_arrow import (
     dataframe_to_contract_table,
     restore_contract_dates,
 )
+from stock_data.orchestration.exchange_calendar import (
+    ExchangeMarket,
+    ExchangeTradingCalendar,
+)
 
 
 RETRY_COUNT = 0
 REQUEST_TIMEOUT_SECONDS = 20
 REQUEST_SPACING_SECONDS = 0.2
 DEFAULT_MAX_CALLS = 200
+WEEKLY_MAX_CALLS = 2_600
+WEEKLY_MAX_SYMBOLS = 200
+WEEKLY_YEAR_COUNT = 3
 CORP_MAP_MAX_AGE = timedelta(days=7)
 _RUN_ID = re.compile(r"\d{8}T\d{6}Z_[0-9a-f]{32}\Z")
 
@@ -117,6 +124,144 @@ def load_universe_symbols(project_root: Path) -> tuple[str, ...]:
         if values:
             return tuple(sorted(values))
     raise FundamentalsRefreshError("no retained listed-stock universe is available")
+
+
+def _retained_fundamental_symbols(project_root: Path) -> tuple[str, ...]:
+    frame = _read_dataset_optional(
+        Path(project_root) / "data/normalized/kr_fundamentals_quarterly",
+        KR_FUNDAMENTALS_QUARTERLY,
+    )
+    return tuple(sorted({
+        str(value) for value in frame.get("symbol", pd.Series(dtype="object")).dropna()
+        if re.fullmatch(r"[0-9A-Z]{6}", str(value))
+    }))
+
+
+def weekly_refresh_symbols(
+    project_root: Path, *, max_symbols: int = WEEKLY_MAX_SYMBOLS,
+) -> tuple[str, ...]:
+    """Resolve watchlist first, then the retained-fundamentals fallback set."""
+    if not 1 <= max_symbols <= WEEKLY_MAX_SYMBOLS:
+        raise FundamentalsRefreshError("weekly symbol cap must be between 1 and 200")
+    root = Path(project_root)
+    watchlist_path = root / "artifacts/local_user/watchlists.json"
+    if watchlist_path.exists():
+        try:
+            watchlist = load_watchlist_symbols(root)
+        except FundamentalsRefreshError as error:
+            if str(error) != "local watchlists contain no Korean equity symbols":
+                raise
+            watchlist = ()
+    else:
+        watchlist = ()
+    retained = _retained_fundamental_symbols(root)
+    ordered = tuple(sorted(watchlist)) + tuple(sorted(set(retained) - set(watchlist)))
+    if not ordered:
+        raise FundamentalsRefreshError(
+            "weekly fundamentals has no Korean watchlist or retained symbols"
+        )
+    return ordered[:max_symbols]
+
+
+def is_weekly_refresh_session(
+    market_date: date, *, calendar: ExchangeTradingCalendar | None = None,
+) -> bool:
+    """Return true for the last XKRX session in an ISO week."""
+    exchange = calendar or ExchangeTradingCalendar(ExchangeMarket.KR)
+    if not exchange.is_trading_day(market_date):
+        return False
+    next_session = exchange.next_trading_day(market_date)
+    return next_session.isocalendar()[:2] != market_date.isocalendar()[:2]
+
+
+def plan_weekly_fundamentals_refresh(
+    project_root: Path,
+    *,
+    market_date: date,
+    max_symbols: int = WEEKLY_MAX_SYMBOLS,
+    max_calls: int = WEEKLY_MAX_CALLS,
+    calendar: ExchangeTradingCalendar | None = None,
+) -> dict[str, object]:
+    if not 1 <= max_calls <= WEEKLY_MAX_CALLS:
+        raise FundamentalsRefreshError("weekly HTTP call budget must be between 1 and 2600")
+    symbols = weekly_refresh_symbols(project_root, max_symbols=max_symbols)
+    years = tuple(range(market_date.year, market_date.year - WEEKLY_YEAR_COUNT, -1))
+    minimum_calls = len(symbols) * len(years) * len(REPORT_CODES)
+    if minimum_calls + 1 > max_calls:
+        raise FundamentalsRefreshError(
+            "weekly HTTP call budget cannot cover the base query plan plus map refresh"
+        )
+    refresh_day = is_weekly_refresh_session(market_date, calendar=calendar)
+    return {
+        "schema_version": 1,
+        "lane": "KR_FUNDAMENTALS_WEEKLY",
+        "target_session": market_date.isoformat(),
+        "refresh_day": refresh_day,
+        "planned_lane_status": (
+            "REFRESH_DUE" if refresh_day else "SKIPPED_NOT_REFRESH_DAY"
+        ),
+        "planned_symbol_count": len(symbols),
+        "symbol_cap": max_symbols,
+        "symbols": symbols,
+        "years": years,
+        "base_query_calls": minimum_calls,
+        "max_api_calls": max_calls,
+        "symbol_source": "WATCHLIST_UNION_RETAINED_FUNDAMENTALS_FALLBACK",
+        "receipt_date_validation": "PERIOD_END_NOT_AFTER_RCEPT_NO_DATE",
+    }
+
+
+def run_weekly_fundamentals_refresh(
+    project_root: Path,
+    *,
+    market_date: date,
+    dry_run: bool,
+    max_symbols: int = WEEKLY_MAX_SYMBOLS,
+    max_calls: int = WEEKLY_MAX_CALLS,
+    session: object | None = None,
+    sleeper: Callable[[float], None] = time.sleep,
+    now: datetime | None = None,
+    calendar: ExchangeTradingCalendar | None = None,
+) -> dict[str, object]:
+    """Run the last-session-of-week OpenDART capture/validate/promote lane."""
+    root = Path(project_root).resolve()
+    plan = plan_weekly_fundamentals_refresh(
+        root, market_date=market_date, max_symbols=max_symbols,
+        max_calls=max_calls, calendar=calendar,
+    )
+    public_plan = {key: value for key, value in plan.items() if key != "symbols"}
+    if dry_run:
+        return {**public_plan, "status": "DRY_RUN_PASS", "api_calls": 0}
+    if not plan["refresh_day"]:
+        return {**public_plan, "status": "SKIPPED_NOT_REFRESH_DAY", "api_calls": 0}
+    prepared = prepare_collection(
+        root,
+        symbols=plan["symbols"],
+        years=plan["years"],
+        max_calls=max_calls,
+        session=session,
+        sleeper=sleeper,
+        now=now,
+    )
+    checkpoint_path = Path(str(prepared["checkpoint"]))
+    promoted = promote_checkpoint(
+        root,
+        checkpoint_path,
+        expected_approval_digest=str(prepared["approval_digest"]),
+    )
+    remaining = int(prepared["remaining_queries"])
+    return {
+        **public_plan,
+        "status": "COMPLETE" if remaining == 0 else "PARTIAL_LIMIT_REACHED",
+        "api_calls": int(prepared["http_calls"]),
+        "calls_today": int(prepared["calls_today"]),
+        "remaining_queries": remaining,
+        "new_normalized_rows": int(prepared["new_normalized_rows"]),
+        "dropped_normalized_rows": int(prepared["dropped_normalized_rows"]),
+        "run_id": str(promoted["run_id"]),
+        "checkpoint": checkpoint_path.relative_to(root).as_posix(),
+        "normalized_mutation": bool(promoted["normalized_mutation"]),
+    }
 
 
 def prepare_collection(
@@ -958,5 +1103,8 @@ __all__ = [
     "REQUEST_SPACING_SECONDS", "REQUEST_TIMEOUT_SECONDS", "approval_digest",
     "fundamental_health", "latest_fundamental_rows", "load_universe_symbols",
     "load_watchlist_symbols", "prepare_collection", "promote_checkpoint",
-    "read_api_key", "repair_period_end",
+    "read_api_key", "repair_period_end", "WEEKLY_MAX_CALLS",
+    "WEEKLY_MAX_SYMBOLS", "is_weekly_refresh_session",
+    "plan_weekly_fundamentals_refresh", "run_weekly_fundamentals_refresh",
+    "weekly_refresh_symbols",
 ]

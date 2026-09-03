@@ -638,6 +638,9 @@ _LANE_GROUPS = {
         "kr_equity_price_provisional_daily",
     }),
     "KR_INDEX_DAILY": frozenset({"kr_index_daily", "kr_kospi200_index_daily"}),
+    "KR_FUNDAMENTALS_WEEKLY": frozenset({
+        "kr_corp_code_map", "kr_fundamentals_quarterly",
+    }),
     "KR_INDEX_FUNDAMENTAL_DAILY": frozenset({"kr_index_fundamental_daily"}),
     "KOSPI200_BREADTH_DAILY": frozenset({
         "kr_index_constituent_daily", "kr_kospi200_constituent_price_daily",
@@ -783,7 +786,6 @@ kr_stock_lending_participant_daily us_treasury_spread_daily
 
 
 _INTENTIONALLY_EXCLUDED = frozenset("""
-    kr_corp_code_map kr_fundamentals_quarterly
     market_price_60m_observation market_price_15m_observation
     krx_legacy_kospi200_futures_daily krx_legacy_kospi200_options_daily
     kr_market_investor_net_purchase_daily kr_equity_short_selling_daily
@@ -848,7 +850,10 @@ _EVENT_IDS = frozenset({
     "kr_equity_dividend_source_observation", "kr_equity_stock_issuance_source_observation",
 })
 _HEALTH_REFERENCE_IDS = _EVENT_IDS | frozenset({"kr_corp_code_map"})
-_CADENCE_OVERRIDES = {"kr_etf_master": "daily"}
+_CADENCE_OVERRIDES = {
+    "kr_etf_master": "daily",
+    "kr_fundamentals_quarterly": "weekly",
+}
 _STATIC_COMPLETE_IDS = _HISTORICAL_SEGMENT_IDS | _RETAINED_HISTORY_ONLY_IDS | frozenset({
     "us_cftc_legacy_futures_only_raw", "us_cftc_legacy_futures_options_combined_raw",
     "us_cftc_tff_futures_only_raw", "us_cftc_disaggregated_futures_only_raw",
@@ -893,6 +898,7 @@ _READY_WITH_LIMITS_IDS = frozenset({
     "kr_market_investor_trading_daily",
     "kr_short_selling_trading_daily",
     "kr_market_liquidity_daily", "kr_credit_balance_daily",
+    "kr_corp_code_map", "kr_fundamentals_quarterly",
 })
 _IMPLEMENTATION_READY_IDS: frozenset[str] = frozenset()
 _READY_IDS = frozenset({
@@ -940,6 +946,8 @@ def _health_preservation_reason(
     refresh_policy: RefreshPolicy,
     operational_status: UniverseOperationalStatus,
 ) -> str | None:
+    if dataset_id in {"kr_corp_code_map", "kr_fundamentals_quarterly"}:
+        return "주간 공시 갱신·최근 보존 이벤트"
     if dataset_id in _HEALTH_REFERENCE_IDS:
         return None
     if dataset_id in _HEALTH_PRESERVATION_REASONS:
@@ -1175,6 +1183,7 @@ _AUTO_ENABLED_IDS: frozenset[str] = frozenset({
     "ls_t8462_daily_raw", "kr_treasury_yield_daily",
     "bok_ecos_kr_treasury_yield_source_observation",
     "kr_market_investor_trading_daily",
+    "kr_corp_code_map", "kr_fundamentals_quarterly",
 })
 
 

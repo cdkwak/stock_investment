@@ -12,6 +12,8 @@ import sys
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
+from dotenv import load_dotenv
+
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
@@ -52,7 +54,7 @@ from stock_data.providers.pykrx.kr_equity_fundamental_observation import (
 
 
 KR_MARKET_DAILY_BUNDLE = "KR_MARKET_DAILY"
-KR_MARKET_DAILY_LANE_CONTRACT_VERSION = 7
+KR_MARKET_DAILY_LANE_CONTRACT_VERSION = 8
 KR_MARKET_DAILY_TIMEZONE = ZoneInfo("Asia/Seoul")
 KR_MARKET_DAILY_SLOTS = (
     (
@@ -81,6 +83,7 @@ KR_MARKET_DAILY_SLOTS = (
             "LENDING_DAILY",
             "VKOSPI_DAILY",
             "KR_INDEX_DAILY",
+            "KR_FUNDAMENTALS_WEEKLY",
             "DERIVATIVES_PRICE_DAILY",
             "MARKET_INVESTOR_DAILY",
             "LIQUIDITY_CREDIT_DAILY",
@@ -858,6 +861,7 @@ def _advancement_status(result: dict[str, object]) -> str:
             return "EXPECTED_LAG"
     if result.get("status") in {
         "NOOP", "NOOP_IDEMPOTENT", "CURRENT", "SKIPPED_NON_TRADING_DAY",
+        "SKIPPED_NOT_REFRESH_DAY",
     }:
         return "NOOP_CURRENT"
     if result.get("status") in {
@@ -1235,6 +1239,7 @@ def _main(terminal: _BoundTerminalEmitter) -> int:
         )
     as_of = args.as_of
     project_root = args.project_root.resolve()
+    load_dotenv(project_root / ".env", override=False)
     event_started_at = datetime.now(timezone.utc)
     logical_dataset = str(args.bundle or args.lane)
     started_event = UpdateEvent.started(

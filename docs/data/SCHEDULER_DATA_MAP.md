@@ -2,7 +2,7 @@
 
 상태: `현재 참조 문서 / 안정적 연결표`
 
-기준 시각: `2026-09-03 KST`
+기준 시각: `2026-09-04 KST`
 
 이 문서는 Windows 작업 스케줄러의 Data 작업, 논리 스케줄러 레인,
 87개 Dataset Universe, 그리고 Universe 밖의 운영 작업을 사람이 읽기 쉽게
@@ -30,9 +30,9 @@
 | 구분 | 개수 | 의미 |
 |---|---:|---|
 | 전체 Dataset Universe | 87 | 논리적 보존·현재 데이터셋 기록 |
-| 자동화 활성 | 43 | 22개 논리 레인에 연결됨. 미연결 0개 |
-| 자동화 비활성 | 44 | 수동·연구·이벤트, 계약·의미 미확정, 갱신하지 않는 보존 자료 |
-| 활성 Windows Data 작업 | 13 | 8개 작업이 43개 등록 데이터셋을 담당하고, 5개 작업은 Health·계좌·현재 화면용 운영을 담당 |
+| 자동화 활성 | 45 | 23개 논리 레인에 연결됨. 미연결 0개 |
+| 자동화 비활성 | 42 | 수동·연구·이벤트, 계약·의미 미확정, 갱신하지 않는 보존 자료 |
+| 활성 Windows Data 작업 | 13 | 8개 작업이 45개 등록 데이터셋을 담당하고, 5개 작업은 Health·계좌·현재 화면용 운영을 담당 |
 | 비활성 과거 작업 | 1 | KB IVSA0070 시장 스냅샷이며 KB 계좌 작업이 아님 |
 
 Windows 작업 하나가 여러 레인을 담당할 수 있고, 레인 하나가 여러 데이터셋을
@@ -52,7 +52,7 @@ Windows 작업 하나가 여러 레인을 담당할 수 있고, 레인 하나가
 | `STOCK_DATA_KR_MARKET_DAILY_0910` | 매일 09:10 | `KR_INDEX_FUNDAMENTAL_DAILY`, `SHORT_SELLING_DAILY`, `LIQUIDITY_CREDIT_DAILY` 확인 관측 및 설명용 주식 밸류에이션 관측 |
 | `STOCK_DATA_KR_MARKET_DAILY_1410` | 매일 14:10 | `CANONICAL_EQUITY_DAILY`, `SHORT_SELLING_DAILY`, `LENDING_DAILY` |
 | `STOCK_DATA_BOK_TREASURY_DAILY` | 매일 17:10 | `BOK_TREASURY_OBSERVATION_DAILY`만 실행; 이 작업의 실행 파일은 provider scheduler가 아님 |
-| `STOCK_DATA_KR_MARKET_DAILY_2030` | 매일 20:30 | Canonical 다음 `KR_EQUITY_PROVISIONAL_DAILY`, 이어서 `KR_ETF_PRICE_DAILY`; KOSPI200 폭·공매도 거래/잔고/투자자·대차·VKOSPI·국내지수·파생·시장 투자자·유동성/신용·LS t8462 Raw·Toss 국채 OHLC·`BOK_FX_DAILY` |
+| `STOCK_DATA_KR_MARKET_DAILY_2030` | 매일 20:30 | Canonical 다음 `KR_EQUITY_PROVISIONAL_DAILY`, 이어서 `KR_ETF_PRICE_DAILY`; KOSPI200 폭·공매도 거래/잔고/투자자·대차·VKOSPI·국내지수·주간 OpenDART 재무·파생·시장 투자자·유동성/신용·LS t8462 Raw·Toss 국채 OHLC·`BOK_FX_DAILY` |
 | `STOCK_DATA_GLOBAL_FUTURES_DAILY` | 매일 22:10 | `GLOBAL_COMMODITY_DAILY`; 자동화 활성 상품선물 데이터 1개 |
 | `STOCK_DATA_YAHOO_MARKET_30M` | 매시 :02/:32 | 현재 화면용 17개 경로: 완료된 30분봉 13개와 공급자 원형 15분봉 4개; 정규화 이력·Backtest 미기록 |
 
@@ -60,7 +60,7 @@ Windows 작업 하나가 여러 레인을 담당할 수 있고, 레인 하나가
 아니다. 비활성 `StockInvestmentRev1-KBSecDailySnapshot` 작업은 별도의
 IVSA0070 시장 스냅샷이며 KB 계좌 자동화로 세면 안 된다.
 
-## 자동화 활성 Dataset Universe: 43개
+## 자동화 활성 Dataset Universe: 45개
 
 | 논리 레인 | 담당 작업·슬롯 | 개수 | 데이터셋 ID |
 |---|---|---:|---|
@@ -80,18 +80,19 @@ IVSA0070 시장 스냅샷이며 KB 계좌 자동화로 세면 안 된다.
 | `LENDING_DAILY` | 한국장 14:10·20:30 | 3 | `kr_stock_lending_daily`, `kr_stock_lending_market_daily`, `kr_stock_lending_participant_daily` |
 | `LIQUIDITY_CREDIT_DAILY` | 한국장 20:30 잠정·다음 09:10 확인 | 2 | `kr_market_liquidity_daily`, `kr_credit_balance_daily` |
 | `KOSPI200_BREADTH_DAILY` | 한국장 20:30 | 3 | `kr_index_constituent_daily`, `kr_kospi200_constituent_price_daily`, `kr_kospi200_breadth_daily` |
-| `KR_INDEX_DAILY` | 한국장 20:30 | 2 | `kr_index_daily`, `kr_kospi200_index_daily` |
+| `KR_INDEX_DAILY` | 한국장 20:30 | 2 | `kr_index_daily` (`KOSPI`, `KOSDAQ`, `KOSPI200_IT=1155`), `kr_kospi200_index_daily` (`KOSPI200=1028`) |
+| `KR_FUNDAMENTALS_WEEKLY` | 한국장 20:30 중 주의 마지막 XKRX 세션 | 2 | `kr_corp_code_map`, `kr_fundamentals_quarterly`; 관심종목과 보존 재무 심볼 합집합, 200종목/2,600호출 상한 |
 | `DERIVATIVES_PRICE_DAILY` | 한국장 20:30 | 7 | `kr_kospi200_futures_daily`, `kr_kospi200_futures_nearest_listed_daily`, `kr_kospi200_futures_provider_bridge_daily`, `kr_kospi200_option_pcr_daily`, `kr_kospi200_option_walls_daily`, `kr_kospi200_options_daily`, `kr_kospi200_options_provider_bridge_daily` |
 | `MARKET_INVESTOR_DAILY` | 한국장 20:30 | 2 | `kr_market_investor_trading_daily`, `kr_market_investor_net_purchase_bridge_daily` |
 | `VKOSPI_DAILY` | 한국장 20:30 | 1 | `kr_vkospi_daily` |
 | `LS_T8462_DAILY` | 한국장 20:30 | 1 | `ls_t8462_daily_raw`; Raw 전용, Normalized·예측 승격 없음 |
 | `TOSS_KR_TREASURY_DAILY` | 한국장 20:30, T+1 | 1 | `kr_treasury_yield_daily`; 6개 만기 OHLC 원자적 갱신 |
-| **합계** |  | **43** | 자동화 활성 데이터셋은 모두 연결됨 |
+| **합계** |  | **45** | 자동화 활성 데이터셋은 모두 연결됨 |
 
 한국장 슬롯에서 일부 레인을 반복하는 것은 발표 시각, 실패 격리와 제한된 따라잡기를
 위한 의도된 구성이다. 반복 실행이 중복 데이터셋을 만드는 것은 아니다.
 
-## 43개 자동화 데이터셋 밖의 예약 작업
+## 45개 자동화 데이터셋 밖의 예약 작업
 
 아래 작업도 예약 실행되지만, 자동화 활성 이력 데이터셋이 추가된 것으로 세면 안 된다.
 
@@ -103,12 +104,12 @@ IVSA0070 시장 스냅샷이며 KB 계좌 자동화로 세면 안 된다.
 | Toss 계좌 | 식별자를 제거한 읽기 전용 계좌 스냅샷; 종목 탐색·주문·이체·브로커 변경 없음 |
 | KB 계좌 | 식별자를 제거한 읽기 전용 `SSQM2952` 스냅샷; 7개 `kb_*_snapshot` 시장 데이터와 별개 |
 | Daily Health | 외부 API 호출 없이 87개 typed universe를 투영·검증 |
-| BOK 국채·환율 | 국채 관찰은 17:10 전용 작업, 환율은 20:30 한국장 묶음이다. 둘 다 43개에 포함되며 미검증 최종성을 주장하지 않음 |
+| BOK 국채·환율 | 국채 관찰은 17:10 전용 작업, 환율은 20:30 한국장 묶음이다. 둘 다 45개에 포함되며 미검증 최종성을 주장하지 않음 |
 
 보존된 `market_price_15m_observation`과 `market_price_60m_observation` 이력은
 `STATIC_COMPLETE / NO_REFRESH` 상태다. Yahoo 작업은 별도의 현재 상태만 갱신한다.
 
-## 자동화 비활성 Dataset Universe: 44개
+## 자동화 비활성 Dataset Universe: 42개
 
 자동화 비활성이 곧 스케줄러 누락을 뜻하지는 않는다. 현재 분류는 다음과 같다.
 

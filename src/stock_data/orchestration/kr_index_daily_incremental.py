@@ -22,12 +22,11 @@ from typing import Callable
 import pandas as pd
 
 from stock_data.contracts.base import DatasetContract
-from stock_data.contracts.kr_index_daily import KR_INDEX_DAILY
-from stock_data.contracts.kospi200_index_daily import KR_KOSPI200_INDEX_DAILY
-from stock_data.storage.atomic_parquet import (
-    read_kr_index_daily,
-    write_kr_index_daily_atomic,
+from stock_data.contracts.kr_index_daily import (
+    KR_INDEX_DAILY,
+    KR_INDEX_MARKETS,
 )
+from stock_data.contracts.kospi200_index_daily import KR_KOSPI200_INDEX_DAILY
 from stock_data.storage.contract_parquet import read_dataset, write_dataset_atomic
 from stock_data.validation.kr_index_daily import validate_kr_index_daily
 from stock_data.validation.kospi200_index_daily import validate_kospi200_index_daily
@@ -47,6 +46,42 @@ class IndexDailyRoute:
     key: tuple[str, ...]
 
 
+def validate_registered_kr_index_daily(frame: pd.DataFrame) -> None:
+    """Extend the legacy broad-index validator with registered sector indices."""
+    if tuple(frame.columns) != KR_INDEX_DAILY.column_names:
+        raise IndexDailyOperationError("KR index columns do not match the contract")
+    if frame.empty:
+        raise IndexDailyOperationError("KR index dataset must not be empty")
+    symbols = set(frame["symbol"].astype(str)) if "symbol" in frame else set()
+    unknown = symbols - set(KR_INDEX_MARKETS)
+    if unknown:
+        raise IndexDailyOperationError(f"unregistered KR index symbols: {sorted(unknown)}")
+    for symbol in sorted(symbols):
+        subset = frame.loc[frame["symbol"].astype(str).eq(symbol)].copy()
+        expected_market = KR_INDEX_MARKETS[symbol]
+        if not subset["market"].astype(str).eq(expected_market).all():
+            raise IndexDailyOperationError(f"KR index symbol/market mismatch: {symbol}")
+        # Reuse the established schema/numeric/OHLC checks by projecting each
+        # registered series to its broad-market validation identity.
+        subset["symbol"] = expected_market
+        subset["market"] = expected_market
+        subset = subset.sort_values(list(KR_INDEX_DAILY.sort_key), kind="stable").reset_index(drop=True)
+        validate_kr_index_daily(subset)
+    if frame.duplicated(list(KR_INDEX_DAILY.primary_key)).any():
+        raise IndexDailyOperationError("date+symbol contains duplicates")
+    order = frame.sort_values(list(KR_INDEX_DAILY.sort_key), kind="stable").index
+    if not order.equals(frame.index):
+        raise IndexDailyOperationError("KR index rows must be sorted by date and symbol")
+
+
+def read_registered_kr_index_daily(root: Path) -> pd.DataFrame:
+    return read_dataset(root, KR_INDEX_DAILY, validate_registered_kr_index_daily)
+
+
+def write_registered_kr_index_daily(frame: pd.DataFrame, root: Path) -> None:
+    write_dataset_atomic(frame, root, KR_INDEX_DAILY, validate_registered_kr_index_daily)
+
+
 def _read_kospi200(root: Path) -> pd.DataFrame:
     return read_dataset(root, KR_KOSPI200_INDEX_DAILY, validate_kospi200_index_daily)
 
@@ -58,9 +93,9 @@ def _write_kospi200(frame: pd.DataFrame, root: Path) -> None:
 KR_INDEX_ROUTE = IndexDailyRoute(
     dataset="kr_index_daily",
     contract=KR_INDEX_DAILY,
-    validator=validate_kr_index_daily,
-    reader=read_kr_index_daily,
-    writer=write_kr_index_daily_atomic,
+    validator=validate_registered_kr_index_daily,
+    reader=read_registered_kr_index_daily,
+    writer=write_registered_kr_index_daily,
     key=KR_INDEX_DAILY.primary_key,
 )
 KOSPI200_ROUTE = IndexDailyRoute(
@@ -166,9 +201,11 @@ def _validate_route_landing(route: IndexDailyRoute, frame: pd.DataFrame, target:
             "Landing must contain exactly the explicitly finalized market date"
         )
     if route.dataset == "kr_index_daily":
-        keys = {(target_text, "KOSPI"), (target_text, "KOSDAQ")}
+        keys = {(target_text, symbol) for symbol in KR_INDEX_MARKETS}
         if _keys(frame, route.key) != keys:
-            raise IndexDailyOperationError("kr_index_daily Landing must contain both KOSPI and KOSDAQ")
+            raise IndexDailyOperationError(
+                "kr_index_daily Landing must contain every registered KR index"
+            )
     elif len(frame) != 1:
         raise IndexDailyOperationError("KOSPI200 Landing must contain exactly one finalized row")
 
@@ -606,7 +643,7 @@ def run_atomic_lane_append(
             ))
         lane_payload = {
             **payload, "status": "SUCCEEDED", "datasets": lane_datasets,
-            "api_calls": 3, "retry_count": 0,
+            "api_calls": len(KR_INDEX_MARKETS) + 1, "retry_count": 0,
         }
         (checkpoint_writer or _atomic_json)(checkpoint, lane_payload)
         _atomic_json(journal, lane_payload)
@@ -637,5 +674,7 @@ def run_atomic_lane_append(
 __all__ = [
     "IndexDailyLaneResult", "IndexDailyOperationError", "IndexDailyOperationResult",
     "PreparedIndexAppend", "prepare_daily_append", "recover_interrupted_transaction",
-    "run_atomic_lane_append", "run_offline_daily_append",
+    "read_registered_kr_index_daily", "run_atomic_lane_append",
+    "run_offline_daily_append", "validate_registered_kr_index_daily",
+    "write_registered_kr_index_daily",
 ]
