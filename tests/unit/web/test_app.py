@@ -142,3 +142,18 @@ def test_tailscale_serve_relay_is_treated_as_remote() -> None:
     assert client.get(
         "/", client_host="127.0.0.1", headers={"X-Forwarded-For": "8.8.8.8"},
     ).status_code == 403
+
+
+def test_tailscale_serve_observed_shape_hop_is_the_peer_address() -> None:
+    """Observed live 2026-09-03: the relay connects from the peer's tailnet address itself."""
+    from tests.unit.web import ASGITestClient, make_project, new_temp_root
+
+    client = ASGITestClient(create_app(make_project(new_temp_root())))
+    relayed = {"X-Forwarded-For": "100.86.222.47", "Tailscale-User-Login": "user@example.com"}
+    assert client.get("/", client_host="100.86.222.47", headers=relayed).status_code == 200
+    v6 = {"X-Forwarded-For": "fd7a:115c:a1e0::8432:2805"}
+    assert client.get("/", client_host="fd7a:115c:a1e0::1234", headers=v6).status_code == 200
+    assert client.post(
+        "/api/watchlist/items", json={"list_id": "favorites", "market": "KRX", "symbol": "123320"},
+        client_host="100.86.222.47", headers=relayed,
+    ).status_code == 403

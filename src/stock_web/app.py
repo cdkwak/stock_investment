@@ -20,6 +20,7 @@ from stock_web.api.fmt import format_kst
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 TAILSCALE_NETWORK = ipaddress.ip_network("100.64.0.0/10")
+TAILSCALE_NETWORK_V6 = ipaddress.ip_network("fd7a:115c:a1e0::/48")
 LOOPBACK_HOSTS = {"127.0.0.1", "::1", "testclient"}
 
 
@@ -28,21 +29,26 @@ def client_allowed(request: Request) -> bool:
     client = request.client
     if client is None:
         return True  # in-process test clients without a transport address
-    host = str(client.host)
+    if not _private_address(str(client.host)):
+        return False
     forwarded = request.headers.get("x-forwarded-for", "")
     if forwarded:
-        # `tailscale serve` (HTTPS on the tailnet) relays from loopback and reports the real
-        # peer here; judge that address, never the loopback hop. Only trust the header when
-        # the hop itself is local — a remote client cannot forge its way in by adding it.
-        if host not in LOOPBACK_HOSTS:
-            return False
-        host = forwarded.split(",")[0].strip()
+        # `tailscale serve` (HTTPS on the tailnet) relays the request and reports the real
+        # peer here (observed live 2026-09-03: the relay hop itself connects from the peer's
+        # tailnet address). Both the hop and the reported peer must be private; a public
+        # client cannot forge its way in by adding the header because its hop is refused.
+        return all(_private_address(part.strip()) for part in forwarded.split(",") if part.strip())
+    return True
+
+
+def _private_address(host: str) -> bool:
     if host in LOOPBACK_HOSTS:
         return True
     try:
-        return ipaddress.ip_address(host) in TAILSCALE_NETWORK
+        address = ipaddress.ip_address(host)
     except ValueError:
         return False
+    return address in TAILSCALE_NETWORK or address in TAILSCALE_NETWORK_V6
 
 
 def _project_root() -> Path:
