@@ -6,7 +6,11 @@
   const fmt = (value, digits = 2) => value === null || value === undefined || Number.isNaN(Number(value)) ? "—" : Number(value).toLocaleString("ko-KR", { minimumFractionDigits: digits, maximumFractionDigits: digits });
   const signed = (value, digits = 0) => value === null || value === undefined ? "—" : `${Number(value) > 0 ? "+" : ""}${fmt(value, digits)}`;
   const compact = (value) => window.SIChart ? SIChart.formatCompactKorean(value) : fmt(value, 0);
-  const percentile = (value) => value === null || value === undefined || !Number.isFinite(Number(value)) ? "—" : `${fmt(Math.round(Number(value)), 0)}%`;
+  const percentilePosition = (value) => {
+    if (value === null || value === undefined || !Number.isFinite(Number(value))) return "—";
+    const rank = Math.max(0, Math.min(100, Math.round(Number(value))));
+    return `${fmt(rank, 0)}% (상위 ${fmt(100 - rank, 0)}%)`;
+  };
   const pcr = (value) => window.SIChart ? SIChart.formatPcr(value) : fmt(value, 2);
   const flowAxis = (value) => Math.abs(Number(value)) >= 10000 ? `${fmt(Number(value) / 10000, 1)}조` : `${fmt(value, 0)}억`;
   const flowValue = (value) => Math.abs(Number(value)) >= 10000 ? `${signed(Number(value) / 10000, 1)}조원` : `${signed(Math.round(Number(value)), 0)}억원`;
@@ -31,6 +35,7 @@
   let dynamicSeries = [];
   const mainCache = new Map();
   const flowCache = new Map();
+  const historyCache = new Map();
   const hiddenFlowSeries = { KOSPI: new Set(), KOSDAQ: new Set() };
 
   function loadIndicatorState() {
@@ -201,11 +206,26 @@
     renderSvg(host, points, { height: 150, ariaLabel: `${kind === "pcr" ? "PCR" : "Basis"} 추이`, axisFormatter: formatter, valueFormatter: formatter });
   }
 
-  function renderDerivatives(section) {
+  function historySection(range, name) {
+    const sections = historyCache.get(range) || ((pagePayload && pagePayload.sections) || {});
+    return sections[name] || {};
+  }
+
+  function cachePagePayload(payload) {
+    if (!payload || !payload.sections) return;
+    if (payload.flows_range && payload.sections.flows) flowCache.set(payload.flows_range, payload.sections.flows);
+    if (payload.history_range) historyCache.set(payload.history_range, payload.sections);
+  }
+
+  function renderDerivatives() {
+    const section = ((pagePayload && pagePayload.sections) || {}).derivatives || {};
+    const basis = historySection(rangeValue("basis"), "derivatives");
+    const volumePcr = historySection(rangeValue("volume-pcr"), "derivatives");
+    const oiPcr = historySection(rangeValue("oi-pcr"), "derivatives");
     $("derivatives-unavailable").textContent = section && section.status === "UNAVAILABLE" ? unavailable(section.reason) : "";
-    renderLinePanel("basis-chart", "basis-meta", section && section.basis, "basis", "basis");
-    renderLinePanel("volume-pcr-chart", "volume-pcr-meta", section && section.pcr && section.pcr.volume, "pcr", "volume-pcr");
-    renderLinePanel("oi-pcr-chart", "oi-pcr-meta", section && section.pcr && section.pcr.oi, "pcr", "oi-pcr");
+    renderLinePanel("basis-chart", "basis-meta", basis.basis, "basis", "basis");
+    renderLinePanel("volume-pcr-chart", "volume-pcr-meta", volumePcr.pcr && volumePcr.pcr.volume, "pcr", "volume-pcr");
+    renderLinePanel("oi-pcr-chart", "oi-pcr-meta", oiPcr.pcr && oiPcr.pcr.oi, "pcr", "oi-pcr");
     const ls = section && section.ls_flow;
     $("ls-flow").innerHTML = ls && ls.status === "VALUE" ? `<b class="num ${Number(ls.value) > 0 ? "up" : Number(ls.value) < 0 ? "down" : ""}">${esc(signed(Math.round(ls.value), 0))}</b><span>${esc(ls.basis_label || `기준일 ${ls.as_of || "—"}`)}</span><small>${esc(ls.warning || "설명용 원시 관측 · 신호 아님")}</small>` : `<div class="unavailable">${unavailable(ls && ls.reason)}</div>`;
     const wall = section && section.wall;
@@ -232,7 +252,7 @@
       if (!payload || payload.flows_range !== range || !payload.sections || !payload.sections.flows) {
         throw new Error(response.ok ? "요청 범위를 제공하지 못했습니다." : `HTTP ${response.status}`);
       }
-      flowCache.set(range, payload.sections.flows);
+      cachePagePayload(payload);
     } catch (error) {
       const reason = `표시 불가 · ${esc(String(error))}`;
       document.querySelectorAll(".market-flow-meta").forEach((node) => { node.textContent = reason; });
@@ -277,7 +297,8 @@
     renderSvg(host, points, { height: 210, color, ariaLabel: `${rangeCard} 잔고 추이`, axisFormatter: compact, valueFormatter: (value) => `${compact(value)}원` });
   }
 
-  function renderFlows(section) {
+  function renderFlows() {
+    const section = ((pagePayload && pagePayload.sections) || {}).flows || {};
     $("flows-unavailable").textContent = section && section.status === "UNAVAILABLE" ? unavailable(section.reason) : "";
     ["KOSPI", "KOSDAQ"].forEach((marketName) => {
       const range = rangeValue(`${marketName.toLowerCase()}-flow`, "60D");
@@ -285,8 +306,10 @@
       const market = ((ranged && ranged.markets) || []).find((item) => item.market === marketName);
       renderFlowChart(`${marketName.toLowerCase()}-flow-chart`, `${marketName.toLowerCase()}-flow-meta`, market);
     });
-    renderBalanceChart("credit-chart", "credit-meta", section && section.credit, "#a8621a", "credit");
-    if (section && section.lending) { $("lending-panel").hidden = false; renderBalanceChart("lending-chart", "lending-meta", section.lending, "#2a78d6", "lending"); }
+    const credit = historySection(rangeValue("credit"), "flows").credit;
+    const lending = historySection(rangeValue("lending"), "flows").lending;
+    renderBalanceChart("credit-chart", "credit-meta", credit, "#a8621a", "credit");
+    if (lending) { $("lending-panel").hidden = false; renderBalanceChart("lending-chart", "lending-meta", lending, "#2a78d6", "lending"); }
     else $("lending-panel").hidden = true;
     const micro = section && section.microstructure;
     $("micro-unavailable").textContent = micro && micro.status !== "VALUE" ? unavailable(micro.reason) : "";
@@ -313,21 +336,24 @@
       host.innerHTML = `<div class="unavailable">${unavailable(market && market.reason)}</div>`; meta.textContent = ""; return;
     }
     const current = market.current || {}, range = rangeValue(rangeCard);
-    meta.innerHTML = `<span class="market-valuation-metric"><span data-explanation="weighted_per">PER <b class="num">${fmt(current.per, 2)}</b></span><span data-explanation="five_year_percentile">5년 백분위 ${percentile(current.per_percentile)}</span></span><span class="market-valuation-metric"><span data-explanation="weighted_pbr">PBR <b class="num">${fmt(current.pbr, 2)}</b></span><span data-explanation="five_year_percentile">5년 백분위 ${percentile(current.pbr_percentile)}</span></span><span>기준일 ${esc(current.t || "—")}</span>`;
+    meta.innerHTML = `<span class="market-valuation-metric"><span>PER <b class="num">${fmt(current.per, 2)}</b></span><span>5년 백분위 ${percentilePosition(current.per_percentile)}</span></span><span class="market-valuation-metric"><span>PBR <b class="num">${fmt(current.pbr, 2)}</b></span><span>5년 백분위 ${percentilePosition(current.pbr_percentile)}</span></span><span>기준일 ${esc(current.t || "—")}</span>`;
     const series = market.series || {};
     const perPoints = slicePoints(series.per, range), pbrPoints = slicePoints(series.pbr, range);
     host.innerHTML = `<div class="market-valuation-panel"><span class="market-axis-name up">PER · 좌축</span><div data-valuation-series="per"></div></div><div class="market-valuation-panel"><span class="market-axis-name down">PBR · 우축</span><div data-valuation-series="pbr"></div></div>`;
     const nonNegativeAxis = (value) => fmt(Math.max(0, Number(value)), 2);
     renderSvg(host.querySelector('[data-valuation-series="per"]'), perPoints, { height: 120, color: "#c0392b", ariaLabel: `${market.market} 가중 PER`, axisFormatter: nonNegativeAxis, valueFormatter: (value) => fmt(value, 2) });
     renderSvg(host.querySelector('[data-valuation-series="pbr"]'), pbrPoints, { height: 120, color: "#2b62c0", ariaLabel: `${market.market} 가중 PBR`, axisFormatter: nonNegativeAxis, valueFormatter: (value) => fmt(value, 2) });
-    applyExplanations(pagePayload.explanations || {}, meta);
   }
 
-  function renderValuation(section) {
+  function renderValuation() {
+    const section = ((pagePayload && pagePayload.sections) || {}).valuation || {};
     $("valuation-unavailable").textContent = section && section.status === "UNAVAILABLE" ? unavailable(section.reason) : "";
-    const byMarket = Object.fromEntries(((section && section.markets) || []).map((market) => [market.market, market]));
-    renderValuationChart("kospi-valuation-chart", "kospi-valuation-meta", byMarket.KOSPI, "kospi-valuation");
-    renderValuationChart("kosdaq-valuation-chart", "kosdaq-valuation-meta", byMarket.KOSDAQ, "kosdaq-valuation");
+    const kospi = historySection(rangeValue("kospi-valuation"), "valuation");
+    const kosdaq = historySection(rangeValue("kosdaq-valuation"), "valuation");
+    const kospiMarket = ((kospi && kospi.markets) || []).find((market) => market.market === "KOSPI");
+    const kosdaqMarket = ((kosdaq && kosdaq.markets) || []).find((market) => market.market === "KOSDAQ");
+    renderValuationChart("kospi-valuation-chart", "kospi-valuation-meta", kospiMarket, "kospi-valuation");
+    renderValuationChart("kosdaq-valuation-chart", "kosdaq-valuation-meta", kosdaqMarket, "kosdaq-valuation");
   }
 
   function applyExplanations(explanations, root = document) {
@@ -341,8 +367,23 @@
 
   function rerenderSmallCharts() {
     if (!pagePayload) return;
-    const sections = pagePayload.sections || {};
-    renderDerivatives(sections.derivatives || {}); renderFlows(sections.flows || {}); renderValuation(sections.valuation || {});
+    renderDerivatives(); renderFlows(); renderValuation();
+  }
+
+  async function loadHistoryRange(range, cardId) {
+    if (historyCache.has(range)) { rerenderSmallCharts(); return; }
+    try {
+      const response = await fetch(`/api/market?flows_range=${encodeURIComponent(range)}`);
+      const payload = response.ok ? await response.json() : null;
+      if (!payload || payload.history_range !== range || !payload.sections) {
+        throw new Error(response.ok ? "요청 범위를 제공하지 못했습니다." : `HTTP ${response.status}`);
+      }
+      cachePagePayload(payload);
+      rerenderSmallCharts();
+    } catch (error) {
+      const meta = $(`${cardId}-meta`);
+      if (meta) meta.textContent = `표시 불가 · ${esc(String(error))}`;
+    }
   }
 
   function wireControls() {
@@ -364,7 +405,7 @@
     })));
     document.querySelectorAll("[data-range-card] button").forEach((button) => button.addEventListener("click", () => {
       const group = button.closest("[data-range-card]"); group.querySelectorAll("button").forEach((item) => item.classList.remove("on")); button.classList.add("on");
-      if (group.dataset.rangeCard.endsWith("-flow")) loadFlowRange(button.dataset.v); else rerenderSmallCharts();
+      if (group.dataset.rangeCard.endsWith("-flow")) loadFlowRange(button.dataset.v); else loadHistoryRange(button.dataset.v, group.dataset.rangeCard);
     }));
     document.querySelectorAll("[data-flow-mode]").forEach((button) => button.addEventListener("click", () => { button.classList.toggle("on"); rerenderSmallCharts(); }));
     $("market-chart-symbol").addEventListener("change", loadMainChart);
@@ -374,7 +415,7 @@
     wireControls();
     try { const response = await fetch("/api/market"); pagePayload = response.ok ? await response.json() : { sections: {} }; }
     catch (_error) { pagePayload = { sections: {} }; }
-    if (pagePayload.flows_range && pagePayload.sections && pagePayload.sections.flows) flowCache.set(pagePayload.flows_range, pagePayload.sections.flows);
+    cachePagePayload(pagePayload);
     const symbols = pagePayload.chart_symbols || [];
     $("market-chart-symbol").innerHTML = symbols.length ? symbols.map((item) => `<option value="${esc(item.symbol)}">${esc(item.name)}</option>`).join("") : `<option value="KOSPI">KOSPI</option>`;
     applyExplanations(pagePayload.explanations || {}); rerenderSmallCharts(); loadMainChart();

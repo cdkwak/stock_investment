@@ -13,6 +13,7 @@ from stock_web.api.market_page import (
     METRIC_EXPLANATIONS,
     _cumulative_points,
     _flow_market,
+    _localized_warning,
     _range_view,
     build_derivatives,
     build_flows_and_balances,
@@ -150,9 +151,16 @@ def test_market_chart_uses_compact_height_and_panel_proportions() -> None:
     assert 'href="/static/market.css?v={{ static_version }}"' in template
     assert ".market-valuation-panel" in market_css
     assert 'fetch(`/api/market?flows_range=${encodeURIComponent(range)}`)' in script
+    assert script.count('fetch(`/api/market?flows_range=${encodeURIComponent(range)}`)') == 2
     assert "Math.abs(Number(value)) >= 10000" in script
     assert 'id="breadth-rows"' in template
     assert 'id="lending-summary-rows"' in template
+    valuation_markup = template.split('id="valuation-section"', 1)[1]
+    assert valuation_markup.count('data-explanation="valuation_panel"') == 2
+    assert 'data-explanation="weighted_per"' not in valuation_markup
+    assert 'data-explanation="weighted_pbr"' not in valuation_markup
+    assert script.count("ⓘ") == 1
+    assert "5년 백분위 ${percentilePosition(current.per_percentile)}" in script
 
 
 @pytest.mark.parametrize(("value", "expected"), [
@@ -220,10 +228,13 @@ def test_market_payload_uses_requested_flow_range_and_caches_per_range(
     root = new_temp_root()
 
     monkeypatch.setattr(market_page, "build_chart_symbols", lambda _root: [])
-    monkeypatch.setattr(market_page, "build_derivatives", lambda _root: {"status": "UNAVAILABLE", "reason": "fixture"})
-    monkeypatch.setattr(market_page, "build_valuation", lambda _root: {"status": "UNAVAILABLE", "reason": "fixture"})
+    monkeypatch.setattr(market_page, "build_derivatives", lambda _root, **_kwargs: {"status": "UNAVAILABLE", "reason": "fixture"})
+    monkeypatch.setattr(market_page, "build_valuation", lambda _root, **_kwargs: {"status": "UNAVAILABLE", "reason": "fixture"})
 
-    def fake_flows(_root: Path, *, range_key: str) -> dict[str, object]:
+    def fake_flows(
+        _root: Path, *, range_key: str, history_range_key: str,
+    ) -> dict[str, object]:
+        assert history_range_key in {"1Y", "ALL"}
         calls.append(range_key)
         return {"status": "VALUE", "range": range_key, "markets": [_flow_market(frame, "KOSPI", range_key=range_key)]}
 
@@ -234,11 +245,76 @@ def test_market_payload_uses_requested_flow_range_and_caches_per_range(
     full = build_market_page_payload(root, flows_range="ALL")
 
     assert default["flows_range"] == "60D"
+    assert default["history_range"] == "1Y"
     assert len(default["sections"]["flows"]["markets"][0]["series"]["foreigner"]["daily_points"]) == 60
     assert default_again is default
     assert full["flows_range"] == "ALL"
+    assert full["history_range"] == "ALL"
     assert len(full["sections"]["flows"]["markets"][0]["series"]["foreigner"]["daily_points"]) == 70
     assert calls == ["60D", "ALL"]
+
+
+def test_market_payload_bounds_all_default_series_and_all_returns_longer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = new_temp_root()
+    flow_frame = _synthetic_flows(400)
+
+    def history_points(range_key: str) -> list[dict[str, object]]:
+        count = 400 if range_key == "ALL" else 252
+        return [{"t": f"2026-{index // 28 + 1:02d}-{index % 28 + 1:02d}", "v": index} for index in range(count)]
+
+    def fake_derivatives(_root: Path, *, range_key: str) -> dict[str, object]:
+        points = history_points(range_key)
+        return {
+            "status": "VALUE", "basis": {"status": "VALUE", "series": points},
+            "pcr": {
+                "volume": {"status": "VALUE", "series": points},
+                "oi": {"status": "VALUE", "series": points},
+            },
+        }
+
+    def fake_flows(
+        _root: Path, *, range_key: str, history_range_key: str,
+    ) -> dict[str, object]:
+        points = history_points(history_range_key)
+        return {
+            "status": "VALUE", "range": range_key,
+            "markets": [_flow_market(flow_frame, "KOSPI", range_key=range_key)],
+            "credit": {"status": "VALUE", "series": points},
+            "lending": {"status": "VALUE", "series": points},
+        }
+
+    def fake_valuation(_root: Path, *, range_key: str) -> dict[str, object]:
+        points = history_points(range_key)
+        return {
+            "status": "VALUE",
+            "markets": [{
+                "status": "VALUE", "market": "KOSPI",
+                "series": {"per": points, "pbr": points},
+            }],
+        }
+
+    monkeypatch.setattr(market_page, "build_chart_symbols", lambda _root: [])
+    monkeypatch.setattr(market_page, "build_derivatives", fake_derivatives)
+    monkeypatch.setattr(market_page, "build_flows_and_balances", fake_flows)
+    monkeypatch.setattr(market_page, "build_valuation", fake_valuation)
+
+    default = build_market_page_payload(root)
+    full = build_market_page_payload(root, flows_range="ALL")
+
+    default_flows = default["sections"]["flows"]
+    full_flows = full["sections"]["flows"]
+    assert len(default_flows["markets"][0]["series"]["foreigner"]["daily_points"]) == 60
+    assert len(default_flows["markets"][0]["series"]["foreigner"]["cumulative_points"]) == 60
+    assert len(default_flows["credit"]["series"]) == 252
+    assert len(default_flows["lending"]["series"]) == 252
+    assert len(default["sections"]["derivatives"]["basis"]["series"]) == 252
+    assert len(default["sections"]["valuation"]["markets"][0]["series"]["per"]) == 252
+    assert len(full_flows["markets"][0]["series"]["foreigner"]["daily_points"]) == 400
+    assert len(full_flows["credit"]["series"]) == 400
+    assert len(full["sections"]["derivatives"]["basis"]["series"]) == 400
+    assert len(full["sections"]["valuation"]["markets"][0]["series"]["per"]) == 400
 
 
 def test_flow_series_are_integer_100m_krw_for_client_views() -> None:
@@ -272,12 +348,14 @@ def test_valuation_payload_separates_per_and_pbr_axes(monkeypatch: pytest.Monkey
     monkeypatch.setattr(market_page.dsx, "load", lambda *_args, **_kwargs: frame)
 
     payload = build_valuation(Path("unused"))
+    full = build_valuation(Path("unused"), range_key="ALL")
 
     for item in payload["markets"]:
         assert set(item["series"]) == {"per", "pbr"}
         assert item["secondary_axis"] is True
         assert item["axes"]["per"] == {"side": "left", "minimum": 0}
         assert item["axes"]["pbr"] == {"side": "right", "minimum": 0}
+    assert len(payload["markets"][0]["series"]["per"]) < len(full["markets"][0]["series"]["per"])
 
 
 def test_breadth_and_lending_summary_use_separate_payload_keys(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -297,17 +375,26 @@ def test_breadth_and_lending_summary_use_separate_payload_keys(monkeypatch: pyte
     def fake_load(_root: Path, dataset: str, **_kwargs) -> pd.DataFrame | None:
         if dataset.endswith("kr_market_investor_trading_daily"):
             return _synthetic_flows()
+        dates = pd.date_range(end="2026-09-02", periods=800)
+        if dataset.endswith("kr_credit_balance_daily"):
+            return pd.DataFrame({"date": dates, "credit_financing_total": range(800)})
+        if dataset.endswith("kr_stock_lending_market_daily"):
+            return pd.DataFrame({"date": dates, "balance_amount": range(800)})
         return None
 
     import stock_data.gui.services as services
     monkeypatch.setattr(services, "DashboardService", FakeDashboardService)
     monkeypatch.setattr(market_page.dsx, "load", fake_load)
 
-    micro = build_flows_and_balances(Path("unused"))["microstructure"]
+    default = build_flows_and_balances(Path("unused"))
+    full = build_flows_and_balances(Path("unused"), history_range_key="ALL")
+    micro = default["microstructure"]
 
     assert micro["breadth"]["rows"][0]["advancing"] == 510
     assert micro["lending_summary"]["rows"][0]["value"] == 10e12
     assert "rows" not in micro
+    assert len(default["credit"]["series"]) < len(full["credit"]["series"]) == 800
+    assert len(default["lending"]["series"]) < len(full["lending"]["series"]) == 800
 
 
 def test_metric_explanations_cover_every_requested_head() -> None:
@@ -316,9 +403,10 @@ def test_metric_explanations_cover_every_requested_head() -> None:
         "futures_basis", "volume_pcr", "oi_pcr", "ls_futures_foreign_net",
         "call_wall", "put_wall", "credit_balance", "lending_balance",
         "market_breadth", "ad_ratio", "weighted_per", "weighted_pbr",
-        "five_year_percentile",
+        "five_year_percentile", "valuation_panel",
     }
     assert all(len(text) >= 25 for text in METRIC_EXPLANATIONS.values())
+    assert all(term in METRIC_EXPLANATIONS["valuation_panel"] for term in ("PER", "PBR", "5년 백분위", "상위 비율"))
 
 
 def test_derivatives_payload_uses_near_wall_columns(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -327,15 +415,16 @@ def test_derivatives_payload_uses_near_wall_columns(monkeypatch: pytest.MonkeyPa
 
     class FakeQuery:
         def read(self, dataset: str, **_kwargs) -> pd.DataFrame:
+            dates = pd.date_range(end="2026-09-02", periods=800)
             if dataset.endswith("nearest_listed_daily"):
                 return pd.DataFrame({
-                    "date": pd.date_range("2026-08-31", periods=3),
-                    "session": "REGULAR_DAY", "settlement_basis": [1.0, 1.5, 2.0],
+                    "date": dates,
+                    "session": "REGULAR_DAY", "settlement_basis": range(800),
                     "basis_status": "SAME_ROW_REGULAR_SESSION_SOURCE_NATIVE_DIFFERENCE",
                 })
             return pd.DataFrame({
-                "date": pd.date_range("2026-08-31", periods=3),
-                "volume_pcr": [0.9, 1.0, 1.1], "open_interest_pcr": [1.1, 1.2, 1.3],
+                "date": dates,
+                "volume_pcr": [0.9] * 800, "open_interest_pcr": [1.1] * 800,
                 "observation_status": "AVAILABLE",
             })
 
@@ -351,7 +440,10 @@ def test_derivatives_payload_uses_near_wall_columns(monkeypatch: pytest.MonkeyPa
             }]), {"status": "RAW"}
 
         def ls_flow(self):
-            return {"status": "RAW_DESCRIPTIVE_ONLY", "warning": "fixture"}
+            return {
+                "status": "RAW_DESCRIPTIVE_ONLY",
+                "warning": "Raw provider observation; no Normalized/PIT-safe claim",
+            }
 
     class FakeDashboardService:
         def __init__(self, _root: Path):
@@ -367,8 +459,13 @@ def test_derivatives_payload_uses_near_wall_columns(monkeypatch: pytest.MonkeyPa
 
     import stock_data.gui.services as services
     monkeypatch.setattr(services, "DashboardService", FakeDashboardService)
+    monkeypatch.setattr(
+        market_page, "_market_derivative_metrics",
+        lambda service, _root: service.dashboard_metrics(),
+    )
 
     payload = build_derivatives(Path("unused"))
+    full = build_derivatives(Path("unused"), range_key="ALL")
     row = payload["wall"]["rows"][0]
 
     assert row["near_call_wall_strike"] == 1050.0
@@ -377,3 +474,10 @@ def test_derivatives_payload_uses_near_wall_columns(monkeypatch: pytest.MonkeyPa
     assert payload["wall"]["near_window_available"] is True
     assert payload["basis"]["basis_label"] == "기준일 2026-09-02 · D+1 공개"
     assert payload["wall"]["basis_label"] == "기준일 2026-09-02 · D+1 공개"
+    assert payload["ls_flow"]["warning"] == "원시 관측값 · 정규화 전 · 수동 검증 전에는 표시하지 않습니다"
+    assert len(payload["basis"]["series"]) < len(full["basis"]["series"]) == 800
+    assert len(payload["pcr"]["volume"]["series"]) < len(full["pcr"]["volume"]["series"]) == 800
+
+
+def test_unknown_ascii_warning_uses_generic_korean_note() -> None:
+    assert _localized_warning("Unrecognized provider warning") == "원시 관측값 · 정규화·검증 상태를 확인할 수 없습니다"

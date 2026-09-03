@@ -29,8 +29,15 @@ RANGE_OFFSETS = {
 }
 
 FLOW_RANGE_SESSIONS = {"20D": 20, "60D": 60, "1Y": 252, "ALL": None}
+HISTORY_RANGES = {"1Y", "3Y", "5Y", "ALL"}
+MARKET_RANGE_KEYS = {*FLOW_RANGE_SESSIONS, *HISTORY_RANGES}
 _MARKET_CACHE_TTL_SECONDS = 60.0
 _MARKET_CACHE: dict[tuple[str, str], tuple[float, dict[str, object]]] = {}
+
+_WARNING_TRANSLATIONS = {
+    "Raw provider observation; no Normalized/PIT-safe claim":
+        "원시 관측값 · 정규화 전 · 수동 검증 전에는 표시하지 않습니다",
+}
 
 METRIC_EXPLANATIONS = {
     "rsi14": "RSI14는 최근 14개 종가 변화에 Wilder 지수이동평균 방식을 적용한 0–100 모멘텀 지표입니다.",
@@ -47,6 +54,7 @@ METRIC_EXPLANATIONS = {
     "weighted_per": "가중 PER은 지수 구성 종목의 주가수익비율을 시가총액 방식으로 집계한 값입니다. 과거와의 상대 위치를 설명하며 적정가 판단이 아닙니다.",
     "weighted_pbr": "가중 PBR은 지수 구성 종목의 주가순자산비율을 시가총액 방식으로 집계한 값입니다. 업종 구성 변화에 따라 비교 의미가 달라질 수 있습니다.",
     "five_year_percentile": "5년 백분위는 최근 5년 관측 중 현재 값 이하인 비율입니다. 높고 낮음은 과거 분포상 위치이며 매매 추천이 아닙니다.",
+    "valuation_panel": "가중 PER은 지수 구성 종목의 주가수익비율, 가중 PBR은 주가순자산비율을 시가총액 방식으로 집계한 값입니다. 5년 백분위는 최근 5년 관측 중 현재 값 이하인 비율이고, 상위 비율은 그 보수입니다. 과거 분포상 위치이며 적정가나 매매 추천이 아닙니다.",
 }
 
 
@@ -121,6 +129,23 @@ def _flow_range_view(frame: pd.DataFrame, range_key: str) -> pd.DataFrame:
     sessions = FLOW_RANGE_SESSIONS[normalized]
     ordered = frame.sort_values("date")
     return ordered if sessions is None else ordered.tail(sessions).copy()
+
+
+def _history_range(range_key: str) -> str:
+    return range_key if range_key in HISTORY_RANGES else "1Y"
+
+
+def _localized_warning(value: object) -> str | None:
+    """Keep provider warnings Korean-only at the web projection boundary."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    translated = _WARNING_TRANSLATIONS.get(text)
+    if translated is not None:
+        return translated
+    if text.isascii():
+        return "원시 관측값 · 정규화·검증 상태를 확인할 수 없습니다"
+    return text
 
 
 def _cumulative_points(points: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -248,13 +273,68 @@ def _metric_view(metric: object, *, pattern: str = "{:,.2f}") -> dict[str, objec
     }
 
 
-def build_derivatives(project_root: Path) -> dict[str, object]:
+def _market_derivative_metrics(service: object, project_root: Path) -> dict[str, object]:
+    """Build only the five derivative metrics rendered on the Market page."""
+    from stock_data.gui.health_service import DailyHealthArtifactService
+
+    health = DailyHealthArtifactService(project_root).load()
+    rows = {row.dataset: row for row in getattr(health, "rows", ())}
+
+    def health_expected(dataset_id: str) -> str | None:
+        row = rows.get(dataset_id)
+        expected = getattr(row, "expected", None) if row is not None else None
+        return expected if isinstance(expected, str) and expected != "N/A" else None
+
+    managed = {
+        "automation_policy": "DEPENDENCY_DRIVEN",
+        "automation_enabled": True,
+        "require_expected_as_of": True,
+    }
+    return {
+        "KOSPI200_BASIS": service._local_derivative_metric(
+            "KOSPI200_BASIS", "KOSPI200 선물 Basis",
+            "kr_kospi200_futures_nearest_listed_daily", "source-native difference",
+            service._read_basis_metric,
+            expected_as_of=health_expected("kr_kospi200_futures_nearest_listed_daily"),
+            **managed,
+        ),
+        "VOLUME_PCR": service._local_derivative_metric(
+            "VOLUME_PCR", "KOSPI200 옵션 거래량 P/C",
+            "kr_kospi200_option_pcr_daily", "ratio", service._read_volume_pcr_metric,
+            expected_as_of=health_expected("kr_kospi200_option_pcr_daily"), **managed,
+        ),
+        "OI_PCR": service._local_derivative_metric(
+            "OI_PCR", "KOSPI200 옵션 OI P/C",
+            "kr_kospi200_option_pcr_daily", "ratio", service._read_oi_pcr_metric,
+            expected_as_of=health_expected("kr_kospi200_option_pcr_daily"), **managed,
+        ),
+        "CALL_WALL": service._local_derivative_metric(
+            "CALL_WALL", "Call 최대 OI 행사가", "kr_kospi200_option_walls_daily",
+            "strike", lambda: service._read_wall_metric("call"),
+            expected_as_of=health_expected("kr_kospi200_option_walls_daily"), **managed,
+        ),
+        "PUT_WALL": service._local_derivative_metric(
+            "PUT_WALL", "Put 최대 OI 행사가", "kr_kospi200_option_walls_daily",
+            "strike", lambda: service._read_wall_metric("put"),
+            expected_as_of=health_expected("kr_kospi200_option_walls_daily"), **managed,
+        ),
+        "LS_FUTURES_FOREIGN_NET": service._local_derivative_metric(
+            "LS_FUTURES_FOREIGN_NET", "LS 선물 외국인 순계약",
+            "ls_t8462_daily_raw", "contracts", service._read_ls_futures_foreign_net_metric,
+        ),
+    }
+
+
+def build_derivatives(
+    project_root: Path, *, range_key: str = "1Y",
+) -> dict[str, object]:
+    history_range = _history_range(range_key)
     try:
         from stock_data.gui.services import DashboardService
 
         service = DashboardService(project_root)
-        metrics = service.dashboard_metrics()
-    except (KeyError, OSError, PermissionError, TypeError, ValueError) as error:
+        metrics = _market_derivative_metrics(service, project_root)
+    except (KeyError, OSError, PermissionError, RuntimeError, TypeError, ValueError) as error:
         return _unavailable(f"파생 표시 상태를 읽을 수 없습니다: {error}")
 
     basis = _metric_view(metrics.get("KOSPI200_BASIS"), pattern="{:+,.2f}")
@@ -270,12 +350,12 @@ def build_derivatives(project_root: Path) -> dict[str, object]:
                     "SAME_ROW_REGULAR_SESSION_SOURCE_NATIVE_DIFFERENCE"
                 )
             ].sort_values("date")
-            series = _indicator_points(frame, "settlement_basis")
+            series = _indicator_points(_range_view(frame, history_range), "settlement_basis")
             if not series:
                 basis = _unavailable("Basis 이력이 없습니다.")
             else:
                 basis.update({"series": series, "basis_label": _basis_label(basis.get("as_of"), d_plus_one=True)})
-        except (KeyError, OSError, PermissionError, TypeError, ValueError):
+        except (KeyError, OSError, PermissionError, RuntimeError, TypeError, ValueError):
             basis = _unavailable("Basis 60거래일 이력을 읽을 수 없습니다.")
 
     pcr_views: dict[str, dict[str, object]] = {
@@ -291,7 +371,7 @@ def build_derivatives(project_root: Path) -> dict[str, object]:
         pcr = pd.DataFrame()
     for key, column in (("volume", "volume_pcr"), ("oi", "open_interest_pcr")):
         if pcr_views[key]["status"] == "VALUE":
-            series = _indicator_points(pcr, column)
+            series = _indicator_points(_range_view(pcr, history_range), column)
             if series:
                 pcr_views[key].update({
                     "series": series,
@@ -343,7 +423,8 @@ def build_derivatives(project_root: Path) -> dict[str, object]:
         try:
             raw = service.derivatives.ls_flow()
             ls.update({
-                "source_status": raw.get("status"), "warning": raw.get("warning"),
+                "source_status": raw.get("status"),
+                "warning": _localized_warning(raw.get("warning")),
                 "basis_label": _basis_label(ls.get("as_of"), d_plus_one=True),
             })
         except (KeyError, OSError, PermissionError, TypeError, ValueError):
@@ -398,9 +479,10 @@ def _flow_market(
 
 
 def build_flows_and_balances(
-    project_root: Path, *, range_key: str = "60D",
+    project_root: Path, *, range_key: str = "60D", history_range_key: str = "1Y",
 ) -> dict[str, object]:
     normalized_range = range_key if range_key in FLOW_RANGE_SESSIONS else "60D"
+    history_range = _history_range(history_range_key)
     flow_frame = dsx.load(project_root, "data/normalized/kr_market_investor_trading_daily")
     markets = [
         _flow_market(flow_frame, market, range_key=normalized_range) if flow_frame is not None
@@ -418,8 +500,9 @@ def build_flows_and_balances(
     else:
         credit_frame = credit_frame.dropna(subset=["credit_financing_total"]).sort_values("date")
         latest = credit_frame["date"].max()
+        credit_view = _range_view(credit_frame, history_range)
         credit = {
-            "status": "VALUE", "series": _indicator_points(credit_frame, "credit_financing_total"),
+            "status": "VALUE", "series": _indicator_points(credit_view, "credit_financing_total"),
             "as_of": _date(latest), "unit": "원",
         } if not credit_frame.empty else _unavailable("신용잔고 이력이 없습니다.")
 
@@ -436,8 +519,9 @@ def build_flows_and_balances(
         )
         latest = aggregated["date"].max()
         if not aggregated.empty:
+            lending_view = _range_view(aggregated, history_range)
             lending = {
-                "status": "VALUE", "series": _indicator_points(aggregated, "balance_amount"),
+                "status": "VALUE", "series": _indicator_points(lending_view, "balance_amount"),
                 "as_of": _date(latest), "unit": "원",
             }
 
@@ -485,7 +569,10 @@ def build_flows_and_balances(
     }
 
 
-def build_valuation(project_root: Path) -> dict[str, object]:
+def build_valuation(
+    project_root: Path, *, range_key: str = "1Y",
+) -> dict[str, object]:
+    history_range = _history_range(range_key)
     markets = []
     for market, code in (("KOSPI", "1001"), ("KOSDAQ", "2001")):
         frame = dsx.load(
@@ -504,11 +591,12 @@ def build_valuation(project_root: Path) -> dict[str, object]:
         current_per, current_pbr = _value(current.get("weighted_per")), _value(current.get("weighted_pbr"))
         per_percentile = _value((per.dropna() <= current_per).mean() * 100.0) if current_per is not None else None
         pbr_percentile = _value((pbr.dropna() <= current_pbr).mean() * 100.0) if current_pbr is not None else None
+        series_view = _range_view(valid, history_range)
         markets.append({
             "status": "VALUE", "market": market,
             "series": {
-                "per": _indicator_points(valid, "weighted_per"),
-                "pbr": _indicator_points(valid, "weighted_pbr"),
+                "per": _indicator_points(series_view, "weighted_per"),
+                "pbr": _indicator_points(series_view, "weighted_pbr"),
             },
             "axes": {
                 "per": {"side": "left", "minimum": 0},
@@ -532,10 +620,12 @@ def build_valuation(project_root: Path) -> dict[str, object]:
 def build_market_page_payload(
     project_root: Path, *, flows_range: str = "60D",
 ) -> dict[str, object]:
-    """Build and cache one payload per investor-flow trading-session range."""
+    """Build one cached, range-bounded Market payload."""
     root = Path(project_root).resolve()
-    normalized_range = flows_range if flows_range in FLOW_RANGE_SESSIONS else "60D"
-    cache_key = (str(root), normalized_range)
+    request_range = flows_range if flows_range in MARKET_RANGE_KEYS else "60D"
+    normalized_flow_range = request_range if request_range in FLOW_RANGE_SESSIONS else "60D"
+    history_range = _history_range(request_range)
+    cache_key = (str(root), request_range)
     cached = _MARKET_CACHE.get(cache_key)
     if cached is not None and time.monotonic() - cached[0] < _MARKET_CACHE_TTL_SECONDS:
         return cached[1]
@@ -543,18 +633,25 @@ def build_market_page_payload(
     def safely(builder, label: str) -> dict[str, object]:
         try:
             return builder()
-        except (KeyError, OSError, PermissionError, TypeError, ValueError) as error:
+        except (KeyError, OSError, PermissionError, RuntimeError, TypeError, ValueError) as error:
             return _unavailable(f"{label}을(를) 읽을 수 없습니다: {error}")
 
     payload = {
         "schema_version": 1,
-        "flows_range": normalized_range,
+        "flows_range": normalized_flow_range,
+        "history_range": history_range,
         "explanations": METRIC_EXPLANATIONS,
         "chart_symbols": build_chart_symbols(root),
         "sections": {
-            "derivatives": safely(lambda: build_derivatives(root), "파생 상세"),
-            "flows": safely(lambda: build_flows_and_balances(root, range_key=normalized_range), "수급·잔고 상세"),
-            "valuation": safely(lambda: build_valuation(root), "밸류에이션"),
+            "derivatives": safely(lambda: build_derivatives(root, range_key=history_range), "파생 상세"),
+            "flows": safely(
+                lambda: build_flows_and_balances(
+                    root, range_key=normalized_flow_range,
+                    history_range_key=history_range,
+                ),
+                "수급·잔고 상세",
+            ),
+            "valuation": safely(lambda: build_valuation(root, range_key=history_range), "밸류에이션"),
         },
     }
     _MARKET_CACHE[cache_key] = (time.monotonic(), payload)
@@ -564,6 +661,6 @@ def build_market_page_payload(
 __all__ = [
     "build_derivatives", "build_flows_and_balances", "build_market_chart_payload",
     "build_market_page_payload", "build_valuation", "format_compact_kr",
-    "FLOW_RANGE_SESSIONS", "METRIC_EXPLANATIONS", "_cumulative_points",
-    "_flow_range_view", "_range_view",
+    "FLOW_RANGE_SESSIONS", "HISTORY_RANGES", "METRIC_EXPLANATIONS", "_cumulative_points",
+    "_flow_range_view", "_localized_warning", "_range_view",
 ]
