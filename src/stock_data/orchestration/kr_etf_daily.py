@@ -526,9 +526,12 @@ def _merge_master(root: Path, incoming: pd.DataFrame) -> pd.DataFrame:
             )
         except AssertionError as error:
             raise KrEtfDailyError("Korean ETF master identity changed") from error
-    incoming_keys = set(map(tuple, incoming[keys].to_numpy()))
-    keep = ~existing[keys].apply(tuple, axis=1).isin(incoming_keys)
-    combined = pd.concat([existing.loc[keep], incoming], ignore_index=True)
+    # A historical backfill must not roll the master back: per key keep the row
+    # with the newest source_date (existing wins ties).
+    combined = pd.concat([incoming, existing], ignore_index=True)
+    combined["_source_date"] = pd.to_datetime(combined["source_date"])
+    combined = combined.sort_values(["_source_date"], kind="stable").drop_duplicates(keys, keep="last")
+    combined = combined.drop(columns="_source_date")
     combined = combined[list(KR_ETF_MASTER.column_names)].sort_values(keys, kind="stable").reset_index(drop=True)
     validate_kr_etf_master(combined)
     return combined

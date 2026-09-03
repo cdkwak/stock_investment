@@ -283,3 +283,17 @@ def test_scheduler_lane_reports_provider_lag_and_retries_next_occurrence(tmp_pat
     )
     assert second["status"] == "EXPECTED_PROVIDER_LAG"
     assert second["api_calls"] == 3
+
+
+def test_master_merge_keeps_newest_source_date_per_symbol(tmp_path) -> None:
+    from stock_data.orchestration.kr_etf_daily import _merge_master
+
+    _write_master(tmp_path, {"123320": "TIGER 레버리지"}, date(2026, 9, 3))
+    older = normalize_master({"123320": "TIGER 레버리지", "243880": "TIGER 200IT레버리지"}, source_date=date(2022, 6, 17))
+
+    merged = _merge_master(tmp_path, older)
+
+    by_symbol = merged.set_index("symbol")["source_date"].astype(str)
+    assert by_symbol["123320"] == "2026-09-03"  # a historical backfill must not roll the master back
+    assert by_symbol["243880"] == "2022-06-17"  # new symbols enter with their own date
+    assert len(merged) == 2
