@@ -25,9 +25,21 @@ from .drawdown_score import (
     score_event_mask,
     search_score_grid,
 )
+from .extreme_ladder import (
+    DEFAULT_TARGET_VOL,
+    INDICATOR_SPECS,
+    LADDER_BASKETS,
+    add_extreme_flags,
+    aggregate_exploratory_indicators,
+    aggregate_ladder_levels,
+    aggregate_vol_targeting,
+    build_equal_weight_scores,
+    evaluate_standalone_indicators,
+    rolling_percentile_rank,
+)
 
 
-HORIZONS: tuple[int, ...] = (5, 20, 60, 120)
+HORIZONS: tuple[int, ...] = (5, 20, 60, 90, 120)
 FIT_END = "2015-12-31"
 HOLDOUT_START = "2016-01-01"
 MIN_CELL_EVENTS = 15
@@ -118,6 +130,17 @@ def compute_signals(prices: pd.DataFrame) -> pd.DataFrame:
         group["disp60"] = close / group["ma60"] - 1.0
         group["high252"] = close.rolling(252, min_periods=252).max()
         group["drawdown252"] = close / group["high252"] - 1.0
+        daily_return = close.pct_change(fill_method=None)
+        group["realized_volatility_20d"] = (
+            daily_return.rolling(20, min_periods=20).std(ddof=1) * np.sqrt(252.0)
+        )
+        bollinger_mean = close.rolling(20, min_periods=20).mean()
+        bollinger_std = close.rolling(20, min_periods=20).std(ddof=0)
+        bollinger_width = 4.0 * bollinger_std
+        group["bollinger_percent_b20"] = (
+            close - (bollinger_mean - 2.0 * bollinger_std)
+        ) / bollinger_width
+        group.loc[bollinger_width.eq(0), "bollinger_percent_b20"] = np.nan
         volume_mean = group["volume"].rolling(20, min_periods=20).mean()
         group["volume_ratio20"] = group["volume"] / volume_mean
         group.loc[volume_mean.eq(0), "volume_ratio20"] = np.nan
@@ -181,10 +204,15 @@ def build_forward_outcomes(
                 continue
             returns = close[horizon:] / close[:count] - 1.0
             path_drawdowns = np.empty(count, dtype="float64")
+            realised_volatility = np.empty(count, dtype="float64")
             for position in range(count):
                 path = close[position : position + horizon + 1]
                 running_high = np.maximum.accumulate(path)
                 path_drawdowns[position] = np.min(path / running_high - 1.0)
+                path_returns = path[1:] / path[:-1] - 1.0
+                realised_volatility[position] = (
+                    np.std(path_returns, ddof=1) * np.sqrt(252.0)
+                )
             rows.append(
                 pd.DataFrame(
                     {
@@ -196,6 +224,7 @@ def build_forward_outcomes(
                         "basket": group["basket"].iloc[0],
                         "horizon": horizon,
                         "forward_return": returns,
+                        "forward_realized_volatility": realised_volatility,
                         "forward_max_drawdown": path_drawdowns,
                     }
                 )
@@ -209,6 +238,7 @@ def build_forward_outcomes(
                 "basket",
                 "horizon",
                 "forward_return",
+                "forward_realized_volatility",
                 "forward_max_drawdown",
             ]
         )
@@ -231,6 +261,17 @@ def build_condition_event_table(
         "drawdown252",
         "volume_ratio20",
     ]
+    signal_columns.extend(
+        column
+        for column in (
+            "bollinger_percent_b20",
+            "realized_volatility_20d",
+            "vol_index_id",
+            "vol_index_close",
+            "vol_index_percentile252",
+        )
+        if column in signals.columns
+    )
     rows: list[pd.DataFrame] = []
     for rule, column in CONDITION_COLUMNS.items():
         selected = signals.loc[signals[column], signal_columns].copy()
@@ -342,8 +383,19 @@ def _score_input(signals: pd.DataFrame, outcomes: pd.DataFrame) -> pd.DataFrame:
             "forward_return": "forward_return_60",
         }
     )
-    return signals.merge(
+    score_input = signals.merge(
         labels,
+        on=["observation_date", "series_id"],
+        how="left",
+        validate="one_to_one",
+    )
+    split_labels = outcomes.loc[outcomes["horizon"].eq(90), [
+        "observation_date",
+        "series_id",
+        "outcome_end_date",
+    ]].rename(columns={"outcome_end_date": "outcome_end_date_90"})
+    return score_input.merge(
+        split_labels,
         on=["observation_date", "series_id"],
         how="left",
         validate="one_to_one",
@@ -492,7 +544,12 @@ def expanding_five_year_score_study(
                 )
                 continue
             event = score_event_mask(scoped, winner)
-            outcome_date = pd.to_datetime(scoped["outcome_end_date_60"], errors="coerce")
+            split_column = (
+                "outcome_end_date_90"
+                if "outcome_end_date_90" in scoped.columns
+                else "outcome_end_date_60"
+            )
+            outcome_date = pd.to_datetime(scoped[split_column], errors="coerce")
             test_mask = (
                 event
                 & dates.ge(test_start)
@@ -563,7 +620,10 @@ def load_primary_indices(project_root: Path) -> pd.DataFrame:
     ].copy()
     global_indices["series_id"] = global_indices["symbol"].astype(str)
     global_indices["basket"] = "POOLED_ONLY"
-    global_indices.loc[global_indices["series_id"].eq("NASDAQ100"), "basket"] = "US_TECH"
+    global_indices.loc[
+        global_indices["series_id"].isin(("NASDAQ100", "NASDAQ_COMPOSITE")),
+        "basket",
+    ] = "US_TECH"
     global_indices.loc[global_indices["series_id"].eq("SOX"), "basket"] = "SEMIS"
     global_indices["dataset_source"] = "global_index_price_daily"
 
@@ -571,6 +631,100 @@ def load_primary_indices(project_root: Path) -> pd.DataFrame:
     return combined[[
         "date", "series_id", "basket", "close", "volume", "dataset_source"
     ]]
+
+
+def load_volatility_indices(project_root: Path) -> pd.DataFrame:
+    """Load retained VIX/VKOSPI closes and compute causal 252-session ranks."""
+
+    vix = _dataset_frame(
+        project_root / "data/normalized/fred_vix_daily",
+        partitioning="hive",
+        columns=("date", "vixcls"),
+    ).rename(columns={"vixcls": "vol_index_close"})
+    vix["vol_index_id"] = "VIX"
+    vix["dataset_source"] = "fred_vix_daily"
+
+    vkospi = _dataset_frame(
+        project_root / "data/normalized/kr_vkospi_daily",
+        partitioning="hive",
+        columns=("market_date", "close"),
+    ).rename(columns={"market_date": "date", "close": "vol_index_close"})
+    vkospi["vol_index_id"] = "VKOSPI"
+    vkospi["dataset_source"] = "kr_vkospi_daily"
+
+    combined = pd.concat([vix, vkospi], ignore_index=True, sort=False)
+    combined["date"] = pd.to_datetime(combined["date"], errors="raise").dt.normalize()
+    combined["vol_index_close"] = pd.to_numeric(
+        combined["vol_index_close"], errors="coerce"
+    )
+    # FRED retains holiday rows with a missing observation.  They are not VIX
+    # sessions and must not prevent a 252-valid-session rolling window.
+    combined = combined.loc[combined["vol_index_close"].notna()].copy()
+    combined = combined.sort_values(["vol_index_id", "date"], kind="mergesort")
+    if combined[["vol_index_id", "date"]].duplicated().any():
+        raise ValueError("volatility index input contains duplicate index/date keys")
+    if combined["vol_index_close"].dropna().le(0).any():
+        raise ValueError("volatility index closes must be positive when present")
+    combined["vol_index_percentile252"] = combined.groupby(
+        "vol_index_id", sort=True
+    )["vol_index_close"].transform(rolling_percentile_rank)
+    return combined.reset_index(drop=True)
+
+
+def attach_volatility_index(
+    signals: pd.DataFrame, volatility_indices: pd.DataFrame
+) -> pd.DataFrame:
+    """Attach same-date fear/greed observations without forward filling."""
+
+    required = {
+        "date",
+        "vol_index_id",
+        "vol_index_close",
+        "vol_index_percentile252",
+        "dataset_source",
+    }
+    missing = required.difference(volatility_indices.columns)
+    if missing:
+        raise ValueError(f"volatility index input is missing columns: {sorted(missing)}")
+    frame = signals.copy()
+    frame["vol_index_id"] = frame["basket"].map(
+        {"KR": "VKOSPI", "US_TECH": "VIX", "SEMIS": "VIX", "POOLED_ONLY": "VIX"}
+    )
+    lookup = volatility_indices.rename(
+        columns={"dataset_source": "vol_index_dataset_source"}
+    )
+    return frame.merge(
+        lookup,
+        on=["date", "vol_index_id"],
+        how="left",
+        validate="many_to_one",
+    ).sort_values(["series_id", "date"], kind="mergesort").reset_index(drop=True)
+
+
+def build_wide_evaluation_frame(
+    signals: pd.DataFrame, outcomes: pd.DataFrame
+) -> pd.DataFrame:
+    """Join isolated outcome columns only after all signal features are final."""
+
+    frame = signals.copy()
+    keys = ["observation_date", "series_id", "basket"]
+    for horizon in HORIZONS:
+        selected = outcomes.loc[outcomes["horizon"].eq(horizon), [
+            *keys,
+            "outcome_end_date",
+            "forward_return",
+            "forward_realized_volatility",
+            "forward_max_drawdown",
+        ]].rename(
+            columns={
+                "outcome_end_date": f"outcome_end_date_{horizon}",
+                "forward_return": f"forward_return_{horizon}",
+                "forward_realized_volatility": f"forward_realized_volatility_{horizon}",
+                "forward_max_drawdown": f"forward_max_drawdown_{horizon}",
+            }
+        )
+        frame = frame.merge(selected, on=keys, how="left", validate="one_to_one")
+    return frame
 
 
 def load_leveraged_etfs(project_root: Path) -> pd.DataFrame:
@@ -651,6 +805,15 @@ def _coverage(prices: pd.DataFrame, kind: str) -> pd.DataFrame:
     )
 
 
+def _volatility_coverage(volatility_indices: pd.DataFrame) -> pd.DataFrame:
+    frame = volatility_indices.copy()
+    frame["series_id"] = frame["vol_index_id"]
+    frame["basket"] = frame["vol_index_id"].map(
+        {"VKOSPI": "KR", "VIX": "US_TECH / SEMIS"}
+    )
+    return _coverage(frame, "FEAR_GREED_PROXY")
+
+
 def _fmt_pct(value: object) -> str:
     if pd.isna(value):
         return "—"
@@ -719,6 +882,231 @@ def _winner_markdown(winners: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def _indicator_markdown(validation: pd.DataFrame) -> pd.DataFrame:
+    output = validation[[
+        "indicator",
+        "side",
+        "basket",
+        "fit_n",
+        "fit_difference",
+        "holdout_n",
+        "holdout_difference",
+        "survives",
+    ]].copy()
+    output["fit_n"] = output.apply(
+        lambda row: f"{int(row['fit_n'])}{' ⚠' if int(row['fit_n']) < MIN_CELL_EVENTS else ''}",
+        axis=1,
+    )
+    output["holdout_n"] = output.apply(
+        lambda row: f"{int(row['holdout_n'])}{' ⚠' if int(row['holdout_n']) < MIN_CELL_EVENTS else ''}",
+        axis=1,
+    )
+    output["fit_difference"] = output["fit_difference"].map(_fmt_pct)
+    output["holdout_difference"] = output["holdout_difference"].map(_fmt_pct)
+    output["survives"] = output["survives"].map({True: "생존", False: "제외"})
+    return output.rename(
+        columns={
+            "indicator": "지표",
+            "side": "측",
+            "basket": "바스켓",
+            "fit_n": "fit n",
+            "fit_difference": "fit 차이",
+            "holdout_n": "hold-out n",
+            "holdout_difference": "hold-out 차이",
+            "survives": "생존 여부",
+        }
+    )
+
+
+def _ladder_markdown(ladder: pd.DataFrame) -> pd.DataFrame:
+    columns = [
+        "side",
+        "basket",
+        "period",
+        "indicator_count",
+        "score_level",
+        "n",
+        "mean_return_20",
+        "mean_return_60",
+        "mean_return_90",
+        "mean_forward_realized_volatility_60",
+        "mean_forward_max_drawdown_60",
+        "monotonicity",
+        "low_sample",
+    ]
+    output = ladder.reindex(columns=columns).copy()
+    output["n"] = output.apply(
+        lambda row: f"{int(row['n'])}{' ⚠' if bool(row['low_sample']) else ''}", axis=1
+    )
+    for column in (
+        "mean_return_20",
+        "mean_return_60",
+        "mean_return_90",
+        "mean_forward_realized_volatility_60",
+        "mean_forward_max_drawdown_60",
+    ):
+        output[column] = output[column].map(_fmt_pct)
+    return output.rename(
+        columns={
+            "side": "측",
+            "basket": "바스켓",
+            "period": "구간",
+            "indicator_count": "지표수 k",
+            "score_level": "점수",
+            "mean_return_20": "평균 20일 수익",
+            "mean_return_60": "평균 60일 수익",
+            "mean_return_90": "평균 90일 수익",
+            "mean_forward_realized_volatility_60": "60일 변동성",
+            "mean_forward_max_drawdown_60": "60일 최대낙폭",
+            "monotonicity": "단조성",
+        }
+    ).drop(columns="low_sample")
+
+
+def _vol_target_markdown(summary: pd.DataFrame) -> pd.DataFrame:
+    columns = [
+        "basket",
+        "period",
+        "target_vol",
+        "n",
+        "mean_exposure",
+        "mean_return_20_full",
+        "mean_return_20_scaled",
+        "mean_return_60_full",
+        "mean_return_60_scaled",
+        "mean_return_90_full",
+        "mean_return_90_scaled",
+        "mean_forward_realized_volatility_60_full",
+        "mean_forward_realized_volatility_60_scaled",
+        "mean_forward_max_drawdown_60_full",
+        "mean_forward_max_drawdown_60_scaled",
+        "low_sample",
+    ]
+    output = summary.reindex(columns=columns).copy()
+    output["n"] = output.apply(
+        lambda row: f"{int(row['n'])}{' ⚠' if bool(row['low_sample']) else ''}", axis=1
+    )
+    for column in (
+        "target_vol",
+        "mean_exposure",
+        "mean_return_20_full",
+        "mean_return_20_scaled",
+        "mean_return_60_full",
+        "mean_return_60_scaled",
+        "mean_return_90_full",
+        "mean_return_90_scaled",
+        "mean_forward_realized_volatility_60_full",
+        "mean_forward_realized_volatility_60_scaled",
+        "mean_forward_max_drawdown_60_full",
+        "mean_forward_max_drawdown_60_scaled",
+    ):
+        output[column] = output[column].map(_fmt_pct)
+    return output.rename(
+        columns={
+            "basket": "바스켓",
+            "period": "구간",
+            "target_vol": "목표 변동성",
+            "mean_exposure": "평균 노출",
+            "mean_return_20_full": "20일 수익(100%)",
+            "mean_return_20_scaled": "20일 수익(스케일)",
+            "mean_return_60_full": "60일 수익(100%)",
+            "mean_return_60_scaled": "60일 수익(스케일)",
+            "mean_return_90_full": "90일 수익(100%)",
+            "mean_return_90_scaled": "90일 수익(스케일)",
+            "mean_forward_realized_volatility_60_full": "60일 변동성(100%)",
+            "mean_forward_realized_volatility_60_scaled": "60일 변동성(스케일)",
+            "mean_forward_max_drawdown_60_full": "60일 최대낙폭(100%)",
+            "mean_forward_max_drawdown_60_scaled": "60일 최대낙폭(스케일)",
+        }
+    ).drop(columns="low_sample")
+
+
+def _exploratory_markdown(summary: pd.DataFrame) -> pd.DataFrame:
+    output = summary[[
+        "basket",
+        "period",
+        "indicator",
+        "n",
+        "mean",
+        "median",
+        "correlation_with_forward_return_60",
+        "included_in_score",
+        "low_sample",
+    ]].copy()
+    output["n"] = output.apply(
+        lambda row: f"{int(row['n'])}{' ⚠' if bool(row['low_sample']) else ''}", axis=1
+    )
+    for column in ("mean", "median", "correlation_with_forward_return_60"):
+        output[column] = output[column].map(
+            lambda value: "—" if pd.isna(value) else f"{float(value):.4f}"
+        )
+    output["included_in_score"] = "아니오"
+    return output.rename(
+        columns={
+            "basket": "바스켓",
+            "period": "구간",
+            "indicator": "탐색 지표",
+            "mean": "평균",
+            "median": "중앙값",
+            "correlation_with_forward_return_60": "60일 수익 상관",
+            "included_in_score": "점수 포함",
+        }
+    ).drop(columns="low_sample")
+
+
+def _side_conclusions(
+    validation: pd.DataFrame,
+    ladder: pd.DataFrame,
+    *,
+    side: str,
+) -> tuple[str, ...]:
+    spec_names = {
+        spec.flag_column: spec.indicator for spec in INDICATOR_SPECS if spec.side == side
+    }
+    lines: list[str] = []
+    for basket in LADDER_BASKETS:
+        selected = validation.loc[
+            validation["basket"].eq(basket)
+            & validation["side"].eq(side)
+            & validation["survives"]
+        ]
+        names = [spec_names.get(value, value) for value in selected["flag_column"]]
+        holdout = ladder.loc[
+            ladder["basket"].eq(basket)
+            & ladder["side"].eq(side)
+            & ladder["period"].eq("HOLDOUT")
+        ]
+        if holdout.empty:
+            lines.append(
+                f"{basket}: 생존 지표 {len(names)}개({', '.join(names) or '없음'}); 사다리 판정 보류."
+            )
+            continue
+        verdict = str(holdout["monotonicity"].iloc[0])
+        first = holdout.sort_values("score_level", kind="mergesort").iloc[0]
+        last = holdout.sort_values("score_level", kind="mergesort").iloc[-1]
+        change = float(last["mean_return_60"] - first["mean_return_60"])
+        if side == "OVERHEAT":
+            vol_change = float(
+                last["mean_forward_realized_volatility_60"]
+                - first["mean_forward_realized_volatility_60"]
+            )
+            lines.append(
+                f"{basket}: 생존 {len(names)}개({', '.join(names)}), 홀드아웃 단조성 {verdict}, "
+                f"0→{int(last['score_level'])}점 60일 수익 차이 {_fmt_pct(change)}, "
+                f"변동성 차이 {_fmt_pct(vol_change)}."
+            )
+        else:
+            lines.append(
+                f"{basket}: 생존 {len(names)}개({', '.join(names)}), 홀드아웃 단조성 {verdict}, "
+                f"0→{int(last['score_level'])}점 60일 평균 차이 {_fmt_pct(change)}."
+            )
+    direction = "높을수록 이후 수익이 낮아지는지" if side == "OVERHEAT" else "높을수록 이후 수익이 높아지는지"
+    lines.append(
+        f"이 판정은 {direction}를 본 조건부 기술통계이며, 겹치는 일별 관측·비용·체결을 반영하지 않는다."
+    )
+    return tuple(lines[:5])
+
+
 def _conclusions(
     condition_summary: pd.DataFrame,
     winners: pd.DataFrame,
@@ -769,7 +1157,7 @@ def _conclusions(
             else "Retained KOSPI200 IT 계열 지수를 KR 바스켓에 포함했다."
         ),
         "레버리지 ETF는 별도 기술통계만 계산했으며 임계값 탐색에는 한 행도 사용하지 않았다.",
-        "2015년 말까지의 적합 라벨은 60세션 결과 종료일도 2015년 이내인 경우만 허용했다.",
+        "2015년 말까지의 적합 관측은 90세션 결과 종료일도 2015년 이내인 경우만 허용했다.",
         "신호는 종가 T까지의 정보만 쓰며 결과 라벨은 평가 단계에서만 결합했다.",
         "정규화 자료는 현재 retained snapshot이므로 원천 당시 빈티지·개정 이력 한계가 남는다.",
         "108개 점수 후보를 비교한 선택 편향과 다중검정 보정 부재도 과적합 위험으로 남는다.",
@@ -794,6 +1182,7 @@ def run_condition_backtest(
     *,
     output_date: str | None = None,
     min_score_events: int = DEFAULT_MIN_SCORE_EVENTS,
+    target_vol: float = DEFAULT_TARGET_VOL,
 ) -> BacktestResult:
     """Run the retained-data study and atomically publish CSV/Markdown outputs."""
 
@@ -805,18 +1194,31 @@ def run_condition_backtest(
         project_root / "data/normalized/kr_etf_price_daily",
         project_root / "data/normalized/kr_etf_master",
         project_root / "data/normalized/global_etf_price_daily",
+        project_root / "data/normalized/fred_vix_daily",
+        project_root / "data/normalized/kr_vkospi_daily",
     ]
     manifest_before = _manifest_for_paths(project_root, roots)
     primary = load_primary_indices(project_root)
     leveraged = load_leveraged_etfs(project_root)
+    volatility_indices = load_volatility_indices(project_root)
     manifest_after = _manifest_for_paths(project_root, roots)
     if not manifest_before.equals(manifest_after):
         raise RuntimeError("retained Parquet inputs changed during the backtest read")
 
     signals = compute_signals(primary)
+    signals = attach_volatility_index(signals, volatility_indices)
+    signals = add_extreme_flags(signals)
     outcomes = build_forward_outcomes(primary)
     events = build_condition_event_table(signals, outcomes)
     condition_summary = summarize_condition_events(events, outcomes)
+    evaluation = build_wide_evaluation_frame(signals, outcomes)
+    indicator_validation = evaluate_standalone_indicators(evaluation)
+    equal_weight_scores = build_equal_weight_scores(evaluation, indicator_validation)
+    ladder_summary = aggregate_ladder_levels(equal_weight_scores)
+    vol_targeting_summary = aggregate_vol_targeting(
+        evaluation, target_vol=target_vol
+    )
+    exploratory_summary = aggregate_exploratory_indicators(evaluation)
     score_input = _score_input(signals, outcomes)
     score_grid, score_winners, _ = run_score_grid_analysis(
         score_input, min_events=min_score_events
@@ -842,7 +1244,11 @@ def run_condition_backtest(
     leveraged_summary["low_sample"] = leveraged_summary["n"].lt(MIN_CELL_EVENTS)
 
     coverage = pd.concat(
-        [_coverage(primary, "PRIMARY_INDEX"), _coverage(leveraged, "LEVERAGED_ETF_DESCRIPTIVE_ONLY")],
+        [
+            _coverage(primary, "PRIMARY_INDEX"),
+            _volatility_coverage(volatility_indices),
+            _coverage(leveraged, "LEVERAGED_ETF_DESCRIPTIVE_ONLY"),
+        ],
         ignore_index=True,
     )
     date_key = output_date or datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y%m%d")
@@ -852,9 +1258,20 @@ def run_condition_backtest(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     manifest_digest = _manifest_digest(manifest_before)
-    conclusions = _conclusions(condition_summary, score_winners, coverage)
+    legacy_conclusions = _conclusions(condition_summary, score_winners, coverage)
+    overheat_conclusions = _side_conclusions(
+        indicator_validation, ladder_summary, side="OVERHEAT"
+    )
+    drawdown_conclusions = _side_conclusions(
+        indicator_validation, ladder_summary, side="DRAWDOWN"
+    )
+    conclusions = (*overheat_conclusions, *drawdown_conclusions)
     condition_table = _condition_markdown(condition_summary)
     winner_table = _winner_markdown(score_winners)
+    indicator_table = _indicator_markdown(indicator_validation)
+    ladder_table = _ladder_markdown(ladder_summary)
+    vol_target_table = _vol_target_markdown(vol_targeting_summary)
+    exploratory_table = _exploratory_markdown(exploratory_summary)
     coverage_md = coverage.copy()
     coverage_md["start"] = pd.to_datetime(coverage_md["start"]).dt.strftime("%Y-%m-%d")
     coverage_md["end"] = pd.to_datetime(coverage_md["end"]).dt.strftime("%Y-%m-%d")
@@ -870,9 +1287,9 @@ def run_condition_backtest(
             "# 조건 시나리오 백테스트",
             "",
             f"- 입력 manifest SHA-256: `{manifest_digest}` ({len(manifest_before)} Parquet files)",
-            f"- 적합: 관측일·60세션 결과 종료일 모두 `{FIT_END}` 이하",
-            f"- 홀드아웃: 관측일 `{HOLDOUT_START}` 이상",
-            f"- 점수 후보 최소 사건 수 N: `{min_score_events}`; 셀 경고 기준: `{MIN_CELL_EVENTS}` 미만",
+            f"- 적합: **90세션 결과 종료일** `{FIT_END}` 이하",
+            f"- 홀드아웃: 관측일 `{HOLDOUT_START}` 이상이며 완전한 90세션 결과 보유",
+            f"- 생존/셀 경고 기준: 양 구간 각각 N≥`{MIN_CELL_EVENTS}`",
             "- 성격: 종가 기준 오프라인 조건부 분포 연구(체결·비용·실행 가능성 없음)",
             "",
             "## 자료 범위",
@@ -885,9 +1302,36 @@ def run_condition_backtest(
             "",
             _markdown_table(condition_table, condition_table.columns),
             "",
-            "## 낙폭 과대 점수: 통합 임계값과 바스켓별 임계값",
+            "## 단독 지표 검증",
             "",
-            "각 축은 세 단계로 1점씩, 합계 0~9점이다. 순위는 적합 구간 60세션 평균수익만으로 정했다.",
+            "결합 전에 각 지표를 단독으로 평가했다. 차이는 같은 구간·같은 시계열의 무조건 60일 평균수익 대비 값이다. fit과 hold-out 차이의 부호가 같고 양쪽 모두 N≥15인 경우에만 생존한다.",
+            "주의: hold-out 부호를 생존 필터에 직접 사용하므로 이 구간은 최종 미접촉 성과 검증이 아니라 안정성 화면이다.",
+            "",
+            _markdown_table(indicator_table, indicator_table.columns),
+            "",
+            "## 동일가중 점수 사다리",
+            "",
+            "낙폭 측은 drawdown252≤-30%, disp60≤-10%, RSI14≤30, 공포지수 상위 20%; 과열 측은 disp60≥10%, RSI14≥70, 공포지수 하위 20%를 단독 검증했다. 바스켓·측별 생존 지표에만 같은 1점을 주며, 점수 0..k의 **모든 일별 관측**을 비교한다. ⚠는 15건 미만이고 단조성은 N≥15인 레벨만으로 낙폭 상승/과열 하락 방향을 판정한다.",
+            "",
+            _markdown_table(ladder_table, ladder_table.columns) if not ladder_table.empty else "생존 지표가 없어 구성 가능한 사다리가 없다.",
+            "",
+            "CNN Fear & Greed의 5개 밴드는 단계형 표현의 참고일 뿐이며, 이 연구의 단계 수를 5로 고정하거나 그 지표를 입력으로 사용하지 않았다.",
+            "",
+            "## 연속 스케일링 비교(변동성 타겟팅)",
+            "",
+            f"과거 20일 연율화 실현변동성으로 `min(1, {target_vol:.2%} / realised_vol_20d)`를 계산했다. T의 값은 T까지의 종가만 사용하며, 아래 수익·변동성·최대낙폭은 그 시점 노출을 미래 경로 전체에 고정 적용한 기술 비교다.",
+            "",
+            _markdown_table(vol_target_table, vol_target_table.columns),
+            "",
+            "## 탐색 지표(점수 미포함)",
+            "",
+            "20일 거래량 비율과 Bollinger %b는 탐색 보고만 하며 단독 생존 판정과 양쪽 점수에 넣지 않았다.",
+            "",
+            _markdown_table(exploratory_table, exploratory_table.columns),
+            "",
+            "## 부록: 취약한 임계값 미세조정",
+            "",
+            "기존 108개 낙폭 점수 grid와 선택 표를 보존한다. 극단 구간은 실질적으로 4~5개 시장 사이클뿐이므로 이 결과는 **취약한 미세조정**이며 동일가중 사다리보다 우선하지 않는다. 순위는 fit의 60일 평균만 사용하되 fit 포함 여부는 90세션 결과 종료일로 판정한다.",
             "",
             _markdown_table(winner_table, winner_table.columns),
             "",
@@ -895,17 +1339,33 @@ def run_condition_backtest(
             "",
             _markdown_table(wf_display, wf_display.columns) if not wf_display.empty else "적격 fold 없음.",
             "",
-            "## 결론 (10줄 이내)",
+            "## 기존 단방향 관찰 (10줄 이내)",
             "",
-            *[f"{index}. {line}" for index, line in enumerate(conclusions, start=1)],
+            *[f"{index}. {line}" for index, line in enumerate(legacy_conclusions, start=1)],
+            "",
+            "## 과열 측 결론",
+            "",
+            *[f"- {line}" for line in overheat_conclusions],
+            "",
+            "## 낙폭 측 결론",
+            "",
+            *[f"- {line}" for line in drawdown_conclusions],
+            "",
+            "## 데이터 한계",
+            "",
+            "- KOSPI200 IT 지수는 retained 자료에 없어서 사용하지 않았고, KR은 KOSPI200을 주계열로 두되 KOSPI를 두 번째 시계열로 함께 보고했다.",
+            "- VKOSPI는 2003년부터라 그 이전 KR 행에는 공포/탐욕 점수가 없으며, 현재 retained snapshot은 과거 공표 빈티지의 완전한 재현이 아니다.",
+            "- SOX는 2006-09-05부터라 fit에 약 9년만 있고, SEMIS의 사이클 수와 극단 레벨 표본이 제한된다.",
+            "- VIX/VKOSPI는 같은 날짜 값만 결합하고 휴장일을 앞뒤로 채우지 않았다. VKOSPI의 retained PIT 상태는 공표 개정 불확실성이 남아 있다.",
             "",
             "## 재현 및 해석 제한",
             "",
             "- `input_manifest.csv`가 읽기 전후 동일함을 확인한 뒤 결과를 썼다.",
-            "- `build_forward_labels`, `define_untouched_holdout`, `expanding_walk_forward`는 각각 고정 5/20/60 기간·최종 5년 봉인·관측수 기반 fold 계약이라 이 연구의 120세션·고정 2016 경계·5년 달력 refit과 맞지 않아 최소 로컬 구현을 사용했다.",
-            "- SP500/NASDAQ_COMPOSITE/DOW_JONES는 통합 바스켓에만 들어간다. US_TECH 전용 바스켓은 NASDAQ100이다.",
+            "- 결과 라벨은 신호와 분리해 만든 뒤 평가 프레임에만 결합했다. 20/60/90일 비교의 fit 경계는 가장 긴 90세션 결과 종료일로 통일했다.",
+            "- 사용자 정의 생존 규칙이 2016년 이후 부호를 사용하므로 해당 hold-out은 최종 미접촉 검증이 아니다. 보고 수치는 조건부 기술통계다.",
+            "- US_TECH는 NASDAQ100과 더 긴 NASDAQ_COMPOSITE를 함께 포함한다. SP500/DOW_JONES는 기존 POOLED 단방향 표에만 남는다.",
             "- 레버리지 ETF는 `leveraged_etf_event_summary.csv`에만 기록되고 score grid/winner/walk-forward에는 들어가지 않는다.",
-            "- 이는 조건이 발생한 종가에서 본 사후 분포이며, T+1 체결·거래비용·세금·환율·추적오차를 모델링하지 않는다.",
+            "- 신호는 최종 종가 T 관측 후에만 알 수 있어 실제 의사결정에는 다음 retained 세션부터 사용할 수 있다. 이 연구는 체결·거래비용·세금·환율·추적오차를 모델링하지 않는다.",
             "",
         ]
     )
@@ -914,6 +1374,10 @@ def run_condition_backtest(
     _write_csv(coverage, output_dir / "series_coverage.csv")
     _write_csv(events, output_dir / "condition_events.csv")
     _write_csv(condition_summary, output_dir / "condition_event_summary.csv")
+    _write_csv(indicator_validation, output_dir / "standalone_indicator_validation.csv")
+    _write_csv(ladder_summary, output_dir / "equal_weight_ladder_levels.csv")
+    _write_csv(vol_targeting_summary, output_dir / "vol_targeting_summary.csv")
+    _write_csv(exploratory_summary, output_dir / "exploratory_indicator_summary.csv")
     _write_csv(score_grid, output_dir / "score_grid.csv")
     _write_csv(score_winners, output_dir / "score_winners.csv")
     _write_csv(walk_forward, output_dir / "score_walk_forward.csv")
@@ -932,12 +1396,15 @@ __all__ = [
     "HOLDOUT_START",
     "HORIZONS",
     "add_condition_events",
+    "attach_volatility_index",
     "build_condition_event_table",
     "build_forward_outcomes",
+    "build_wide_evaluation_frame",
     "compute_signals",
     "expanding_five_year_score_study",
     "load_leveraged_etfs",
     "load_primary_indices",
+    "load_volatility_indices",
     "run_condition_backtest",
     "run_score_grid_analysis",
     "summarize_condition_events",

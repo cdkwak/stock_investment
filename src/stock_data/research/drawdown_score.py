@@ -143,7 +143,12 @@ def evaluate_threshold(
     fit_end: str,
     holdout_start: str,
 ) -> dict[str, float | int | str]:
-    """Evaluate one configuration with strict outcome availability in fitting."""
+    """Evaluate one configuration with strict outcome availability in fitting.
+
+    New callers provide ``outcome_end_date_90`` so every fitted 20/60/90-day
+    comparison shares the same conservative boundary.  The 60-day fallback is
+    retained for the original public API and its historical tests.
+    """
 
     required = {
         "observation_date",
@@ -155,7 +160,12 @@ def evaluate_threshold(
     if missing:
         raise ValueError(f"grid input is missing columns: {sorted(missing)}")
     dates = pd.to_datetime(frame["observation_date"], errors="raise")
-    outcome_dates = pd.to_datetime(frame["outcome_end_date_60"], errors="coerce")
+    split_column = (
+        "outcome_end_date_90"
+        if "outcome_end_date_90" in frame.columns
+        else "outcome_end_date_60"
+    )
+    outcome_dates = pd.to_datetime(frame[split_column], errors="coerce")
     event = score_event_mask(frame, thresholds)
     fit_cutoff = pd.Timestamp(fit_end)
     holdout_cutoff = pd.Timestamp(holdout_start)

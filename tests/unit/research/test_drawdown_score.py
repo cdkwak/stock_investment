@@ -78,6 +78,33 @@ def test_fit_boundary_requires_the_60_session_outcome_to_finish_in_fit() -> None
     assert result["holdout_mean"] == pytest.approx(0.30)
 
 
+def test_new_score_callers_use_90_session_outcome_end_for_fit_isolation() -> None:
+    frame = pd.DataFrame(
+        [
+            _row("2015-01-02", 0.0, 0.0, 50.0, 0.0),
+            _row("2015-03-02", -0.15, -0.08, 35.0, 0.20),
+            _row("2015-06-01", 0.0, 0.0, 50.0, 0.0),
+            _row("2015-10-01", -0.15, -0.08, 35.0, 9.0),
+        ]
+    )
+    frame["outcome_end_date_90"] = [
+        "2015-05-01",
+        "2015-07-01",
+        "2015-10-01",
+        "2016-02-01",
+    ]
+
+    result = evaluate_threshold(
+        frame,
+        LOOSE,
+        fit_end="2015-12-31",
+        holdout_start="2016-01-01",
+    )
+
+    assert result["fit_n"] == 1
+    assert result["fit_mean"] == pytest.approx(0.20)
+
+
 def test_grid_ranking_uses_fit_only_and_prefers_toy_winner() -> None:
     frame = pd.DataFrame(
         [
