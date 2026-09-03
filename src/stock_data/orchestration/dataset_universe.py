@@ -10,11 +10,13 @@ from stock_data.contracts.kr_index_fundamental_daily import (
     KR_INDEX_FUNDAMENTAL_DAILY,
 )
 from stock_data.contracts.global_etf import GLOBAL_ETF_DAILY_SYMBOLS
+from stock_data.contracts.kr_fundamentals import KR_FUNDAMENTALS_CONTRACTS
 
 
 CONTRACTS = {
     **REGISTERED_CONTRACTS,
     KR_INDEX_FUNDAMENTAL_DAILY.name: KR_INDEX_FUNDAMENTAL_DAILY,
+    **{contract.name: contract for contract in KR_FUNDAMENTALS_CONTRACTS},
 }
 
 # Canonical provider-symbol membership for the three Yahoo daily datasets.
@@ -456,11 +458,13 @@ _CLASSIFICATION_IDS = {
         kr_kospi200_constituent_price_daily kr_kospi200_breadth_daily
     """.split()),
     DatasetRefreshClass.WEEKLY: frozenset("""
+        kr_corp_code_map
         us_cftc_legacy_futures_only_raw us_cftc_legacy_futures_options_combined_raw
         us_cftc_tff_futures_only_raw us_cftc_disaggregated_futures_only_raw
     """.split()),
     DatasetRefreshClass.MONTHLY: frozenset(),
     DatasetRefreshClass.EVENT_DRIVEN: frozenset("""
+        kr_fundamentals_quarterly
         kr_equity_master kr_etf_master kr_equity_dividend kr_equity_rights_schedule
         kr_equity_dividend_source_observation kr_equity_stock_issuance_source_observation
     """.split()),
@@ -660,6 +664,7 @@ _LANE_GROUPS = {
 
 
 _ECONOMIC_GROUPS = {
+    "kr_issuer_fundamentals": ("kr_corp_code_map", "kr_fundamentals_quarterly"),
     "kr_equity_universe": ("kr_equity_universe_daily", "kr_equity_canonical_universe_daily"),
     "kr_equity_index_level": ("kr_index_daily", "kr_kospi200_index_daily", "kb_domestic_index_snapshot"),
     "global_market_price": (
@@ -689,6 +694,7 @@ _ECONOMIC_GROUPS = {
 
 
 _ECONOMIC_LABELS = {
+    "kr_issuer_fundamentals": "Korean issuer identity and quarterly financial health",
     "kr_equity_universe": "Korean equity point-in-time universe",
     "kr_equity_index_level": "Korean equity index levels and OHLCV",
     "global_market_price": "Global market index/symbol prices",
@@ -712,6 +718,7 @@ _ECONOMIC_LABELS = {
 
 
 _DIRECT_GUI = frozenset("""
+    kr_corp_code_map kr_fundamentals_quarterly
     market_price_60m_observation
     kr_index_daily kr_kospi200_index_daily global_index_price_daily global_etf_price_daily
     bok_ecos_kr_treasury_yield_source_observation fred_treasury_yield_daily fred_usd_fx_daily
@@ -741,6 +748,7 @@ kr_stock_lending_participant_daily us_treasury_spread_daily
 
 
 _INTENTIONALLY_EXCLUDED = frozenset("""
+    kr_corp_code_map kr_fundamentals_quarterly
     market_price_60m_observation market_price_15m_observation
     krx_legacy_kospi200_futures_daily krx_legacy_kospi200_options_daily
     kr_market_investor_net_purchase_daily kr_equity_short_selling_daily
@@ -799,6 +807,7 @@ _SOURCE_OBSERVATION_IDS = frozenset({
     "kr_equity_stock_issuance_source_observation", "ls_t8428_surrounding_funds_source_observation",
 })
 _EVENT_IDS = frozenset({
+    "kr_fundamentals_quarterly",
     "kr_equity_master", "kr_etf_master", "kr_equity_dividend", "kr_equity_rights_schedule",
     "kr_equity_dividend_source_observation", "kr_equity_stock_issuance_source_observation",
 })
@@ -870,6 +879,14 @@ _BLOCK_REASONS = {
 
 
 _PHYSICAL_OVERRIDES = {
+    "kr_corp_code_map": (
+        "landing/opendart/kr_fundamentals_quarterly",
+        "normalized/kr_corp_code_map",
+    ),
+    "kr_fundamentals_quarterly": (
+        "landing/opendart/kr_fundamentals_quarterly",
+        "normalized/kr_fundamentals_quarterly",
+    ),
     "kr_vkospi_daily": ("raw/kr_vkospi_daily", "normalized/kr_vkospi_daily"),
     "kr_kospi200_futures_provider_bridge_daily": ("published/c007_kospi200_derivatives_bridge/kr_kospi200_futures_provider_bridge_daily",),
     "kr_kospi200_options_provider_bridge_daily": ("published/c007_kospi200_derivatives_bridge/kr_kospi200_options_provider_bridge_daily",),
@@ -955,6 +972,8 @@ def _data_grain(dataset_id: str, cadence: str) -> DataGrain:
         "event": DataGrain.EVENT_DRIVEN,
         "intraday_snapshot": DataGrain.SNAPSHOT,
         "research_only": DataGrain.DAILY,
+        "weekly": DataGrain.WEEKLY,
+        "quarterly": DataGrain.EVENT_DRIVEN,
     }.get(cadence, DataGrain.NONE)
 
 

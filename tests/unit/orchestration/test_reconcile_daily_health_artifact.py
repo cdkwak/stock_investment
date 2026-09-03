@@ -54,7 +54,7 @@ def test_universe_health_v2_preserves_all_axes_without_inventing_expected_dates(
         {"datasets": rows}, run_id="universe-v2", as_of="2026-08-18T23:00:00+09:00",
     )
     result = MODULE.reconcile_universe(core)
-    assert result["dataset_count"] == 82
+    assert result["dataset_count"] == 84
     assert result["core_operations_count"] == 42
     assert result["automation_enabled_count"] == 39
     assert result["operations_registry_count"] == 42
@@ -64,9 +64,9 @@ def test_universe_health_v2_preserves_all_axes_without_inventing_expected_dates(
     assert result["dimension_summary"]["grain"]["DAILY"] == 63
     assert result["dimension_summary"]["operational"]["BLOCKED"] == 8
     assert result["schema_version"] == 2
-    assert sum(result["dimension_summary"]["display_consumer_eligibility"].values()) == 82
-    assert sum(result["dimension_summary"]["research_consumer_eligibility"].values()) == 82
-    assert sum(result["dimension_summary"]["predictive_consumer_eligibility"].values()) == 82
+    assert sum(result["dimension_summary"]["display_consumer_eligibility"].values()) == 84
+    assert sum(result["dimension_summary"]["research_consumer_eligibility"].values()) == 84
+    assert sum(result["dimension_summary"]["predictive_consumer_eligibility"].values()) == 84
     assert all(
         row["display_consumer_eligibility"]
         and row["display_consumer_reason"]
@@ -153,7 +153,7 @@ def test_universe_health_accepts_historical_core_subset_and_exposes_registry_gap
         "datasets": rows,
     })
 
-    assert result["dataset_count"] == 82
+    assert result["dataset_count"] == 84
     assert result["core_operations_count"] == 39
     assert result["operations_registry_count"] == 42
     assert result["core_operation_missing"] == sorted(omitted)
