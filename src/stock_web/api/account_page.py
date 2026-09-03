@@ -479,36 +479,16 @@ def save_manual_accounts(project_root: Path, payload: object) -> dict[str, objec
 
 
 def _latest_fx(project_root: Path) -> tuple[float | None, str | None, str | None]:
-    candidates: list[tuple[pd.Timestamp, float, int, str]] = []
-    sources = (
-        (
-            "data/normalized/bok_ecos_usd_krw_daily",
-            "rate_krw_per_usd",
-            1,
-            "BOK 매매기준율",
-        ),
-        ("data/normalized/fred_usd_fx_daily", "dexkous", 0, "FRED"),
-    )
-    for path, value_column, priority, label in sources:
-        frame = datasets.load(project_root, path, columns=["date", value_column])
-        if frame is None or frame.empty:
-            continue
-        work = frame.copy()
-        work["date"] = pd.to_datetime(work["date"], errors="coerce")
-        work[value_column] = pd.to_numeric(work[value_column], errors="coerce")
-        work = work.dropna(subset=["date", value_column]).sort_values("date")
-        work = work[work[value_column] > 0]
-        if work.empty:
-            continue
-        row = work.iloc[-1]
-        candidates.append((row["date"], float(row[value_column]), priority, label))
-    if not candidates:
+    history = _fx_history(project_root)
+    if not history:
         return None, None, None
-    observed, value, _priority, label = max(
-        candidates, key=lambda item: (item[0], item[2]),
+    latest = history[-1]
+    observed = date.fromisoformat(str(latest["date"]))
+    return (
+        float(latest["value"]),
+        observed.isoformat(),
+        f"{latest['source_label']} {observed:%m-%d}",
     )
-    observed_date = observed.date().isoformat()
-    return value, observed_date, f"{label} {observed:%m-%d}"
 
 
 def _latest_kr_prices(
@@ -679,6 +659,7 @@ def build_api_account_data(project_root: Path) -> dict[str, object]:
     rows: list[dict[str, object]] = []
     total_krw = 0.0
     cash_krw = 0.0
+    cash_complete = True
     broker_reported_pnl_krw = 0.0
     broker_reported_seen = False
     for source_id, name, path in candidates:
@@ -763,6 +744,7 @@ def build_api_account_data(project_root: Path) -> dict[str, object]:
         if included:
             total_krw += value
             cash_krw += cash_value
+            cash_complete &= cash_seen
             if reported_pnl_seen:
                 broker_reported_pnl_krw += reported_pnl_value
                 broker_reported_seen = True
@@ -770,6 +752,7 @@ def build_api_account_data(project_root: Path) -> dict[str, object]:
             "kind": "api", "source_id": source_id, "name": name,
             "value_krw": value if included else None,
             "cash_krw": cash_value if cash_seen and included else None,
+            "cash_note": "현금 미확인" if included and not cash_seen else None,
             "pnl_krw": pnl_value if pnl_seen and included else None,
             "broker_reported_pnl_krw": (
                 reported_pnl_value if reported_pnl_seen and included else None
@@ -782,7 +765,10 @@ def build_api_account_data(project_root: Path) -> dict[str, object]:
             ),
         })
     return {
-        "rows": rows, "total_krw": total_krw, "cash_krw": cash_krw,
+        "rows": rows, "total_krw": total_krw,
+        "cash_krw": cash_krw if cash_complete else None,
+        "cash_complete": cash_complete,
+        "cash_note": None if cash_complete else "현금 미확인",
         "fx_krw_per_usd": fx, "fx_as_of": fx_as_of, "fx_source": fx_source,
         "broker_reported_pnl_krw": (
             broker_reported_pnl_krw if broker_reported_seen else None
@@ -1218,20 +1204,50 @@ def _total_asset_components(
 
 
 def _fx_history(project_root: Path) -> list[dict[str, object]]:
-    frame = datasets.load(
-        project_root, "data/normalized/fred_usd_fx_daily",
-        columns=["date", "dexkous"],
+    """Return one daily FX series, preferring BOK on every overlapping date."""
+
+    merged: dict[date, dict[str, object]] = {}
+    sources = (
+        (
+            "data/normalized/fred_usd_fx_daily",
+            "dexkous",
+            "FRED",
+        ),
+        (
+            "data/normalized/bok_ecos_usd_krw_daily",
+            "rate_krw_per_usd",
+            "BOK 매매기준율",
+        ),
     )
-    if frame is None or frame.empty:
-        return []
-    work = frame.copy()
-    work["date"] = pd.to_datetime(work["date"], errors="coerce")
-    work["dexkous"] = pd.to_numeric(work["dexkous"], errors="coerce")
-    work = work.dropna(subset=["date", "dexkous"]).sort_values("date")
-    return [
-        {"date": row.date.date().isoformat(), "value": float(row.dexkous)}
-        for row in work.itertuples(index=False) if float(row.dexkous) > 0
-    ]
+    # FRED is loaded first so a valid BOK observation replaces it only on the
+    # same date. Dates absent from BOK retain the FRED fallback.
+    for path, value_column, source_label in sources:
+        frame = datasets.load(project_root, path, columns=["date", value_column])
+        if frame is None or frame.empty:
+            continue
+        work = frame.copy()
+        work["date"] = pd.to_datetime(work["date"], errors="coerce")
+        work[value_column] = pd.to_numeric(work[value_column], errors="coerce")
+        work = work.dropna(subset=["date", value_column]).sort_values("date")
+        for row in work[["date", value_column]].itertuples(index=False):
+            value = float(row[1])
+            if value <= 0:
+                continue
+            observed = row[0].date()
+            merged[observed] = {
+                "date": observed.isoformat(),
+                "value": value,
+                "source_label": source_label,
+            }
+    return [merged[observed] for observed in sorted(merged)]
+
+
+def _session_age(observed: date, current: date) -> int:
+    """Count weekday trading-session boundaries after an observation."""
+
+    if current <= observed:
+        return 0
+    return len(pd.bdate_range(observed + timedelta(days=1), current))
 
 
 def _combine_total_asset_series(
@@ -1270,7 +1286,7 @@ def _combine_total_asset_series(
                 continue
             observed, value = prior[-1]
             observed_today |= observed == current
-            partial |= (current - observed).days > 3
+            partial |= _session_age(observed, current) > 3
             if currency == "KRW":
                 converted = value
             elif currency == "USD":
@@ -1280,7 +1296,7 @@ def _combine_total_asset_series(
                     continue
                 fx_date, rate = prior_fx[-1]
                 observed_today |= fx_date == current
-                partial |= (current - fx_date).days > 3
+                partial |= _session_age(fx_date, current) > 3
                 converted = value * rate
             else:
                 partial = True
@@ -1547,6 +1563,14 @@ def build_account_page_data(project_root: Path) -> dict[str, object]:
         "as_of_label": format_kst(net_worth.get("as_of")),
         "benchmark": _kospi_benchmark(project_root, net_worth.get("timeline", [])),
     }
+    all_start = str(history[0]["t"])[5:] if history else None
+    default_return_window = "3M"
+    if (
+        str(return_metrics.get("3M", {}).get("reason", "")).startswith("관측 시작 ")
+        and not return_metrics.get("ALL", {}).get("reason")
+    ):
+        default_return_window = "ALL"
+    cash_complete = bool(api.get("cash_complete", True))
     return {
         "schema_version": 1,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -1560,6 +1584,12 @@ def build_account_page_data(project_root: Path) -> dict[str, object]:
             "fx_as_of_label": format_kst(api.get("fx_as_of") or manual.get("fx_as_of")),
             "fx_source": api.get("fx_source") or manual.get("fx_source"),
             "broker_reported_pnl_krw": api.get("broker_reported_pnl_krw"),
+            "cash_krw": (
+                float(api["cash_krw"]) + float(manual["cash_krw"])
+                if cash_complete and api.get("cash_krw") is not None else None
+            ),
+            "cash_complete": cash_complete,
+            "cash_note": None if cash_complete else "현금 미확인",
             "sources": sources,
         },
         "rows": rows,
@@ -1569,6 +1599,14 @@ def build_account_page_data(project_root: Path) -> dict[str, object]:
         "total_asset_history": history,
         "benchmark": benchmark,
         "return_metrics": return_metrics,
+        "return_period": {
+            "default_window": default_return_window,
+            "all_label": f"전체 ({all_start}~)" if all_start else "전체",
+        },
+        "chart_labels": {
+            "primary": "총자산",
+            "benchmark": "KOSPI (시작값 맞춤)",
+        },
         "daily_true_change_krw": daily_true_change,
         "month_true_pnl_krw": month_true_pnl,
         "safety_note": "이 페이지는 로컬 보존 파일만 읽으며 외부 접속에서는 저장할 수 없습니다.",

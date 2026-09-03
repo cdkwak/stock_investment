@@ -239,13 +239,71 @@ def test_toss_buying_power_is_not_rendered_as_cash_balance() -> None:
     response = client.get("/api/account")
 
     assert response.status_code == 200
-    toss = next(row for row in response.json()["rows"] if row["source_id"] == "toss_self")
+    payload = response.json()
+    toss = next(row for row in payload["rows"] if row["source_id"] == "toss_self")
     assert toss["included"] is True
     assert toss["value_krw"] is not None
     assert toss["cash_krw"] is None
+    assert toss["cash_note"] == "현금 미확인"
+    assert payload["summary"]["cash_krw"] is None
+    assert payload["summary"]["cash_complete"] is False
+    assert payload["summary"]["cash_note"] == "현금 미확인"
     account_javascript = client.get("/static/account.js").text
     assert '${money(row.cash_krw)}' in account_javascript
     assert 'value === null || value === undefined ? "—"' in account_javascript
+    assert 'title="${esc(cashTitle)}"' in account_javascript
+
+
+def test_fx_history_prefers_bok_and_uses_fred_only_for_missing_dates() -> None:
+    root = new_temp_root()
+    _write_parquet(
+        root,
+        "data/normalized/fred_usd_fx_daily/year=2026/data.parquet",
+        pd.DataFrame({
+            "date": pd.to_datetime(["2026-08-28", "2026-09-01", "2026-09-02"]),
+            "dexkous": [1_300.0, 1_310.0, 1_320.0],
+        }),
+    )
+    _write_parquet(
+        root,
+        "data/normalized/bok_ecos_usd_krw_daily/year=2026/data.parquet",
+        pd.DataFrame({
+            "date": pd.to_datetime(["2026-09-01", "2026-09-03"]),
+            "rate_krw_per_usd": [1_410.0, 1_430.0],
+        }),
+    )
+
+    history = account_page._fx_history(root)
+
+    assert [(row["date"], row["source_label"]) for row in history] == [
+        ("2026-08-28", "FRED"),
+        ("2026-09-01", "BOK 매매기준율"),
+        ("2026-09-02", "FRED"),
+        ("2026-09-03", "BOK 매매기준율"),
+    ]
+    assert history[1]["value"] == 1_410.0
+    assert account_page._latest_fx(root) == (
+        1_430.0, "2026-09-03", "BOK 매매기준율 09-03",
+    )
+
+
+def test_latest_fx_falls_back_to_newer_fred_date_when_bok_lacks_it() -> None:
+    root = new_temp_root()
+    _write_parquet(
+        root,
+        "data/normalized/fred_usd_fx_daily/year=2026/data.parquet",
+        pd.DataFrame({"date": [pd.Timestamp("2026-09-02")], "dexkous": [1_320.0]}),
+    )
+    _write_parquet(
+        root,
+        "data/normalized/bok_ecos_usd_krw_daily/year=2026/data.parquet",
+        pd.DataFrame({
+            "date": [pd.Timestamp("2026-09-01")],
+            "rate_krw_per_usd": [1_410.0],
+        }),
+    )
+
+    assert account_page._latest_fx(root) == (1_320.0, "2026-09-02", "FRED 09-02")
 
 
 def test_account_posts_are_loopback_only_and_pages_and_get_apis_render() -> None:
@@ -266,6 +324,12 @@ def test_account_posts_are_loopback_only_and_pages_and_get_apis_render() -> None
     assert "입출금 기록" in account_page_html
     assert "lightweight-charts" not in account_page_html
     assert '/static/app.js' in account_page_html
+    assert '/static/account.css' in account_page_html
+    assert "계좌 관측 또는 환율이 3거래일 넘게 오래된 날" in account_page_html
+    account_css = client.get("/static/account.css").text
+    assert ".card-head b" in account_css
+    assert "white-space: nowrap" in account_css
+    assert ".source-mobile-meta" in account_css
     assert client.get("/api/manual/accounts").status_code == 200
     assert client.get("/api/net-worth").status_code == 200
 
@@ -333,11 +397,11 @@ def test_return_window_without_a_pre_start_observation_has_korean_reason() -> No
     assert metrics["ALL"]["true_pnl_krw"] == 10.0
 
 
-def test_total_asset_series_forward_fills_and_marks_sources_stale_after_three_days() -> None:
+def test_total_asset_series_marks_accounts_stale_after_three_sessions() -> None:
     combined = account_page._combine_total_asset_series(
         [{
             "source_id": "toss_self:KRW", "currency": "KRW",
-            "points": [{"date": "2026-09-01", "value": 100}, {"date": "2026-09-06", "value": 110}],
+            "points": [{"date": "2026-09-01", "value": 100}, {"date": "2026-09-08", "value": 110}],
         }, {
             "source_id": "manual:mirae", "currency": "KRW",
             "points": [{"date": "2026-09-02", "value": 50}],
@@ -352,6 +416,61 @@ def test_total_asset_series_forward_fills_and_marks_sources_stale_after_three_da
     assert next(point for point in combined if point["t"] == "2026-09-04")["partial"] is False
     assert combined[-1]["v"] == 160.0
     assert combined[-1]["partial"] is True
+
+
+def test_total_asset_series_marks_fx_stale_only_after_three_sessions() -> None:
+    account_points = [
+        {"date": day, "value": 10.0}
+        for day in (
+            "2026-08-28", "2026-08-31", "2026-09-01", "2026-09-02",
+            "2026-09-03", "2026-09-04",
+        )
+    ]
+    combined = account_page._combine_total_asset_series(
+        [{"source_id": "usd", "currency": "USD", "points": account_points}],
+        [{"date": "2026-08-28", "value": 1_300.0}],
+    )
+
+    assert next(point for point in combined if point["t"] == "2026-09-02")["partial"] is False
+    assert next(point for point in combined if point["t"] == "2026-09-03")["partial"] is True
+
+
+def test_account_payload_selects_all_for_short_history_and_labels_chart(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = new_temp_root()
+    monkeypatch.setattr(account_page, "build_api_account_data", lambda _root: {
+        "rows": [], "total_krw": 0.0, "cash_krw": 0.0, "cash_complete": True,
+        "broker_reported_pnl_krw": None,
+    })
+    monkeypatch.setattr(account_page, "build_manual_account_data", lambda _root: {
+        "rows": [], "accounts": [], "total_krw": 0.0, "cash_krw": 0.0,
+        "unpriced_count": 0,
+    })
+    monkeypatch.setattr(account_page, "build_net_worth_data", lambda _root: {
+        "rows": [], "exists": False, "timeline": [], "complete": False,
+    })
+    monkeypatch.setattr(account_page, "build_cash_flow_data", lambda _root: {
+        "schema_version": 1, "entries": [], "monthly_subtotals": [],
+    })
+    monkeypatch.setattr(account_page, "_total_asset_components", lambda _root, _manual: [{
+        "source_id": "synthetic", "currency": "KRW",
+        "points": [
+            {"date": "2026-08-26", "value": 100.0},
+            {"date": "2026-09-03", "value": 110.0},
+        ],
+    }])
+    monkeypatch.setattr(account_page, "_fx_history", lambda _root: [])
+    monkeypatch.setattr(account_page, "_kospi_benchmark", lambda _root, _history: [])
+
+    payload = account_page.build_account_page_data(root)
+
+    assert payload["return_period"] == {
+        "default_window": "ALL", "all_label": "전체 (08-26~)",
+    }
+    assert payload["chart_labels"] == {
+        "primary": "총자산", "benchmark": "KOSPI (시작값 맞춤)",
+    }
 
 
 def test_twr_defers_a_flow_until_the_next_genuine_valuation() -> None:

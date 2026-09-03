@@ -1,0 +1,127 @@
+.card-head b {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.card-head > .muted {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.source-mobile-meta {
+  display: none;
+}
+
+.journal-card .data-table-wrap {
+  margin-top: 12px;
+}
+
+.journal-form {
+  grid-template-columns: repeat(6, minmax(120px, 1fr));
+}
+
+.journal-form .journal-memo {
+  grid-column: span 2;
+}
+
+.journal-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin-top: 8px;
+}
+
+.journal-basis {
+  min-width: 230px;
+  white-space: normal;
+}
+
+.journal-recurring {
+  background: #fafbfc;
+}
+
+.journal-tag {
+  display: inline-block;
+  margin-top: 3px;
+  padding: 1px 6px;
+  border: 1px solid #d7dce3;
+  border-radius: 999px;
+  font-size: 11px;
+  color: #7a8491;
+}
+
+.journal-gap {
+  margin-top: 8px;
+}
+
+@media (max-width: 1000px) {
+  .journal-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 599px) {
+  .account-source-wrap {
+    overflow-x: visible;
+  }
+
+  .account-source-table,
+  .account-source-table tbody,
+  .account-source-table tr,
+  .account-source-table td {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .account-source-table thead {
+    display: none;
+  }
+
+  .account-source-table tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--grid);
+  }
+
+  .account-source-table td {
+    border-bottom: 0;
+    padding: 4px 8px;
+    white-space: normal;
+  }
+
+  .account-source-table .source-identity {
+    grid-column: 1 / -1;
+  }
+
+  .account-source-table td:nth-child(2)::before,
+  .account-source-table td:nth-child(3)::before,
+  .account-source-table td:nth-child(4)::before {
+    float: left;
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 400;
+  }
+
+  .account-source-table td:nth-child(2)::before { content: "평가액"; }
+  .account-source-table td:nth-child(3)::before { content: "현금"; }
+  .account-source-table td:nth-child(4)::before { content: "평가손익"; }
+
+  .account-source-table .source-asof-cell,
+  .account-source-table .source-inclusion-cell {
+    display: none;
+  }
+
+  .source-mobile-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 400;
+  }
+}

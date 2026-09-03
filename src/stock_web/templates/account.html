@@ -6,17 +6,7 @@
   <title>Stock Investment · 내 계좌</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="/static/app.css?v={{ static_version }}">
-  <style>
-    .journal-card .data-table-wrap { margin-top: 12px; }
-    .journal-form { grid-template-columns: repeat(6, minmax(120px, 1fr)); }
-    .journal-form .journal-memo { grid-column: span 2; }
-    .journal-summary { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 8px; }
-    .journal-basis { min-width: 230px; white-space: normal; }
-    .journal-recurring { background: #fafbfc; }
-    .journal-tag { display: inline-block; margin-top: 3px; padding: 1px 6px; border: 1px solid #d7dce3; border-radius: 999px; font-size: 11px; color: #7a8491; }
-    .journal-gap { margin-top: 8px; }
-    @media (max-width: 1000px) { .journal-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-  </style>
+  <link rel="stylesheet" href="/static/account.css?v={{ static_version }}">
 </head>
 <body>
 <header class="topbar">
@@ -35,7 +25,7 @@
 
   <section class="card">
     <div class="card-head"><b>계좌별</b><span class="muted">식별자 없는 로컬 스냅샷 · 평가 불가 종목은 합계에서 제외</span></div>
-    <div class="data-table-wrap">
+    <div class="data-table-wrap account-source-wrap">
       <table class="data-table account-source-table">
         <thead><tr><th>출처</th><th>평가액</th><th>현금</th><th>평가손익</th><th>기준일(KST)</th><th>포함 여부</th></tr></thead>
         <tbody id="account-source-rows"></tbody>
@@ -49,7 +39,7 @@
     </div>
     <div id="return-metrics" class="return-metrics"></div>
     <div id="total-asset-chart" class="net-worth-chart"></div>
-    <p class="muted form-note" id="total-asset-note">실선은 총 투자자산 · 점선은 같은 시작값으로 맞춘 KOSPI · 주황 점은 일부 계좌 관측이 3일 넘게 오래된 날</p>
+    <p class="muted form-note" id="total-asset-note">실선은 총 투자자산 · 점선은 같은 시작값으로 맞춘 KOSPI · 주황 점: 계좌 관측 또는 환율이 3거래일 넘게 오래된 날</p>
   </section>
 
   <section class="card form-card">

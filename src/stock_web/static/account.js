@@ -33,6 +33,7 @@
   let assetRows = [];
   let liabilityRows = [];
   let selectedReturnWindow = "3M";
+  let returnPeriodHydrated = false;
   let journalPayload = { events: [], summary: {}, gaps: [] };
   let selectedJournalDays = 90;
 
@@ -53,14 +54,19 @@
 
   function renderSourceRows() {
     const rows = payload.rows || [];
-    $("account-source-rows").innerHTML = rows.length ? rows.map((row) => `<tr>
-      <td><b>${esc(row.name)}</b><div class="muted source-note">${esc(row.note || "")}</div></td>
+    $("account-source-rows").innerHTML = rows.length ? rows.map((row) => {
+      const inclusion = row.included ? (row.partial ? "부분 포함" : "포함") : "제외";
+      const asOf = row.as_of_label || shortDate(row.as_of);
+      const cashTitle = row.cash_note || "";
+      return `<tr>
+      <td class="source-identity"><b>${esc(row.name)}</b><div class="muted source-note">${esc(row.note || "")}</div><div class="source-mobile-meta"><span>기준일 ${esc(asOf)}</span><span>${esc(inclusion)}</span></div></td>
       <td class="num ${row.value_krw < 0 ? "down" : ""}">${money(row.value_krw)}</td>
-      <td class="num">${money(row.cash_krw)}</td>
+      <td class="num source-cash" title="${esc(cashTitle)}" aria-label="${esc(cashTitle || `현금 ${money(row.cash_krw)}`)}">${money(row.cash_krw)}</td>
       <td class="num ${row.pnl_krw > 0 ? "up" : row.pnl_krw < 0 ? "down" : ""}">${money(row.pnl_krw)}</td>
-      <td class="num">${esc(row.as_of_label || shortDate(row.as_of))}</td>
-      <td><span class="chip ${row.included ? "" : "dashed"}">${row.included ? (row.partial ? "부분 포함" : "포함") : "제외"}</span></td>
-    </tr>`).join("") : `<tr><td colspan="6" class="unavailable">표시할 계좌나 자산이 없습니다.</td></tr>`;
+      <td class="num source-asof-cell">${esc(asOf)}</td>
+      <td class="source-inclusion-cell"><span class="chip ${row.included ? "" : "dashed"}">${esc(inclusion)}</span></td>
+    </tr>`;
+    }).join("") : `<tr><td colspan="6" class="unavailable">표시할 계좌나 자산이 없습니다.</td></tr>`;
   }
 
   function renderPerformance() {
@@ -78,10 +84,26 @@
     const benchmark = payload.benchmark || [];
     const shownHistory = metric.start_date ? history.filter((point) => point.t >= metric.start_date) : history;
     const shownBenchmark = metric.start_date ? benchmark.filter((point) => point.t >= metric.start_date) : benchmark;
+    const chartLabels = payload.chart_labels || {};
     window.SIChart.renderLineChart($("total-asset-chart"), shownHistory, {
       benchmark: shownBenchmark, ariaLabel: "총 투자자산과 KOSPI 동기간 추이",
+      valueLabel: chartLabels.primary || "총자산",
+      benchmarkLabel: chartLabels.benchmark || "KOSPI (시작값 맞춤)",
       emptyMessage: "총 투자자산 관측이 2개 이상이면 선이 표시됩니다.",
     });
+  }
+
+  function hydrateReturnPeriod() {
+    const period = payload.return_period || {};
+    if (!returnPeriodHydrated) {
+      selectedReturnWindow = period.default_window || "3M";
+      returnPeriodHydrated = true;
+    }
+    document.querySelectorAll("#return-range button").forEach((button) => {
+      button.classList.toggle("on", button.dataset.v === selectedReturnWindow);
+    });
+    const allButton = document.querySelector('#return-range button[data-v="ALL"]');
+    if (allButton) allButton.textContent = period.all_label || "전체";
   }
 
   function resetCashFlowForm() {
@@ -262,6 +284,7 @@
   }
 
   function hydrateState() {
+    hydrateReturnPeriod();
     manualAccounts = ((payload.manual_accounts || {}).accounts || []).map((account) => ({
       ...account, positions: account.valued_positions || account.positions || [],
     }));
