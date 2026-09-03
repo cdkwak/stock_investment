@@ -33,7 +33,12 @@ def main() -> int:
     if args.reload:
         uvicorn.run("stock_web.app:create_app", factory=True, host=args.host, port=args.port, reload=True)
     else:
-        uvicorn.run(create_app(), host=args.host, port=args.port)
+        app = create_app()
+        # Keep the home document warm: the first paint never waits for the multi-second build.
+        from stock_web.api.home_data import warm_home_payload
+
+        warm_home_payload(app.state.project_root, interval_seconds=55)
+        uvicorn.run(app, host=args.host, port=args.port)
     return 0
 
 

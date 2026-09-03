@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import time
+
 import pytest
 
 from stock_web.api import home_data
@@ -58,8 +60,8 @@ def test_home_payload_cache_is_keyed_by_root_and_lasts_sixty_seconds(
 ) -> None:
     root = new_temp_root().resolve()
     calls: list[Path] = []
-    clock = iter((100.0, 120.0, 161.0))
-    monkeypatch.setattr(home_data.time, "monotonic", lambda: next(clock))
+    now = [100.0]
+    monkeypatch.setattr(home_data.time, "monotonic", lambda: now[0])
     monkeypatch.setattr(
         home_data, "_build_home_payload_uncached",
         lambda path: calls.append(path) or {"root": str(path), "call": len(calls)},
@@ -67,12 +69,20 @@ def test_home_payload_cache_is_keyed_by_root_and_lasts_sixty_seconds(
     home_data._HOME_CACHE.clear()
 
     first = home_data.build_home_payload(root)
+    now[0] = 120.0
     second = home_data.build_home_payload(root)
-    third = home_data.build_home_payload(root)
+    assert first is second and calls == [root]
 
-    assert first is second
-    assert third["call"] == 2
+    # After the TTL the stale document is returned at once and one background rebuild runs.
+    now[0] = 161.0
+    third = home_data.build_home_payload(root)
+    assert third is first
+    deadline = time.time() + 5
+    while home_data._HOME_REFRESHING and time.time() < deadline:
+        time.sleep(0.01)
     assert calls == [root, root]
+    fourth = home_data.build_home_payload(root)
+    assert fourth["call"] == 2
 
 
 def test_rules_compare_only_against_user_supplied_limits(

@@ -8,6 +8,8 @@ from __future__ import annotations
 import math
 import json
 import re
+import sys
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -782,14 +784,61 @@ def _build_home_payload_uncached(project_root: Path) -> dict[str, object]:
     }
 
 
+_HOME_REFRESH_LOCK = threading.Lock()
+_HOME_REFRESHING: set[str] = set()
+
+
+def _refresh_home_payload(root: Path, key: str) -> None:
+    try:
+        payload = _build_home_payload_uncached(root)
+        _HOME_CACHE[key] = (time.monotonic(), payload)
+    except Exception as error:  # a failed background rebuild keeps the last good document
+        print(f"stock_web: home payload refresh failed: {type(error).__name__}: {error}", file=sys.stderr)
+    finally:
+        with _HOME_REFRESH_LOCK:
+            _HOME_REFRESHING.discard(key)
+
+
 def build_home_payload(project_root: Path) -> dict[str, object]:
-    """Build the home document, memoized for 60 seconds per resolved root."""
+    """Build the home document with a stale-while-revalidate cache.
+
+    Building takes several seconds (many retained datasets), so a request never waits for a
+    rebuild once a document exists: a stale document is returned immediately and one
+    background thread refreshes it. Only the very first request after startup builds inline
+    (`warm_home_payload` is used at app startup to avoid even that).
+    """
     root = Path(project_root).resolve()
     key = str(root)
     now = time.monotonic()
     cached = _HOME_CACHE.get(key)
-    if cached is not None and now - cached[0] < _HOME_CACHE_TTL_SECONDS:
+    if cached is not None:
+        if now - cached[0] >= _HOME_CACHE_TTL_SECONDS:
+            with _HOME_REFRESH_LOCK:
+                start = key not in _HOME_REFRESHING
+                if start:
+                    _HOME_REFRESHING.add(key)
+            if start:
+                threading.Thread(target=_refresh_home_payload, args=(root, key), daemon=True).start()
         return cached[1]
     payload = _build_home_payload_uncached(root)
-    _HOME_CACHE[key] = (now, payload)
+    _HOME_CACHE[key] = (time.monotonic(), payload)
     return payload
+
+
+def warm_home_payload(project_root: Path, *, interval_seconds: float | None = None) -> threading.Thread:
+    """Build the home document off the request path; optionally keep it fresh forever."""
+    root = Path(project_root).resolve()
+
+    def run() -> None:
+        while True:
+            try:
+                build_home_payload(root)
+            except Exception as error:
+                print(f"stock_web: home payload warmup failed: {type(error).__name__}: {error}", file=sys.stderr)
+            if interval_seconds is None:
+                return
+            time.sleep(interval_seconds)
+
+    thread = threading.Thread(target=run, name="home-payload-warmup", daemon=True)
+    thread.start()
+    return thread
