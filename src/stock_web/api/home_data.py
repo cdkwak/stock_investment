@@ -268,9 +268,17 @@ def build_tiles(project_root: Path) -> list[dict[str, object]]:
                         f"FRED 확정 {format_kst(daily_date)}: {float(daily_value):,.2f}"
                     )
             elif daily_value is not None and abs(latest_value / float(daily_value) - 1.0) > 0.0005:
+                # The retained close is the previous session once intraday points exist, so the
+                # headline change follows the live value; the close-to-close move is kept separately
+                # (the user reads "today" first — a -4% close yesterday must not read as today's move).
+                intraday_change = (latest_value / float(daily_value) - 1.0) * 100.0
                 tile["latest_intraday"] = {
-                    "value": latest_value, "time": latest["t"],
+                    "value": latest_value, "time": latest["t"], "change_pct": intraday_change,
                 }
+                if tile.get("change_pct") is not None and "change_label" not in tile:
+                    tile["close_change_pct"] = tile["change_pct"]
+                    tile["close_date"] = format_kst(daily_date) if daily_date else None
+                    tile["change_pct"] = intraday_change
             if tile["name"] == "VIX" and daily_value is not None:
                 tile["window"] = f"24h · {latest_clock} KST"
                 tile["sub_note"] = (
