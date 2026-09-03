@@ -235,6 +235,10 @@ def create_app(project_root: Path | None = None) -> FastAPI:
         context.update({"request": request, "page": "data"})
         return templates.TemplateResponse(request, "data.html", context)
 
+    @app.get("/research", response_class=HTMLResponse)
+    def research_page(request: Request) -> HTMLResponse:
+        return templates.TemplateResponse(request, "research.html", {"page": "research"})
+
     @app.get("/account", response_class=HTMLResponse)
     def account_page(request: Request) -> HTMLResponse:
         return templates.TemplateResponse(request, "account.html", {"page": "account"})

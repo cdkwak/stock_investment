@@ -317,6 +317,18 @@ def build_router(project_root: Path) -> APIRouter:
 
         return json_response(build_net_worth_data(project_root))
 
+    @router.get("/research")
+    def research() -> Response:
+        from stock_web.api.research_page import build_research_payload
+
+        return json_response(build_research_payload(project_root))
+
+    @router.get("/research/forward")
+    def research_forward() -> Response:
+        from stock_web.api.research_page import build_forward_payload
+
+        return json_response(build_forward_payload(project_root))
+
     @router.post("/net-worth")
     async def save_net_worth_snapshot(request: Request) -> Response:
         from stock_web.api.account_page import AccountInputError, save_net_worth

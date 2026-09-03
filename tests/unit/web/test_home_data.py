@@ -302,6 +302,29 @@ def test_regime_cash_label_keeps_unknown_cash_separate_from_treasury_percentage(
     ]
 
 
+def test_home_regime_includes_active_kr_research_status_line() -> None:
+    root = new_temp_root()
+    path = root / "artifacts/research/rule_leaderboard/latest.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({
+        "schema_version": 1,
+        "candidates": [{
+            "id": "kr_dd_ladder_2", "name": "낙폭 2단계 (KR)",
+            "side": "drawdown", "basket": "KR", "status": "active",
+            "current": {
+                "date": "2026-09-03", "score": 1, "level": 1, "max_level": 2,
+                "exposure": .87, "analog": {"n": 52, "mean_60": .075, "hit_60": .63},
+            },
+        }],
+    }, ensure_ascii=False), encoding="utf-8")
+
+    regime = home_data._attach_research_current(root, {"markets": [], "rules": None})
+
+    assert regime["research_current"] == [
+        "규칙 현재 상태 · 낙폭 2단계 (KR): 1/2단계 · 노출 87% · 과거 동일 단계 60일 +7.5%",
+    ]
+
+
 def test_home_javascript_formatters_cover_tiny_shares_compact_krw_and_pnl_fallback() -> None:
     node = shutil.which("node")
     if node is None:

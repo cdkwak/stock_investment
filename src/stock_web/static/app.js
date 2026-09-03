@@ -169,11 +169,13 @@
         <div class="ev">${(m.evidence || []).map((e) => `<div><span>${esc(e[0])}</span><span class="num">${esc(e[1])}</span></div>`).join("")}</div>
       </div>`).join("");
     const r = sec.rules;
-    $("rules").innerHTML = r ? `
+    const researchCurrent = (Array.isArray(sec.research_current) && sec.research_current.length ? sec.research_current : ["규칙 평가 없음"])
+      .map((line) => `<div style="border-top:1px solid #4a463f;margin-top:5px;padding-top:5px;color:var(--amber-soft);font-size:10px">${esc(line)}</div>`).join("");
+    $("rules").innerHTML = (r ? `
       <div class="t">내 규칙 기준 점검</div>
       ${(r.rows || []).map((x) => `<div class="row"><span>${esc(x[0])}</span><span class="num"><b>${esc(x[1])}</b> <span style="color:#b5aea4">${esc(x[2] || "")}</span></span></div>`).join("")}
       ${r.warning ? `<div class="warn">${esc(r.warning)}</div>` : ""}
-      <div style="font-size:10px;color:#8a847b;margin-top:4px">${esc(r.source || "")}</div>` : `<div class="t">내 규칙</div><div style="color:#b5aea4;font-size:11px">규칙 값 미입력 · Obsidian "투자 규칙.md"의 [채우기] 값을 채우면 표시됩니다</div>`;
+      <div style="font-size:10px;color:#8a847b;margin-top:4px">${esc(r.source || "")}</div>` : `<div class="t">내 규칙</div><div style="color:#b5aea4;font-size:11px">규칙 값 미입력 · Obsidian "투자 규칙.md"의 [채우기] 값을 채우면 표시됩니다</div>`) + researchCurrent;
   }
 
   // ---- tiles ----------------------------------------------------------------

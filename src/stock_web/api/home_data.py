@@ -913,14 +913,25 @@ def _normalize_regime_cash_label(
     return regime
 
 
+def _attach_research_current(
+    project_root: Path, regime: dict[str, object],
+) -> dict[str, object]:
+    """Project the research artifact's active KR state into the Home regime card."""
+    from stock_web.api.research_page import build_current_status_lines
+
+    regime["research_current"] = build_current_status_lines(project_root)
+    return regime
+
+
 def _build_home_payload_uncached(project_root: Path) -> dict[str, object]:
     from stock_web.api.regime import build_regime
 
     sections: dict[str, object] = {}
     account = build_account(project_root)
     sections["account"] = account
-    sections["regime"] = _normalize_regime_cash_label(
-        build_regime(project_root, account), account,
+    sections["regime"] = _attach_research_current(
+        project_root,
+        _normalize_regime_cash_label(build_regime(project_root, account), account),
     )
     sections["derivatives"] = build_derivatives(project_root)
     sections["health"] = build_health(project_root)

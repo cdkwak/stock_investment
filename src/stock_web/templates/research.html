@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stock Investment · 검증</title>
+  <link rel="stylesheet" href="/static/app.css?v={{ static_version }}">
+  <link rel="stylesheet" href="/static/research.css?v={{ static_version }}">
+</head>
+<body class="research-body">
+<header class="topbar">
+  <div class="brand">Stock Investment</div>
+  <nav class="nav">
+    <a href="/">홈</a><a href="/market">시장</a><a href="/stocks">종목</a><a href="/account">내 계좌</a><a href="/data">데이터</a><a class="on" href="/research">검증</a>
+  </nav>
+  <div class="topbar-right"><span class="chip dashed">로컬 결과 · 읽기 전용</span></div>
+</header>
+
+<main class="page research-page" id="research-page">
+  <section class="research-hero" aria-labelledby="research-title">
+    <div>
+      <span class="research-kicker">RESEARCH VALIDATION</span>
+      <h1 id="research-title">규칙 후보 검증</h1>
+    </div>
+    <div class="research-meta" id="research-meta" aria-label="평가 메타데이터"></div>
+  </section>
+  <p class="research-caution">홀드아웃 성적을 보고 규칙을 고치면 과적합입니다 · 시도 횟수가 근거의 일부입니다</p>
+  <div class="research-empty" id="research-empty" role="status" hidden></div>
+
+  <section class="card research-leaderboard-card" aria-labelledby="leaderboard-title">
+    <div class="card-head research-section-head">
+      <div><span class="section-index">01</span><b id="leaderboard-title">규칙 후보 순위</b></div>
+      <span class="muted">홀드아웃 성과 방향 기준 · 과열 규칙은 <b>낮을수록 좋음</b></span>
+    </div>
+    <div class="research-table-wrap">
+      <table class="research-table leaderboard-table">
+        <thead><tr><th>규칙</th><th>측</th><th>바스켓</th><th>상태</th><th>홀드아웃 n</th><th>60일 평균 (기준 대비)</th><th>상승확률</th><th>변동성</th><th>최대낙폭</th><th>적합 60일 차이</th><th><span class="sr-only">경고</span>⚠</th></tr></thead>
+        <tbody id="leaderboard-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card research-detail-card" id="research-detail" aria-labelledby="detail-title">
+    <div class="card-head research-section-head">
+      <div><span class="section-index">02</span><b id="detail-title">후보 상세</b></div>
+      <span class="muted" id="detail-reason">순위에서 규칙을 선택하세요</span>
+    </div>
+    <div id="detail-content" class="research-detail-empty">선택된 규칙이 없습니다.</div>
+    <div class="research-verdict-key" aria-label="사이클 판정 색상 범례">
+      <span class="verdict-hit">hit · 적중</span><span class="verdict-miss">miss · 미적중</span><span class="verdict-none">none · 신호 없음</span>
+    </div>
+  </section>
+
+  <section class="card research-forward-card" aria-labelledby="forward-title">
+    <div class="card-head research-section-head">
+      <div><span class="section-index">03</span><b id="forward-title">포워드 테스트</b></div>
+      <span class="muted">규칙 버전별 · 이후 20/60/90거래일 마감</span>
+    </div>
+    <div id="forward-content"></div>
+  </section>
+
+  <section class="card research-history-card" aria-labelledby="history-title">
+    <div class="card-head research-section-head">
+      <div><span class="section-index">04</span><b id="history-title">변경 기록</b></div>
+      <span class="muted">후보 추가·변경·폐기 이력</span>
+    </div>
+    <div id="history-content"></div>
+  </section>
+</main>
+
+<script src="/static/app.js?v={{ static_version }}"></script>
+<script src="/static/research.js?v={{ static_version }}"></script>
+</body>
+</html>
