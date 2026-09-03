@@ -18,8 +18,10 @@ from typing import Any, Mapping, Sequence
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
-AUTO_START = "<!-- auto:start -->"
-AUTO_END = "<!-- auto:end -->"
+REGIME_START = "<!-- auto:start regime -->"
+REGIME_END = "<!-- auto:end regime -->"
+MARKET_START = "<!-- auto:start market -->"
+MARKET_END = "<!-- auto:end market -->"
 KST = ZoneInfo("Asia/Seoul")
 LOGGER = logging.getLogger(__name__)
 
@@ -194,66 +196,94 @@ def _regime_projection(sections: Mapping[str, Any]) -> tuple[str, str]:
     return korean_label, " · ".join(rendered)
 
 
-def _tile_rows(sections: Mapping[str, Any]) -> tuple[list[str], Mapping[str, Any]]:
-    rows = ["| 지표 | 값 | 등락 | 5일선 | 20일선 |", "|---|---|---|---|---|"]
-    kospi: Mapping[str, Any] = {}
-    for raw in _sequence(sections.get("tiles")):
-        tile = _mapping(raw)
-        name = _available_text(tile.get("name"))
-        if name == "KOSPI":
-            kospi = tile
-        change = tile.get("change_label")
-        if change is None:
-            change = _percent(tile.get("change_pct"))
-        rows.append(
-            "| " + " | ".join((
-                _table_cell(name),
-                _table_cell(tile.get("value")),
-                _table_cell(change),
-                _table_cell(_percent(tile.get("ma5_pct"))),
-                _table_cell(_percent(tile.get("ma20_pct"))),
-            )) + " |"
+def _tiles_by_name(sections: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    return {
+        str(tile["name"]): tile
+        for item in _sequence(sections.get("tiles"))
+        if (tile := _mapping(item)) and isinstance(tile.get("name"), str)
+    }
+
+
+def _tile_change(tile: Mapping[str, Any]) -> str:
+    if tile.get("change_label") is not None:
+        return _available_text(tile.get("change_label"))
+    return _percent(tile.get("change_pct"))
+
+
+def _previous_value(tile: Mapping[str, Any]) -> str:
+    for key in ("yesterday", "previous_value", "prev_value"):
+        if key in tile:
+            return _available_text(tile.get(key))
+    return "표시 불가"
+
+
+def _indicator_rows(sections: Mapping[str, Any]) -> list[str]:
+    tiles = _tiles_by_name(sections)
+    kospi = tiles.get("KOSPI", {})
+    stats = _mapping(kospi.get("stats"))
+    evidence = _evidence(_market(_mapping(sections.get("regime")), "한국장"))
+
+    def tile_values(*names: str) -> tuple[str, str, str]:
+        tile = next((tiles[name] for name in names if name in tiles), {})
+        return (
+            _previous_value(tile),
+            _available_text(tile.get("value")),
+            _tile_change(tile),
         )
-    if len(rows) == 2:
-        rows.append("| 표시 불가 | 표시 불가 | 표시 불가 | 표시 불가 | 표시 불가 |")
-    return rows, kospi
+
+    def stat_value(key: str, fallback_key: str | None = None) -> str:
+        value = stats.get(key, kospi.get(key))
+        if value is None and fallback_key is not None:
+            value = evidence.get(fallback_key)
+        return _available_text(value)
+
+    per = stat_value("per")
+    per_note = stat_value("per_note")
+    if per != "표시 불가" and per_note != "표시 불가":
+        per = f"{per} ({per_note})"
+
+    values = [
+        ("KOSPI", *tile_values("KOSPI")),
+        ("KOSDAQ", *tile_values("KOSDAQ")),
+        ("S&P 500", *tile_values("S&P 500", "S&P 500 선물")),
+        ("나스닥100 선물", *tile_values("나스닥100 선물", "NASDAQ 100 선물")),
+        ("USD/KRW", *tile_values("USD/KRW")),
+        ("미국 10Y", *tile_values("미국 10Y")),
+        ("10Y-2Y 스프레드", *tile_values("10Y-2Y 스프레드")),
+        ("KOSPI PER", "표시 불가", per, "표시 불가"),
+        ("KOSPI PBR", "표시 불가", stat_value("pbr"), "표시 불가"),
+        ("RSI14 (KOSPI)", "표시 불가", stat_value("rsi14", "KOSPI RSI14"), "표시 불가"),
+        ("60일선 대비", "표시 불가", stat_value("disp60_pct", "60일선 대비"), "표시 불가"),
+        ("52주 고점 대비", "표시 불가", stat_value("drawdown_pct"), "표시 불가"),
+    ]
+    rows = ["| 지표 | 어제 | 오늘 | 변화 |", "|------|------|------|------|"]
+    rows.extend(
+        "| " + " | ".join(_table_cell(cell) for cell in row) + " |"
+        for row in values
+    )
+    return rows
 
 
-def _flow_line(sections: Mapping[str, Any]) -> str:
+def _flow_rows(sections: Mapping[str, Any]) -> list[str]:
     flows = _mapping(sections.get("flows"))
     by_name = {
         str(row.get("name")): row
         for item in _sequence(flows.get("rows"))
         if (row := _mapping(item))
     }
-    groups = []
+    rows = ["### 수급 (KOSPI)", "", "| 그룹 | 오늘 | 5일 |", "|------|------|------|"]
     for name in ("외국인", "기관", "개인"):
         row = by_name.get(name, {})
-        groups.append(
-            f"{name} 오늘 {_flow_amount(row.get('today'))} / "
-            f"5일 {_flow_amount(row.get('d5'))} / 20일 {_flow_amount(row.get('d20'))}"
+        today = _flow_amount(row.get("today"))
+        d5 = _flow_amount(row.get("d5"))
+        if today != "표시 불가":
+            today += "억"
+        if d5 != "표시 불가":
+            d5 += "억"
+        rows.append(
+            "| " + " | ".join((_table_cell(name), _table_cell(today), _table_cell(d5))) + " |"
         )
-    return "수급(KOSPI, 억원): " + " · ".join(groups)
-
-
-def _balance_line(sections: Mapping[str, Any]) -> str:
-    flows = _mapping(sections.get("flows"))
-    balances: dict[str, Mapping[str, Any]] = {}
-    for item in _sequence(flows.get("balances")):
-        row = _mapping(item)
-        if isinstance(row.get("name"), str):
-            balances[str(row["name"])] = row
-    credit = balances.get("신용잔고", {})
-    lending = balances.get("대차잔고", _mapping(flows.get("lending")))
-    credit_value = _available_text(credit.get("value"))
-    credit_position = _available_text(credit.get("position"))
-    if credit_value == "표시 불가":
-        credit_text = credit_value
-    elif credit_position == "표시 불가":
-        credit_text = f"{credit_value} (1년 위치 표시 불가)"
-    else:
-        credit_text = f"{credit_value} ({credit_position})"
-    return f"잔고: 신용잔고 {credit_text} · 대차잔고 {_available_text(lending.get('value'))}"
+    return rows
 
 
 def _numeric_display(value: object) -> str:
@@ -263,19 +293,20 @@ def _numeric_display(value: object) -> str:
     return text
 
 
-def _derivatives_line(sections: Mapping[str, Any]) -> str:
+def _derivative_rows(sections: Mapping[str, Any]) -> list[str]:
     derivatives = _mapping(sections.get("derivatives"))
     values: dict[str, object] = {}
     for group in _sequence(derivatives.get("groups")):
         for row in _sequence(_mapping(group).get("rows")):
             if isinstance(row, (list, tuple)) and len(row) >= 2:
                 values[str(row[0])] = row[1]
-    return (
-        f"파생: 베이시스 {_numeric_display(values.get('선물 Basis'))} · "
-        f"거래량 PCR {_numeric_display(values.get('거래량 PCR'))} · "
-        f"미결제 PCR {_numeric_display(values.get('미결제약정 PCR'))} · "
-        f"외국인 선물 {_numeric_display(values.get('LS 선물 외국인 순계약'))}"
-    )
+    return [
+        "### 파생",
+        "",
+        f"- 베이시스: {_numeric_display(values.get('선물 Basis'))}",
+        f"- 거래량 PCR: {_numeric_display(values.get('거래량 PCR'))}",
+        f"- 미결제 PCR: {_numeric_display(values.get('미결제약정 PCR'))}",
+    ]
 
 
 def _evidence(market: Mapping[str, Any]) -> dict[str, str]:
@@ -284,24 +315,6 @@ def _evidence(market: Mapping[str, Any]) -> dict[str, str]:
         if isinstance(row, (list, tuple)) and len(row) >= 2:
             result[str(row[0])] = _available_text(row[1])
     return result
-
-
-def _kospi_line(sections: Mapping[str, Any], kospi: Mapping[str, Any]) -> str:
-    stats = _mapping(kospi.get("stats"))
-    evidence = _evidence(_market(_mapping(sections.get("regime")), "한국장"))
-    rsi = _available_text(stats.get("rsi14", kospi.get("rsi14", evidence.get("KOSPI RSI14"))))
-    ma60 = _available_text(stats.get("disp60_pct", kospi.get("disp60_pct", evidence.get("60일선 대비"))))
-    drawdown = _available_text(stats.get("drawdown_pct", kospi.get("drawdown_pct")))
-    per = _available_text(stats.get("per", kospi.get("per")))
-    pbr = _available_text(stats.get("pbr", kospi.get("pbr")))
-    per_note = _available_text(stats.get("per_note", kospi.get("per_note")))
-    if per_note == "표시 불가":
-        percentile = evidence.get("KRX PER 5년 순위", "표시 불가")
-        per_note = "5년 위치 표시 불가" if percentile == "표시 불가" else f"5년 위치 {percentile}"
-    return (
-        f"KOSPI: RSI14 {rsi} · 60일선 {ma60} · 52주 고점 대비 {drawdown} · "
-        f"PER {per} ({per_note}) · PBR {pbr}"
-    )
 
 
 def _brief_body(text: str) -> str:
@@ -349,14 +362,13 @@ def _auto_lines(
     sections: Mapping[str, Any], brief_lines: Sequence[str], newline: str,
 ) -> tuple[str, str, str]:
     regime_label, regime_line = _regime_projection(sections)
-    tiles, kospi = _tile_rows(sections)
     lines = [
-        *tiles,
+        *_indicator_rows(sections),
         "",
-        _flow_line(sections),
-        _balance_line(sections),
-        _derivatives_line(sections),
-        _kospi_line(sections, kospi),
+        *_flow_rows(sections),
+        "",
+        *_derivative_rows(sections),
+        "",
         *brief_lines,
     ]
     return regime_label, regime_line, newline.join(lines)
@@ -370,22 +382,33 @@ def _new_journal(
         "---\n"
         f"date: {stamp}\n"
         f"regime: {regime_label}\n"
-        "tags: [pk/investing]\n"
+        "leverage_pct: \n"
+        "cash_pct: \n"
         "source: auto-draft\n"
-        "---\n"
-        f"# {stamp} 투자 일지\n\n"
-        "## 오늘 국면 판단\n"
+        "tags:\n"
+        '  - "pk/investing"\n'
+        "---\n\n"
+        f"# {stamp} 아침 일지\n\n"
+        "## 오늘 국면 판단\n\n"
+        f"{REGIME_START}\n"
         f"- 대시보드 국면: {regime_line}\n"
-        "- 내 판단 (동의 / 다르게 봄):\n"
-        "- 근거 한 줄:\n\n"
-        "## 어제와 달라진 것\n"
-        f"{AUTO_START}\n"
+        f"{REGIME_END}\n"
+        "- 내 판단 (동의 / 다르게 봄): \n"
+        "- 근거 한 줄: \n\n"
+        "## 어제와 달라진 것\n\n"
+        f"{MARKET_START}\n"
         f"{auto_content}\n"
-        f"{AUTO_END}\n\n"
-        "## 오늘 행동\n"
-        "-\n\n"
-        "## 3개월 뒤 확인할 질문\n"
-        "-\n"
+        f"{MARKET_END}\n\n"
+        "## 오늘 행동\n\n"
+        "- 할 것: \n"
+        "- 하지 않을 것: \n"
+        "- 레버리지 비중 (현재 → 목표): \n"
+        "- 기타 메모: \n\n"
+        "## 3개월 뒤 확인할 질문\n\n"
+        "- \n\n"
+        "---\n"
+        "<!-- 마커 안(auto:start ~ auto:end)은 주식 세션이 매일 07:30 에 교체한다.\n"
+        "     마커 밖은 사람만 쓴다. 자동 작업이 건드리지 않는다. -->\n"
     )
 
 
@@ -421,30 +444,31 @@ def _update_existing(
         {"date": journal_date.isoformat(), "regime": regime_label, "source": "auto-draft"},
         newline,
     )
-    heading = "## 오늘 국면 판단"
-    heading_start = text.find(heading)
-    if heading_start < 0:
-        raise JournalError("existing journal is missing the regime heading")
-    next_heading = text.find(newline + "## ", heading_start + len(heading))
-    section_end = len(text) if next_heading < 0 else next_heading
-    section = text[heading_start:section_end]
-    line_pattern = re.compile(r"(?m)^- 대시보드 국면:[^\r\n]*")
-    if line_pattern.search(section) is None:
-        raise JournalError("existing journal is missing the dashboard-regime line")
-    section = line_pattern.sub(f"- 대시보드 국면: {regime_line}", section, count=1)
-    text = text[:heading_start] + section + text[section_end:]
-
-    start = text.find(AUTO_START)
-    end = text.find(AUTO_END, start + len(AUTO_START))
-    if start < 0 or end < 0:
-        raise JournalError("existing journal is missing auto markers")
-    return (
-        text[: start + len(AUTO_START)]
-        + newline
-        + auto_content
-        + newline
-        + text[end:]
+    text = _replace_named_region(
+        text, REGIME_START, REGIME_END, f"- 대시보드 국면: {regime_line}", newline
     )
+    return _replace_named_region(text, MARKET_START, MARKET_END, auto_content, newline)
+
+
+def _replace_named_region(
+    text: str, start_marker: str, end_marker: str, content: str, newline: str,
+) -> str:
+    start = text.find(start_marker)
+    end = text.find(end_marker, start + len(start_marker))
+    if start < 0 or end < 0:
+        raise JournalError(f"existing journal is missing marker pair {start_marker}")
+    return text[: start + len(start_marker)] + newline + content + newline + text[end:]
+
+
+def _has_unique_named_regions(raw: bytes) -> bool:
+    markers = (REGIME_START, REGIME_END, MARKET_START, MARKET_END)
+    if any(raw.count(marker.encode("ascii")) != 1 for marker in markers):
+        return False
+    regime_start = raw.find(REGIME_START.encode("ascii"))
+    regime_end = raw.find(REGIME_END.encode("ascii"))
+    market_start = raw.find(MARKET_START.encode("ascii"))
+    market_end = raw.find(MARKET_END.encode("ascii"))
+    return regime_start < regime_end and market_start < market_end
 
 
 def write_investing_journal(
@@ -472,8 +496,8 @@ def write_investing_journal(
     existing: str | None = None
     if target.exists():
         raw = target.read_bytes()
-        if raw.count(AUTO_START.encode("ascii")) != 1 or raw.count(AUTO_END.encode("ascii")) != 1:
-            _warn(selected_logger, "existing journal has no unique auto markers; left untouched: %s", target)
+        if not _has_unique_named_regions(raw):
+            _warn(selected_logger, "existing journal has no unique named marker pairs; left untouched: %s", target)
             return JournalWriteResult(JournalStatus.SKIPPED_LEGACY_FILE, target)
         try:
             existing = raw.decode("utf-8")
@@ -520,8 +544,10 @@ def write_investing_journal(
 
 
 __all__ = [
-    "AUTO_END",
-    "AUTO_START",
+    "MARKET_END",
+    "MARKET_START",
+    "REGIME_END",
+    "REGIME_START",
     "JournalError",
     "JournalPayloadError",
     "JournalStatus",

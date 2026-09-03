@@ -109,12 +109,12 @@ def _mask_machine_owned(data: bytes) -> bytes:
     for key in (b"date", b"regime", b"source"):
         data = re.sub(rb"(?m)^" + key + rb":[^\r\n]*", key + b": <machine>", data)
     data = re.sub(
-        rb"(?m)^- \xeb\x8c\x80\xec\x8b\x9c\xeb\xb3\xb4\xeb\x93\x9c \xea\xb5\xad\xeb\xa9\xb4:[^\r\n]*",
-        b"- dashboard-regime: <machine>",
+        rb"(?s)(<!-- auto:start regime -->).*?(<!-- auto:end regime -->)",
+        rb"\1<machine>\2",
         data,
     )
     data = re.sub(
-        rb"(?s)(<!-- auto:start -->).*?(<!-- auto:end -->)",
+        rb"(?s)(<!-- auto:start market -->).*?(<!-- auto:end market -->)",
         rb"\1<machine>\2",
         data,
     )
@@ -135,14 +135,40 @@ def test_missing_file_creates_complete_marked_journal(monkeypatch, tmp_path: Pat
     target = vault / "2026-09-03 투자.md"
     assert result.status is journal.JournalStatus.CREATED
     contents = target.read_text(encoding="utf-8")
-    assert contents.startswith("---\ndate: 2026-09-03\nregime: 중립\ntags: [pk/investing]\nsource: auto-draft\n---\n")
-    assert contents.count(journal.AUTO_START) == contents.count(journal.AUTO_END) == 1
+    assert contents.startswith(
+        "---\n"
+        "date: 2026-09-03\n"
+        "regime: 중립\n"
+        "leverage_pct: \n"
+        "cash_pct: \n"
+        "source: auto-draft\n"
+        "tags:\n"
+        '  - "pk/investing"\n'
+        "---\n\n"
+        "# 2026-09-03 아침 일지\n"
+    )
+    for marker in (
+        journal.REGIME_START, journal.REGIME_END,
+        journal.MARKET_START, journal.MARKET_END,
+    ):
+        assert contents.count(marker) == 1
+    assert (
+        f"{journal.REGIME_END}\n"
+        "- 내 판단 (동의 / 다르게 봄): \n"
+        "- 근거 한 줄: "
+    ) in contents
     assert "## 오늘 국면 판단" in contents
     assert "## 어제와 달라진 것" in contents
     assert "## 오늘 행동" in contents
     assert "## 3개월 뒤 확인할 질문" in contents
     assert "글로벌 위험 보통 (신호 1/3)" in contents
-    assert "| 한국 3Y · 10Y | 표시 불가 | 표시 불가 | 표시 불가 | 표시 불가 |" in contents
+    assert "| 지표 | 어제 | 오늘 | 변화 |" in contents
+    assert "| KOSPI | 표시 불가 | 2,700.25 | +0.50% |" in contents
+    assert "| KOSDAQ | 표시 불가 | 표시 불가 | 표시 불가 |" in contents
+    assert "| KOSPI PER | 표시 불가 | 12.4 (5년 상위 38%) | 표시 불가 |" in contents
+    assert "| 그룹 | 오늘 | 5일 |" in contents
+    assert "| 외국인 | +100억 | -200억 |" in contents
+    assert "### 파생\n\n- 베이시스: +1.25 · 09-02" in contents
     assert "- 첫 줄\n- 둘째 줄\n- 셋째 줄" in contents
     assert "넷째 줄" not in contents
     assert "999999999" not in contents
@@ -159,17 +185,21 @@ def test_existing_file_changes_only_machine_owned_bytes(monkeypatch, tmp_path: P
         "---\r\n"
         "date: 2020-01-01\r\n"
         "regime: 사용자 수정\r\n"
-        "tags: [pk/investing, user/custom]\r\n"
+        "leverage_pct: 35\r\n"
+        "cash_pct: 18\r\n"
         "source: manual\r\n"
+        "tags: [pk/investing, user/custom]\r\n"
         "mood: 사용자 값\r\n"
         "---\r\n"
         "# 사용자 제목\r\n\r\n"
         "## 오늘 국면 판단\r\n"
+        "<!-- auto:start regime -->\r\n"
         "- 대시보드 국면: 오래된 값\r\n"
+        "<!-- auto:end regime -->\r\n"
         "- 내 판단 (동의 / 다르게 봄): USER-JUDGMENT\r\n"
         "- 근거 한 줄: USER-REASON\r\n\r\n"
         "## 어제와 달라진 것\r\n"
-        "<!-- auto:start -->\r\nOLD AUTO\r\n<!-- auto:end -->\r\n\r\n"
+        "<!-- auto:start market -->\r\nOLD AUTO\r\n<!-- auto:end market -->\r\n\r\n"
         "## 오늘 행동\r\n- USER-ACTION\r\n\r\n"
         "## 3개월 뒤 확인할 질문\r\n- USER-QUESTION\r\n"
         "## 사용자 추가 섹션\r\nUSER-EXTRA\r\n"
@@ -183,6 +213,8 @@ def test_existing_file_changes_only_machine_owned_bytes(monkeypatch, tmp_path: P
     assert result.status is journal.JournalStatus.UPDATED
     assert _mask_machine_owned(updated) == _mask_machine_owned(original)
     assert b"tags: [pk/investing, user/custom]\r\n" in updated
+    assert b"leverage_pct: 35\r\n" in updated
+    assert b"cash_pct: 18\r\n" in updated
     assert "mood: 사용자 값\r\n".encode() in updated
     assert "USER-JUDGMENT\r\n".encode() in updated
     assert "USER-EXTRA\r\n".encode() in updated
@@ -190,12 +222,23 @@ def test_existing_file_changes_only_machine_owned_bytes(monkeypatch, tmp_path: P
     assert b"date: 2026-09-03\r\n" in updated
 
 
-def test_existing_file_without_markers_is_untouched(monkeypatch, tmp_path: Path) -> None:
+@pytest.mark.parametrize("missing", ["regime", "market"])
+def test_existing_file_missing_either_named_pair_is_untouched(
+    monkeypatch, tmp_path: Path, caplog: pytest.LogCaptureFixture, missing: str,
+) -> None:
     vault = tmp_path / "일지"
     vault.mkdir()
     _configure(tmp_path, vault)
     target = vault / "2026-09-03 투자.md"
-    original = "---\ndate: 2026-09-03\n---\n사용자 구형 일지\n".encode("utf-8")
+    regime = (
+        "" if missing == "regime" else
+        "<!-- auto:start regime -->\nold regime\n<!-- auto:end regime -->\n"
+    )
+    market = (
+        "" if missing == "market" else
+        "<!-- auto:start market -->\nold market\n<!-- auto:end market -->\n"
+    )
+    original = f"---\ndate: 2026-09-03\n---\n{regime}{market}사용자 일지\n".encode("utf-8")
     target.write_bytes(original)
     monkeypatch.setattr(
         journal,
@@ -207,6 +250,7 @@ def test_existing_file_without_markers_is_untouched(monkeypatch, tmp_path: Path)
 
     assert result.status is journal.JournalStatus.SKIPPED_LEGACY_FILE
     assert target.read_bytes() == original
+    assert "left untouched" in caplog.text
 
 
 def test_weekend_is_skipped_before_settings_or_payload(monkeypatch, tmp_path: Path) -> None:
@@ -302,5 +346,32 @@ def test_dry_run_returns_complete_content_without_writes(monkeypatch, tmp_path: 
 
     assert result.status is journal.JournalStatus.DRY_RUN_CREATED
     assert result.journal_content is not None
-    assert journal.AUTO_START in result.journal_content
+    assert journal.REGIME_START in result.journal_content
+    assert journal.MARKET_START in result.journal_content
     assert not list(vault.iterdir())
+
+
+def test_new_file_matches_reference_template_structure(monkeypatch, tmp_path: Path) -> None:
+    vault = tmp_path / "vault" / "일지"
+    vault.mkdir(parents=True)
+    _configure(tmp_path, vault)
+    monkeypatch.setattr(journal, "_load_home_payload", lambda root: _payload())
+
+    result = journal.write_investing_journal(tmp_path, TRADING_DAY, dry_run=True)
+
+    assert result.journal_content is not None
+    contents = result.journal_content
+    headings = re.findall(r"(?m)^#{1,2} .+$", contents)
+    assert headings == [
+        "# 2026-09-03 아침 일지",
+        "## 오늘 국면 판단",
+        "## 어제와 달라진 것",
+        "## 오늘 행동",
+        "## 3개월 뒤 확인할 질문",
+    ]
+    assert "- 할 것: \n- 하지 않을 것: \n- 레버리지 비중 (현재 → 목표): \n- 기타 메모: " in contents
+    assert contents.endswith(
+        "---\n"
+        "<!-- 마커 안(auto:start ~ auto:end)은 주식 세션이 매일 07:30 에 교체한다.\n"
+        "     마커 밖은 사람만 쓴다. 자동 작업이 건드리지 않는다. -->\n"
+    )
