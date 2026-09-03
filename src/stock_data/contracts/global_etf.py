@@ -135,6 +135,30 @@ GLOBAL_ETF_REGISTRY: Mapping[str, Mapping[str, object]] = MappingProxyType({
         "cadence": "GLOBAL_DAILY", "freshness_policy": "reviewed_us_completed_session",
         "validation": "global_etf_price_daily_v1", "automation_enabled": True,
     }),
+    "SGOV": MappingProxyType({
+        "source_ticker": "SGOV", "provider": "yahoo_chart_api",
+        "instrument_type": "ETF", "issuer": "iShares",
+        "official_fund_name": "iShares 0-3 Month Treasury Bond ETF",
+        "official_exchange": "NYSE Arca", "official_cusip": "46436E718",
+        "official_identity_url": "https://www.ishares.com/us/products/314116/ishares-0-3-month-treasury-bond-etf",
+        "expected_currency": "USD",
+        "accepted_yahoo_exchanges": ("PCX", "NYSEArca", "NYSE Arca", "NYQ", "NYSE"),
+        "leverage_multiple": 1,
+        "cadence": "GLOBAL_DAILY", "freshness_policy": "reviewed_us_completed_session",
+        "validation": "global_etf_price_daily_v1", "automation_enabled": True,
+    }),
+    "VGLT": MappingProxyType({
+        "source_ticker": "VGLT", "provider": "yahoo_chart_api",
+        "instrument_type": "ETF", "issuer": "Vanguard",
+        "official_fund_name": "Vanguard Long-Term Treasury ETF",
+        "official_exchange": "NASDAQ", "official_cusip": "92206C870",
+        "official_identity_url": "https://investor.vanguard.com/investment-products/etfs/profile/vglt",
+        "expected_currency": "USD",
+        "accepted_yahoo_exchanges": ("NMS", "NGM", "NASDAQ", "NasdaqGM"),
+        "leverage_multiple": 1,
+        "cadence": "GLOBAL_DAILY", "freshness_policy": "reviewed_us_completed_session",
+        "validation": "global_etf_price_daily_v1", "automation_enabled": True,
+    }),
 })
 
 GLOBAL_ETF_DAILY_SYMBOLS = tuple(GLOBAL_ETF_REGISTRY)

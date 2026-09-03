@@ -53,14 +53,14 @@ def test_global_daily_contracts_keep_symbol_identity_and_futures_semantics() -> 
 
 def test_global_etf_registry_is_contract_owned_and_exposure_explicit() -> None:
     assert GLOBAL_ETF_DAILY_SYMBOLS == (
-        "SOXX", "EWY", "SOXL", "TQQQ", "QLD", "TLT", "QQQ", "SPY",
+        "SOXX", "EWY", "SOXL", "TQQQ", "QLD", "TLT", "QQQ", "SPY", "SGOV", "VGLT",
     )
     assert {
         symbol: global_etf_leverage_multiple(symbol)
         for symbol in GLOBAL_ETF_DAILY_SYMBOLS
     } == {
         "SOXX": 1, "EWY": 1, "SOXL": 3, "TQQQ": 3,
-        "QLD": 2, "TLT": 1, "QQQ": 1, "SPY": 1,
+        "QLD": 2, "TLT": 1, "QQQ": 1, "SPY": 1, "SGOV": 1, "VGLT": 1,
     }
     assert all(
         entry["cadence"] == "GLOBAL_DAILY"

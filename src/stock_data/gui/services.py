@@ -2250,6 +2250,18 @@ US_ETF_CHART_IDENTITIES = (
         "비레버리지·액티브 옵션 인컴", "월 분배·ELN 프리미엄",
         "UR-054 accepted chart-only catalog",
     ),
+    EquityIdentity(
+        "SGOV", "iShares 0-3 Month Treasury Bond ETF", "US ETF", None,
+        "2020-05-26", "ETF", "iShares", "ICE 0-3 Month US Treasury Securities Index",
+        "USD", "비레버리지·초단기 국채", "월 분배",
+        "UR-054 accepted chart-only catalog",
+    ),
+    EquityIdentity(
+        "VGLT", "Vanguard Long-Term Treasury ETF", "US ETF", None,
+        "2009-11-19", "ETF", "Vanguard", "Bloomberg US Long Treasury Index",
+        "USD", "비레버리지·장기 국채", "월 분배",
+        "UR-054 accepted chart-only catalog",
+    ),
 )
 
 
@@ -2266,6 +2278,8 @@ US_ETF_OFFICIAL_IDENTITY_SOURCES = {
     "TLTW": "https://www.ishares.com/us/products/329118/ishares-20-year-treasury-bond-buywrite-strategy-etf",
     "QQQ": "https://www.invesco.com/qqq-etf/en/home.html",
     "SPY": "https://www.ssga.com/us/en/individual/etfs/state-street-spdr-sp-500-etf-trust-spy",
+    "SGOV": "https://www.ishares.com/us/products/314116/ishares-0-3-month-treasury-bond-etf",
+    "VGLT": "https://investor.vanguard.com/investment-products/etfs/profile/vglt",
     "QQQI": "https://neosfunds.com/qqqi/",
     "QDVO": "https://amplifyetfs.com/qdvo/",
     "GPIQ": "https://am.gs.com/en-us/advisors/funds/detail/PV105234/38149W861/goldman-sachs-nasdaq-100-premium-income-etf",
