@@ -16,11 +16,19 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.dataset as pads
 
+from stock_data.features.liquidity import liquidity_snapshot
+from stock_data.orchestration.kr_fundamentals_quarterly import fundamental_health
 from stock_web.api.stocks_page import evaluate_conditions, load_conditions
 
 
-SCANNER_CACHE_SCHEMA_VERSION = 1
+SCANNER_CACHE_SCHEMA_VERSION = 2
 BASE_RULE = "RSI14 ≤ 30 또는 60일선 대비 -20% 이하"
+DEFAULT_AVG_VALUE_20D_MIN = 1_000_000_000.0
+DEFAULT_MARKET_CAP_MIN = 100_000_000_000.0
+FUNDAMENTAL_HEALTH_COLUMNS = (
+    "debt_ratio_pct", "op_income_positive_4q", "net_income_positive_4q",
+    "revenue_trend", "fundamentals_as_of",
+)
 
 
 def _cache_path(project_root: Path) -> Path:
@@ -30,7 +38,12 @@ def _cache_path(project_root: Path) -> Path:
 def _dataset_signature(root: Path) -> str:
     digest = hashlib.sha256()
     count = 0
-    for path in sorted(root.glob("market=*/year=*/*.parquet")):
+    try:
+        paths = sorted(root.rglob("*.parquet"))
+    except OSError:
+        digest.update(b"UNREADABLE")
+        return digest.hexdigest()
+    for path in paths:
         try:
             stat = path.stat()
         except OSError:
@@ -43,8 +56,29 @@ def _dataset_signature(root: Path) -> str:
     return digest.hexdigest()
 
 
-def _conditions_key(conditions: Iterable[dict[str, object]]) -> str:
-    encoded = json.dumps(list(conditions), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+def _scanner_input_signature(project_root: Path) -> str:
+    digest = hashlib.sha256()
+    for relative in (
+        "data/normalized/kr_equity_price_daily",
+        "data/normalized/kr_equity_market_cap_daily",
+        "data/normalized/kr_fundamentals_quarterly",
+    ):
+        digest.update(relative.encode("utf-8"))
+        digest.update(_dataset_signature(project_root / relative).encode("ascii"))
+    return digest.hexdigest()
+
+
+def _conditions_key(
+    conditions: Iterable[dict[str, object]], *, avg_value_20d_min: float,
+    market_cap_min: float, apply_liquidity_filter: bool,
+) -> str:
+    key = {
+        "conditions": list(conditions),
+        "avg_value_20d_min": avg_value_20d_min,
+        "market_cap_min": market_cap_min,
+        "apply_liquidity_filter": apply_liquidity_filter,
+    }
+    encoded = json.dumps(key, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
@@ -231,24 +265,167 @@ def _current_fundamentals(
         return {}, []
 
 
-def _unavailable(reason: str) -> dict[str, object]:
+def _threshold(value: object, *, name: str) -> float:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{name} must be a non-negative finite number") from error
+    if not math.isfinite(numeric) or numeric < 0:
+        raise ValueError(f"{name} must be a non-negative finite number")
+    return numeric
+
+
+def _number_or_none(value: object, *, integer: bool = False) -> float | int | None:
+    if value is None or pd.isna(value):
+        return None
+    if integer:
+        try:
+            return int(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(numeric):
+        return None
+    return numeric
+
+
+def _liquidity_values(
+    project_root: Path, *, as_of: pd.Timestamp,
+) -> tuple[dict[str, dict[str, float | int | None]], bool]:
+    try:
+        frame = liquidity_snapshot(project_root, as_of=as_of.date())
+        required = {"symbol", "avg_value_20d", "market_cap"}
+        if not isinstance(frame, pd.DataFrame) or frame.empty or not required.issubset(frame.columns):
+            return {}, False
+        if frame["symbol"].isna().any() or frame["symbol"].astype(str).duplicated().any():
+            return {}, False
+        values = {
+            str(row["symbol"]): {
+                "avg_value_20d": _number_or_none(row["avg_value_20d"]),
+                "market_cap": _number_or_none(row["market_cap"], integer=True),
+            }
+            for row in frame.loc[:, ["symbol", "avg_value_20d", "market_cap"]].to_dict(orient="records")
+        }
+        return values, True
+    except Exception:
+        return {}, False
+
+
+def _as_iso(value: object, *, scanner_as_of: pd.Timestamp) -> str | None:
+    if value is None or pd.isna(value):
+        return None
+    try:
+        timestamp = pd.Timestamp(value)
+    except (TypeError, ValueError):
+        return None
+    if pd.isna(timestamp) or timestamp.date() > scanner_as_of.date():
+        return None
+    return timestamp.isoformat()
+
+
+def _bool_or_none(value: object) -> bool | None:
+    if value is None or pd.isna(value):
+        return None
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    return None
+
+
+def _fundamental_health_values(
+    project_root: Path, *, as_of: pd.Timestamp,
+) -> tuple[dict[str, dict[str, object]], str | None]:
+    try:
+        frame = fundamental_health(project_root, as_of=as_of.date())
+        required = {"symbol", *FUNDAMENTAL_HEALTH_COLUMNS}
+        if not isinstance(frame, pd.DataFrame) or frame.empty or not required.issubset(frame.columns):
+            return {}, None
+        if frame["symbol"].isna().any() or frame["symbol"].astype(str).duplicated().any():
+            return {}, None
+        values: dict[str, dict[str, object]] = {}
+        observed_as_of: list[pd.Timestamp] = []
+        for row in frame.loc[:, ["symbol", *FUNDAMENTAL_HEALTH_COLUMNS]].to_dict(orient="records"):
+            available_at = _as_iso(row["fundamentals_as_of"], scanner_as_of=as_of)
+            if available_at is None:
+                values[str(row["symbol"])] = {column: None for column in FUNDAMENTAL_HEALTH_COLUMNS}
+                continue
+            revenue_trend = row["revenue_trend"]
+            if revenue_trend not in {"INCREASING", "DECLINING", "FLAT", "MIXED", "UNAVAILABLE"}:
+                revenue_trend = None
+            values[str(row["symbol"])] = {
+                "debt_ratio_pct": _number_or_none(row["debt_ratio_pct"]),
+                "op_income_positive_4q": _bool_or_none(row["op_income_positive_4q"]),
+                "net_income_positive_4q": _bool_or_none(row["net_income_positive_4q"]),
+                "revenue_trend": revenue_trend,
+                "fundamentals_as_of": available_at,
+            }
+            observed_as_of.append(pd.Timestamp(available_at))
+        latest_available = max(observed_as_of).isoformat() if observed_as_of else None
+        return values, latest_available
+    except Exception:
+        return {}, None
+
+
+def _value_trap_state(health: dict[str, object]) -> str:
+    operating_positive = health.get("op_income_positive_4q")
+    debt_ratio = health.get("debt_ratio_pct")
+    if operating_positive is False or (
+        debt_ratio is not None and float(debt_ratio) > 200.0
+    ):
+        return "FLAGGED"
+    if operating_positive is True and debt_ratio is not None:
+        return "NOT_FLAGGED"
+    return "UNAVAILABLE"
+
+
+def _filters_payload(
+    *, avg_value_20d_min: float, market_cap_min: float, applied: bool,
+) -> dict[str, object]:
+    return {
+        "avg_value_20d_min": avg_value_20d_min,
+        "market_cap_min": market_cap_min,
+        "applied": applied,
+    }
+
+
+def _unavailable(
+    reason: str, *, avg_value_20d_min: float = DEFAULT_AVG_VALUE_20D_MIN,
+    market_cap_min: float = DEFAULT_MARKET_CAP_MIN,
+) -> dict[str, object]:
     return {
         "status": "UNAVAILABLE", "as_of": None, "count": 0,
         "scanned_instruments": 0, "rule": BASE_RULE, "candidates": [], "top": [],
         "reason": reason, "recommendation_state": "DESCRIPTIVE_NOT_A_RECOMMENDATION",
         "fundamental_columns": [],
         "fundamentals_note": "종목별 현재 PER/PBR Normalized 데이터가 없어 표시하지 않습니다.",
+        "filters": _filters_payload(
+            avg_value_20d_min=avg_value_20d_min, market_cap_min=market_cap_min, applied=False,
+        ),
+        "liquidity_note": "유동성 데이터 없음 · 필터 미적용",
+        "fundamentals_coverage": {"available": 0, "total": 0, "as_of": None},
     }
 
 
-def build_scanner(project_root: Path) -> dict[str, object]:
+def build_scanner(
+    project_root: Path, *, avg_value_20d_min: float = DEFAULT_AVG_VALUE_20D_MIN,
+    market_cap_min: float = DEFAULT_MARKET_CAP_MIN, apply_liquidity_filter: bool = True,
+) -> dict[str, object]:
     """Compute or load today's full descriptive scanner result."""
+    avg_value_20d_min = _threshold(avg_value_20d_min, name="min_value")
+    market_cap_min = _threshold(market_cap_min, name="min_cap")
     root = Path(project_root)
     price_root = root / "data/normalized/kr_equity_price_daily"
     conditions = list(load_conditions(root).get("conditions", []))
     universe_conditions = [item for item in conditions if item.get("scope") == "universe"]
-    price_signature = _dataset_signature(price_root)
-    conditions_key = _conditions_key(universe_conditions)
+    price_signature = _scanner_input_signature(root)
+    conditions_key = _conditions_key(
+        universe_conditions,
+        avg_value_20d_min=avg_value_20d_min,
+        market_cap_min=market_cap_min,
+        apply_liquidity_filter=apply_liquidity_filter,
+    )
     cached = _read_cache(
         _cache_path(root), price_signature=price_signature, conditions_key=conditions_key,
     )
@@ -272,17 +449,28 @@ def build_scanner(project_root: Path) -> dict[str, object]:
         universe = _latest_universe(root, latest)
         names = _master_names(root)
         valuations, fundamental_columns = _current_fundamentals(root, as_of=latest)
+        liquidity, liquidity_available = _liquidity_values(root, as_of=latest)
+        health, fundamentals_as_of = _fundamental_health_values(root, as_of=latest)
         price["market"] = price["market"].astype(str)
         price["symbol"] = price["symbol"].astype(str)
         price = price[
             pd.MultiIndex.from_frame(price[["market", "symbol"]]).isin(universe)
         ].sort_values(["market", "symbol", "date"])
     except PermissionError:
-        return _unavailable("LOCAL_CANDIDATE_READ_LOCKED")
+        return _unavailable(
+            "LOCAL_CANDIDATE_READ_LOCKED",
+            avg_value_20d_min=avg_value_20d_min, market_cap_min=market_cap_min,
+        )
     except OSError:
-        return _unavailable("LOCAL_CANDIDATE_READ_FAILED")
+        return _unavailable(
+            "LOCAL_CANDIDATE_READ_FAILED",
+            avg_value_20d_min=avg_value_20d_min, market_cap_min=market_cap_min,
+        )
     except (KeyError, TypeError, ValueError) as error:
-        return _unavailable(str(error) or "LOCAL_CANDIDATE_INPUT_INVALID")
+        return _unavailable(
+            str(error) or "LOCAL_CANDIDATE_INPUT_INVALID",
+            avg_value_20d_min=avg_value_20d_min, market_cap_min=market_cap_min,
+        )
 
     candidates: list[dict[str, object]] = []
     scanned = 0
@@ -320,6 +508,8 @@ def build_scanner(project_root: Path) -> dict[str, object]:
             continue
         recent_returns = close[-60:][1:] / close[-60:][:-1] - 1.0
         per, pbr = valuations.get(str(symbol), (None, None))
+        liquidity_row = liquidity.get(str(symbol), {})
+        health_row = health.get(str(symbol), {})
         candidate: dict[str, object] = {
             "market": str(market), "symbol": str(symbol),
             "name": names.get((str(market), str(symbol)), str(symbol)),
@@ -332,6 +522,13 @@ def build_scanner(project_root: Path) -> dict[str, object]:
                 "원가격 급변/분할 영향 가능"
                 if len(recent_returns) and np.max(np.abs(recent_returns)) >= 0.5 else None
             ),
+            "avg_value_20d": liquidity_row.get("avg_value_20d"),
+            "market_cap": liquidity_row.get("market_cap"),
+            **{
+                column: health_row.get(column)
+                for column in FUNDAMENTAL_HEALTH_COLUMNS
+            },
+            "value_trap_state": _value_trap_state(health_row),
         }
         if "per" in fundamental_columns:
             candidate["per"] = per
@@ -342,10 +539,34 @@ def build_scanner(project_root: Path) -> dict[str, object]:
     candidates.sort(key=lambda item: (
         float(item["rsi14"]), float(item["disp60_pct"]), str(item["market"]), str(item["symbol"]),
     ))
+    filter_applied = bool(apply_liquidity_filter and liquidity_available)
+    if filter_applied:
+        candidates = [
+            item for item in candidates
+            if item["avg_value_20d"] is not None
+            and item["market_cap"] is not None
+            and float(item["avg_value_20d"]) >= avg_value_20d_min
+            and float(item["market_cap"]) >= market_cap_min
+        ]
     condition_rule = " · ".join(str(item["name"]) for item in universe_conditions)
     rule = BASE_RULE + (f" · 사용자 전체시장 조건: {condition_rule}" if condition_rule else "")
+    as_of_text = latest.date().isoformat()
+    if not liquidity_available:
+        liquidity_note = "유동성 데이터 없음 · 필터 미적용"
+    elif not apply_liquidity_filter:
+        liquidity_note = f"유동성 필터 해제 · 기준일 {as_of_text}"
+    else:
+        avg_min_eok = avg_value_20d_min / 100_000_000
+        cap_min_eok = market_cap_min / 100_000_000
+        liquidity_note = (
+            f"20일 평균 거래대금 ≥ {avg_min_eok:,.15g}억 · "
+            f"시총 ≥ {cap_min_eok:,.15g}억 · 기준일 {as_of_text}"
+        )
+    fundamentals_available = sum(
+        item["fundamentals_as_of"] is not None for item in candidates
+    )
     result: dict[str, object] = {
-        "status": "READY", "as_of": latest.date().isoformat(), "count": len(candidates),
+        "status": "READY", "as_of": as_of_text, "count": len(candidates),
         "scanned_instruments": scanned, "rule": rule, "candidates": candidates,
         "top": [{"name": item["name"], "why": item["why"]} for item in candidates[:5]],
         "recommendation_state": "DESCRIPTIVE_NOT_A_RECOMMENDATION",
@@ -355,6 +576,17 @@ def build_scanner(project_root: Path) -> dict[str, object]:
             if fundamental_columns else
             "종목별 현재 PER/PBR Normalized 데이터가 없어 표시하지 않습니다."
         ),
+        "filters": _filters_payload(
+            avg_value_20d_min=avg_value_20d_min,
+            market_cap_min=market_cap_min,
+            applied=filter_applied,
+        ),
+        "liquidity_note": liquidity_note,
+        "fundamentals_coverage": {
+            "available": fundamentals_available,
+            "total": len(candidates),
+            "as_of": fundamentals_as_of,
+        },
     }
     try:
         _write_cache(

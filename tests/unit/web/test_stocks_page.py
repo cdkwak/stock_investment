@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pandas as pd
+
 from stock_data.gui.watchlist_service import LocalWatchlistService
 from stock_web.api import home_data
+from stock_web.api import scanner as scanner_api
 from stock_web.api.scanner import build_scanner
 from stock_web.api.stocks_page import evaluate_conditions, save_conditions
 from stock_web.app import create_app
@@ -120,6 +123,88 @@ def test_scanner_finds_one_oversold_symbol_in_tiny_exact_universe_and_caches() -
     assert "사용자 전체시장 조건" in expanded["rule"]
 
 
+def test_scanner_liquidity_filters_and_fundamental_annotations_are_queryable(
+    monkeypatch,
+) -> None:
+    root = make_project(new_temp_root())
+    save_conditions(root, {
+        "schema_version": 1,
+        "conditions": [{
+            "id": "nonnegative", "name": "등락률 비음수", "field": "change_pct",
+            "op": ">=", "value": 0, "scope": "universe",
+        }],
+    })
+    monkeypatch.setattr(scanner_api, "liquidity_snapshot", lambda project_root, as_of: pd.DataFrame({
+        "symbol": ["000660", "005930", "035720"],
+        "avg_value_20d": [2_000_000_000.0, 500_000_000.0, 1_000_000_000.0],
+        "market_cap": [200_000_000_000, 500_000_000_000, 100_000_000_000],
+    }))
+    monkeypatch.setattr(scanner_api, "fundamental_health", lambda project_root, as_of: pd.DataFrame({
+        "symbol": ["000660"],
+        "debt_ratio_pct": [42.25],
+        "op_income_positive_4q": [True],
+        "net_income_positive_4q": [False],
+        "revenue_trend": ["INCREASING"],
+        "fundamentals_as_of": [pd.Timestamp("2026-09-01T06:00:00+00:00")],
+    }))
+    client = ASGITestClient(create_app(root))
+
+    filtered = client.get("/api/scanner").json()
+    unfiltered = client.get("/api/scanner", params={"all": 1}).json()
+    overridden = client.get(
+        "/api/scanner", params={"min_value": 0, "min_cap": 0},
+    ).json()
+
+    assert filtered["count"] == 2
+    assert {item["symbol"] for item in filtered["candidates"]} == {"000660", "035720"}
+    assert filtered["filters"] == {
+        "avg_value_20d_min": 1_000_000_000.0,
+        "market_cap_min": 100_000_000_000.0,
+        "applied": True,
+    }
+    assert "20일 평균 거래대금" in filtered["liquidity_note"]
+    assert filtered["fundamentals_coverage"] == {
+        "available": 1,
+        "total": 2,
+        "as_of": "2026-09-01T06:00:00+00:00",
+    }
+    health = next(item for item in filtered["candidates"] if item["symbol"] == "000660")
+    missing = next(item for item in filtered["candidates"] if item["symbol"] == "035720")
+    assert health["avg_value_20d"] == 2_000_000_000.0
+    assert health["debt_ratio_pct"] == 42.25
+    assert health["op_income_positive_4q"] is True
+    assert health["net_income_positive_4q"] is False
+    assert health["revenue_trend"] == "INCREASING"
+    assert health["value_trap_state"] == "NOT_FLAGGED"
+    assert all(missing[column] is None for column in scanner_api.FUNDAMENTAL_HEALTH_COLUMNS)
+    assert missing["value_trap_state"] == "UNAVAILABLE"
+    assert unfiltered["count"] == 3
+    assert unfiltered["filters"]["applied"] is False
+    assert "필터 해제" in unfiltered["liquidity_note"]
+    assert overridden["count"] == 3
+    assert overridden["filters"]["applied"] is True
+
+
+def test_scanner_missing_filter_helpers_degrade_without_failing(monkeypatch) -> None:
+    root = make_project(new_temp_root())
+
+    def unavailable(*args, **kwargs):
+        raise FileNotFoundError("retained partition missing")
+
+    monkeypatch.setattr(scanner_api, "liquidity_snapshot", unavailable)
+    monkeypatch.setattr(scanner_api, "fundamental_health", unavailable)
+
+    result = build_scanner(root)
+
+    assert result["status"] == "READY"
+    assert result["count"] == 1
+    assert result["filters"]["applied"] is False
+    assert result["liquidity_note"] == "유동성 데이터 없음 · 필터 미적용"
+    assert result["fundamentals_coverage"] == {"available": 0, "total": 1, "as_of": None}
+    assert result["candidates"][0]["avg_value_20d"] is None
+    assert result["candidates"][0]["market_cap"] is None
+
+
 def test_search_endpoint_combines_korean_catalog_and_static_us_etfs() -> None:
     root = make_project(new_temp_root())
     client = ASGITestClient(create_app(root))
@@ -158,6 +243,9 @@ def test_stocks_posts_refuse_non_loopback_and_page_renders() -> None:
     assert page.status_code == 200
     assert "관심종목 관리" in page.text
     assert "과매도 스캐너" in page.text
+    assert 'id="scanner-min-value"' in page.text
+    assert 'id="scanner-min-cap"' in page.text
+    assert 'id="scanner-fundamentals-only"' in page.text
     assert 'id="add-selected-stock"' in page.text
     assert "검색 결과에서 종목을 선택하세요." in page.text
 

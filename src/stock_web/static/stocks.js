@@ -20,6 +20,8 @@
   let conditions = [];
   let selectedSearch = null;
   let flashIdentity = null;
+  let scannerResult = null;
+  let scannerElapsed = 0;
 
   async function requestJson(url, options) {
     const response = await fetch(url, options);
@@ -138,27 +140,73 @@
     renderSearch(await requestJson(`/api/stocks/search?q=${encodeURIComponent(query)}`));
   }
 
-  async function loadScanner() {
-    const started = performance.now();
-    $("scanner-summary").textContent = "보존 데이터를 읽는 중…";
-    const result = await requestJson("/api/scanner");
-    const elapsed = (performance.now() - started) / 1000;
+  const wonEok = (value, digits = 1) => value === null || value === undefined
+    ? "—" : `${number(Number(value) / 100000000, digits)}억원`;
+  const plainPct = (value) => value === null || value === undefined ? "—" : `${number(value, 1)}%`;
+  const healthValue = (row, key, formatter) => {
+    if (!row.fundamentals_as_of) return '<span class="muted">미수집</span>';
+    return row[key] === null || row[key] === undefined
+      ? '<span class="muted">확인 불가</span>' : formatter(row[key]);
+  };
+  const fourQuarter = (value) => value ? "4/4 양수" : "음수 포함";
+  const revenueTrend = (value) => ({
+    INCREASING: "증가", DECLINING: "감소", FLAT: "보합", MIXED: "혼조", UNAVAILABLE: "확인 불가",
+  }[value] || "확인 불가");
+  const valueTrap = (state) => ({
+    FLAGGED: ["가치 함정 후보", "amber"],
+    NOT_FLAGGED: ["가치 함정 아님", "muted"],
+    UNAVAILABLE: ["가치 함정 판정 불가", "muted"],
+  }[state] || ["가치 함정 판정 불가", "muted"]);
+
+  function renderScanner() {
+    const result = scannerResult;
+    if (!result) return;
     if (result.status !== "READY") {
-      $("scanner-summary").textContent = `표시 불가 · ${result.reason || "입력 확인 필요"} · ${elapsed.toFixed(2)}초`;
-      $("scanner-rows").innerHTML = `<tr><td colspan="9" class="unavailable">후보를 계산할 수 없습니다.</td></tr>`;
+      $("scanner-summary").textContent = `표시 불가 · ${result.reason || "입력 확인 필요"} · ${scannerElapsed.toFixed(2)}초 · ${result.liquidity_note || ""}`;
+      $("scanner-rows").innerHTML = '<tr><td colspan="15" class="unavailable">후보를 계산할 수 없습니다.</td></tr>';
       return;
     }
     const fundamentalColumns = result.fundamental_columns || [];
-    $("scanner-head").innerHTML = `<th>종목명</th><th>시장</th><th>코드</th><th>현재가</th><th>등락률</th><th>RSI14</th><th>60일선</th><th>52주 낙폭</th>${fundamentalColumns.includes("per") ? "<th>PER</th>" : ""}${fundamentalColumns.includes("pbr") ? "<th>PBR</th>" : ""}<th>관찰 근거</th>`;
-    $("scanner-summary").textContent = `${result.as_of} · ${result.scanned_instruments.toLocaleString("ko-KR")}개 확인 · ${result.count.toLocaleString("ko-KR")}개 후보 · ${result.rule} · ${elapsed.toFixed(2)}초 · ${result.fundamentals_note}`;
-    $("scanner-rows").innerHTML = result.candidates.length ? result.candidates.map((row) => `<tr>
+    const fundamentalsOnly = $("scanner-fundamentals-only").checked;
+    const rows = fundamentalsOnly
+      ? result.candidates.filter((row) => Boolean(row.fundamentals_as_of))
+      : result.candidates;
+    $("scanner-head").innerHTML = `<th>종목명</th><th>시장</th><th>코드</th><th>현재가</th><th>등락률</th><th>RSI14</th><th>60일선</th><th>52주 낙폭</th><th>20일 거래대금</th><th>시총</th><th class="scanner-debt">부채비율</th><th>영업이익 4Q</th><th>순이익 4Q</th><th class="scanner-revenue">매출 추세</th>${fundamentalColumns.includes("per") ? "<th>PER</th>" : ""}${fundamentalColumns.includes("pbr") ? "<th>PBR</th>" : ""}<th>관찰 근거</th>`;
+    const coverage = result.fundamentals_coverage || { available: 0, total: result.count, as_of: null };
+    const displayed = fundamentalsOnly ? ` · 재무 수집됨 ${rows.length}개 표시` : "";
+    $("scanner-summary").textContent = `${result.as_of} · ${result.scanned_instruments.toLocaleString("ko-KR")}개 확인 · ${result.count.toLocaleString("ko-KR")}개 후보${displayed} · ${result.rule} · ${result.liquidity_note} · 재무 ${coverage.available}/${coverage.total} 수집 · ${scannerElapsed.toFixed(2)}초 · ${result.fundamentals_note}`;
+    $("scanner-rows").innerHTML = rows.length ? rows.map((row) => {
+      const trap = valueTrap(row.value_trap_state);
+      return `<tr>
       <td><a href="/?symbol=${encodeURIComponent(row.symbol)}"><b>${esc(row.name)}</b></a>${row.data_caution ? `<small class="amber">${esc(row.data_caution)}</small>` : ""}</td>
       <td>${esc(row.market)}</td><td class="num">${esc(row.symbol)}</td><td class="num">${number(row.price, 0)}</td>
       <td class="num ${tone(row.change_pct)}">${pct(row.change_pct)}</td><td class="num">${number(row.rsi14, 1)}</td>
       <td class="num ${tone(row.disp60_pct)}">${pct(row.disp60_pct)}</td><td class="num ${tone(row.drawdown_pct)}">${pct(row.drawdown_pct)}</td>
+      <td class="num">${wonEok(row.avg_value_20d, 1)}</td><td class="num">${wonEok(row.market_cap, 1)}</td>
+      <td class="num scanner-debt">${healthValue(row, "debt_ratio_pct", plainPct)}</td>
+      <td>${healthValue(row, "op_income_positive_4q", fourQuarter)}<small class="${trap[1]}">${trap[0]}</small></td>
+      <td>${healthValue(row, "net_income_positive_4q", fourQuarter)}</td>
+      <td class="scanner-revenue">${healthValue(row, "revenue_trend", revenueTrend)}</td>
       ${fundamentalColumns.includes("per") ? `<td class="num">${number(row.per, 2)}</td>` : ""}${fundamentalColumns.includes("pbr") ? `<td class="num">${number(row.pbr, 2)}</td>` : ""}
       <td>${esc(row.why)}</td>
-    </tr>`).join("") : `<tr><td colspan="${9 + fundamentalColumns.length}" class="unavailable">현재 조건에 도달한 종목이 없습니다.</td></tr>`;
+    </tr>`;
+    }).join("") : `<tr><td colspan="${15 + fundamentalColumns.length}" class="unavailable">${fundamentalsOnly ? "재무가 수집된 후보가 없습니다." : "현재 조건에 도달한 종목이 없습니다."}</td></tr>`;
+  }
+
+  async function loadScanner() {
+    const started = performance.now();
+    $("scanner-summary").textContent = "보존 데이터를 읽는 중…";
+    const minValue = Number($("scanner-min-value").value);
+    const minCap = Number($("scanner-min-cap").value);
+    if (!Number.isFinite(minValue) || minValue < 0 || !Number.isFinite(minCap) || minCap < 0) {
+      throw new Error("유동성 기준은 0 이상의 숫자여야 합니다.");
+    }
+    const params = new URLSearchParams({
+      min_value: String(minValue * 100000000), min_cap: String(minCap * 100000000),
+    });
+    scannerResult = await requestJson(`/api/scanner?${params.toString()}`);
+    scannerElapsed = (performance.now() - started) / 1000;
+    renderScanner();
   }
 
   document.addEventListener("click", async (event) => {
@@ -223,6 +271,7 @@
   });
 
   document.addEventListener("DOMContentLoaded", async () => {
+    $("scanner-fundamentals-only").addEventListener("change", renderScanner);
     $("watchlist-select").addEventListener("change", () => {
       selectedListId = $("watchlist-select").value; renderWatchlistEditor(); renderSelectedSearch();
     });
