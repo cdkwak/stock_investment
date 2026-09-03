@@ -50,7 +50,7 @@
       ${benchmark.length > 1 ? `<path d="${path(benchmark)}" class="si-benchmark-line"></path>` : ""}
       <path d="${path(points)}" class="si-value-line"></path>
       ${points.filter((point) => point.partial).map((point) => `<circle cx="${x(point)}" cy="${y(point.v)}" r="2.5" class="si-partial-point"></circle>`).join("")}
-      <g class="si-hover" hidden><line y1="${top}" y2="${height - bottom}" class="si-hover-line"></line><circle r="4" class="si-hover-point"></circle><rect width="166" height="38" rx="4" class="si-tooltip-bg"></rect><text class="si-tooltip-date"></text><text class="si-tooltip-value"></text></g>
+      <g class="si-hover" style="display:none"><line y1="${top}" y2="${height - bottom}" class="si-hover-line"></line><circle r="4" class="si-hover-point"></circle><rect width="166" height="38" rx="4" class="si-tooltip-bg"></rect><text class="si-tooltip-date"></text><text class="si-tooltip-value"></text></g>
     </svg>`;
     const svg = host.querySelector("svg"), hover = svg.querySelector(".si-hover"), vertical = hover.querySelector("line"), dot = hover.querySelector("circle"), box = hover.querySelector("rect"), dateText = hover.querySelector(".si-tooltip-date"), valueText = hover.querySelector(".si-tooltip-value");
     svg.addEventListener("pointermove", (event) => {
@@ -58,12 +58,12 @@
       const targetX = (event.clientX - rect.left) / rect.width * width;
       const nearest = points.reduce((best, point) => Math.abs(x(point) - targetX) < Math.abs(x(best) - targetX) ? point : best, points[0]);
       const px = x(nearest), py = y(nearest.v), tooltipX = Math.min(Math.max(px + 8, left + 2), width - right - 168), tooltipY = Math.max(top + 2, py - 45);
-      hover.removeAttribute("hidden"); vertical.setAttribute("x1", px); vertical.setAttribute("x2", px); dot.setAttribute("cx", px); dot.setAttribute("cy", py);
+      hover.style.display = ""; vertical.setAttribute("x1", px); vertical.setAttribute("x2", px); dot.setAttribute("cx", px); dot.setAttribute("cy", py);
       box.setAttribute("x", tooltipX); box.setAttribute("y", tooltipY);
       dateText.setAttribute("x", tooltipX + 8); dateText.setAttribute("y", tooltipY + 14); dateText.textContent = `${nearest.t}${nearest.partial ? " · 부분 관측" : ""}`;
       valueText.setAttribute("x", tooltipX + 8); valueText.setAttribute("y", tooltipY + 30); valueText.textContent = `₩${Math.round(nearest.v).toLocaleString("ko-KR")}`;
     });
-    svg.addEventListener("pointerleave", () => { hover.setAttribute("hidden", ""); });
+    svg.addEventListener("pointerleave", () => { hover.style.display = "none"; });
   }
   window.SIChart = { renderLineChart };
 

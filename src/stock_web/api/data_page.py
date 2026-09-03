@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from stock_data.gui.health_service import (
     DailyHealthArtifactService,
@@ -166,6 +167,42 @@ def load_scheduler_receipts(project_root: Path) -> list[dict[str, object]]:
     return rows
 
 
+def load_credential_expiries(project_root: Path, *, today: date | None = None) -> list[dict[str, object]]:
+    """Expiry dates recorded in .env as ``<NAME>_EXPIRES_AT`` (names and dates only; secrets are
+    never read into the payload). Warns 14 days ahead so keys can be renewed before a lane fails."""
+    env_file = project_root / ".env"
+    if not env_file.is_file():
+        return []
+    today = today or datetime.now(ZoneInfo("Asia/Seoul")).date()
+    rows: list[dict[str, object]] = []
+    for raw in env_file.read_text(encoding="utf-8-sig").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not key.upper().endswith("_EXPIRES_AT"):
+            continue
+        text = value.strip().strip("\"'")
+        try:
+            expires = date.fromisoformat(text[:10])
+        except ValueError:
+            rows.append({"name": key[: -len("_EXPIRES_AT")], "expires": text or "미기록", "days_left": None,
+                         "status": "unknown", "label": "형식 확인 필요"})
+            continue
+        days_left = (expires - today).days
+        if days_left < 0:
+            status, label = "expired", "만료됨"
+        elif days_left <= 14:
+            status, label = "soon", f"{days_left}일 남음"
+        else:
+            status, label = "ok", f"{days_left}일 남음"
+        rows.append({"name": key[: -len("_EXPIRES_AT")], "expires": expires.isoformat(),
+                     "days_left": days_left, "status": status, "label": label})
+    rows.sort(key=lambda row: (row["days_left"] is None, row["days_left"] if row["days_left"] is not None else 0))
+    return rows
+
+
 def build_data_page_context(project_root: Path, status_filter: str) -> dict[str, object]:
     service = DailyHealthArtifactService(project_root)
     view = service.load()
@@ -191,7 +228,8 @@ def build_data_page_context(project_root: Path, status_filter: str) -> dict[str,
         "freshness_counts": freshness_counts,
         "health_groups": groups,
         "receipts": load_scheduler_receipts(project_root),
+        "credential_expiries": load_credential_expiries(project_root),
     }
 
 
-__all__ = ["FILTERS", "build_data_page_context", "load_scheduler_receipts"]
+__all__ = ["FILTERS", "build_data_page_context", "load_credential_expiries", "load_scheduler_receipts"]

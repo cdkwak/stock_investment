@@ -66,6 +66,25 @@
   </section>
 
   <section class="card">
+    <div class="card-head"><b>API 키 만료</b><span class="muted">.env의 *_EXPIRES_AT 기록 기준 · 14일 전부터 경고</span></div>
+    <div class="data-table-wrap">
+      <table class="data-table">
+        <thead><tr><th>키</th><th>만료일</th><th>상태</th></tr></thead>
+        <tbody>
+        {% for row in credential_expiries %}
+          <tr class="{% if row.status in ('expired', 'soon') %}receipt-failed{% endif %}">
+            <td data-label="키"><b>{{ row.name }}</b></td>
+            <td data-label="만료일" class="num">{{ row.expires }}</td>
+            <td data-label="상태">{{ row.label }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="3" class="muted">.env에 만료일 기록(*_EXPIRES_AT) 없음</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  <section class="card">
     <div class="card-head"><b>최근 스케줄러 영수증</b><span class="muted">실패 우선 · 각 상태에서 최근 실행순</span></div>
     <div class="data-table-wrap receipt-wrap">
       <table class="data-table receipt-table">
