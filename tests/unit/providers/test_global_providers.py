@@ -71,10 +71,11 @@ class YahooEtfSession:
     @staticmethod
     def get(url, *args, **kwargs):
         ticker = url.rsplit("/", 1)[-1]
+        exchange = ETF_REGISTRY[ticker]["accepted_yahoo_exchanges"][0]
         return Response({"chart": {"error": None, "result": [{
             "meta": {
                 "symbol": ticker, "instrumentType": "ETF", "dataGranularity": "1d",
-                "currency": "USD", "exchangeName": "PCX",
+                "currency": "USD", "exchangeName": exchange,
             },
             "timestamp": [1786032000],
             "indicators": {
@@ -87,16 +88,40 @@ class YahooEtfSession:
         }]}})
 
 
-def test_ewy_registry_and_daily_identity_are_validated_offline() -> None:
-    assert ETF_REGISTRY["EWY"]["source_ticker"] == "EWY"
-    assert ETF_REGISTRY["EWY"]["official_fund_name"] == "iShares MSCI South Korea ETF"
+@pytest.mark.parametrize(
+    ("symbol", "issuer", "official_name", "multiple"),
+    (
+        ("SOXX", "iShares", "iShares Semiconductor ETF", 1),
+        ("EWY", "iShares", "iShares MSCI South Korea ETF", 1),
+        ("SOXL", "Direxion", "Direxion Daily Semiconductor Bull 3X Shares", 3),
+        ("TQQQ", "ProShares", "ProShares UltraPro QQQ", 3),
+        ("QLD", "ProShares", "ProShares Ultra QQQ", 2),
+        ("TLT", "iShares", "iShares 20+ Year Treasury Bond ETF", 1),
+        ("QQQ", "Invesco", "Invesco QQQ Trust, Series 1", 1),
+        ("SPY", "State Street Global Advisors", "SPDR S&P 500 ETF Trust", 1),
+    ),
+)
+def test_watchlist_etf_registry_and_daily_identity_are_validated_offline(
+    symbol: str, issuer: str, official_name: str, multiple: int,
+) -> None:
+    spec = ETF_REGISTRY[symbol]
+    assert spec["source_ticker"] == symbol
+    assert spec["issuer"] == issuer
+    assert spec["official_fund_name"] == official_name
+    assert spec["official_exchange"] in {"NASDAQ", "NYSE Arca"}
+    assert str(spec["official_identity_url"]).startswith("https://")
+    assert spec["expected_currency"] == "USD"
+    assert spec["accepted_yahoo_exchanges"]
+    assert spec["leverage_multiple"] == multiple
+    assert spec["automation_enabled"] is True
     frame = fetch_global_etf(
-        "EWY", date(2026, 8, 1), date(2026, 8, 7), session=YahooEtfSession,
+        symbol, date(2026, 8, 1), date(2026, 8, 7), session=YahooEtfSession,
         retrieved_at=datetime(2026, 8, 8, tzinfo=timezone.utc),
     )
-    assert frame[["symbol", "source_ticker", "currency", "exchange"]].iloc[0].tolist() == [
-        "EWY", "EWY", "USD", "PCX",
+    assert frame[["symbol", "source_ticker", "currency"]].iloc[0].tolist() == [
+        symbol, symbol, "USD",
     ]
+    assert frame["exchange"].iloc[0] in spec["accepted_yahoo_exchanges"]
 
 
 def _daily_gap_payload(ticker: str, instrument_type: str, gap_kind: str) -> dict:

@@ -9,6 +9,7 @@ from stock_data.contracts.registry import CONTRACTS as REGISTERED_CONTRACTS
 from stock_data.contracts.kr_index_fundamental_daily import (
     KR_INDEX_FUNDAMENTAL_DAILY,
 )
+from stock_data.contracts.global_etf import GLOBAL_ETF_DAILY_SYMBOLS
 
 
 CONTRACTS = {
@@ -24,7 +25,7 @@ DATASET_SYMBOL_REGISTRY: Mapping[str, tuple[str, ...]] = MappingProxyType({
         "SP500", "NASDAQ_COMPOSITE", "NASDAQ100", "SOX", "DOW_JONES",
         "DOLLAR_INDEX",
     ),
-    "global_etf_price_daily": ("SOXX", "EWY"),
+    "global_etf_price_daily": GLOBAL_ETF_DAILY_SYMBOLS,
     "global_commodity_futures_daily": (
         "NASDAQ100_FUTURES", "GOLD", "WTI_CRUDE_OIL",
         "SP500_FUTURES", "DOW_FUTURES",
@@ -434,6 +435,7 @@ _CLASSIFICATION_IDS = {
     DatasetRefreshClass.DAILY_SOURCE: frozenset("""
         kr_index_daily kr_index_fundamental_daily kr_equity_price_daily
         kr_equity_market_cap_daily kr_equity_universe_daily
+        kr_etf_price_daily
         global_index_price_daily global_etf_price_daily global_commodity_futures_daily
         fred_treasury_yield_daily fred_usd_fx_daily fred_vix_daily
         kr_short_selling_balance_daily kr_short_selling_investor_daily kr_market_liquidity_daily
@@ -459,7 +461,7 @@ _CLASSIFICATION_IDS = {
     """.split()),
     DatasetRefreshClass.MONTHLY: frozenset(),
     DatasetRefreshClass.EVENT_DRIVEN: frozenset("""
-        kr_equity_master kr_equity_dividend kr_equity_rights_schedule
+        kr_equity_master kr_etf_master kr_equity_dividend kr_equity_rights_schedule
         kr_equity_dividend_source_observation kr_equity_stock_issuance_source_observation
     """.split()),
     DatasetRefreshClass.SNAPSHOT: frozenset("""
@@ -613,6 +615,7 @@ _LANE_GROUPS = {
     "GLOBAL_INDEX_DAILY": frozenset({"global_index_price_daily"}),
     "FRED_DAILY": frozenset({"fred_treasury_yield_daily", "fred_usd_fx_daily", "fred_vix_daily", "us_treasury_spread_daily"}),
     "GLOBAL_ETF_DAILY": frozenset({"global_etf_price_daily"}),
+    "KR_ETF_DAILY": frozenset({"kr_etf_master", "kr_etf_price_daily"}),
     "GLOBAL_COMMODITY_DAILY": frozenset({"global_commodity_futures_daily"}),
     "VKOSPI_DAILY": frozenset({"kr_vkospi_daily"}),
     "LS_T8462_DAILY": frozenset({"ls_t8462_daily_raw"}),
@@ -664,6 +667,7 @@ _ECONOMIC_GROUPS = {
         "kb_global_symbol_snapshot",
     ),
     "kr_equity_price": ("kr_equity_price_daily", "kr_kospi200_constituent_price_daily"),
+    "kr_etf_identity_price": ("kr_etf_master", "kr_etf_price_daily"),
     "kr_index_membership": ("kr_index_constituent_daily",),
     "kr_market_breadth": (
         "kr_market_breadth_daily", "kb_market_breadth_snapshot",
@@ -689,6 +693,7 @@ _ECONOMIC_LABELS = {
     "kr_equity_index_level": "Korean equity index levels and OHLCV",
     "global_market_price": "Global market index/symbol prices",
     "kr_equity_price": "Korean equity daily prices",
+    "kr_etf_identity_price": "Korean ETF current identity and daily prices",
     "kr_index_membership": "Korean index exact-date membership",
     "kr_market_breadth": "Korean equity market breadth",
     "kr_market_investor_flow": "Korean market investor net trading flow",
@@ -716,6 +721,7 @@ _DIRECT_GUI = frozenset("""
     kr_kospi200_option_pcr_daily kr_kospi200_option_walls_daily
     kr_kospi200_futures_nearest_listed_daily
     kr_kospi200_futures_investor_net_purchase_daily kr_equity_price_daily
+    kr_etf_master
     kr_short_selling_trading_daily kr_short_selling_balance_daily kr_stock_lending_daily
     kr_stock_lending_market_daily ls_t8462_daily_raw
 """.split())
@@ -726,6 +732,7 @@ _STATUS_ONLY_GUI = frozenset("""
 kb_investor_flow_snapshot kr_credit_balance_daily kr_derivatives_futures_daily
 kr_derivatives_options_daily kr_equity_canonical_universe_daily
 kr_equity_market_cap_daily kr_equity_universe_daily kr_index_constituent_daily
+kr_etf_price_daily
 kr_index_fundamental_daily kr_kospi200_constituent_price_daily
 kr_kospi200_futures_provider_bridge_daily kr_kospi200_options_provider_bridge_daily
 kr_market_liquidity_daily kr_short_selling_investor_daily
@@ -792,7 +799,7 @@ _SOURCE_OBSERVATION_IDS = frozenset({
     "kr_equity_stock_issuance_source_observation", "ls_t8428_surrounding_funds_source_observation",
 })
 _EVENT_IDS = frozenset({
-    "kr_equity_master", "kr_equity_dividend", "kr_equity_rights_schedule",
+    "kr_equity_master", "kr_etf_master", "kr_equity_dividend", "kr_equity_rights_schedule",
     "kr_equity_dividend_source_observation", "kr_equity_stock_issuance_source_observation",
 })
 _STATIC_COMPLETE_IDS = _HISTORICAL_SEGMENT_IDS | _RETAINED_HISTORY_ONLY_IDS | frozenset({

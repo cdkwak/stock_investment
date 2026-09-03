@@ -46,7 +46,10 @@ from stock_data.providers.tossinvest import TossInvestClient
 from stock_data.storage.atomic_parquet import read_kr_index_daily
 from stock_data.storage.contract_parquet import read_dataset
 from stock_data.contracts.kospi200_index_daily import KR_KOSPI200_INDEX_DAILY
-from stock_data.contracts.global_etf import GLOBAL_ETF_PRICE_DAILY
+from stock_data.contracts.global_etf import (
+    GLOBAL_ETF_DAILY_SYMBOLS,
+    GLOBAL_ETF_PRICE_DAILY,
+)
 from stock_data.contracts.data_v1 import (
     KR_STOCK_LENDING_DAILY,
     KR_STOCK_LENDING_MARKET_DAILY,
@@ -203,7 +206,7 @@ LANE_SCHEDULES = MappingProxyType({
         lane="GLOBAL_ETF_DAILY", cadence_group="GLOBAL_DAILY_FINAL",
         market=ExchangeMarket.US, phases=("global_etfs",),
         dataset_ids=("global_etf_price_daily",),
-        accepted_source="Yahoo chart API: registered SOXX and EWY ETFs",
+        accepted_source="Yahoo chart API: contract-registered ETFs",
     ),
     "GLOBAL_COMMODITY_DAILY": LaneSchedule(
         lane="GLOBAL_COMMODITY_DAILY", cadence_group="GLOBAL_DAILY_FINAL",
@@ -608,7 +611,7 @@ _GLOBAL_INDEX_TICKERS = MappingProxyType({
     "SOX": "^SOX",
     "DOW_JONES": "^DJI",
 })
-_GLOBAL_ETF_SYMBOLS = ("SOXX", "EWY")
+_GLOBAL_ETF_SYMBOLS = GLOBAL_ETF_DAILY_SYMBOLS
 _GLOBAL_FUTURES_SYMBOLS = (
     "NASDAQ100_FUTURES", "GOLD", "WTI_CRUDE_OIL",
     "SP500_FUTURES", "DOW_FUTURES", "DOLLAR_INDEX_FUTURES",

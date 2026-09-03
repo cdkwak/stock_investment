@@ -1568,8 +1568,8 @@ DAILY_LANE_READINESS = (
     LaneReadiness("GLOBAL_ETF_DAILY", LaneReadinessStatus.READY,
         "Yahoo chart", "global trading daily", "explicit registered-symbol reviewed end date",
         "global_current_refresh yahoo_etf prepare/promote", "run checkpoint plus promotion journal",
-        "confirmed symbol-scoped CAS promotion and exact-session pre-network no-op", "SOXX/EWY health adapter", True,
-        None, "schedule the explicitly registered SOXX and EWY symbols"),
+        "confirmed symbol-scoped CAS promotion and exact-session pre-network no-op", "contract-registry ETF health adapter", True,
+        None, "schedule the explicitly registered Yahoo ETF symbols"),
     LaneReadiness("GLOBAL_COMMODITY_DAILY", LaneReadinessStatus.READY,
         "Yahoo chart", "global futures completed daily", "next US business day after 08:00 ET",
         "global_current_refresh yahoo_dashboard_futures prepare/promote", "run checkpoint plus promotion journal",
@@ -1904,6 +1904,18 @@ CORE_DATASET_SPECS = REPRESENTATIVE_DATASET_SPECS + (
         1, provider_auth_id="yahoo", status=OperationalStatus.AUTO_READY,
         cadence=Cadence.GLOBAL_DAILY, idempotency=IdempotencyStatus.CONFIRMED,
         dashboard_required=True, automation_enabled=True),
+    _registered_manual_spec(
+        "kr_etf_master", "Current Korean ETF identities", "KRX/pykrx",
+        1, provider_auth_id="pykrx_login", status=OperationalStatus.MANUAL_READY,
+        pit=PitStatus.PIT_BLOCKED, idempotency=IdempotencyStatus.CONFIRMED,
+        automation_enabled=False,
+    ),
+    _registered_manual_spec(
+        "kr_etf_price_daily", "Selected Korean ETF daily OHLCV and NAV", "KRX/pykrx",
+        1, provider_auth_id="pykrx_login", status=OperationalStatus.MANUAL_READY,
+        pit=PitStatus.PIT_BLOCKED, idempotency=IdempotencyStatus.CONFIRMED,
+        automation_enabled=False,
+    ),
     _registered_manual_spec("kr_vkospi_daily", "Official KRX VKOSPI daily", "KRX MDCSTAT01201:1300",
         1, provider_auth_id="krx_open_api", status=OperationalStatus.AUTO_READY,
         pit=PitStatus.PIT_LIMITED, idempotency=IdempotencyStatus.CONFIRMED,
@@ -2066,7 +2078,7 @@ def build_daily_universe_gap_status(
             plan_status=status,
             pre_network_noop=noop,
         ))
-    if len(rows) != 62:
+    if len(rows) != 63:
         raise RuntimeError("daily-grain universe count differs from the typed registry")
     return tuple(rows)
 

@@ -1862,6 +1862,27 @@ def _write_equity_master(
     pd.DataFrame(rows, columns=columns).to_parquet(path / "data.parquet", index=False)
 
 
+def _write_kr_etf_master(root: Path) -> None:
+    path = root / "data/normalized/kr_etf_master/market=KRX"
+    path.mkdir(parents=True)
+    pd.DataFrame([
+        {
+            "symbol": "123320", "name": "TIGER 레버리지", "market": "KRX",
+            "security_type": "ETF", "listing_status": "LISTED_AT_SOURCE_DATE",
+            "listing_date": None, "leverage_multiple": 2, "source": "pykrx",
+            "source_operation": "get_etf_ticker_list+get_etf_ticker_name",
+            "source_date": "2026-09-02",
+        },
+        {
+            "symbol": "243880", "name": "TIGER 200 IT 레버리지", "market": "KRX",
+            "security_type": "ETF", "listing_status": "LISTED_AT_SOURCE_DATE",
+            "listing_date": None, "leverage_multiple": 2, "source": "pykrx",
+            "source_operation": "get_etf_ticker_list+get_etf_ticker_name",
+            "source_date": "2026-09-02",
+        },
+    ]).to_parquet(path / "data.parquet", index=False)
+
+
 def _equity_health(
     *, latest: str = "2026-08-19", expected: str = "2026-08-19",
     freshness: str = "CURRENT",
@@ -1908,6 +1929,24 @@ def test_equity_search_resolves_exact_identity_and_excludes_preferred_shares(tmp
         ("005930", "삼성전자", "KOSPI"),
     ]
     assert service.search("005935").matches == ()
+
+
+def test_equity_search_adds_retained_korean_etfs_without_changing_stock_filter(tmp_path):
+    _write_equity_master(tmp_path, "KOSPI", _equity_master_rows("KOSPI"))
+    _write_equity_master(tmp_path, "KOSDAQ", _equity_master_rows("KOSDAQ"))
+    _write_kr_etf_master(tmp_path)
+
+    service = EquityChartService(tmp_path)
+    tiger = service.search("123320").matches[0]
+    stock = service.search("005930").matches[0]
+
+    assert (tiger.symbol, tiger.name, tiger.market, tiger.security_type) == (
+        "123320", "TIGER 레버리지", "KRX", "ETF",
+    )
+    assert tiger.leverage_multiple == 2
+    assert (stock.symbol, stock.market, stock.security_type) == (
+        "005930", "KOSPI", "보통주",
+    )
 
 
 def test_equity_series_preserves_original_ohlcv_and_computes_display_indicators(tmp_path):
@@ -2133,6 +2172,12 @@ def test_us_etf_catalog_has_exact_fourteen_fund_identities_and_official_referenc
     assert "Treasury Bond ETF" in by_symbol["TLT"].name
     assert "BuyWrite" in by_symbol["TLTW"].name
     assert all(by_symbol[symbol].distribution_style for symbol in ("TLTW", "QQQI", "QDVO", "GPIQ", "JEPQ", "JEPI"))
+    assert {symbol: by_symbol[symbol].leverage_multiple for symbol in (
+        "SOXL", "TQQQ", "QLD", "TLT", "QQQ", "SPY", "EWY",
+    )} == {
+        "SOXL": 3, "TQQQ": 3, "QLD": 2, "TLT": 1,
+        "QQQ": 1, "SPY": 1, "EWY": 1,
+    }
 
 
 def test_us_etf_production_scope_is_searchable_but_numeric_free_before_any_price_read(tmp_path):
@@ -2143,12 +2188,14 @@ def test_us_etf_production_scope_is_searchable_but_numeric_free_before_any_price
 
     assert view.identity == spy
     assert not view.displays_values
-    assert view.display_state is DashboardDisplayState.PROHIBITED
+    assert view.display_state is DashboardDisplayState.UNAVAILABLE
     assert view.frame.empty and view.change is None and view.period_high is None
-    assert view.freshness == "BLOCKED"
-    assert "SOXX/EWY-only" in (view.unavailable_reason or "")
-    assert "no external lookup" in (view.unavailable_reason or "")
+    assert "OHLCV" in (view.unavailable_reason or "")
     assert service.query.files_read == []
+
+    koru = service.series(service.search("KORU").matches[0], "120D", health=_us_etf_health())
+    assert koru.display_state is DashboardDisplayState.PROHIBITED
+    assert "no external lookup" in (koru.unavailable_reason or "")
 
 
 def test_us_etf_authorized_fixture_requires_typed_health_and_provider_native_usd_original(tmp_path):

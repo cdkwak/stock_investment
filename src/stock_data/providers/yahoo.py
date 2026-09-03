@@ -9,7 +9,11 @@ import numpy as np
 import pandas as pd
 import requests
 
-from stock_data.contracts.global_etf import GLOBAL_ETF_PRICE_DAILY
+from stock_data.contracts.global_etf import (
+    GLOBAL_ETF_DAILY_SYMBOLS,
+    GLOBAL_ETF_PRICE_DAILY,
+    GLOBAL_ETF_REGISTRY,
+)
 from stock_data.contracts.global_market import GLOBAL_COMMODITY_FUTURES_DAILY, GLOBAL_INDEX_PRICE_DAILY
 from stock_data.contracts.market_60m import MARKET_PRICE_60M_OBSERVATION
 from stock_data.storage.contract_parquet import read_dataset, write_dataset_atomic
@@ -26,33 +30,8 @@ CONFIG = {
     "DOW_JONES": "^DJI",
     "DOLLAR_INDEX": "DX-Y.NYB",
 }
-ETF_REGISTRY = {
-    "SOXX": {
-        "source_ticker": "SOXX", "provider": "yahoo_chart_api",
-        "instrument_type": "ETF", "issuer": "iShares",
-        "official_fund_name": "iShares Semiconductor ETF",
-        "official_exchange": "NASDAQ", "official_cusip": "464287523",
-        "official_identity_url": "https://www.ishares.com/us/products/239705/SOXX",
-        "expected_currency": "USD",
-        "accepted_yahoo_exchanges": ("NMS", "NASDAQ", "NasdaqGM"),
-        "cadence": "GLOBAL_DAILY", "freshness_policy": "reviewed_us_completed_session",
-        "validation": "global_etf_price_daily_v1", "automation_enabled": True,
-    },
-    "EWY": {
-        "source_ticker": "EWY", "provider": "yahoo_chart_api",
-        "instrument_type": "ETF", "issuer": "iShares",
-        "official_fund_name": "iShares MSCI South Korea ETF",
-        "official_exchange": "NYSE Arca",
-        "official_identity_url": (
-            "https://www.ishares.com/us/products/239681/"
-            "ishares-msci-south-korea-etf"
-        ),
-        "expected_currency": "USD",
-        "accepted_yahoo_exchanges": ("PCX", "NYSEArca", "NYSE Arca"),
-        "cadence": "GLOBAL_DAILY", "freshness_policy": "reviewed_us_completed_session",
-        "validation": "global_etf_price_daily_v1", "automation_enabled": True,
-    },
-}
+# Backwards-compatible provider alias; contracts/global_etf.py is authoritative.
+ETF_REGISTRY = GLOBAL_ETF_REGISTRY
 COMMODITY_CONFIG = {
     "GOLD": ("GC=F", "Gold"), "SILVER": ("SI=F", "Silver"),
     "COPPER": ("HG=F", "Copper"), "WTI_CRUDE_OIL": ("CL=F", "WTI Crude Oil"),
@@ -62,7 +41,6 @@ COMMODITY_CONFIG = {
     "DOW_FUTURES": ("YM=F", "Dow E-mini vendor-continuous future"),
 }
 GLOBAL_INDEX_DAILY_SYMBOLS = tuple(CONFIG)
-GLOBAL_ETF_DAILY_SYMBOLS = tuple(ETF_REGISTRY)
 GLOBAL_FUTURES_DAILY_SYMBOLS = (
     "NASDAQ100_FUTURES", "GOLD", "WTI_CRUDE_OIL",
     "SP500_FUTURES", "DOW_FUTURES",

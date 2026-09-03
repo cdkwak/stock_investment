@@ -1,3 +1,6 @@
+from types import MappingProxyType
+from typing import Mapping
+
 from stock_data.contracts.base import ColumnContract, DatasetContract
 
 
@@ -28,3 +31,129 @@ GLOBAL_ETF_PRICE_DAILY = DatasetContract(
         ColumnContract("adjustment_status", "string", False),
     ),
 )
+
+
+# This is the single symbol/identity authority for the Yahoo daily ETF lane.
+# A symbol absent here must be rejected before a provider request is attempted.
+GLOBAL_ETF_REGISTRY: Mapping[str, Mapping[str, object]] = MappingProxyType({
+    "SOXX": MappingProxyType({
+        "source_ticker": "SOXX", "provider": "yahoo_chart_api",
+        "instrument_type": "ETF", "issuer": "iShares",
+        "official_fund_name": "iShares Semiconductor ETF",
+        "official_exchange": "NASDAQ", "official_cusip": "464287523",
+        "official_identity_url": "https://www.ishares.com/us/products/239705/SOXX",
+        "expected_currency": "USD",
+        "accepted_yahoo_exchanges": ("NMS", "NASDAQ", "NasdaqGM"),
+        "leverage_multiple": 1,
+        "cadence": "GLOBAL_DAILY", "freshness_policy": "reviewed_us_completed_session",
+        "validation": "global_etf_price_daily_v1", "automation_enabled": True,
+    }),
+    "EWY": MappingProxyType({
+        "source_ticker": "EWY", "provider": "yahoo_chart_api",
+        "instrument_type": "ETF", "issuer": "iShares",
+        "official_fund_name": "iShares MSCI South Korea ETF",
+        "official_exchange": "NYSE Arca",
+        "official_identity_url": (
+            "https://www.ishares.com/us/products/239681/"
+            "ishares-msci-south-korea-etf"
+        ),
+        "expected_currency": "USD",
+        "accepted_yahoo_exchanges": ("PCX", "NYSEArca", "NYSE Arca"),
+        "leverage_multiple": 1,
+        "cadence": "GLOBAL_DAILY", "freshness_policy": "reviewed_us_completed_session",
+        "validation": "global_etf_price_daily_v1", "automation_enabled": True,
+    }),
+    "SOXL": MappingProxyType({
+        "source_ticker": "SOXL", "provider": "yahoo_chart_api",
+        "instrument_type": "ETF", "issuer": "Direxion",
+        "official_fund_name": "Direxion Daily Semiconductor Bull 3X Shares",
+        "official_exchange": "NYSE Arca",
+        "official_identity_url": "https://www.direxion.com/product/daily-semiconductor-bull-bear-3x-etfs",
+        "expected_currency": "USD",
+        "accepted_yahoo_exchanges": ("PCX", "NYSEArca", "NYSE Arca"),
+        "leverage_multiple": 3,
+        "cadence": "GLOBAL_DAILY", "freshness_policy": "reviewed_us_completed_session",
+        "validation": "global_etf_price_daily_v1", "automation_enabled": True,
+    }),
+    "TQQQ": MappingProxyType({
+        "source_ticker": "TQQQ", "provider": "yahoo_chart_api",
+        "instrument_type": "ETF", "issuer": "ProShares",
+        "official_fund_name": "ProShares UltraPro QQQ",
+        "official_exchange": "NASDAQ",
+        "official_identity_url": "https://www.proshares.com/our-etfs/leveraged-and-inverse/tqqq",
+        "expected_currency": "USD",
+        "accepted_yahoo_exchanges": ("NMS", "NASDAQ", "NasdaqGM"),
+        "leverage_multiple": 3,
+        "cadence": "GLOBAL_DAILY", "freshness_policy": "reviewed_us_completed_session",
+        "validation": "global_etf_price_daily_v1", "automation_enabled": True,
+    }),
+    "QLD": MappingProxyType({
+        "source_ticker": "QLD", "provider": "yahoo_chart_api",
+        "instrument_type": "ETF", "issuer": "ProShares",
+        "official_fund_name": "ProShares Ultra QQQ",
+        "official_exchange": "NYSE Arca",
+        "official_identity_url": "https://www.proshares.com/our-etfs/leveraged-and-inverse/qld",
+        "expected_currency": "USD",
+        "accepted_yahoo_exchanges": ("PCX", "NYSEArca", "NYSE Arca"),
+        "leverage_multiple": 2,
+        "cadence": "GLOBAL_DAILY", "freshness_policy": "reviewed_us_completed_session",
+        "validation": "global_etf_price_daily_v1", "automation_enabled": True,
+    }),
+    "TLT": MappingProxyType({
+        "source_ticker": "TLT", "provider": "yahoo_chart_api",
+        "instrument_type": "ETF", "issuer": "iShares",
+        "official_fund_name": "iShares 20+ Year Treasury Bond ETF",
+        "official_exchange": "NASDAQ",
+        "official_identity_url": "https://www.ishares.com/us/products/239454/ishares-20-year-treasury-bond-etf",
+        "expected_currency": "USD",
+        "accepted_yahoo_exchanges": ("NMS", "NASDAQ", "NasdaqGM"),
+        "leverage_multiple": 1,
+        "cadence": "GLOBAL_DAILY", "freshness_policy": "reviewed_us_completed_session",
+        "validation": "global_etf_price_daily_v1", "automation_enabled": True,
+    }),
+    "QQQ": MappingProxyType({
+        "source_ticker": "QQQ", "provider": "yahoo_chart_api",
+        "instrument_type": "ETF", "issuer": "Invesco",
+        "official_fund_name": "Invesco QQQ Trust, Series 1",
+        "official_exchange": "NASDAQ",
+        "official_identity_url": "https://www.invesco.com/qqq-etf/en/home.html",
+        "expected_currency": "USD",
+        "accepted_yahoo_exchanges": ("NMS", "NASDAQ", "NasdaqGM"),
+        "leverage_multiple": 1,
+        "cadence": "GLOBAL_DAILY", "freshness_policy": "reviewed_us_completed_session",
+        "validation": "global_etf_price_daily_v1", "automation_enabled": True,
+    }),
+    "SPY": MappingProxyType({
+        "source_ticker": "SPY", "provider": "yahoo_chart_api",
+        "instrument_type": "ETF", "issuer": "State Street Global Advisors",
+        "official_fund_name": "SPDR S&P 500 ETF Trust",
+        "official_exchange": "NYSE Arca",
+        "official_identity_url": "https://www.ssga.com/us/en/individual/etfs/state-street-spdr-sp-500-etf-trust-spy",
+        "expected_currency": "USD",
+        "accepted_yahoo_exchanges": ("PCX", "NYSEArca", "NYSE Arca"),
+        "leverage_multiple": 1,
+        "cadence": "GLOBAL_DAILY", "freshness_policy": "reviewed_us_completed_session",
+        "validation": "global_etf_price_daily_v1", "automation_enabled": True,
+    }),
+})
+
+GLOBAL_ETF_DAILY_SYMBOLS = tuple(GLOBAL_ETF_REGISTRY)
+
+
+def global_etf_leverage_multiple(symbol: str) -> int:
+    """Return the explicit exposure multiple for a registered daily ETF."""
+
+    key = str(symbol).strip().upper()
+    try:
+        value = GLOBAL_ETF_REGISTRY[key]["leverage_multiple"]
+    except KeyError as error:
+        raise ValueError(f"unregistered global ETF: {key}") from error
+    if type(value) is not int or value < 1:
+        raise ValueError(f"invalid leverage multiple for global ETF: {key}")
+    return value
+
+
+__all__ = [
+    "GLOBAL_ETF_DAILY_SYMBOLS", "GLOBAL_ETF_PRICE_DAILY", "GLOBAL_ETF_REGISTRY",
+    "global_etf_leverage_multiple",
+]

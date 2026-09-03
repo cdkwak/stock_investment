@@ -1,43 +1,38 @@
-# Global ETF / SOXX and EWY onboarding gates
+# Global ETF daily onboarding gates
 
-Status: `DAILY_AUTOMATION_ACTIVE / SYMBOL_BOUND / EWY_REGISTERED_NOT_YET_COLLECTED / PIT_BLOCKED`.
+Status: `DAILY_AUTOMATION_ACTIVE / EIGHT_SYMBOL_REGISTRY / SIX_SYMBOLS_NOT_YET_COLLECTED / PIT_BLOCKED`.
 
-SOXX is the `iShares Semiconductor ETF`, an ETF listed on NASDAQ under ticker
-`SOXX` (CUSIP `464287523`). It is not the SOX index, and neither series is a
-fallback for the other. The official identity evidence is the iShares product
-page: https://www.ishares.com/us/products/239705/SOXX
+`global_etf_price_daily` stores provider-native unadjusted OHLCV and adjusted
+close separately. Its single identity authority is
+`GLOBAL_ETF_REGISTRY` in `src/stock_data/contracts/global_etf.py`:
 
-The generic `global_etf_price_daily` contract preserves provider-native
-unadjusted OHLCV and adjusted close separately. The explicit 2026-08-19 user
-authorization closed the first manual Landing gate, and these checks passed:
+| Symbol | Official fund identity | Official exchange | Exposure multiple | Retained state |
+|---|---|---|---:|---|
+| SOXX | iShares Semiconductor ETF | NASDAQ | 1 | retained through 2026-08-18 |
+| EWY | iShares MSCI South Korea ETF | NYSE Arca | 1 | first collected 2026-09-02 |
+| SOXL | Direxion Daily Semiconductor Bull 3X Shares | NYSE Arca | 3 | not yet collected |
+| TQQQ | ProShares UltraPro QQQ | NASDAQ | 3 | not yet collected |
+| QLD | ProShares Ultra QQQ | NYSE Arca | 2 | not yet collected |
+| TLT | iShares 20+ Year Treasury Bond ETF | NASDAQ | 1 | not yet collected |
+| QQQ | Invesco QQQ Trust, Series 1 | NASDAQ | 1 | not yet collected |
+| SPY | SPDR S&P 500 ETF Trust | NYSE Arca | 1 | not yet collected |
 
-1. official identity and provider metadata agree on `SOXX`, ETF, USD, NASDAQ,
-   and daily granularity;
-2. Data Status explicitly reviews the operation;
-3. the completed U.S. session/finality rule is reviewed;
-4. provider retention/revision handling is reviewed.
+Every entry also binds its issuer product page, USD currency, accepted Yahoo
+exchange identifiers, ETF instrument type, daily granularity, cadence, and
+validation contract. Leverage is explicit contract metadata and is exposed to
+the display-independent identity catalog; consumers must not infer it from the
+fund name.
 
-The five-session 2026-08-11..17 sample passed identity, OHLC, adjusted-close,
-volume, duplicate, null, and session validation. The promoted one-year slice is
-2025-08-18..2026-08-17 with 251 rows matching all 251 XNYS sessions and no
-extra dates. Identical-range replay is a pre-network API-0 no-op. Both live
-calls used immutable Landing, retry zero, candidate validation, and digest-bound
-CAS promotion. Predictive use remains blocked pending a vintage policy,
-Round 3 advanced the retained slice to 2026-08-18 (252 XNYS rows) through one
-overlap-preserving call. `STOCK_DATA_GLOBAL_ETF_SOXX_DAILY` is installed at
-06:10 KST. Its actual trigger and second trigger both completed with result 0;
-the second was a pre-network API-0 no-op. That receipt remains the retained SOXX
-baseline.
+The installed 06:10 KST task name
+`STOCK_DATA_GLOBAL_ETF_SOXX_DAILY` remains unchanged for compatibility. Its
+registry-default invocation now covers all eight symbols. Each symbol prepares
+and promotes through an independent immutable Landing capture and whole-dataset
+CAS transaction, so one identity or data failure preserves every prior valid
+row and does not block valid peers.
 
-EWY is now registered separately as the `iShares MSCI South Korea ETF` under
-Yahoo ticker `EWY`; it is not a Korea equity index and is not interchangeable
-with KORU. Its first live call must validate exact ticker, ETF instrument type,
-USD currency, a registered Yahoo NYSE Arca exchange identifier, and `1d`
-granularity before any candidate exists. Until that bounded run is promoted,
-EWY remains `REGISTERED_NOT_YET_COLLECTED`.
-
-The 06:10 KST `STOCK_DATA_GLOBAL_ETF_SOXX_DAILY` task name is retained for
-compatibility. Its registry-default invocation now covers SOXX and EWY without
-a Windows task change. Each symbol prepares and promotes through an independent
-whole-dataset CAS transaction, so an EWY identity failure preserves all SOXX
-rows and does not block SOXX advancement.
+SOXX is an ETF, not the SOX index, and neither is a fallback for the other.
+EWY is not a Korean equity index and is not interchangeable with KORU. The six
+new symbols remain `REGISTERED_NOT_YET_COLLECTED` until their first bounded
+capture is reviewed and digest-bound promotion succeeds. Current descriptive
+use is allowed after validation; predictive use remains blocked pending a
+vintage/finality policy.

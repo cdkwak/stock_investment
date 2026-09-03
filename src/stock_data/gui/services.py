@@ -28,6 +28,11 @@ from stock_data.contracts.toss_short_watchlist import (
     TOSS_SHORT_WATCHLIST_VERSION,
 )
 from stock_data.contracts.global_market import FRED_DEXJPUS_IDENTITY
+from stock_data.contracts.global_etf import (
+    GLOBAL_ETF_REGISTRY,
+    global_etf_leverage_multiple,
+)
+from stock_data.contracts.kr_etf import KR_ETF_MASTER
 from stock_data.gui.query import LocalParquetQuery
 from stock_data.gui.korean_equity_nxt_session import classify_korean_equity_nxt_timestamp
 from stock_data.orchestration.exchange_calendar import ExchangeMarket, ExchangeTradingCalendar
@@ -56,6 +61,7 @@ from stock_data.validation.kr_index_fundamental_daily import (
 from stock_data.validation.ls_t1633 import validate_ls_t1633_program_trading
 from stock_data.validation.market_15m import audit_market_15m_bars, validate_market_price_15m
 from stock_data.validation.market_60m import validate_market_price_60m
+from stock_data.validation.kr_etf import validate_kr_etf_master
 from stock_research.exploratory_scanner import (
     ExploratoryCandidateView,
     LocalExploratoryCandidateScanner,
@@ -2147,6 +2153,7 @@ class EquityIdentity:
     leverage_style: str | None = None
     distribution_style: str | None = None
     identity_source: str | None = None
+    leverage_multiple: int | None = None
 
     @property
     def key(self) -> tuple[str, str]:
@@ -2246,9 +2253,9 @@ US_ETF_CHART_IDENTITIES = (
 )
 
 
-# The retained global-ETF lane is symbol-bound to SOXX and EWY. SOXX remains a
-# separate Dashboard asset; EWY is the catalog symbol authorized for this local
-# chart service after its first contract-valid retained promotion.
+# The retained global-ETF lane is contract-registry-bound. SOXX remains a
+# separate Dashboard asset; catalog symbols still require contract-valid local
+# rows before this chart service can expose numeric data.
 US_ETF_OFFICIAL_IDENTITY_SOURCES = {
     "SOXL": "https://www.direxion.com/product/daily-semiconductor-bull-bear-3x-etfs",
     "TQQQ": "https://www.proshares.com/our-etfs/leveraged-and-inverse/tqqq",
@@ -2266,10 +2273,21 @@ US_ETF_OFFICIAL_IDENTITY_SOURCES = {
     "JEPI": "https://am.jpmorgan.com/us/en/asset-management/adv/products/jpmorgan-equity-premium-income-etf-etf-shares-46641q332",
 }
 US_ETF_CHART_IDENTITIES = tuple(
-    replace(identity, identity_source=US_ETF_OFFICIAL_IDENTITY_SOURCES[identity.symbol])
+    replace(
+        identity,
+        identity_source=US_ETF_OFFICIAL_IDENTITY_SOURCES[identity.symbol],
+        leverage_multiple=(
+            global_etf_leverage_multiple(identity.symbol)
+            if identity.symbol in GLOBAL_ETF_REGISTRY else None
+        ),
+    )
     for identity in US_ETF_CHART_IDENTITIES
 )
-US_ETF_CHART_AUTHORIZED_SYMBOLS: frozenset[str] = frozenset({"EWY"})
+US_ETF_CHART_AUTHORIZED_SYMBOLS: frozenset[str] = frozenset(
+    identity.symbol
+    for identity in US_ETF_CHART_IDENTITIES
+    if identity.symbol in GLOBAL_ETF_REGISTRY
+)
 
 
 @dataclass(frozen=True)
@@ -2556,7 +2574,7 @@ class EquityChartService:
             and item not in exact_ticker
         ]
         matches = tuple((exact_ticker + exact_name + partial_name)[:limit])
-        reason = None if matches else "일치하는 KOSPI/KOSDAQ 보통주를 찾지 못했습니다."
+        reason = None if matches else "일치하는 KOSPI/KOSDAQ 보통주 또는 KRX ETF를 찾지 못했습니다."
         return EquitySearchView(query, matches, reason)
 
     def series(
@@ -2760,6 +2778,25 @@ class EquityChartService:
                 listing_date=self._optional_date(row.listing_date),
                 security_type=str(row.security_type_name),
             ))
+        etf_root = self.root / "data/normalized/kr_etf_master"
+        if etf_root.exists() and any(etf_root.rglob("data.parquet")):
+            etfs = read_dataset(etf_root, KR_ETF_MASTER, validate_kr_etf_master)
+            active_etfs = etfs.loc[
+                etfs["listing_status"].astype(str).eq("LISTED_AT_SOURCE_DATE")
+            ].sort_values(["market", "symbol"])
+            for row in active_etfs.itertuples(index=False):
+                identities.append(EquityIdentity(
+                    symbol=str(row.symbol),
+                    name=str(row.name),
+                    market=str(row.market),
+                    isin=None,
+                    listing_date=self._optional_date(row.listing_date),
+                    security_type=str(row.security_type),
+                    identity_source="KRX/pykrx retained kr_etf_master",
+                    leverage_multiple=int(row.leverage_multiple),
+                ))
+        if len({identity.key for identity in identities}) != len(identities):
+            raise ValueError("duplicate Korean stock/ETF catalog identity")
         self._catalog_cache = tuple(identities)
         return self._catalog_cache
 
@@ -2994,12 +3031,12 @@ class USEtfChartService:
                 period,
                 (
                     f"{canonical.symbol} is outside the Data Status-authorized local "
-                    "global_etf_price_daily symbol scope. The current accepted lane is "
-                    "SOXX/EWY-only; no external lookup, substitution, collection, or numeric "
+                    "global_etf_price_daily symbol scope. Only contract-registered symbols "
+                    "with retained local rows are eligible; no external lookup, substitution, collection, or numeric "
                     "display was performed."
                 ),
                 freshness="BLOCKED",
-                source="yahoo_chart_api; accepted local scope: SOXX and EWY",
+                source="yahoo_chart_api; contract-registered retained local scope",
                 state=DashboardDisplayState.PROHIBITED,
             )
 
