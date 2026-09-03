@@ -6,8 +6,10 @@
   const fmt = (value, digits = 2) => value === null || value === undefined || Number.isNaN(Number(value)) ? "—" : Number(value).toLocaleString("ko-KR", { minimumFractionDigits: digits, maximumFractionDigits: digits });
   const signed = (value, digits = 0) => value === null || value === undefined ? "—" : `${Number(value) > 0 ? "+" : ""}${fmt(value, digits)}`;
   const compact = (value) => window.SIChart ? SIChart.formatCompactKorean(value) : fmt(value, 0);
-  const percent = (value) => window.SIChart ? SIChart.formatPercent(value) : `${fmt(value, 1)}%`;
+  const percentile = (value) => value === null || value === undefined || !Number.isFinite(Number(value)) ? "—" : `${fmt(Math.round(Number(value)), 0)}%`;
   const pcr = (value) => window.SIChart ? SIChart.formatPcr(value) : fmt(value, 2);
+  const flowAxis = (value) => Math.abs(Number(value)) >= 10000 ? `${fmt(Number(value) / 10000, 1)}조` : `${fmt(value, 0)}억`;
+  const flowValue = (value) => Math.abs(Number(value)) >= 10000 ? `${signed(Number(value) / 10000, 1)}조원` : `${signed(Math.round(Number(value)), 0)}억원`;
   const unavailable = (reason) => `표시 불가 · ${esc(reason || "보존 데이터 없음")}`;
   const chartOptions = () => ({
     layout: { background: { color: "#fff" }, textColor: "#6b6660", fontFamily: "IBM Plex Sans KR, system-ui", fontSize: 10 },
@@ -28,6 +30,7 @@
   let mainChart, candleSeries, mainPayload, pagePayload;
   let dynamicSeries = [];
   const mainCache = new Map();
+  const flowCache = new Map();
   const hiddenFlowSeries = { KOSPI: new Set(), KOSDAQ: new Set() };
 
   function loadIndicatorState() {
@@ -224,12 +227,26 @@
     </tr>`).join("") : "";
   }
 
-  function cumulative(points) {
-    let total = 0;
-    return points.map((point, index) => {
-      if (index > 0) total += Number(point.v);
-      return { t: point.t, v: index === 0 ? 0 : Math.round(total) };
-    });
+  function flowSection(range) {
+    return flowCache.get(range) || ((pagePayload && pagePayload.sections) || {}).flows || {};
+  }
+
+  async function loadFlowRange(range) {
+    if (flowCache.has(range)) { rerenderSmallCharts(); return; }
+    document.querySelectorAll(".market-flow-meta").forEach((node) => { node.textContent = "수급 이력 확인 중"; });
+    try {
+      const response = await fetch(`/api/market?flows_range=${encodeURIComponent(range)}`);
+      const payload = response.ok ? await response.json() : null;
+      if (!payload || payload.flows_range !== range || !payload.sections || !payload.sections.flows) {
+        throw new Error(response.ok ? "요청 범위를 제공하지 못했습니다." : `HTTP ${response.status}`);
+      }
+      flowCache.set(range, payload.sections.flows);
+    } catch (error) {
+      const reason = `표시 불가 · ${esc(String(error))}`;
+      document.querySelectorAll(".market-flow-meta").forEach((node) => { node.textContent = reason; });
+      return;
+    }
+    rerenderSmallCharts();
   }
 
   function renderFlowChart(hostId, metaId, market) {
@@ -241,10 +258,10 @@
     const daily = document.querySelector(`[data-flow-mode="${marketName}"]`).classList.contains("on");
     const hidden = hiddenFlowSeries[marketName];
     const specs = Object.entries(market.series || {}).map(([key, item]) => {
-      const points = slicePoints(item.daily_points, range);
-      return { key, label: item.label, color: flowColors[key], type: daily ? "bar" : "line", points: daily ? points : cumulative(points), hidden: hidden.has(key) };
+      const points = daily ? item.daily_points : item.cumulative_points;
+      return { key, label: item.label, color: flowColors[key], type: daily ? "bar" : "line", points: points || [], hidden: hidden.has(key) };
     });
-    meta.innerHTML = `<span>기준일 ${esc(market.as_of || "—")} · ${daily ? "일별" : "기간 시작=0 누적"}</span><span class="market-series-toggles">${specs.map((spec) => `<button type="button" data-flow-series="${spec.key}" class="${spec.hidden ? "off" : ""}"><i style="background:${spec.color}"></i>${esc(spec.label)}</button>`).join("")}</span>`;
+    meta.innerHTML = `<span>기준일 ${esc(market.as_of || "—")} · ${daily ? "일별" : "선택 기간 누적"} · 단위: 억원</span><span class="market-series-toggles">${specs.map((spec) => `<button type="button" data-flow-series="${spec.key}" class="${spec.hidden ? "off" : ""}"><i style="background:${spec.color}"></i>${esc(spec.label)}</button>`).join("")}</span>`;
     meta.querySelectorAll("[data-flow-series]").forEach((button) => button.addEventListener("click", () => {
       const key = button.dataset.flowSeries;
       if (hidden.has(key)) hidden.delete(key); else hidden.add(key);
@@ -253,7 +270,7 @@
     const visible = specs.filter((spec) => !spec.hidden);
     renderSvg(host, visible[0] ? visible[0].points : [], {
       height: 210, ariaLabel: `${marketName} 투자자 ${daily ? "일별" : "누적"} 순매수`, series: visible,
-      axisFormatter: (value) => `${fmt(value, 0)}억`, valueFormatter: (value) => `${signed(Math.round(value), 0)}억원`,
+      axisFormatter: flowAxis, valueFormatter: flowValue,
     });
   }
 
@@ -270,20 +287,31 @@
 
   function renderFlows(section) {
     $("flows-unavailable").textContent = section && section.status === "UNAVAILABLE" ? unavailable(section.reason) : "";
-    const byMarket = Object.fromEntries(((section && section.markets) || []).map((market) => [market.market, market]));
-    renderFlowChart("kospi-flow-chart", "kospi-flow-meta", byMarket.KOSPI);
-    renderFlowChart("kosdaq-flow-chart", "kosdaq-flow-meta", byMarket.KOSDAQ);
+    ["KOSPI", "KOSDAQ"].forEach((marketName) => {
+      const range = rangeValue(`${marketName.toLowerCase()}-flow`, "60D");
+      const ranged = flowSection(range);
+      const market = ((ranged && ranged.markets) || []).find((item) => item.market === marketName);
+      renderFlowChart(`${marketName.toLowerCase()}-flow-chart`, `${marketName.toLowerCase()}-flow-meta`, market);
+    });
     renderBalanceChart("credit-chart", "credit-meta", section && section.credit, "#a8621a", "credit");
     if (section && section.lending) { $("lending-panel").hidden = false; renderBalanceChart("lending-chart", "lending-meta", section.lending, "#2a78d6", "lending"); }
     else $("lending-panel").hidden = true;
     const micro = section && section.microstructure;
     $("micro-unavailable").textContent = micro && micro.status !== "VALUE" ? unavailable(micro.reason) : "";
-    $("micro-rows").innerHTML = micro && micro.status === "VALUE" ? (micro.rows || []).map((row) => `<tr>
-      <td>${esc(row.name)}</td><td>${esc(row.market || "—")}</td><td>${esc(row.as_of || "—")}</td>
-      <td class="num">${row.advancing !== undefined && row.advancing !== null ? fmt(row.advancing, 0) : row.value !== undefined && row.value !== null ? compact(row.value) + "원" : "—"}</td>
-      <td class="num">${row.declining !== undefined && row.declining !== null ? fmt(row.declining, 0) : row.change_1d !== undefined && row.change_1d !== null ? signed(Math.round(row.change_1d / 1e8), 0) + "억원" : "—"}</td>
-      <td class="num">${row.unchanged !== undefined && row.unchanged !== null ? fmt(row.unchanged, 0) : row.change_5d !== undefined && row.change_5d !== null ? signed(Math.round(row.change_5d / 1e8), 0) + "억원" : "—"}</td>
-      <td class="num">${fmt(row.ad_ratio, 2)}</td>
+    const breadth = micro && micro.breadth;
+    const lendingSummary = micro && micro.lending_summary;
+    $("breadth-unavailable").textContent = breadth && breadth.status !== "VALUE" ? unavailable(breadth.reason) : "";
+    $("lending-summary-unavailable").textContent = lendingSummary && lendingSummary.status !== "VALUE" ? unavailable(lendingSummary.reason) : "";
+    $("breadth-rows").innerHTML = breadth && breadth.status === "VALUE" ? (breadth.rows || []).map((row) => `<tr>
+      <td>${esc(row.market || "—")}</td><td>${esc(row.as_of || "—")}</td>
+      <td class="num up">${fmt(row.advancing, 0)}</td><td class="num down">${fmt(row.declining, 0)}</td>
+      <td class="num">${fmt(row.unchanged, 0)}</td><td class="num">${fmt(row.ad_ratio, 2)}</td>
+    </tr>`).join("") : "";
+    $("lending-summary-rows").innerHTML = lendingSummary && lendingSummary.status === "VALUE" ? (lendingSummary.rows || []).map((row) => `<tr>
+      <td>${esc(row.market || "—")}</td><td>${esc(row.as_of || "—")}</td>
+      <td class="num">${row.value !== undefined && row.value !== null ? compact(row.value) + "원" : "—"}</td>
+      <td class="num ${Number(row.change_1d) > 0 ? "up" : Number(row.change_1d) < 0 ? "down" : ""}">${row.change_1d !== undefined && row.change_1d !== null ? signed(Math.round(row.change_1d / 1e8), 0) + "억원" : "—"}</td>
+      <td class="num ${Number(row.change_5d) > 0 ? "up" : Number(row.change_5d) < 0 ? "down" : ""}">${row.change_5d !== undefined && row.change_5d !== null ? signed(Math.round(row.change_5d / 1e8), 0) + "억원" : "—"}</td>
     </tr>`).join("") : "";
   }
 
@@ -293,11 +321,13 @@
       host.innerHTML = `<div class="unavailable">${unavailable(market && market.reason)}</div>`; meta.textContent = ""; return;
     }
     const current = market.current || {}, range = rangeValue(rangeCard);
-    meta.innerHTML = `<span data-explanation="weighted_per">PER <b class="num">${fmt(current.per, 2)}</b> · <span data-explanation="five_year_percentile">5년 백분위 ${percent(current.per_percentile)}</span></span><span data-explanation="weighted_pbr">PBR <b class="num">${fmt(current.pbr, 2)}</b> · <span data-explanation="five_year_percentile">5년 백분위 ${percent(current.pbr_percentile)}</span></span><span>기준일 ${esc(current.t || "—")}</span>`;
-    const perPoints = slicePoints(market.per, range), pbrPoints = slicePoints(market.pbr, range);
-    renderSvg(host, perPoints, { height: 210, ariaLabel: `${market.market} 가중 PER PBR`, series: [
-      { key: "per", label: "PER", color: "#c0392b", points: perPoints }, { key: "pbr", label: "PBR", color: "#2b62c0", points: pbrPoints },
-    ], axisFormatter: (value) => fmt(value, 2), valueFormatter: (value) => fmt(value, 2) });
+    meta.innerHTML = `<span class="market-valuation-metric"><span data-explanation="weighted_per">PER <b class="num">${fmt(current.per, 2)}</b></span><span data-explanation="five_year_percentile">5년 백분위 ${percentile(current.per_percentile)}</span></span><span class="market-valuation-metric"><span data-explanation="weighted_pbr">PBR <b class="num">${fmt(current.pbr, 2)}</b></span><span data-explanation="five_year_percentile">5년 백분위 ${percentile(current.pbr_percentile)}</span></span><span>기준일 ${esc(current.t || "—")}</span>`;
+    const series = market.series || {};
+    const perPoints = slicePoints(series.per, range), pbrPoints = slicePoints(series.pbr, range);
+    host.innerHTML = `<div class="market-valuation-panel"><span class="market-axis-name up">PER · 좌축</span><div data-valuation-series="per"></div></div><div class="market-valuation-panel"><span class="market-axis-name down">PBR · 우축</span><div data-valuation-series="pbr"></div></div>`;
+    const nonNegativeAxis = (value) => fmt(Math.max(0, Number(value)), 2);
+    renderSvg(host.querySelector('[data-valuation-series="per"]'), perPoints, { height: 120, color: "#c0392b", ariaLabel: `${market.market} 가중 PER`, axisFormatter: nonNegativeAxis, valueFormatter: (value) => fmt(value, 2) });
+    renderSvg(host.querySelector('[data-valuation-series="pbr"]'), pbrPoints, { height: 120, color: "#2b62c0", ariaLabel: `${market.market} 가중 PBR`, axisFormatter: nonNegativeAxis, valueFormatter: (value) => fmt(value, 2) });
     applyExplanations(pagePayload.explanations || {}, meta);
   }
 
@@ -341,7 +371,8 @@
       document.querySelectorAll(`${selector} button`).forEach((item) => item.classList.remove("on")); button.classList.add("on"); loadMainChart();
     })));
     document.querySelectorAll("[data-range-card] button").forEach((button) => button.addEventListener("click", () => {
-      const group = button.closest("[data-range-card]"); group.querySelectorAll("button").forEach((item) => item.classList.remove("on")); button.classList.add("on"); rerenderSmallCharts();
+      const group = button.closest("[data-range-card]"); group.querySelectorAll("button").forEach((item) => item.classList.remove("on")); button.classList.add("on");
+      if (group.dataset.rangeCard.endsWith("-flow")) loadFlowRange(button.dataset.v); else rerenderSmallCharts();
     }));
     document.querySelectorAll("[data-flow-mode]").forEach((button) => button.addEventListener("click", () => { button.classList.toggle("on"); rerenderSmallCharts(); }));
     $("market-chart-symbol").addEventListener("change", loadMainChart);
@@ -351,6 +382,7 @@
     wireControls();
     try { const response = await fetch("/api/market"); pagePayload = response.ok ? await response.json() : { sections: {} }; }
     catch (_error) { pagePayload = { sections: {} }; }
+    if (pagePayload.flows_range && pagePayload.sections && pagePayload.sections.flows) flowCache.set(pagePayload.flows_range, pagePayload.sections.flows);
     const symbols = pagePayload.chart_symbols || [];
     $("market-chart-symbol").innerHTML = symbols.length ? symbols.map((item) => `<option value="${esc(item.symbol)}">${esc(item.name)}</option>`).join("") : `<option value="KOSPI">KOSPI</option>`;
     applyExplanations(pagePayload.explanations || {}); rerenderSmallCharts(); loadMainChart();

@@ -7,13 +7,17 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
+import stock_web.api.market_page as market_page
 from stock_web.api.indicators import calculate_indicators, resample_ohlcv
 from stock_web.api.market_page import (
     METRIC_EXPLANATIONS,
+    _cumulative_points,
     _flow_market,
     _range_view,
     build_derivatives,
+    build_flows_and_balances,
     build_market_page_payload,
+    build_valuation,
     format_compact_kr,
 )
 from stock_web.app import create_app
@@ -132,7 +136,9 @@ def test_market_api_sections_with_missing_data_are_json_reasons() -> None:
 def test_market_chart_uses_compact_height_and_panel_proportions() -> None:
     web_root = Path(__file__).parents[3] / "src/stock_web"
     css = (web_root / "static/app.css").read_text(encoding="utf-8")
+    market_css = (web_root / "static/market.css").read_text(encoding="utf-8")
     script = (web_root / "static/market.js").read_text(encoding="utf-8")
+    template = (web_root / "templates/market.html").read_text(encoding="utf-8")
 
     assert "height: 440px" in css
     assert "height: 360px" in css
@@ -140,6 +146,12 @@ def test_market_chart_uses_compact_height_and_panel_proportions() -> None:
     assert "Math.min(0.14, 0.58 / panels.length)" in script
     assert script.count("LightweightCharts.createChart") == 1
     assert "SIChart.renderLineChart" in script
+    assert 'href="/static/market.css?v={{ static_version }}"' in template
+    assert ".market-valuation-panel" in market_css
+    assert 'fetch(`/api/market?flows_range=${encodeURIComponent(range)}`)' in script
+    assert "Math.abs(Number(value)) >= 10000" in script
+    assert 'id="breadth-rows"' in template
+    assert 'id="lending-summary-rows"' in template
 
 
 @pytest.mark.parametrize(("value", "expected"), [
@@ -161,7 +173,74 @@ def test_all_range_returns_full_history() -> None:
     pd.testing.assert_frame_equal(_range_view(frame, "ALL"), frame)
 
 
-def test_flow_payload_is_full_history_integer_100m_krw_for_client_cumulative_view() -> None:
+def _synthetic_flows(periods: int = 70) -> pd.DataFrame:
+    return pd.DataFrame({
+        "date": pd.date_range("2025-01-01", periods=periods, freq="D"),
+        "market": "KOSPI",
+        "foreigner_buy_amount": [12.6e8] * periods,
+        "foreigner_sell_amount": [10e8] * periods,
+        "institution_buy_amount": [8e8] * periods,
+        "institution_sell_amount": [10.4e8] * periods,
+        "individual_buy_amount": [10e8] * periods,
+        "individual_sell_amount": [9.5e8] * periods,
+    })
+
+
+def test_flow_payload_defaults_to_60_sessions_and_all_returns_full_history() -> None:
+    frame = _synthetic_flows()
+
+    default = _flow_market(frame, "KOSPI")
+    full = _flow_market(frame, "KOSPI", range_key="ALL")
+
+    assert default["range"] == "60D"
+    assert len(default["series"]["foreigner"]["daily_points"]) == 60
+    assert full["range"] == "ALL"
+    assert len(full["series"]["foreigner"]["daily_points"]) == 70
+    assert all(isinstance(point["v"], int) for point in full["series"]["foreigner"]["daily_points"])
+
+
+def test_cumulative_flow_includes_day_zero_value() -> None:
+    result = _cumulative_points([
+        {"t": "2026-01-02", "v": 125},
+        {"t": "2026-01-05", "v": -25},
+    ])
+
+    assert result == [
+        {"t": "2026-01-02", "v": 125},
+        {"t": "2026-01-05", "v": 100},
+    ]
+
+
+def test_market_payload_uses_requested_flow_range_and_caches_per_range(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frame = _synthetic_flows()
+    calls: list[str] = []
+    root = new_temp_root()
+
+    monkeypatch.setattr(market_page, "build_chart_symbols", lambda _root: [])
+    monkeypatch.setattr(market_page, "build_derivatives", lambda _root: {"status": "UNAVAILABLE", "reason": "fixture"})
+    monkeypatch.setattr(market_page, "build_valuation", lambda _root: {"status": "UNAVAILABLE", "reason": "fixture"})
+
+    def fake_flows(_root: Path, *, range_key: str) -> dict[str, object]:
+        calls.append(range_key)
+        return {"status": "VALUE", "range": range_key, "markets": [_flow_market(frame, "KOSPI", range_key=range_key)]}
+
+    monkeypatch.setattr(market_page, "build_flows_and_balances", fake_flows)
+
+    default = build_market_page_payload(root)
+    default_again = build_market_page_payload(root)
+    full = build_market_page_payload(root, flows_range="ALL")
+
+    assert default["flows_range"] == "60D"
+    assert len(default["sections"]["flows"]["markets"][0]["series"]["foreigner"]["daily_points"]) == 60
+    assert default_again is default
+    assert full["flows_range"] == "ALL"
+    assert len(full["sections"]["flows"]["markets"][0]["series"]["foreigner"]["daily_points"]) == 70
+    assert calls == ["60D", "ALL"]
+
+
+def test_flow_series_are_integer_100m_krw_for_client_views() -> None:
     frame = pd.DataFrame({
         "date": pd.date_range("2025-01-01", periods=70, freq="D"),
         "market": "KOSPI",
@@ -179,8 +258,55 @@ def test_flow_payload_is_full_history_integer_100m_krw_for_client_cumulative_vie
     assert result["unit"] == "억원"
     assert result["as_of"] == "2025-03-11"
     for item in result["series"].values():
-        assert len(item["daily_points"]) == 70
+        assert len(item["daily_points"]) == 60
         assert all(isinstance(point["v"], int) for point in item["daily_points"])
+
+
+def test_valuation_payload_separates_per_and_pbr_axes(monkeypatch: pytest.MonkeyPatch) -> None:
+    frame = pd.DataFrame({
+        "date": pd.date_range("2021-01-04", periods=8, freq="365D"),
+        "weighted_per": [0.0, 9.0, 12.0, 18.0, 24.0, 30.0, 36.0, 27.0],
+        "weighted_pbr": [1.1, 1.2, 1.4, 1.5, 1.7, 1.8, 1.9, 1.85],
+    })
+    monkeypatch.setattr(market_page.dsx, "load", lambda *_args, **_kwargs: frame)
+
+    payload = build_valuation(Path("unused"))
+
+    for item in payload["markets"]:
+        assert set(item["series"]) == {"per", "pbr"}
+        assert item["secondary_axis"] is True
+        assert item["axes"]["per"] == {"side": "left", "minimum": 0}
+        assert item["axes"]["pbr"] == {"side": "right", "minimum": 0}
+
+
+def test_breadth_and_lending_summary_use_separate_payload_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeMicro:
+        @staticmethod
+        def lending_market() -> dict[str, object]:
+            return {"date": "2026-09-02", "balance_amount": 10e12, "change_1d": 2e8, "change_5d": -3e8}
+
+        @staticmethod
+        def breadth() -> list[dict[str, object]]:
+            return [{"date": "2026-09-02", "market": "KOSPI", "advancing": 510, "declining": 380, "unchanged": 40, "ad_ratio": 1.34}]
+
+    class FakeDashboardService:
+        def __init__(self, _root: Path):
+            self.micro = FakeMicro()
+
+    def fake_load(_root: Path, dataset: str, **_kwargs) -> pd.DataFrame | None:
+        if dataset.endswith("kr_market_investor_trading_daily"):
+            return _synthetic_flows()
+        return None
+
+    import stock_data.gui.services as services
+    monkeypatch.setattr(services, "DashboardService", FakeDashboardService)
+    monkeypatch.setattr(market_page.dsx, "load", fake_load)
+
+    micro = build_flows_and_balances(Path("unused"))["microstructure"]
+
+    assert micro["breadth"]["rows"][0]["advancing"] == 510
+    assert micro["lending_summary"]["rows"][0]["value"] == 10e12
+    assert "rows" not in micro
 
 
 def test_metric_explanations_cover_every_requested_head() -> None:

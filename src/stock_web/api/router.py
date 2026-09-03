@@ -81,10 +81,10 @@ def build_router(project_root: Path) -> APIRouter:
         return json_response(home_data.build_chart_payload(project_root, symbol=symbol, range_key=range))
 
     @router.get("/market")
-    def market() -> Response:
+    def market(flows_range: str = "60D") -> Response:
         from stock_web.api.market_page import build_market_page_payload
 
-        return json_response(build_market_page_payload(project_root))
+        return json_response(build_market_page_payload(project_root, flows_range=flows_range))
 
     @router.get("/market/chart")
     def market_chart(

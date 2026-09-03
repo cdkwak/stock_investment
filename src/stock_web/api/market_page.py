@@ -1,6 +1,7 @@
 """Provider-free data projections for the local Market page."""
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -26,6 +27,10 @@ RANGE_OFFSETS = {
     "3Y": pd.DateOffset(years=3),
     "5Y": pd.DateOffset(years=5),
 }
+
+FLOW_RANGE_SESSIONS = {"20D": 20, "60D": 60, "1Y": 252, "ALL": None}
+_MARKET_CACHE_TTL_SECONDS = 60.0
+_MARKET_CACHE: dict[tuple[str, str], tuple[float, dict[str, object]]] = {}
 
 METRIC_EXPLANATIONS = {
     "futures_basis": "선물 Basis는 KOSPI200 선물 정산가와 기초지수의 차이입니다. 양수·음수는 두 가격의 상대적 위치를 설명하며 방향 신호가 아닙니다.",
@@ -107,6 +112,29 @@ def _range_view(frame: pd.DataFrame, range_key: str) -> pd.DataFrame:
     offset = RANGE_OFFSETS.get(range_key, RANGE_OFFSETS["6M"])
     last = pd.to_datetime(frame["date"], errors="coerce").max()
     return frame.loc[pd.to_datetime(frame["date"]) >= last - offset].copy()
+
+
+def _flow_range_view(frame: pd.DataFrame, range_key: str) -> pd.DataFrame:
+    """Return a deterministic trading-session tail for investor-flow charts."""
+    normalized = range_key if range_key in FLOW_RANGE_SESSIONS else "60D"
+    sessions = FLOW_RANGE_SESSIONS[normalized]
+    ordered = frame.sort_values("date")
+    return ordered if sessions is None else ordered.tail(sessions).copy()
+
+
+def _cumulative_points(points: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Accumulate every observation, including the first day's net buy."""
+    total: int | None = 0
+    cumulative: list[dict[str, object]] = []
+    for point in points:
+        value = point.get("v")
+        if total is None or value is None:
+            total = None
+            cumulative.append({"t": point.get("t"), "v": None})
+            continue
+        total += int(value)
+        cumulative.append({"t": point.get("t"), "v": total})
+    return cumulative
 
 
 def build_market_chart_payload(
@@ -331,7 +359,9 @@ def build_derivatives(project_root: Path) -> dict[str, object]:
     }
 
 
-def _flow_market(frame: pd.DataFrame, market: str) -> dict[str, object]:
+def _flow_market(
+    frame: pd.DataFrame, market: str, *, range_key: str = "60D",
+) -> dict[str, object]:
     scoped = frame.loc[frame["market"].astype(str).eq(market)].sort_values("date")
     required = {
         f"{key}_{side}_amount"
@@ -340,6 +370,8 @@ def _flow_market(frame: pd.DataFrame, market: str) -> dict[str, object]:
     }
     if scoped.empty or not required <= set(scoped.columns):
         return _unavailable(f"{market} 투자자 매매 데이터가 없습니다.") | {"market": market}
+    normalized_range = range_key if range_key in FLOW_RANGE_SESSIONS else "60D"
+    scoped = _flow_range_view(scoped, normalized_range)
     series = {}
     for key, label in (("foreigner", "외국인"), ("institution", "기관"), ("individual", "개인")):
         values = (
@@ -347,24 +379,30 @@ def _flow_market(frame: pd.DataFrame, market: str) -> dict[str, object]:
             - pd.to_numeric(scoped[f"{key}_sell_amount"], errors="coerce")
         ) / 1e8
         rounded = values.round().astype("Int64")
+        daily_points = [
+            {"t": date.strftime("%Y-%m-%d"), "v": None if pd.isna(value) else int(value)}
+            for date, value in zip(pd.to_datetime(scoped["date"]), rounded)
+        ]
         series[key] = {
             "label": label,
-            "daily_points": [
-                {"t": date.strftime("%Y-%m-%d"), "v": None if pd.isna(value) else int(value)}
-                for date, value in zip(pd.to_datetime(scoped["date"]), rounded)
-            ],
+            "daily_points": daily_points,
+            "cumulative_points": _cumulative_points(daily_points),
         }
     return {
         "status": "VALUE", "market": market, "series": series,
         "as_of": _date(scoped["date"].max()), "unit": "억원",
+        "range": normalized_range,
         "presentation": "CUMULATIVE_FROM_RANGE_START",
     }
 
 
-def build_flows_and_balances(project_root: Path) -> dict[str, object]:
+def build_flows_and_balances(
+    project_root: Path, *, range_key: str = "60D",
+) -> dict[str, object]:
+    normalized_range = range_key if range_key in FLOW_RANGE_SESSIONS else "60D"
     flow_frame = dsx.load(project_root, "data/normalized/kr_market_investor_trading_daily")
     markets = [
-        _flow_market(flow_frame, market) if flow_frame is not None
+        _flow_market(flow_frame, market, range_key=normalized_range) if flow_frame is not None
         else _unavailable("투자자 매매 데이터셋이 없습니다.") | {"market": market}
         for market in ("KOSPI", "KOSDAQ")
     ]
@@ -402,7 +440,8 @@ def build_flows_and_balances(project_root: Path) -> dict[str, object]:
                 "as_of": _date(latest), "unit": "원",
             }
 
-    micro_rows: list[dict[str, object]] = []
+    lending_rows: list[dict[str, object]] = []
+    breadth_rows: list[dict[str, object]] = []
     micro_reason = None
     try:
         from stock_data.gui.services import DashboardService
@@ -410,8 +449,8 @@ def build_flows_and_balances(project_root: Path) -> dict[str, object]:
         micro = DashboardService(project_root).micro
         lending_latest = micro.lending_market()
         if lending_latest:
-            micro_rows.append({
-                "name": "대차잔고", "market": "전체",
+            lending_rows.append({
+                "market": "전체",
                 "as_of": _date(lending_latest.get("date")),
                 "value": _value(lending_latest.get("balance_amount")),
                 "change_1d": _value(lending_latest.get("change_1d")),
@@ -419,8 +458,8 @@ def build_flows_and_balances(project_root: Path) -> dict[str, object]:
                 "unit": "원",
             })
         for row in micro.breadth():
-            micro_rows.append({
-                "name": "시장 등락 종목", "market": row.get("market"),
+            breadth_rows.append({
+                "market": row.get("market"),
                 "as_of": _date(row.get("date")), "advancing": _nan_to_none(row.get("advancing")),
                 "declining": _nan_to_none(row.get("declining")), "unchanged": _nan_to_none(row.get("unchanged")),
                 "ad_ratio": _value(row.get("ad_ratio")),
@@ -428,14 +467,20 @@ def build_flows_and_balances(project_root: Path) -> dict[str, object]:
     except (KeyError, OSError, PermissionError, TypeError, ValueError) as error:
         micro_reason = f"시장 미시구조 데이터를 읽을 수 없습니다: {error}"
 
-    available = any(item.get("status") == "VALUE" for item in markets) or credit.get("status") == "VALUE" or lending is not None or bool(micro_rows)
+    available = any(item.get("status") == "VALUE" for item in markets) or credit.get("status") == "VALUE" or lending is not None or bool(lending_rows) or bool(breadth_rows)
     return {
         "status": "VALUE" if available else "UNAVAILABLE",
         "reason": None if available else "표시 가능한 수급·잔고 상세가 없습니다.",
+        "range": normalized_range,
         "markets": markets,
         "credit": credit,
         **({"lending": lending} if lending is not None else {}),
-        "microstructure": {"status": "VALUE", "rows": micro_rows} if micro_rows else _unavailable(micro_reason),
+        "microstructure": {
+            "status": "VALUE" if lending_rows or breadth_rows else "UNAVAILABLE",
+            "reason": None if lending_rows or breadth_rows else (micro_reason or "시장 미시구조 데이터가 없습니다."),
+            "breadth": {"status": "VALUE", "rows": breadth_rows} if breadth_rows else _unavailable(micro_reason or "등락 종목 데이터가 없습니다."),
+            "lending_summary": {"status": "VALUE", "rows": lending_rows} if lending_rows else _unavailable(micro_reason or "대차잔고 요약이 없습니다."),
+        },
     }
 
 
@@ -460,8 +505,15 @@ def build_valuation(project_root: Path) -> dict[str, object]:
         pbr_percentile = _value((pbr.dropna() <= current_pbr).mean() * 100.0) if current_pbr is not None else None
         markets.append({
             "status": "VALUE", "market": market,
-            "per": _indicator_points(valid, "weighted_per"),
-            "pbr": _indicator_points(valid, "weighted_pbr"),
+            "series": {
+                "per": _indicator_points(valid, "weighted_per"),
+                "pbr": _indicator_points(valid, "weighted_pbr"),
+            },
+            "axes": {
+                "per": {"side": "left", "minimum": 0},
+                "pbr": {"side": "right", "minimum": 0},
+            },
+            "secondary_axis": True,
             "current": {
                 "t": _date(current["date"]), "per": current_per, "pbr": current_pbr,
                 "per_percentile": per_percentile, "pbr_percentile": pbr_percentile,
@@ -476,28 +528,41 @@ def build_valuation(project_root: Path) -> dict[str, object]:
     }
 
 
-def build_market_page_payload(project_root: Path) -> dict[str, object]:
-    """Build independent optional sections; one missing source never blocks others."""
+def build_market_page_payload(
+    project_root: Path, *, flows_range: str = "60D",
+) -> dict[str, object]:
+    """Build and cache one payload per investor-flow trading-session range."""
+    root = Path(project_root).resolve()
+    normalized_range = flows_range if flows_range in FLOW_RANGE_SESSIONS else "60D"
+    cache_key = (str(root), normalized_range)
+    cached = _MARKET_CACHE.get(cache_key)
+    if cached is not None and time.monotonic() - cached[0] < _MARKET_CACHE_TTL_SECONDS:
+        return cached[1]
+
     def safely(builder, label: str) -> dict[str, object]:
         try:
-            return builder(project_root)
+            return builder()
         except (KeyError, OSError, PermissionError, TypeError, ValueError) as error:
             return _unavailable(f"{label}을(를) 읽을 수 없습니다: {error}")
 
-    return {
+    payload = {
         "schema_version": 1,
+        "flows_range": normalized_range,
         "explanations": METRIC_EXPLANATIONS,
-        "chart_symbols": build_chart_symbols(project_root),
+        "chart_symbols": build_chart_symbols(root),
         "sections": {
-            "derivatives": safely(build_derivatives, "파생 상세"),
-            "flows": safely(build_flows_and_balances, "수급·잔고 상세"),
-            "valuation": safely(build_valuation, "밸류에이션"),
+            "derivatives": safely(lambda: build_derivatives(root), "파생 상세"),
+            "flows": safely(lambda: build_flows_and_balances(root, range_key=normalized_range), "수급·잔고 상세"),
+            "valuation": safely(lambda: build_valuation(root), "밸류에이션"),
         },
     }
+    _MARKET_CACHE[cache_key] = (time.monotonic(), payload)
+    return payload
 
 
 __all__ = [
     "build_derivatives", "build_flows_and_balances", "build_market_chart_payload",
     "build_market_page_payload", "build_valuation", "format_compact_kr",
-    "METRIC_EXPLANATIONS", "_range_view",
+    "FLOW_RANGE_SESSIONS", "METRIC_EXPLANATIONS", "_cumulative_points",
+    "_flow_range_view", "_range_view",
 ]
