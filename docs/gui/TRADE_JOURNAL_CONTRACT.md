@@ -1,0 +1,128 @@
+# Trade Journal Contract
+
+## Purpose and boundary
+
+The 내 계좌 trade journal implements the user-selected A plan: Toss and KB
+activity is auto-derived from retained daily account snapshots, while accounts
+without an API (for example 미래에셋) use explicit manual entries. The journal
+is explanatory and estimated; it is not a broker statement, tax ledger, order
+history, or execution interface.
+
+The service is provider-free and network-free. It reads immutable Landing
+snapshots, normalized dividend identity/reference data, and the local cash-flow
+ledger. It never calls or mutates a broker. Manual journal writes and the
+derivation cache are limited to `artifacts/local_user/` and use atomic
+replacement. Balances, holdings, entries, or direct account identifiers must
+not be copied to Obsidian, a vault, or any location outside this project's
+`artifacts/` and `data/` trees.
+
+## Inputs and daily selection
+
+- Toss: `data/landing/tossinvest/account_snapshot/*.json`
+- KB: `data/landing/kbsec/account_snapshot/*.json`
+- Cash flows: `artifacts/local_user/cash_flows.json`
+- Korean equity identity: `data/normalized/kr_equity_master`
+- Korean dividends: `data/normalized/kr_equity_dividend`
+- Manual journal: `artifacts/local_user/trade_journal_manual.json`
+
+`collected_at` is converted to the KST calendar date. If more than one file is
+present for a date, only the newest collection timestamp is used. A comparison
+is made only when the two selected dates are adjacent calendar days. A missing
+day creates a reported gap; the service does not interpolate across it.
+
+## Trade derivation
+
+For each source, day, and symbol, the selected snapshots are reduced to one
+position with quantity, average purchase price, snapshot current/last price,
+currency, and display identity. Position changes produce at most one event per
+`(source, day, symbol, side)`, so multiple intraday fills and Toss 모으기 fills
+collapse into one daily estimate.
+
+- Quantity increase: `BUY` for `q1 - q0`.
+- New symbol: `BUY` for the full `q1` at the new average purchase price.
+- Quantity decrease: `SELL` for `q0 - q1` at day 1's snapshot current/last
+  price. Estimated realized P&L is `(price - average0) × sold quantity`.
+- Disappeared symbol: `SELL` for the full `q0` at day 0's snapshot current/last
+  price.
+
+Fractional quantities are retained to six decimal places. Every auto-derived
+event has `estimated: true`, the two `snapshot_dates`, a machine-readable
+`price_basis`, and a Korean `basis` explanation.
+
+### Buy price basis
+
+For an increase in an existing position, price is inferred from the average
+cost identity:
+
+`(average1 × q1 - average0 × q0) / (q1 - q0)`
+
+The identity is used only when both averages exist and the inferred price is
+positive. Otherwise day 1's snapshot current/last price is used and
+`price_basis` is `last_price`. A new position uses its day 1 average purchase
+price when positive; otherwise it also falls back to day 1's snapshot price.
+Sell estimates always use snapshot prices because daily holdings do not reveal
+the actual sale fill.
+
+### 모으기/소액 hint
+
+A BUY is tagged `recurring_like: true` when its estimated KRW-equivalent amount
+is below KRW 100,000, or the same source and symbol was bought on at least three
+of the five most recent snapshot days ending on that event date. USD small-buy
+classification requires a retained USD/KRW reference; when it is unavailable,
+only the frequency rule is applied. The tag is a display hint, not a claim
+about the broker order type.
+
+## Dividend estimate
+
+For each adjacent snapshot pair and currency:
+
+`residual = cash1 - cash0 - net trade cash - registered cash flows`
+
+BUY cash is negative and SELL cash is positive. KRW cash-flow ledger entries
+whose account label matches the source and whose date is in `(d0, d1]` are
+subtracted, so a registered deposit is not presented as income. The service
+does not convert a KRW ledger entry into USD.
+
+A positive residual is considered only at KRW 1,000 or USD 1 and above. When a
+Korean symbol held at day 0 has a dividend `cash_payment_date` in `(d0, d1]`, a
+`DIVIDEND` estimate is emitted with `shares × ordinary_dividend_amount` as the
+pre-tax expected amount and the cash residual as separate observational
+evidence. If no Korean reference match exists, a `DIVIDEND?` event may expose
+the otherwise unexplained positive residual as `추정(미확인)`. A residual is
+never labelled certain. US ETF dividends therefore remain unconfirmed until a
+retained reference source exists.
+
+## Manual-entry contract
+
+`trade_journal_manual.json` has `schema_version: 1` and `entries[]`. Each entry
+contains `id`, ISO date, identifier-free `account_label`, symbol, name, side
+(`BUY`, `SELL`, or `DIVIDEND`), positive quantity and price, currency (`KRW` or
+`USD`), and optional memo. POST and DELETE are loopback-only. Validation fails
+closed with HTTP 400, and writes atomically replace the ledger. Manual entries
+are marked `estimated: false` and are never inferred from account snapshots.
+
+## Cache and response
+
+`trade_journal_cache.json` is keyed by the sorted set of Toss and KB Landing
+snapshot file names. It retains sanitized day-level derivation inputs and
+events so normal requests do not reread the full immutable JSON history.
+Cash-flow and dividend matching are performed against current retained inputs
+after cache loading. `GET /api/trade-journal?days=N` merges derived trades,
+dividend estimates, and manual entries, filters by KST date, sorts newest first,
+and returns summary counts/totals plus any skipped gaps.
+
+## Limitations
+
+- Daily snapshots cannot identify intraday fill count, fill time, order type,
+  execution venue, or the order in which buys and sells occurred.
+- Multiple fills are grouped into one daily quantity change.
+- Fees, commissions, taxes, and withholding are not included in trade P&L;
+  matched Korean dividend expectations are explicitly pre-tax.
+- A same-day round trip with no closing quantity change is invisible.
+- Transfers between accounts can resemble a buy and a sell.
+- Splits, reverse splits, mergers, spin-offs, symbol changes, tender events,
+  stock dividends, and other corporate actions can appear as phantom trades.
+- Snapshot current/last prices are not actual sell fills, and cost-basis
+  changes can be affected by broker accounting rules or FX treatment.
+- Cash residuals can have explanations not represented in the retained data;
+  they are always estimates and may remain `DIVIDEND?`.

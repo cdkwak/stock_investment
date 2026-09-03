@@ -128,6 +128,42 @@ def build_router(project_root: Path) -> APIRouter:
         clear_home_cache()
         return json_response(saved)
 
+    @router.get("/trade-journal")
+    def trade_journal(days: int = 60) -> Response:
+        from stock_web.api.account_page import AccountInputError
+        from stock_web.api.trade_journal import build_trade_journal
+
+        try:
+            return json_response(build_trade_journal(project_root, days=days))
+        except AccountInputError as error:
+            return json_response({"error": str(error)}, status_code=400)
+
+    @router.post("/trade-journal/manual")
+    async def save_manual_trade_journal_entry(request: Request) -> Response:
+        from stock_web.api.account_page import AccountInputError
+        from stock_web.api.trade_journal import build_trade_journal, save_manual_entry
+
+        if not loopback(request):
+            return json_response({"error": "로컬 접속에서만 저장할 수 있습니다."}, status_code=403)
+        try:
+            save_manual_entry(project_root, await request.json())
+            return json_response(build_trade_journal(project_root))
+        except (ValueError, AccountInputError) as error:
+            return json_response({"error": str(error)}, status_code=400)
+
+    @router.delete("/trade-journal/manual")
+    async def delete_manual_trade_journal_entry(request: Request) -> Response:
+        from stock_web.api.account_page import AccountInputError
+        from stock_web.api.trade_journal import build_trade_journal, delete_manual_entry
+
+        if not loopback(request):
+            return json_response({"error": "로컬 접속에서만 저장할 수 있습니다."}, status_code=403)
+        try:
+            delete_manual_entry(project_root, await request.json())
+            return json_response(build_trade_journal(project_root))
+        except (ValueError, AccountInputError) as error:
+            return json_response({"error": str(error)}, status_code=400)
+
     @router.get("/stocks")
     def stocks() -> Response:
         from stock_web.api.stocks_page import build_stocks_page_data
@@ -141,10 +177,23 @@ def build_router(project_root: Path) -> APIRouter:
         return json_response(search_stocks(project_root, q))
 
     @router.get("/scanner")
-    def scanner() -> Response:
+    def scanner(
+        min_value: float = 1_000_000_000.0,
+        min_cap: float = 100_000_000_000.0,
+        all: int = 0,
+    ) -> Response:
         from stock_web.api.scanner import build_scanner
 
-        return json_response(build_scanner(project_root))
+        try:
+            result = build_scanner(
+                project_root,
+                avg_value_20d_min=min_value,
+                market_cap_min=min_cap,
+                apply_liquidity_filter=all != 1,
+            )
+        except ValueError as error:
+            return json_response({"error": str(error)}, status_code=400)
+        return json_response(result)
 
     @router.post("/watchlists")
     async def save_watchlist(request: Request) -> Response:

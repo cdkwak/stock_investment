@@ -6,6 +6,17 @@
   <title>Stock Investment · 내 계좌</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="/static/app.css?v={{ static_version }}">
+  <style>
+    .journal-card .data-table-wrap { margin-top: 12px; }
+    .journal-form { grid-template-columns: repeat(6, minmax(120px, 1fr)); }
+    .journal-form .journal-memo { grid-column: span 2; }
+    .journal-summary { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 8px; }
+    .journal-basis { min-width: 230px; white-space: normal; }
+    .journal-recurring { background: #fafbfc; }
+    .journal-tag { display: inline-block; margin-top: 3px; padding: 1px 6px; border: 1px solid #d7dce3; border-radius: 999px; font-size: 11px; color: #7a8491; }
+    .journal-gap { margin-top: 8px; }
+    @media (max-width: 1000px) { .journal-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  </style>
 </head>
 <body>
 <header class="topbar">
@@ -57,6 +68,31 @@
       <div class="data-table-wrap"><table class="data-table cash-flow-table"><thead><tr><th>날짜</th><th>금액</th><th>계좌</th><th>메모</th><th>관리</th></tr></thead><tbody id="cash-flow-rows"></tbody></table></div>
       <div><b class="subform-title">월별 순입출금</b><div id="cash-flow-monthly" class="breakdown-list"></div></div>
     </div>
+  </section>
+
+  <section class="card form-card journal-card">
+    <div class="card-head"><b>매매일지 (스냅샷 차이 기반 · 추정)</b>
+      <div class="segmented small" id="journal-range"><button data-days="30">1M</button><button data-days="90" class="on">3M</button><button data-days="36500">전체</button></div>
+    </div>
+    <p class="muted form-note">Toss·KB는 하루 단위 보유수량 차이로 자동 추정합니다. API가 없는 미래에셋 등만 아래에 직접 기록하세요.</p>
+    <div class="cash-flow-form journal-form">
+      <label class="field"><span>날짜</span><input type="date" id="journal-date"></label>
+      <label class="field"><span>계좌</span><input id="journal-account" maxlength="60" placeholder="예: 미래에셋"></label>
+      <label class="field"><span>종목코드·티커</span><input id="journal-symbol" maxlength="24" placeholder="005930 / AAPL"></label>
+      <label class="field"><span>종목명</span><input id="journal-name" maxlength="80"></label>
+      <label class="field"><span>구분</span><select id="journal-side"><option value="BUY">매수</option><option value="SELL">매도</option><option value="DIVIDEND">배당</option></select></label>
+      <label class="field"><span>통화</span><select id="journal-currency"><option value="KRW">KRW</option><option value="USD">USD</option></select></label>
+      <label class="field"><span>수량</span><input type="number" min="0" step="0.000001" id="journal-quantity"></label>
+      <label class="field"><span>단가·주당배당</span><input type="number" min="0" step="any" id="journal-price"></label>
+      <label class="field journal-memo"><span>메모</span><input id="journal-memo" maxlength="200" placeholder="선택 메모"></label>
+      <button type="button" class="button primary" id="save-journal-entry">수동 기록 저장</button>
+    </div>
+    <div class="form-actions"><span class="muted" id="journal-status"></span></div>
+    <div class="journal-summary muted" id="journal-summary"></div>
+    <div class="data-table-wrap">
+      <table class="data-table"><thead><tr><th>날짜</th><th>계좌</th><th>종목</th><th>구분</th><th>수량</th><th>추정단가</th><th>금액</th><th>실현손익(추정)</th><th>근거</th></tr></thead><tbody id="journal-rows"></tbody></table>
+    </div>
+    <div class="muted journal-gap" id="journal-gaps"></div>
   </section>
 
   <section class="account-grid">

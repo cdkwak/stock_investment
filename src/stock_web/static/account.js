@@ -3,7 +3,9 @@
   "use strict";
   const $ = (id) => document.getElementById(id);
   const esc = (value) => String(value ?? "").replace(/[&<>\"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const fmt = (value, digits = 2) => value === null || value === undefined ? "—" : Number(value).toLocaleString("ko-KR", { maximumFractionDigits: digits });
   const money = (value) => value === null || value === undefined ? "—" : `₩${Math.round(Number(value)).toLocaleString("ko-KR")}`;
+  const nativeMoney = (value, currency) => value === null || value === undefined ? "—" : currency === "USD" ? `$${fmt(value, 2)}` : money(value);
   const compactMoney = (value) => value === null || value === undefined ? "—" : `₩${(Number(value) / 1e8).toLocaleString("ko-KR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}억`;
   const signedMoney = (value) => value === null || value === undefined ? "—" : `${Number(value) > 0 ? "+" : Number(value) < 0 ? "−" : ""}₩${Math.abs(Math.round(Number(value))).toLocaleString("ko-KR")}`;
   const pct = (value) => value === null || value === undefined ? "—" : `${Number(value) > 0 ? "+" : ""}${Number(value).toFixed(2)}%`;
@@ -31,6 +33,8 @@
   let assetRows = [];
   let liabilityRows = [];
   let selectedReturnWindow = "3M";
+  let journalPayload = { events: [], summary: {}, gaps: [] };
+  let selectedJournalDays = 90;
 
   function sourceAsOf(rows, kinds) {
     return (rows || []).filter((row) => kinds.includes(row.kind)).map((row) => `${row.name} ${row.as_of_label || shortDate(row.as_of)}${row.included ? "" : " 제외"}`).join(" · ");
@@ -100,6 +104,56 @@
     const monthly = flows.monthly_subtotals || [];
     $("cash-flow-monthly").innerHTML = monthly.length ? monthly.map((row) => `<div class="breakdown-row"><span>${esc(row.month)}</span><b class="num ${valueClass(row.amount_krw)}">${signedMoney(row.amount_krw)}</b></div>`).join("") : `<div class="unavailable">월별 합계가 없습니다.</div>`;
     if (flows.reason) $("cash-flow-status").textContent = flows.reason;
+  }
+
+  function journalSideLabel(side) {
+    return ({ BUY: "매수", SELL: "매도", DIVIDEND: "배당 추정", "DIVIDEND?": "추정(미확인)" })[side] || side;
+  }
+
+  function currencySummary(values) {
+    const entries = Object.entries(values || {});
+    return entries.length ? entries.map(([currency, value]) => nativeMoney(value, currency)).join(" · ") : "—";
+  }
+
+  function resetJournalForm() {
+    $("journal-date").value = today();
+    $("journal-account").value = "미래에셋";
+    $("journal-symbol").value = "";
+    $("journal-name").value = "";
+    $("journal-side").value = "BUY";
+    $("journal-currency").value = "KRW";
+    $("journal-quantity").value = "";
+    $("journal-price").value = "";
+    $("journal-memo").value = "";
+  }
+
+  function renderJournal() {
+    const events = journalPayload.events || [];
+    $("journal-rows").innerHTML = events.length ? events.map((entry) => {
+      const recurring = entry.recurring_like ? '<span class="journal-tag">모으기/소액</span>' : "";
+      const manualDelete = entry.origin === "manual" ? `<button type="button" class="text-button delete-journal-entry" data-entry-id="${esc(entry.id)}">삭제</button>` : "";
+      const memo = entry.memo ? ` · ${esc(entry.memo)}` : "";
+      return `<tr class="${entry.recurring_like ? "journal-recurring" : ""}">
+        <td class="num">${esc(entry.date)}</td><td>${esc(entry.account_label)}</td>
+        <td><b>${esc(entry.name || entry.symbol || "현금")}</b><div class="muted">${esc(entry.symbol || "")}</div>${recurring}</td>
+        <td>${esc(journalSideLabel(entry.side))}</td><td class="num">${fmt(entry.quantity, 6)}</td>
+        <td class="num">${nativeMoney(entry.price, entry.currency)}</td><td class="num">${nativeMoney(entry.amount, entry.currency)}</td>
+        <td class="num ${valueClass(entry.realized_pnl_est)}">${entry.realized_pnl_est === null || entry.realized_pnl_est === undefined ? "—" : nativeMoney(entry.realized_pnl_est, entry.currency)}</td>
+        <td class="journal-basis"><span>${esc(entry.basis || "")}${memo}</span>${manualDelete}</td>
+      </tr>`;
+    }).join("") : `<tr><td colspan="9" class="unavailable">선택한 기간에 매매일지 항목이 없습니다.</td></tr>`;
+    const summary = journalPayload.summary || {};
+    $("journal-summary").innerHTML = `<span>매수 <b>${fmt(summary.buys || 0, 0)}건</b></span><span>매도 <b>${fmt(summary.sells || 0, 0)}건</b></span><span>실현손익 추정 <b>${esc(currencySummary(summary.realized_pnl_est))}</b></span><span>배당 추정 <b>${esc(currencySummary(summary.dividends_est))}</b></span>`;
+    const gaps = journalPayload.gaps || [];
+    $("journal-gaps").textContent = gaps.length ? `누락 구간 ${gaps.length}개 · 중간 스냅샷이 없는 구간은 매매·배당을 추정하지 않았습니다. · ${journalPayload.note || ""}` : (journalPayload.note || "");
+  }
+
+  async function loadJournal() {
+    const response = await fetch(`/api/trade-journal?days=${selectedJournalDays}`);
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+    journalPayload = result;
+    renderJournal();
   }
 
   function manualAccountHtml(account, accountIndex) {
@@ -218,14 +272,19 @@
   }
 
   function renderAll() {
-    renderSummary(); renderSourceRows(); renderPerformance(); renderCashFlows(); renderManualAccounts(); renderNetWorthForm(); renderTimeline(); renderBreakdown();
+    renderSummary(); renderSourceRows(); renderPerformance(); renderCashFlows(); renderJournal(); renderManualAccounts(); renderNetWorthForm(); renderTimeline(); renderBreakdown();
     $("account-safety").textContent = payload.safety_note || "";
   }
 
   async function refresh() {
-    const response = await fetch("/api/account");
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    payload = await response.json();
+    const [accountResponse, journalResponse] = await Promise.all([
+      fetch("/api/account"), fetch(`/api/trade-journal?days=${selectedJournalDays}`),
+    ]);
+    if (!accountResponse.ok) throw new Error(`HTTP ${accountResponse.status}`);
+    payload = await accountResponse.json();
+    const journalResult = await journalResponse.json();
+    if (!journalResponse.ok) throw new Error(journalResult.error || `HTTP ${journalResponse.status}`);
+    journalPayload = journalResult;
     hydrateState(); renderAll();
   }
 
@@ -268,6 +327,10 @@
     } else if (target.closest("#return-range button")) {
       document.querySelectorAll("#return-range button").forEach((button) => button.classList.remove("on"));
       target.classList.add("on"); selectedReturnWindow = target.dataset.v; renderPerformance();
+    } else if (target.closest("#journal-range button")) {
+      document.querySelectorAll("#journal-range button").forEach((button) => button.classList.remove("on"));
+      target.classList.add("on"); selectedJournalDays = Number(target.dataset.days);
+      loadJournal().catch((error) => { $("journal-status").textContent = `조회 실패 · ${error.message}`; });
     } else if (target.classList.contains("edit-cash-flow")) {
       const entry = ((payload.cash_flows || {}).entries || []).find((row) => row.id === target.dataset.flowId);
       if (entry) {
@@ -285,6 +348,14 @@
       })();
     } else if (target.id === "cancel-cash-flow") {
       resetCashFlowForm(); $("cash-flow-status").textContent = "";
+    } else if (target.classList.contains("delete-journal-entry")) {
+      (async () => {
+        try {
+          const response = await fetch("/api/trade-journal/manual", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: target.dataset.entryId }) });
+          const result = await response.json(); if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+          $("journal-status").textContent = "삭제했습니다."; await loadJournal();
+        } catch (error) { $("journal-status").textContent = `삭제 실패 · ${error.message}`; }
+      })();
     }
   });
 
@@ -304,7 +375,23 @@
         await postJson("/api/cash-flows", body, "cash-flow-status"); resetCashFlowForm();
       } catch (error) { $("cash-flow-status").textContent = `저장 실패 · ${error.message}`; }
     });
+    $("save-journal-entry").addEventListener("click", async () => {
+      try {
+        $("journal-status").textContent = "저장 중…";
+        const body = {
+          date: $("journal-date").value, account_label: $("journal-account").value.trim(),
+          symbol: $("journal-symbol").value.trim(), name: $("journal-name").value.trim(),
+          side: $("journal-side").value, quantity: Number($("journal-quantity").value),
+          price: Number($("journal-price").value), currency: $("journal-currency").value,
+          memo: $("journal-memo").value.trim(),
+        };
+        const response = await fetch("/api/trade-journal/manual", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        const result = await response.json(); if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+        $("journal-status").textContent = "저장했습니다."; resetJournalForm(); await loadJournal();
+      } catch (error) { $("journal-status").textContent = `저장 실패 · ${error.message}`; }
+    });
     resetCashFlowForm();
+    resetJournalForm();
     try { await refresh(); }
     catch (error) { $("account-safety").textContent = `계좌 화면을 불러오지 못했습니다. · ${error.message}`; }
   });
