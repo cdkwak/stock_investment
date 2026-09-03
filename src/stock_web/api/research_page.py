@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from copy import deepcopy
+from datetime import datetime, timedelta, timezone
 import json
 import math
 import os
@@ -29,31 +30,15 @@ FORWARD_RELATIVE = Path("data/local/research/forward_test/signals.jsonl")
 _RESEARCH_CACHE: dict[str, tuple[tuple[object, ...], dict[str, object]]] = {}
 _FORWARD_CACHE: dict[str, tuple[tuple[object, ...], dict[str, object]]] = {}
 
-_DEFINITION_LABELS = {
-    "drawdown252": "252거래일 고점 대비 낙폭",
-    "disp60": "60일 이동평균 이격도",
-    "rsi14": "14일 RSI",
-    "volidx_pct": "변동성 지수 백분위",
-    "score": "점수",
-    "level": "단계",
-    "levels": "단계",
-    "threshold": "기준값",
-    "thresholds": "기준값",
-    "exposure": "노출",
-    "min": "최솟값",
-    "max": "최댓값",
-    "operator": "조건",
-    "window": "관측 기간",
+_INDICATOR_LABELS = {
+    "drawdown252": "252일 낙폭",
+    "disp60": "60일 이격",
+    "rsi14": "RSI14",
+    "volidx_pct": "변동성지수 백분위(VIX/VKOSPI)",
 }
-_DEFINITION_VALUES = {
-    "drawdown": "낙폭",
-    "overheat": "과열",
-    "hybrid": "혼합",
-    "gte": "이상",
-    "lte": "이하",
-    "gt": "초과",
-    "lt": "미만",
-}
+_OPERATOR_LABELS = {"<=": "≤", ">=": "≥", "<": "<", ">": ">"}
+_PERCENT_INDICATORS = {"drawdown252", "disp60", "volidx_pct"}
+_KST = timezone(timedelta(hours=9), name="KST")
 _PRICE_SOURCES = {
     "KR": ("data/normalized/kr_index_daily", "KOSPI200"),
     "US_TECH": ("data/normalized/global_index_price_daily", "NASDAQ100"),
@@ -105,41 +90,76 @@ def _finite(value: object) -> float | None:
     return number if math.isfinite(number) else None
 
 
-def _format_definition_value(value: object) -> str:
-    if isinstance(value, bool):
-        return "예" if value else "아니요"
-    if value is None:
-        return "없음"
-    if isinstance(value, str):
-        return _DEFINITION_VALUES.get(value, value)
-    if isinstance(value, float):
-        return f"{value:g}"
-    return str(value)
+def _format_number(value: object, *, percent: bool = False) -> str | None:
+    number = _finite(value)
+    if number is None:
+        return None
+    if percent:
+        number *= 100
+    suffix = "%" if percent else ""
+    return f"{number:g}{suffix}"
+
+
+def _ladder_definition_text(definition: object) -> str | None:
+    if not isinstance(definition, dict):
+        return None
+    indicators = definition.get("indicators")
+    parts: list[str] = []
+    if isinstance(indicators, list):
+        for indicator in indicators:
+            if not isinstance(indicator, dict):
+                continue
+            key = str(indicator.get("key") or "")
+            label = _INDICATOR_LABELS.get(key)
+            operator = _OPERATOR_LABELS.get(str(indicator.get("op") or ""))
+            threshold = _format_number(
+                indicator.get("threshold"), percent=key in _PERCENT_INDICATORS,
+            )
+            if label and operator and threshold is not None:
+                parts.append(f"{label} {operator} {threshold}")
+    levels = _format_number(definition.get("levels"))
+    if not parts or levels is None:
+        return None
+    return f"{' · '.join(parts)} → 각 1점, 단계 0~{levels}"
+
+
+def _vol_target_definition_text(definition: object) -> str | None:
+    if not isinstance(definition, dict):
+        return None
+    window = _format_number(definition.get("window"))
+    target = _format_number(definition.get("target_vol"), percent=True)
+    if window is None or target is None:
+        return None
+    return f"{window}일 실현 변동성 기준 목표 {target} · 노출 = min(1, 목표/실현)"
 
 
 def _definition_text(definition: object) -> str:
     if not isinstance(definition, dict) or not definition:
         return "정의가 기록되지 않았습니다."
-    parts: list[str] = []
+    definition_type = definition.get("type")
+    if definition_type == "ladder":
+        rendered = _ladder_definition_text(definition)
+    elif definition_type == "vol_target":
+        rendered = _vol_target_definition_text(definition)
+    elif definition_type == "hybrid":
+        ladder = _ladder_definition_text(definition.get("ladder"))
+        vol_target = _vol_target_definition_text(definition.get("vol_target"))
+        rendered = " + ".join(part for part in (ladder, vol_target) if part)
+    else:
+        rendered = None
+    return rendered or "정의 형식을 표시할 수 없습니다."
 
-    def visit(prefix: str, value: object) -> None:
-        if isinstance(value, dict):
-            for key, child in value.items():
-                label = _DEFINITION_LABELS.get(str(key), str(key))
-                visit(f"{prefix} · {label}" if prefix else label, child)
-            return
-        if isinstance(value, list):
-            if any(isinstance(item, (dict, list)) for item in value):
-                for index, item in enumerate(value, start=1):
-                    visit(f"{prefix} {index}", item)
-                return
-            rendered = ", ".join(_format_definition_value(item) for item in value)
-        else:
-            rendered = _format_definition_value(value)
-        parts.append(f"{prefix}: {rendered}")
 
-    visit("", definition)
-    return " · ".join(parts)
+def _format_kst_timestamp(value: object) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(_KST).strftime("%m-%d %H:%M")
 
 
 def _candidate_rank(candidate: dict[str, object]) -> float:
@@ -193,6 +213,7 @@ def _empty_research(history: list[dict[str, object]] | None = None) -> dict[str,
         "status": "EMPTY",
         "message": EMPTY_MESSAGE,
         "generated_at": None,
+        "generated_at_display": None,
         "rules_version": None,
         "attempt_count": 0,
         "fit_window": {},
@@ -270,6 +291,7 @@ def build_research_payload(project_root: Path) -> dict[str, object]:
         "status": "READY",
         "message": "",
         "generated_at": document.get("generated_at"),
+        "generated_at_display": _format_kst_timestamp(document.get("generated_at")),
         "rules_version": document.get("rules_version"),
         "attempt_count": document.get("attempt_count", 0),
         "fit_window": document.get("fit_window") if isinstance(document.get("fit_window"), dict) else {},

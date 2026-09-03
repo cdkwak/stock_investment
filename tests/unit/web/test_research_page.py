@@ -35,7 +35,14 @@ def _candidate(
     return {
         "id": candidate_id, "name": name, "side": side, "basket": basket,
         "status": status,
-        "definition": {"drawdown252": {"lte": -.2}, "levels": [0, 1, 2]},
+        "definition": {
+            "type": "ladder",
+            "indicators": [
+                {"key": "drawdown252", "op": "<=", "threshold": -.2},
+                {"key": "disp60", "op": "<=", "threshold": -.1},
+            ],
+            "levels": 2,
+        },
         "added_on": "2026-09-04", "reason": "합성 검증 후보",
         "results": {
             "fit": _metric(n=80, mean=.04, diff=.01),
@@ -60,7 +67,7 @@ def _candidate(
 
 def _write_research_fixture(root: Path) -> None:
     leaderboard = {
-        "schema_version": 1, "generated_at": "2026-09-04T09:00:00+09:00",
+        "schema_version": 1, "generated_at": "2026-09-03T21:51:09+00:00",
         "rules_version": "1234567890abcdef", "attempt_count": 7,
         "fit_window": {"end": "2015-12-31"},
         "holdout_window": {"start": "2016-01-01"},
@@ -129,12 +136,52 @@ def test_research_payload_shape_directional_sorting_history_and_status() -> None
     assert payload["candidates"][0]["direction_hint"] == "낮을수록 좋음"
     assert payload["candidates"][0]["warn_small_sample"] is True
     assert payload["candidates"][0]["cycles"][0]["label"] == "2008 금융위기"
-    assert "252거래일 고점 대비 낙폭" in payload["candidates"][1]["definition_text"]
+    assert payload["generated_at_display"] == "09-04 06:51"
+    assert payload["candidates"][1]["definition_text"] == (
+        "252일 낙폭 ≤ -20% · 60일 이격 ≤ -10% → 각 1점, 단계 0~2"
+    )
     assert [row["id"] for row in payload["history"]] == ["kr_dd_ladder_2", "old"]
     assert payload["current_status"] == [
         "규칙 현재 상태 · 낙폭 2단계 (KR): 1/2단계 · 노출 87% · 과거 동일 단계 60일 +7.5%",
     ]
     json.dumps(payload, ensure_ascii=False, allow_nan=False)
+
+
+def test_definition_sentences_cover_ladder_vol_target_and_hybrid() -> None:
+    ladder = {
+        "type": "ladder",
+        "indicators": [
+            {"key": "rsi14", "op": ">=", "threshold": 70},
+            {"key": "volidx_pct", "op": "<=", "threshold": .2},
+        ],
+        "levels": 2,
+    }
+    vol_target = {"type": "vol_target", "target_vol": .15, "window": 20}
+
+    assert research_page._definition_text(ladder) == (
+        "RSI14 ≥ 70 · 변동성지수 백분위(VIX/VKOSPI) ≤ 20% → 각 1점, 단계 0~2"
+    )
+    assert research_page._definition_text(vol_target) == (
+        "20일 실현 변동성 기준 목표 15% · 노출 = min(1, 목표/실현)"
+    )
+    assert research_page._definition_text({
+        "type": "hybrid", "ladder": ladder, "vol_target": vol_target,
+    }) == (
+        "RSI14 ≥ 70 · 변동성지수 백분위(VIX/VKOSPI) ≤ 20% → 각 1점, 단계 0~2"
+        " + 20일 실현 변동성 기준 목표 15% · 노출 = min(1, 목표/실현)"
+    )
+
+
+def test_unsigned_quantities_use_unsigned_percent_formatter() -> None:
+    script = (
+        Path(__file__).parents[3] / "src/stock_web/static/research.js"
+    ).read_text(encoding="utf-8")
+
+    for expression in (
+        "holdout.hit_60, 0", "holdout.vol_60", "current.exposure, 0",
+        "analog.hit_60, 0", "row.exposure, 0", "value)",
+    ):
+        assert f"pctUnsigned({expression}" in script
 
 
 def test_research_payload_cache_is_invalidated_by_either_file_mtime(
