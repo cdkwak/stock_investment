@@ -27,6 +27,7 @@ OFFSET_FILE = REPOSITORY / ".tmp" / "telegram_agent_bridge" / "update_offset"
 MAX_MESSAGE_LENGTH = 3500
 MAX_REPORT_LENGTH = 2200
 MAX_REQUEST_LENGTH = 1200
+BRIEF_DISCLAIMER = "※ 사실·시나리오 구분, 투자 조언 아님"
 INTAKE_ROOT = REPOSITORY / ".tmp" / "agents" / "telegram-bridge"
 BRIEFS_ROOT = REPOSITORY / "artifacts" / "local_user" / "briefs"
 INTAKE_SCHEMA = {
@@ -77,71 +78,103 @@ For non-register decisions, leave unused queue fields as empty strings and put
 a concise user-facing Korean explanation in message.
 """
 REPORT_PROMPTS = {
-    "morning": """한국어로 휴대폰에서 빠르게 읽는 '아침 시장 요약'을 작성하라. 현재 KST 시각을 명시하고 웹 검색으로 최신 자료를 확인하라.
-직전 미국 정규장의 핵심 지수·반도체·VIX, 미국 2/10/30년 금리·달러·USD/KRW, 금·WTI·Bitcoin, 오늘 한국장 조건과 핵심 일정만 요약하라. 세부 숫자를 나열하지 말고 흐름을 설명하는 핵심 숫자만 남겨라.
-목표가·전망은 최근 3거래일 안에 신뢰할 수 있는 공개 자료로 확인된 중요 변경만 KOSPI·S&P 500·한국/미국 종목을 통틀어 최대 2건 적어라. 새로 확인된 중요 변경이 없으면 그 사실만 한 줄로 적어라.
-아래 템플릿과 순서를 정확히 지켜라:
-☀️ 아침 시장 요약 | YYYY-MM-DD HH:MM KST
-한줄: 오늘의 핵심 결론
-
+    "morning": """한국어 A안 숫자표 형식의 아침 브리프를 작성하라.
+현재 KST 시각 확인 · 웹 검색으로 최신 자료 확인.
+직전 완료 미국 정규장과 오늘 한국장만 다룬다.
+아래 순서와 모양을 정확히 지켜라:
+☀️ 아침 MM/DD
 🌎 밤사이
-• 주식: 핵심 지수·반도체·VIX 방향과 이유
-• 금리·환율: 2Y/10Y/30Y·달러·USD/KRW 핵심 변화
-• 기타: 금·WTI·Bitcoin 방향
-
+다우 00,000 ▲0.0%
+S&P 0,000 ▼0.0%
+나스닥 00,000 ▲0.0%
+SOX 0,000 ▼0.0%
+VIX 00.0 · 미 10Y 0.00%
+DXY 00.0 · 원달러 0,000.0
+WTI $00.0 ▼0.0% · 금 $0,000 ▲0.0%
+─
 🇰🇷 오늘 국장
-• 기본: 가장 가능성 높은 흐름과 관찰 업종
-• 조건: 상승 촉발과 하락 위험을 한 줄에 대조
-
-🗓 오늘 일정
-• 시각 KST — 핵심 이벤트 (최대 2개)
-
+기본: 핵심 시나리오 하나
+조건: 상승 조건 / 하락 조건
+─
+🗓 일정
+HH:MM · 이벤트 / HH:MM · 이벤트
+─
 🎯 목표가·전망
-• 최근 중요 변경 (통합 최대 2개)
+종목·지수 0,000 · 변경 근거
+출처: 거래소·기관·매체
+※ 사실·시나리오 구분, 투자 조언 아님
 
-🤖 시스템
-• 프로젝트 단계·대시보드 최신성·지원 공백을 한 줄로 통합
-
-출처: 실제 사용한 기관·매체 이름만 한 줄
-※ 시나리오이며 투자 조언이 아님
+다우·S&P·나스닥·SOX는 각각 한 줄로 쓴다. VIX·미 10Y, DXY·원달러,
+WTI·금은 예시처럼 관련 숫자끼리 한 줄에 묶는다. 일정은 최대 2건이다.
+목표가·전망은 최근 3거래일 안의 검증된 중요 변경만 쓰며 섹션 전체가
+최대 2줄이다. 해당 변경이 없으면 🎯 섹션 전체를 생략한다.
 """,
-    "close": """한국어로 휴대폰에서 빠르게 읽는 '국장 마감 요약'을 작성하라. 현재 KST 시각을 명시하고 웹 검색으로 최신 자료를 확인하라.
-오늘 KOSPI/KOSDAQ 종가·등락, 확인 가능한 핵심 수급·주도 업종, 미국 선물, 미국 2/10/30년 금리·달러·USD/KRW, 금·WTI·Bitcoin, 오늘 밤 일정과 다음 세션 조건만 요약하라. 검증하지 못한 수치는 추정하지 말고 생략하라.
-목표가·전망은 최근 3거래일 안에 신뢰할 수 있는 공개 자료로 확인된 중요 변경만 KOSPI·S&P 500·한국/미국 종목을 통틀어 최대 2건 적어라. 새로 확인된 중요 변경이 없으면 그 사실만 한 줄로 적어라.
-아래 템플릿과 순서를 정확히 지켜라:
-🌆 국장 마감 요약 | YYYY-MM-DD HH:MM KST
-한줄: 오늘 장의 성격
-
-🇰🇷 오늘 한국장
-• 지수: KOSPI/KOSDAQ 종가·등락과 핵심 원인
-• 수급·업종: 외국인/기관 흐름과 강세·약세 업종
-
-🌎 지금 글로벌
-• 선물·금리·환율: 미국 선물·2Y/10Y/30Y·달러·USD/KRW
-• 기타: 아시아·금·WTI·Bitcoin 핵심 방향
-
+    "close": """한국어 A안 숫자표 형식의 국장 마감 브리프를 작성하라.
+현재 KST 시각 확인 · 웹 검색으로 최신 자료 확인.
+오늘 완료 한국 정규장과 16:10 현재 글로벌 시장만 다룬다.
+아래 순서와 모양을 정확히 지켜라:
+🌆 국장 마감 MM/DD
+KOSPI 0,000 ▲0.0%
+KOSDAQ 000 ▼0.0%
+외국인 -0,000억 · 기관 -0,000억
+강세 업종·업종 / 약세 업종·업종
+─
+한 줄 평: 장의 성격 한 가지
+─
+🌎 글로벌 (HH:MM)
+S&P 선물 ▲0.00% · 나스닥 선물 ▲0.00%
+미 10Y 0.00% · DXY 00.0 · 원달러 0,000.0
+WTI $00.0 ▼0.0% · 금 $0,000 ▲0.0%
+─
 🌙 오늘 밤
-• 시각 KST — 핵심 이벤트/위험 (최대 2개)
+HH:MM 이벤트 · HH:MM 이벤트
+─
+출처: 거래소·기관·매체
+※ 사실·시나리오 구분, 투자 조언 아님
 
-🔭 다음 세션
-• 기본 흐름과 상승 촉발/하락 위험을 한 줄에 대조
-
-🎯 목표가·전망
-• 최근 중요 변경 (통합 최대 2개)
-
-🤖 시스템
-• 프로젝트 단계·대시보드 최신성·지원 공백을 한 줄로 통합
-
-출처: 실제 사용한 기관·매체 이름만 한 줄
-※ 사실과 시나리오를 구분했으며 투자 조언이 아님
+KOSPI와 KOSDAQ은 각각 한 줄로 쓴다. 수급과 업종도 각각 한 줄이다.
+오늘 밤 일정은 최대 2건이며 한 줄에 쓴다. 검증하지 못한 항목은
+추정하거나 빈 라벨로 남기지 말고 그 항목만 생략한다.
 """,
 }
 REPORT_COMMON = """
-전체 본문은 공백 포함 900~1,600자를 목표로 하고 절대 2,200자를 넘지 마라. Telegram 메시지 하나로 끝내라. 각 글머리표는 140자 이내의 한 문장으로 쓰고, 전체 비어 있지 않은 줄은 20줄 이내로 제한하라. 섹션 사이에만 빈 줄 하나를 두라.
-시장 수치는 서로 다른 제공자 값을 평균하거나 합치지 말고 기준 시각/세션을 구분하라. 값을 확인하지 못하면 추정하지 말고 '확인 불가'라고 적어라. 휴장일이면 휴장과 최근 완료 세션을 구분하라. 공식 거래소·정부·중앙은행·증권사 원문·신뢰할 수 있는 보도를 우선하고, Telegram 본문에 URL이나 긴 링크를 넣지 마라. 출처를 확인하지 못한 정밀 숫자나 목표가는 쓰지 마라.
-마지막 시스템 섹션은 프롬프트 끝에 제공된 결정적 로컬 요약만 사용하라. 저장소의 긴 Status 문서를 다시 읽거나 오래된 숫자를 현재값처럼 쓰지 마라. 매수/매도 지시나 개인 맞춤 투자 조언은 하지 마라. 템플릿 외 서론·맺음말·Markdown 표·# 제목·중첩 글머리표를 쓰지 마라. 반복 설명을 제거하고 숫자는 의미 있는 자릿수로 줄여라. 저장소 파일, 데이터, 큐, 스케줄러를 변경하지 마라.
-본문의 서술 문장은 모두 일관된 격식체 존댓말('-습니다/-입니다')로 끝내고 반말·해라체를 쓰지 마라. 템플릿의 섹션 제목, 고정 라벨, 출처·주의 문구와 명사형 수치 항목은 그대로 유지하라.
+숫자를 먼저 쓰고 한 줄에는 한 가지 사실만 쓴다. 한 문장은 한 절을 넘기지
+않는다. 모든 줄은 공백 포함 40자 이하로 쓴다. 아침은 전체 22줄 이하,
+마감은 전체 18줄 이하로 쓴다. 빈 줄은 쓰지 않는다. 섹션 사이는 반드시
+`─` 한 줄로만 나눈다. 이모지는 섹션 제목에만 쓴다. 글머리표, Markdown 표,
+# 제목, 서론, 맺음말을 쓰지 않는다.
+
+등락률의 양수/음수 단어와 +/- 표시는 각각 ▲/▼로 쓴다. 단, 외국인·기관
+순매수 같은 부호 있는 금액은 원래 +/- 숫자를 유지한다. 숫자는 의미 있는
+자릿수로 줄인다. 서로 다른 제공자 값을 평균하거나 합치지 않는다. 기준 시각과
+완료 세션을 구분한다. 휴장일은 휴장과 최근 완료 세션을 구분한다. 확인하지
+못한 수치는 추정하지 않는다. 사실과 시나리오를 명시적으로 구분한다.
+
+공식 거래소·정부·중앙은행·증권사 원문과 신뢰할 수 있는 보도를 우선한다.
+출처는 본문 맨 끝에서 두 번째 줄 하나에 실제 사용한 이름만 쓴다. URL,
+Markdown 링크, 기사 제목은 쓰지 않는다. 마지막 줄은 반드시 아래 문구 그대로다:
+※ 사실·시나리오 구분, 투자 조언 아님
+
+매수/매도 지시, 주문, 개인 맞춤 투자 조언을 하지 않는다. 저장소 파일, 데이터,
+큐, 스케줄러를 변경하지 않는다. 뒤의 로컬 컨텍스트는 내부 확인 보조일 뿐이며
+브리프에 프로젝트 상태나 대시보드 상태를 넣지 않는다.
+저장소의 긴 Status 문서를 다시 읽거나 오래된 숫자를 현재값처럼 쓰지 않는다.
 """
+REPORT_KINDS = (*REPORT_PROMPTS, "conditions")
+
+_MARKDOWN_LINK_RE = re.compile(r"\[([^\]\n]+)\]\([^\)\n]+\)")
+_INDEX_LINE_RE = re.compile(
+    r"^(?:[-*•]\s*)?(?:KOSPI(?:200)?|KOSDAQ|코스피(?:200)?|코스닥|다우|DOW|"
+    r"S&P(?:\s*500)?|나스닥|NASDAQ|SOX)(?:\s|$)",
+    re.IGNORECASE,
+)
+_CONDITION_NAMES = {
+    "60일선 대비 -10% 이하": "60일선 -10%↓",
+    "52주 고점 대비 -30% 이하": "고점 -30%↓",
+    "하루 -5% 이하 급락": "일 -5%↓",
+    "RSI14 ≤ 30": "RSI≤30",
+    "RSI14 ≥ 70": "RSI≥70",
+}
 
 
 class BridgeError(RuntimeError):
@@ -234,6 +267,37 @@ def split_telegram_message(text: str, limit: int = MAX_MESSAGE_LENGTH) -> list[s
     if len(chunks) == 1:
         return chunks
     return [f"({index}/{len(chunks)})\n{chunk}" for index, chunk in enumerate(chunks, 1)]
+
+
+def normalize_brief(text: str) -> str:
+    """Normalize an agent-written brief without inventing or reflowing facts."""
+    without_links = _MARKDOWN_LINK_RE.sub(r"\1", text)
+    lines: list[str] = []
+    previous_blank = False
+    for raw_line in without_links.splitlines():
+        line = raw_line.strip()
+        if line == BRIEF_DISCLAIMER:
+            continue
+        if line and _INDEX_LINE_RE.match(line):
+            line = re.sub(r"(?<![\w.])\+(\d+(?:\.\d+)?)%", r"▲\1%", line)
+            line = re.sub(r"(?<![\w.])-(\d+(?:\.\d+)?)%", r"▼\1%", line)
+        is_blank = not line
+        if is_blank and (previous_blank or not lines):
+            continue
+        lines.append(line)
+        previous_blank = is_blank
+    while lines and not lines[-1]:
+        lines.pop()
+
+    kept: list[str] = []
+    for line in lines:
+        candidate = "\n".join((*kept, line, BRIEF_DISCLAIMER))
+        if len(candidate) > MAX_MESSAGE_LENGTH:
+            break
+        kept.append(line)
+    while kept and not kept[-1]:
+        kept.pop()
+    return "\n".join((*kept, BRIEF_DISCLAIMER))
 
 
 def send_long_message(client: TelegramClient, chat_id: int, text: str) -> None:
@@ -479,7 +543,7 @@ def persist_market_report(
         f"kind: {report_kind}\n"
         f"generated_at_kst: {generated_at.isoformat(timespec='seconds')}\n"
         f"sent: {'true' if sent else 'false'}\n"
-        "model: codex\n"
+        f"model: {'local' if report_kind == 'conditions' else 'codex'}\n"
         "---\n\n"
         f"{report.rstrip()}\n"
     )
@@ -511,7 +575,7 @@ def persist_market_report(
     return target
 
 
-def watchlist_condition_summary(limit: int = 12) -> str:
+def watchlist_condition_summary(limit: int = 8) -> str:
     """Deterministic local block: watchlist rows whose user-defined conditions are met today.
 
     Computed from retained data through the web stocks page builder (no network, no Codex);
@@ -528,40 +592,85 @@ def watchlist_condition_summary(limit: int = 12) -> str:
     # (today's Korean closes arrive with the 20:30 bundle), so the basis date must be visible.
     as_of_dates = sorted({str(row["as_of"])[:10] for row in table if row.get("as_of")})
     basis = f" ({as_of_dates[-1][5:].replace('-', '/')} 마감 기준)" if as_of_dates else ""
-    lines = [f"📌 관심종목 조건 도달{basis}"]
+    lines = [f"📌 관심종목{basis}"]
     if not hits:
-        lines.append("조건에 걸린 관심종목 없음")
-        return "\n".join(lines)
+        return ""
     for row in hits[:limit]:
         price = row.get("price")
         change = row.get("change_pct")
         price_text = f"{price:,.2f}" if isinstance(price, (int, float)) and price < 1000 else (
             f"{price:,.0f}" if isinstance(price, (int, float)) else "—"
         )
-        change_text = f"{change:+.1f}%" if isinstance(change, (int, float)) else "—"
-        names = " · ".join(str(match.get("name", "")) for match in row["condition_matches"])
-        lines.append(f"- {row.get('name', row.get('symbol', ''))} {price_text} ({change_text}): {names}")
-    if len(hits) > limit:
-        lines.append(f"- 외 {len(hits) - limit}종목")
-    lines.append("설명용 관찰 · 추천/주문 신호 아님")
+        if isinstance(change, (int, float)):
+            marker = "▲" if change > 0 else "▼" if change < 0 else ""
+            change_text = f"{marker}{abs(change):.1f}%"
+        else:
+            change_text = "—"
+        names = []
+        for match in row["condition_matches"]:
+            raw_name = match.get("name", "") if isinstance(match, Mapping) else str(match)
+            name = str(raw_name)
+            if name:
+                names.append(_CONDITION_NAMES.get(name, name))
+        condition_text = " · ".join(names)
+        lines.append(
+            f"{row.get('name', row.get('symbol', ''))} {price_text} "
+            f"{change_text} · {condition_text}"
+        )
+    lines.append("설명용 · 신호 아님")
     return "\n".join(lines)
 
 
 def generate_send_and_persist_market_report(
     client: TelegramClient, chat_id: int, report_kind: str,
 ) -> Path | None:
+    if report_kind == "conditions":
+        try:
+            report = watchlist_condition_summary()
+        except Exception:
+            raise BridgeError("Watchlist condition summary failed") from None
+        if not report:
+            print("telegram_bridge: report conditions skipped=no_hits")
+            return None
+        send_long_message(client, chat_id, report)
+        saved_path = persist_market_report(report_kind, report, True)
+        if saved_path is not None:
+            print(
+                "telegram_bridge: report conditions sent=true "
+                f"saved={saved_path}"
+            )
+        return saved_path
+
     report = generate_market_report(report_kind)
     if report_kind == "close":
         try:
             summary = watchlist_condition_summary()
             if summary:
-                report = report + "\n\n" + summary
+                report_lines = report.rstrip().splitlines()
+                footer_index = next(
+                    (
+                        index for index, line in enumerate(report_lines)
+                        if line.strip().startswith("출처:")
+                    ),
+                    len(report_lines),
+                )
+                if footer_index == len(report_lines):
+                    footer_index = next(
+                        (
+                            index for index, line in enumerate(report_lines)
+                            if line.strip() == BRIEF_DISCLAIMER
+                        ),
+                        len(report_lines),
+                    )
+                report_lines.insert(footer_index, summary)
+                report = "\n".join(report_lines)
         except Exception as exc:  # the brief must still go out when local data is unavailable
             print(
                 "telegram_bridge: warning: watchlist condition summary failed: "
                 f"{type(exc).__name__}: {exc}",
                 file=sys.stderr,
             )
+    report = normalize_brief(report)
     send_error: BridgeError | None = None
     try:
         send_long_message(client, chat_id, report)
@@ -692,7 +801,7 @@ def command_reply(text: str) -> str | None:
             "/status - 현재 프로젝트 상태\n"
             "/queue - 요청 큐 요약\n"
             "/request <내용> - Agent가 읽고 신규 요청 검토·등록\n"
-            "/brief morning|close - 시장 브리핑 즉시 생성\n"
+            "/brief morning|close|conditions - 시장 브리핑 즉시 생성\n"
             "/help - 도움말\n\n"
             "코드 실행·파일 변경·큐 변경 명령은 현재 허용하지 않습니다."
         )
@@ -754,10 +863,11 @@ def handle_updates(
                 reply = register_natural_language_request(remainder)
             elif command.split("@", 1)[0].lower() == "/brief":
                 report_kind = remainder.strip().lower()
-                if report_kind not in REPORT_PROMPTS:
-                    reply = "사용법: /brief morning 또는 /brief close"
+                if report_kind not in REPORT_KINDS:
+                    reply = "사용법: /brief morning, close 또는 conditions"
                 else:
-                    client.send(allowed_chat_id, "📰 최신 자료를 확인해 브리핑을 작성 중입니다…")
+                    if report_kind != "conditions":
+                        client.send(allowed_chat_id, "📰 최신 자료를 확인해 브리핑을 작성 중입니다…")
                     generate_send_and_persist_market_report(
                         client, allowed_chat_id, report_kind,
                     )
@@ -825,17 +935,26 @@ def run_hook(client: TelegramClient, chat_id: int) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Safe Telegram bridge for local agents")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    parser.add_argument(
+        "--report", dest="direct_report_kind", choices=REPORT_KINDS,
+        help="generate and send a market report",
+    )
+    subparsers = parser.add_subparsers(dest="command")
     listener = subparsers.add_parser("listen", help="poll for read-only commands")
     listener.add_argument("--once", action="store_true", help="perform one short poll")
     subparsers.add_parser("hook", help="handle a Codex hook JSON payload from stdin")
     report = subparsers.add_parser("report", help="generate and send a market report")
-    report.add_argument("kind", choices=tuple(REPORT_PROMPTS))
+    report.add_argument("kind", choices=REPORT_KINDS)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.command is None and args.direct_report_kind is None:
+        parser.error("a command or --report is required")
+    if args.command is not None and args.direct_report_kind is not None:
+        parser.error("use either a command or --report, not both")
     try:
         token, chat_id = load_settings()
     except BridgeError as exc:
@@ -847,6 +966,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     client = TelegramClient(token)
     if args.command == "hook":
         return run_hook(client, chat_id)
+    if args.direct_report_kind is not None:
+        return run_market_report(client, chat_id, args.direct_report_kind)
     if args.command == "report":
         return run_market_report(client, chat_id, args.kind)
     return run_listener(client, chat_id, args.once)

@@ -42,7 +42,7 @@ def tmp_path() -> Iterator[Path]:
     """Avoid pytest's broken Python 3.13 Windows 0700 temporary ACL."""
     root = (
         Path(__file__).resolve().parents[3]
-        / ".tmp/agents/journal-morning-draft-20260903/bridge-fixtures"
+        / ".tmp/agents/telegram-brief-a-style-20260903/bridge-fixtures"
         / uuid4().hex
     )
     root.mkdir(parents=True)
@@ -220,7 +220,7 @@ def test_codex_intake_is_read_only_ephemeral_and_keeps_user_text_off_argv(
 
 
 @pytest.mark.parametrize("kind", ["morning", "close"])
-def test_market_report_uses_live_search_and_shared_polite_tone_in_read_only_codex(
+def test_market_report_uses_live_search_and_a_style_prompt_in_read_only_codex(
     monkeypatch, tmp_path: Path, kind: str,
 ) -> None:
     monkeypatch.setattr(bridge, "INTAKE_ROOT", tmp_path / "reports")
@@ -245,26 +245,61 @@ def test_market_report_uses_live_search_and_shared_polite_tone_in_read_only_code
     assert arguments[arguments.index("--sandbox") + 1] == "read-only"
     assert 'web_search="live"' in arguments
     prompt = arguments[-1]
-    assert "🤖 시스템" in prompt
-    assert "프로젝트 단계·대시보드" in prompt
+    assert "🤖 시스템" not in prompt
+    assert "현재 KST 시각 확인 · 웹 검색으로 최신 자료 확인" in prompt
+    assert "한 줄에는 한 가지 사실만" in prompt
+    assert "모든 줄은 공백 포함 40자 이하" in prompt
+    assert "아침은 전체 22줄 이하" in prompt
+    assert "마감은 전체 18줄 이하" in prompt
+    assert "각각 ▲/▼" in prompt
+    assert "이모지는 섹션 제목에만" in prompt
     assert "긴 Status 문서를 다시 읽" in prompt
     assert "compact-context" in prompt
-    assert "URL이나 긴 링크를 넣지 마라" in prompt
-    assert "실제 사용한 기관·매체 이름만" in prompt
-    assert "섹션 사이에만 빈 줄 하나" in prompt
-    assert "🎯 목표가·전망" in prompt
-    assert "최근 3거래일" in prompt
-    assert "통틀어 최대 2건" in prompt
-    assert "900~1,600자" in prompt
-    assert "Telegram 메시지 하나로 끝내라" in prompt
-    assert "격식체 존댓말('-습니다/-입니다')" in prompt
-    assert "반말·해라체를 쓰지 마라" in prompt
-    assert "고정 라벨" in prompt
+    assert "URL," in prompt and "기사 제목은 쓰지 않는다" in prompt
+    assert "※ 사실·시나리오 구분, 투자 조언 아님" in prompt
+    if kind == "morning":
+        assert prompt.index("🌎 밤사이") < prompt.index("🇰🇷 오늘 국장")
+        assert prompt.index("🇰🇷 오늘 국장") < prompt.index("🗓 일정")
+        assert "🎯 목표가·전망" in prompt
+    else:
+        assert prompt.index("🌆 국장 마감") < prompt.index("🌎 글로벌")
+        assert prompt.index("🌎 글로벌") < prompt.index("🌙 오늘 밤")
 
 
 def test_market_report_boundary_always_fits_one_telegram_message() -> None:
     assert bridge.MAX_REPORT_LENGTH < bridge.MAX_MESSAGE_LENGTH
     assert len(bridge.split_telegram_message("x" * bridge.MAX_REPORT_LENGTH)) == 1
+
+
+def test_normalize_brief_cleans_links_blanks_index_signs_and_disclaimer() -> None:
+    messy = (
+        "🌆 국장 마감 09/03\n"
+        "KOSPI 6,579 +0.3%\n\n\n"
+        "• KOSDAQ 790 -1.7%\n"
+        "원달러 -0.3%\n"
+        "출처: [거래소](https://example.invalid/market)·Reuters\n"
+        "※ 사실·시나리오 구분, 투자 조언 아님\n\n"
+    )
+
+    normalized = bridge.normalize_brief(messy)
+
+    assert normalized == (
+        "🌆 국장 마감 09/03\n"
+        "KOSPI 6,579 ▲0.3%\n\n"
+        "• KOSDAQ 790 ▼1.7%\n"
+        "원달러 -0.3%\n"
+        "출처: 거래소·Reuters\n"
+        "※ 사실·시나리오 구분, 투자 조언 아님"
+    )
+
+
+def test_normalize_brief_truncates_only_at_complete_line_boundary() -> None:
+    full_line = "가" * 100
+    normalized = bridge.normalize_brief("\n".join([full_line] * 50))
+
+    assert len(normalized) <= bridge.MAX_MESSAGE_LENGTH
+    assert normalized.splitlines()[-1] == bridge.BRIEF_DISCLAIMER
+    assert all(line == full_line for line in normalized.splitlines()[:-1])
 
 
 def test_market_report_rejects_agent_output_above_compact_boundary(
@@ -291,7 +326,7 @@ def test_market_report_is_saved_with_kst_name_frontmatter_and_body(
     monkeypatch, tmp_path: Path, capsys,
 ) -> None:
     generated_at = datetime(2026, 9, 3, 7, 31, 12, tzinfo=ZoneInfo("Asia/Seoul"))
-    report = "# 아침 시장 요약\n\n본문입니다."
+    report = "☀️ 아침 09/03\n다우 47,000 +0.2%"
     monkeypatch.setattr(bridge, "BRIEFS_ROOT", tmp_path / "briefs")
     monkeypatch.setattr(bridge, "_kst_now", lambda: generated_at)
     monkeypatch.setattr(bridge, "generate_market_report", lambda kind: report)
@@ -309,9 +344,10 @@ def test_market_report_is_saved_with_kst_name_frontmatter_and_body(
         "sent: true\n"
         "model: codex\n"
         "---\n\n"
-        "# 아침 시장 요약\n\n본문입니다.\n"
+        "☀️ 아침 09/03\n다우 47,000 ▲0.2%\n"
+        "※ 사실·시나리오 구분, 투자 조언 아님\n"
     )
-    assert client.messages == [(42, report)]
+    assert client.messages == [(42, bridge.normalize_brief(report))]
     assert journal_dates == [generated_at.date()]
     assert f"saved={saved}" in capsys.readouterr().out
 
@@ -331,7 +367,7 @@ def test_morning_journal_failure_only_warns_and_keeps_telegram_success(
     client = RecordingClient()
 
     assert bridge.run_market_report(client, 42, "morning") == 0
-    assert client.messages == [(42, "아침 본문")]
+    assert client.messages == [(42, bridge.normalize_brief("아침 본문"))]
     assert (tmp_path / "briefs" / "2026-09-03-morning.md").is_file()
     assert "warning: investing journal draft failed" in capsys.readouterr().err
 
@@ -354,7 +390,9 @@ def test_market_report_send_failure_is_saved_as_unsent(
     contents = saved.read_text(encoding="utf-8")
     assert "kind: close\n" in contents
     assert "sent: false\n" in contents
-    assert contents.endswith("---\n\n마감 본문\n")
+    assert contents.endswith(
+        "---\n\n마감 본문\n※ 사실·시나리오 구분, 투자 조언 아님\n"
+    )
 
 
 def test_unwritable_brief_directory_warns_without_breaking_send(
@@ -367,7 +405,7 @@ def test_unwritable_brief_directory_warns_without_breaking_send(
     client = RecordingClient()
 
     assert bridge.run_market_report(client, 42, "morning") == 0
-    assert client.messages == [(42, "브리핑 본문")]
+    assert client.messages == [(42, bridge.normalize_brief("브리핑 본문"))]
     assert "warning: market report could not be saved" in capsys.readouterr().err
 
 
@@ -391,7 +429,17 @@ def test_handle_manual_brief_rejects_unknown_kind_without_codex(monkeypatch) -> 
         "text": "/brief tomorrow",
     }}]
     assert bridge.handle_updates(client, 42, updates) == 31
-    assert client.messages == [(42, "사용법: /brief morning 또는 /brief close")]
+    assert client.messages == [(42, "사용법: /brief morning, close 또는 conditions")]
+
+
+def test_report_cli_accepts_conditions_kind() -> None:
+    args = bridge.build_parser().parse_args(["report", "conditions"])
+    assert args.command == "report"
+    assert args.kind == "conditions"
+
+    direct = bridge.build_parser().parse_args(["--report", "conditions"])
+    assert direct.command is None
+    assert direct.direct_report_kind == "conditions"
 
 
 def test_nonregister_agent_decision_never_mutates_queue(monkeypatch) -> None:
