@@ -165,13 +165,11 @@ def test_korean_session_maps_toss_windows_from_0900(monkeypatch) -> None:
     tile = next(item for item in home_data.build_tiles(root) if item["name"] == "KOSPI")
     assert tile["value"] == "151.80"
     assert tile["spark_kind"] == "intraday"
-    assert tile["latest_intraday"]["value"] == 103.0
-    assert tile["latest_intraday"]["time"] == "2026-09-03T10:00:00+09:00"
-    # Headline change follows the live value versus the retained close (151.80 -> 103.0);
-    # the close-to-close move is exposed separately so yesterday's move is not read as today's.
-    assert tile["change_pct"] == tile["latest_intraday"]["change_pct"]
-    assert abs(tile["change_pct"] - (103.0 / 151.80 - 1.0) * 100.0) < 1e-9
-    assert tile["close_date"] is not None and "close_change_pct" in tile
+    # The synthetic retained close (2026-09-17) is newer than the intraday observation, so the
+    # close is the truth: no 장중 note and the headline change stays close-to-close.
+    assert "latest_intraday" not in tile
+    assert "close_change_pct" not in tile
+    assert tile["spark_kind"] == "intraday"
 
 
 def test_futures_window_keeps_only_last_24_hours(monkeypatch) -> None:

@@ -101,7 +101,7 @@
     host.innerHTML = (tiles || []).map((t) => `
       <div class="tile" data-symbol="${esc(t.symbol || "")}">
         <div class="n">${esc(t.name)}</div>
-        <div class="v"><span class="headline-value"><b class="num">${t.value ?? "—"}</b>${t.latest_intraday ? `<small class="muted">장중 <span class="num">${intradayValue(t.latest_intraday.value)}</span> · ${asof(t.latest_intraday.time).slice(-5)}${t.close_change_pct !== undefined && t.close_change_pct !== null ? ` · 마감${t.close_date ? " " + t.close_date.slice(5) : ""} <span class="num ${cls(t.close_change_pct)}">${pct(t.close_change_pct)}</span>` : ""}</small>` : ""}</span><span class="num ${cls(t.change_pct)}">${t.change_label ?? pct(t.change_pct)}</span></div>
+        <div class="v"><span class="headline-value"><b class="num">${t.value ?? "—"}</b>${t.latest_intraday ? `<small class="muted">장중 <span class="num">${intradayValue(t.latest_intraday.value)}</span> · ${asof(t.latest_intraday.time).slice(-5)}${t.close_change_pct !== undefined && t.close_change_pct !== null ? ` · 마감${t.close_date ? " " + t.close_date : ""} <span class="num ${cls(t.close_change_pct)}">${pct(t.close_change_pct)}</span>` : ""}</small>` : ""}</span><span class="num ${cls(t.change_pct)}">${t.change_label ?? pct(t.change_pct)}</span></div>
         <div class="ma"><span>5일 <span class="num ${cls(t.ma5_pct)}">${pct(t.ma5_pct)}</span></span><span>20일 <span class="num ${cls(t.ma20_pct)}">${pct(t.ma20_pct)}</span></span></div>
         ${t.spark ? `<div class="spark">${sparkline(t.spark)}<small>${esc(t.window || "")}</small></div>` : `<div class="note">${esc(t.note || "표시 불가")}</div>`}
         ${t.sub_note ? `<div class="tile-sub-note">${esc(t.sub_note)}</div>` : ""}
