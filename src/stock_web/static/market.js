@@ -107,17 +107,8 @@
         t: candle.t, v: close.slice(offset, offset + windowSize).reduce((sum, value) => sum + value, 0) / windowSize,
       }));
     });
-    result.rsi14 = [];
-    for (let index = 14; index < close.length; index += 1) {
-      let gains = 0, losses = 0;
-      for (let cursor = index - 13; cursor <= index; cursor += 1) {
-        const delta = close[cursor] - close[cursor - 1];
-        if (delta > 0) gains += delta; else losses -= delta;
-      }
-      const averageGain = gains / 14, averageLoss = losses / 14;
-      const value = averageLoss === 0 ? (averageGain === 0 ? 50 : 100) : 100 - 100 / (1 + averageGain / averageLoss);
-      result.rsi14.push({ t: candles[index].t, v: value });
-    }
+    const rsiValues = SIIndicators.rsiWilder(close, 14);
+    result.rsi14 = candles.map((candle, index) => rsiValues[index] === null ? null : ({ t: candle.t, v: rsiValues[index] })).filter(Boolean);
     return result;
   }
 
@@ -157,7 +148,8 @@
     });
     mainChart.timeScale().fitContent();
     const latestRsi = values.rsi14.length ? values.rsi14[values.rsi14.length - 1].v : null;
-    stats.innerHTML = `<span class="muted">기준일 <b class="num">${esc(payload.as_of)}</b></span>${latestRsi !== null ? `<span class="muted">RSI14 <b class="num">${fmt(latestRsi, 1)}</b></span>` : ""}`;
+    stats.innerHTML = `<span class="muted">기준일 <b class="num">${esc(payload.as_of)}</b></span>${latestRsi !== null ? `<span class="muted" data-explanation="rsi14">RSI14 <b class="num">${fmt(latestRsi, 1)}</b></span>` : ""}`;
+    applyExplanations(pagePayload.explanations || {}, stats);
     legend.innerHTML = `<span class="market-symbol-label"><i style="background:#1f1d1a"></i>${esc(payload.symbol_name || payload.symbol)}</span>` + enabled.map((name) => `<span class="market-indicator-label"><i style="background:${colors[name]}"></i>${esc(indicatorLabels[name])} · ${indicatorState[name].placement === "panel" ? "아래" : "겹침"}<button type="button" data-remove-indicator="${name}" aria-label="${esc(indicatorLabels[name])} 제거">×</button></span>`).join("");
     legend.querySelectorAll("[data-remove-indicator]").forEach((button) => button.addEventListener("click", () => changeIndicator(button.dataset.removeIndicator, { enabled: false })));
   }

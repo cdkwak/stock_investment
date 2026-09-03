@@ -19,6 +19,7 @@ from stock_data.gui.services import US_ETF_CHART_IDENTITIES
 from stock_data.research.target_prices import read_target_price_consensus
 from stock_web.api import datasets as dsx
 from stock_web.api.datasets import field
+from stock_web.api.indicators import rsi_latest
 
 
 DETAIL_CACHE_TTL_SECONDS = 60.0
@@ -174,20 +175,6 @@ def _identity(project_root: Path, symbol: str, market: str) -> tuple[dict[str, o
     }, None)
 
 
-def _rsi14(close: pd.Series) -> float | None:
-    delta = close.diff()
-    gain = delta.clip(lower=0).rolling(14).mean()
-    loss = (-delta.clip(upper=0)).rolling(14).mean()
-    if len(close) < 15:
-        return None
-    avg_gain, avg_loss = _finite(gain.iloc[-1]), _finite(loss.iloc[-1])
-    if avg_gain is None or avg_loss is None:
-        return None
-    if avg_loss == 0:
-        return 100.0 if avg_gain > 0 else 50.0
-    return 100.0 - 100.0 / (1.0 + avg_gain / avg_loss)
-
-
 def _price_projection(frame: pd.DataFrame | None) -> tuple[dict[str, object], dict[str, object]]:
     empty_headline = {
         "price_available": False, "price": None, "previous_close": None,
@@ -227,7 +214,7 @@ def _price_projection(frame: pd.DataFrame | None) -> tuple[dict[str, object], di
     }
     stats = {
         **empty_stats,
-        "rsi14": _rsi14(close),
+        "rsi14": rsi_latest(close),
         "ma20_pct": (price / ma20 - 1.0) * 100.0 if ma20 else None,
         "disp60_pct": (price / ma60 - 1.0) * 100.0 if ma60 else None,
         "drawdown_pct": (price / high - 1.0) * 100.0 if high else None,

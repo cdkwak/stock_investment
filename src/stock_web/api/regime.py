@@ -9,6 +9,7 @@ import pandas as pd
 
 from stock_data.gui.query import LocalParquetQuery
 from stock_data.gui.services import DashboardService
+from stock_web.api.indicators import rsi_latest
 
 
 DEFAULT_RULES_PATH = Path(
@@ -54,7 +55,7 @@ def oversold_strength(
         3.0, max(0.0, (volatility_percentile - 50.0) / 50.0 * 3.0)
     )
     components = (
-        ("RSI", rsi_points),
+        ("RSI14", rsi_points),
         ("이격", distance_points),
         ("변동성", volatility_points),
     )
@@ -231,7 +232,7 @@ def build_regime(project_root: Path, account: dict[str, object]) -> dict[str, ob
         kospi = service.index.series("KOSPI", "1Y")
     except (KeyError, OSError, PermissionError, TypeError, ValueError):
         kospi = pd.DataFrame()
-    kr_rsi = _last(kospi, "rsi14")
+    kr_rsi = rsi_latest(kospi["close"]) if "close" in kospi else None
     kr_disparity = _last(kospi, "disparity60")
     kr_distance = kr_disparity - 100.0 if kr_disparity is not None else None
 
@@ -239,7 +240,7 @@ def build_regime(project_root: Path, account: dict[str, object]) -> dict[str, ob
         sp500 = service.index.asset_series("SP500", "1Y")
     except (KeyError, OSError, PermissionError, TypeError, ValueError):
         sp500 = pd.DataFrame()
-    us_rsi = _last(sp500, "rsi14")
+    us_rsi = rsi_latest(sp500["close"]) if "close" in sp500 else None
     if not sp500.empty and "close" in sp500:
         close = pd.to_numeric(sp500["close"], errors="coerce").dropna()
         ma200 = close.rolling(200).mean().iloc[-1] if len(close) >= 200 else float("nan")

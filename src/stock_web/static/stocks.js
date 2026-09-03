@@ -112,6 +112,8 @@
 
   function renderWatchlistTable() {
     const rows = page.table || [];
+    const rsiHeader = $("watchlist-table-rows").closest("table").querySelector("thead th:nth-child(8)");
+    if (rsiHeader) { rsiHeader.textContent = "RSI14"; rsiHeader.title = "Wilder 지수이동평균 방식"; }
     $("watchlist-table-rows").innerHTML = rows.length ? rows.map((row) => `<tr class="${flashIdentity === `${row.market}:${row.symbol}` ? "flash-new" : ""}">
       <td><button type="button" class="text-button open-stock-detail" data-symbol="${esc(row.symbol)}" data-market="${esc(row.market)}"><b>${esc(row.name)}</b></button><small>${esc(row.list_name)}</small></td>
       <td class="num">${esc(row.symbol)}</td>
@@ -192,8 +194,8 @@
     return `${String(asOf).slice(5)} 마감${provisional || detail.basis.provisional ? " · 잠정" : ""}`;
   }
 
-  function statTile(label, value, suffix = "", valueTone = "") {
-    return `<div><span>${label}</span><b class="num ${valueTone}">${value === "—" ? value : `${value}${suffix}`}</b></div>`;
+  function statTile(label, value, suffix = "", valueTone = "", explanation = "") {
+    return `<div${explanation ? ` title="${esc(explanation)}"` : ""}><span>${label}</span><b class="num ${valueTone}">${value === "—" ? value : `${value}${suffix}`}</b></div>`;
   }
 
   function renderHeadline(detail) {
@@ -216,7 +218,7 @@
       <div class="stock-basis-line">${esc(basisLabel(detail))}</div>
       <div class="stock-condition-chips">${flags.length ? flags.map((item) => `<span>${esc(item.name)}</span>`).join("") : '<span class="empty">도달 조건 없음</span>'}</div>
       <div class="stock-stat-row">
-        ${statTile("RSI14", number(stats.rsi14, 1))}
+        ${statTile("RSI14", number(stats.rsi14, 1), "", "", "Wilder 지수이동평균 방식")}
         ${statTile("60일선 대비", pct(stats.disp60_pct), "", tone(stats.disp60_pct))}
         ${statTile("52주 고점 대비", pct(stats.drawdown_pct), "", tone(stats.drawdown_pct))}
         ${statTile("20일 거래량 배수", stats.volume20_multiple === null ? "—" : number(stats.volume20_multiple, 2), stats.volume20_multiple === null ? "" : "×")}
@@ -320,21 +322,6 @@
     }).filter(Boolean);
   }
 
-  function rsiPoints(candles) {
-    const result = [];
-    for (let index = 14; index < candles.length; index += 1) {
-      let gains = 0, losses = 0;
-      for (let cursor = index - 13; cursor <= index; cursor += 1) {
-        const delta = Number(candles[cursor].c) - Number(candles[cursor - 1].c);
-        if (delta > 0) gains += delta; else losses -= delta;
-      }
-      const avgGain = gains / 14, avgLoss = losses / 14;
-      const value = avgLoss === 0 ? (avgGain > 0 ? 100 : 50) : 100 - 100 / (1 + avgGain / avgLoss);
-      result.push({ t: candles[index].t, v: value });
-    }
-    return result;
-  }
-
   function renderLoadedChart() {
     const source = loadedChart && loadedChart.candles;
     if (!source || !source.length) {
@@ -370,7 +357,8 @@
     } else {
       $("stock-price-chart").innerHTML = '<div class="unavailable">차트 라이브러리 로드 실패</div>';
     }
-    const rsi = rsiPoints(allCandles).filter((point) => point.t >= firstTime);
+    const rsiValues = SIIndicators.rsiWilder(allCandles.map((item) => item.c), 14);
+    const rsi = allCandles.map((candle, index) => rsiValues[index] === null ? null : ({ t: candle.t, v: rsiValues[index] })).filter((point) => point && point.t >= firstTime);
     if (window.SIChart) SIChart.renderLineChart($("stock-rsi-chart"), rsi, {
       height: 130, ariaLabel: "RSI14 차트", valueLabel: "RSI14", color: "#a8621a",
       axisFormatter: (value) => Number(value).toFixed(0), valueFormatter: (value) => Number(value).toFixed(1),

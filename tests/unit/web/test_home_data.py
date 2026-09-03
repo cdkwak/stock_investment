@@ -51,9 +51,9 @@ def test_regime_formulas_match_hand_calculations() -> None:
     score = oversold_strength(15.0, -10.0, 100.0)
     assert score is not None
     assert score[0] == 10.0
-    assert dict(score[1]) == {"RSI": 4.0, "이격": 3.0, "변동성": 3.0}
+    assert dict(score[1]) == {"RSI14": 4.0, "이격": 3.0, "변동성": 3.0}
     assert oversold_strength(50.0, 0.0, 50.0) == (
-        0.0, (("RSI", 0.0), ("이격", 0.0), ("변동성", 0.0)),
+        0.0, (("RSI14", 0.0), ("이격", 0.0), ("변동성", 0.0)),
     )
     assert oversold_strength(None, 0.0, 50.0) is None
     assert temperature_label(71.0, 0.1) == "과열"
@@ -83,6 +83,7 @@ def test_home_payload_is_json_clean_and_missing_sections_explain_why(
     assert sections["scanner"]["status"] == "READY"
     assert sections["scanner"]["count"] == 1
     assert sections["flows"]["rows"]
+    assert home_data.build_chart_payload(root, symbol="KOSPI", range_key="3M")["stats"]["rsi14"] == 100.0
 
 
 def test_home_payload_cache_is_keyed_by_root_and_lasts_sixty_seconds(

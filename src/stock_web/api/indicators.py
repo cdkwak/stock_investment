@@ -1,4 +1,4 @@
-"""Pure pandas technical indicators for the local Market chart.
+"""Pure technical indicators shared by the local web dashboard.
 
 The functions in this module are provider-free and never mutate their input.
 Indicators are calculated after candle resampling so weekly and monthly views
@@ -7,6 +7,7 @@ describe weekly and monthly bars rather than sampled daily calculations.
 from __future__ import annotations
 
 from collections.abc import Iterable
+import math
 
 import numpy as np
 import pandas as pd
@@ -30,32 +31,62 @@ def normalize_indicators(value: str | Iterable[str] | None) -> tuple[str, ...]:
     return tuple(dict.fromkeys(item for item in values if item in INDICATOR_NAMES))
 
 
-def _wilder_rsi(close: pd.Series, period: int = 14) -> pd.Series:
-    """Wilder RSI with an explicit arithmetic seed and recursive smoothing."""
-    values = pd.to_numeric(close, errors="coerce").astype(float)
-    delta = values.diff()
-    gains = delta.clip(lower=0.0)
-    losses = -delta.clip(upper=0.0)
-    average_gain = pd.Series(np.nan, index=values.index, dtype=float)
-    average_loss = pd.Series(np.nan, index=values.index, dtype=float)
-    if len(values) <= period:
-        return average_gain
+def rsi_wilder(closes: Iterable[object], period: int = 14) -> list[float | None]:
+    """Return Wilder RSI, reseeding after any non-finite close."""
+    if period < 1:
+        raise ValueError("period must be at least 1")
 
-    average_gain.iloc[period] = gains.iloc[1:period + 1].mean()
-    average_loss.iloc[period] = losses.iloc[1:period + 1].mean()
-    for offset in range(period + 1, len(values)):
-        average_gain.iloc[offset] = (
-            average_gain.iloc[offset - 1] * (period - 1) + gains.iloc[offset]
-        ) / period
-        average_loss.iloc[offset] = (
-            average_loss.iloc[offset - 1] * (period - 1) + losses.iloc[offset]
-        ) / period
+    result: list[float | None] = []
+    previous: float | None = None
+    seed_gains: list[float] = []
+    seed_losses: list[float] = []
+    average_gain: float | None = None
+    average_loss: float | None = None
 
-    denominator = average_gain + average_loss
-    rsi = 100.0 * average_gain / denominator
-    rsi = rsi.mask((average_loss == 0) & (average_gain > 0), 100.0)
-    rsi = rsi.mask((average_gain == 0) & (average_loss > 0), 0.0)
-    return rsi.mask((average_gain == 0) & (average_loss == 0), 50.0)
+    for raw_close in closes:
+        try:
+            close = float(raw_close)
+        except (TypeError, ValueError):
+            close = float("nan")
+        if not math.isfinite(close):
+            result.append(None)
+            previous = average_gain = average_loss = None
+            seed_gains.clear()
+            seed_losses.clear()
+            continue
+        if previous is None:
+            result.append(None)
+            previous = close
+            continue
+
+        change = close - previous
+        gain = max(change, 0.0)
+        loss = max(-change, 0.0)
+        previous = close
+        if average_gain is None or average_loss is None:
+            seed_gains.append(gain)
+            seed_losses.append(loss)
+            if len(seed_gains) < period:
+                result.append(None)
+                continue
+            average_gain = sum(seed_gains) / period
+            average_loss = sum(seed_losses) / period
+        else:
+            average_gain = (average_gain * (period - 1) + gain) / period
+            average_loss = (average_loss * (period - 1) + loss) / period
+
+        if average_loss == 0.0:
+            result.append(100.0)
+        else:
+            relative_strength = average_gain / average_loss
+            result.append(100.0 - 100.0 / (1.0 + relative_strength))
+    return result
+
+
+def rsi_latest(closes: Iterable[object], period: int = 14) -> float | None:
+    """Return the RSI at the final close, or ``None`` when it is unavailable."""
+    values = rsi_wilder(closes, period)
+    return values[-1] if values else None
 
 
 def calculate_indicators(frame: pd.DataFrame) -> pd.DataFrame:
@@ -72,7 +103,7 @@ def calculate_indicators(frame: pd.DataFrame) -> pd.DataFrame:
     deviation = close.rolling(20, min_periods=20).std(ddof=0)
     out["bollinger_upper"] = out["bollinger_mid"] + 2.0 * deviation
     out["bollinger_lower"] = out["bollinger_mid"] - 2.0 * deviation
-    out["rsi14"] = _wilder_rsi(close, 14)
+    out["rsi14"] = rsi_wilder(close, 14)
 
     ema12 = close.ewm(span=12, adjust=False).mean()
     ema26 = close.ewm(span=26, adjust=False).mean()
@@ -121,5 +152,5 @@ def resample_ohlcv(frame: pd.DataFrame, interval: str) -> pd.DataFrame:
 
 __all__ = [
     "DEFAULT_INDICATORS", "INDICATOR_NAMES", "calculate_indicators",
-    "normalize_indicators", "resample_ohlcv",
+    "normalize_indicators", "resample_ohlcv", "rsi_latest", "rsi_wilder",
 ]

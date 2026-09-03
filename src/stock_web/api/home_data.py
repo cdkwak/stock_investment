@@ -19,6 +19,7 @@ import pandas as pd
 from stock_web.api import datasets as dsx
 from stock_web.api.datasets import field
 from stock_web.api.fmt import KST, format_kst
+from stock_web.api.indicators import rsi_wilder
 from stock_web.api.intraday import load_intraday_series
 
 _HOME_CACHE_TTL_SECONDS = 60.0
@@ -128,11 +129,7 @@ def _indicators(frame: pd.DataFrame) -> pd.DataFrame:
     close = out["close"].astype(float)
     for w in (5, 20, 60, 120):
         out[f"ma{w}"] = close.rolling(w).mean()
-    delta = close.diff()
-    gain = delta.clip(lower=0).rolling(14).mean()
-    loss = (-delta.clip(upper=0)).rolling(14).mean()
-    rs = gain / loss.replace(0, float("nan"))
-    out["rsi14"] = 100 - 100 / (1 + rs)
+    out["rsi14"] = rsi_wilder(close, 14)
     out["disp60_pct"] = (close / out["ma60"] - 1) * 100
     out["high_252"] = close.rolling(252, min_periods=20).max()
     out["drawdown_pct"] = (close / out["high_252"] - 1) * 100

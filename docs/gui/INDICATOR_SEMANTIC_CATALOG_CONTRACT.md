@@ -256,6 +256,9 @@ the exact accepted close series, with a 0–100 oscillator unit. Existing 30 and
 70 guide lines are evidenced descriptive `REFERENCE_LINE` thresholds; their
 interpretation says oversold/overbought reference and explicitly not an
 investment-decision rule. RSI cannot share an unlabeled price or ratio axis.
+Its first average is the simple mean of the first 14 gains/losses; each next
+average is `(previous * 13 + current) / 14`, `RS = avgGain / avgLoss`, and
+`RSI = 100 - 100 / (1 + RS)`, with `avgLoss == 0` defined as RSI 100.
 
 `CLOSE_DISTANCE_MA60_PP` is the same retained `close / MA60 * 100` disparity
 displayed as signed `(close / MA60 - 1) * 100` percentage-point distance around

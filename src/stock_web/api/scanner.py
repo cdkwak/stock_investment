@@ -18,6 +18,7 @@ import pyarrow.dataset as pads
 
 from stock_data.features.liquidity import liquidity_snapshot
 from stock_data.orchestration.kr_fundamentals_quarterly import fundamental_health
+from stock_web.api.indicators import rsi_latest
 from stock_web.api.stocks_page import evaluate_conditions, load_conditions
 
 
@@ -198,27 +199,6 @@ def _master_names(project_root: Path) -> dict[tuple[str, str], str]:
         for row in frame.itertuples(index=False)
         if str(row.name).strip()
     }
-
-
-def _wilder_rsi_last(values: np.ndarray, period: int = 14) -> float | None:
-    if len(values) <= period or not np.isfinite(values).all() or (values <= 0).any():
-        return None
-    delta = np.diff(values)
-    gains = np.maximum(delta, 0.0)
-    losses = np.maximum(-delta, 0.0)
-    average_gain = float(gains[:period].mean())
-    average_loss = float(losses[:period].mean())
-    for offset in range(period, len(delta)):
-        average_gain = (average_gain * (period - 1) + float(gains[offset])) / period
-        average_loss = (average_loss * (period - 1) + float(losses[offset])) / period
-    if average_gain == average_loss == 0.0:
-        return 50.0
-    if average_loss == 0.0:
-        return 100.0
-    if average_gain == 0.0:
-        return 0.0
-    relative_strength = average_gain / average_loss
-    return 100.0 - 100.0 / (1.0 + relative_strength)
 
 
 def _fundamental_dataset(project_root: Path) -> Path | None:
@@ -483,7 +463,7 @@ def build_scanner(
         close = tail["close"].to_numpy(dtype="float64")
         if not np.isfinite(close).all() or (close <= 0).any():
             continue
-        rsi14 = _wilder_rsi_last(close)
+        rsi14 = rsi_latest(close)
         ma20 = float(close[-20:].mean())
         ma60 = float(close[-60:].mean())
         if rsi14 is None or ma20 <= 0 or ma60 <= 0:

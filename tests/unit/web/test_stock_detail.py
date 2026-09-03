@@ -113,6 +113,7 @@ def test_korean_stock_detail_projects_stats_company_fundamentals_and_dividends()
         "security_type": "보통주", "isin": "KR7005930003", "currency": "KRW",
     }
     assert payload["headline"]["price_available"] is True
+    assert payload["stats"]["rsi14"] == 100.0
     assert payload["stats"]["market_cap"] == payload["headline"]["price"] * 1_000_000_000
     assert payload["company"]["listing_date"] == "1975-06-11"
     assert payload["company"]["issued_shares"] == 1_000_000_000

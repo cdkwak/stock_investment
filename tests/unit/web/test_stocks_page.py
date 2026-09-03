@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from stock_data.gui.watchlist_service import LocalWatchlistService
 from stock_web.api import home_data
@@ -108,7 +109,7 @@ def test_scanner_finds_one_oversold_symbol_in_tiny_exact_universe_and_caches() -
     assert result["scanned_instruments"] == 3
     assert result["count"] == 1
     assert result["candidates"][0]["symbol"] == "000660"
-    assert result["candidates"][0]["rsi14"] <= 30
+    assert result["candidates"][0]["rsi14"] == pytest.approx(0.5433431733168419)
     assert result["fundamental_columns"] == []
     assert "없어 표시하지 않습니다" in result["fundamentals_note"]
     assert cached == result
@@ -262,6 +263,9 @@ def test_stocks_search_selection_and_new_row_flash_are_client_side() -> None:
     assert "선택: ${selectedSearch.name} ${selectedSearch.symbol} → 목록 '${list.name}'에 추가" in script
     assert 'target.id === "add-selected-stock"' in script
     assert "flash-new" in script
+    assert "SIIndicators.rsiWilder" in script
+    assert "function rsiPoints" not in script
+    assert script.count("Wilder 지수이동평균 방식") == 2
 
 
 def test_home_symbol_query_is_embedded_for_chart_preselection() -> None:

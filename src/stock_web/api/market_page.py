@@ -33,6 +33,7 @@ _MARKET_CACHE_TTL_SECONDS = 60.0
 _MARKET_CACHE: dict[tuple[str, str], tuple[float, dict[str, object]]] = {}
 
 METRIC_EXPLANATIONS = {
+    "rsi14": "RSI14는 최근 14개 종가 변화에 Wilder 지수이동평균 방식을 적용한 0–100 모멘텀 지표입니다.",
     "futures_basis": "선물 Basis는 KOSPI200 선물 정산가와 기초지수의 차이입니다. 양수·음수는 두 가격의 상대적 위치를 설명하며 방향 신호가 아닙니다.",
     "volume_pcr": "거래량 PCR은 풋 거래량 ÷ 콜 거래량입니다. 1보다 크면 해당일 풋 거래가 콜보다 많았다는 뜻입니다.",
     "oi_pcr": "미결제약정 PCR은 풋 미결제약정 ÷ 콜 미결제약정입니다. 1보다 크면 풋 잔고가 많다는 뜻으로, 하방 헤지 수요가 큰 상태로 읽습니다.",

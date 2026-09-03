@@ -52,7 +52,7 @@ def test_indicator_rsi_macd_and_stochastic_match_hand_calculation() -> None:
     constant = calculate_indicators(_synthetic_ohlcv([5.0] * 30))
 
     assert rising["rsi14"].iloc[14] == pytest.approx(100.0)
-    assert constant["rsi14"].iloc[14] == pytest.approx(50.0)
+    assert constant["rsi14"].iloc[14] == pytest.approx(100.0)
     assert constant["macd"].iloc[-1] == pytest.approx(0.0)
     assert constant["macd_signal"].iloc[-1] == pytest.approx(0.0)
     assert constant["macd_histogram"].iloc[-1] == pytest.approx(0.0)
@@ -144,6 +144,7 @@ def test_market_chart_uses_compact_height_and_panel_proportions() -> None:
     assert "height: 360px" in css
     assert "height: 280px" in css
     assert "Math.min(0.14, 0.58 / panels.length)" in script
+    assert "SIIndicators.rsiWilder" in script
     assert script.count("LightweightCharts.createChart") == 1
     assert "SIChart.renderLineChart" in script
     assert 'href="/static/market.css?v={{ static_version }}"' in template
@@ -311,6 +312,7 @@ def test_breadth_and_lending_summary_use_separate_payload_keys(monkeypatch: pyte
 
 def test_metric_explanations_cover_every_requested_head() -> None:
     assert set(METRIC_EXPLANATIONS) == {
+        "rsi14",
         "futures_basis", "volume_pcr", "oi_pcr", "ls_futures_foreign_net",
         "call_wall", "put_wall", "credit_balance", "lending_balance",
         "market_breadth", "ad_ratio", "weighted_per", "weighted_pbr",

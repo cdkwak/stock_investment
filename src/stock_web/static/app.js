@@ -18,6 +18,33 @@
   };
   const unavailable = (why) => `<div class="unavailable">표시 불가${why ? " · " + esc(why) : ""}</div>`;
 
+  function rsiWilder(closes, period = 14) {
+    if (!Number.isInteger(period) || period < 1) throw new RangeError("period must be at least 1");
+    const result = [];
+    let previous = null, seedGains = [], seedLosses = [], averageGain = null, averageLoss = null;
+    (closes || []).forEach((rawClose) => {
+      const close = Number(rawClose);
+      if (rawClose === null || rawClose === undefined || !Number.isFinite(close)) {
+        result.push(null); previous = averageGain = averageLoss = null; seedGains = []; seedLosses = []; return;
+      }
+      if (previous === null) { result.push(null); previous = close; return; }
+      const change = close - previous, gain = Math.max(change, 0), loss = Math.max(-change, 0);
+      previous = close;
+      if (averageGain === null || averageLoss === null) {
+        seedGains.push(gain); seedLosses.push(loss);
+        if (seedGains.length < period) { result.push(null); return; }
+        averageGain = seedGains.reduce((sum, value) => sum + value, 0) / period;
+        averageLoss = seedLosses.reduce((sum, value) => sum + value, 0) / period;
+      } else {
+        averageGain = (averageGain * (period - 1) + gain) / period;
+        averageLoss = (averageLoss * (period - 1) + loss) / period;
+      }
+      result.push(averageLoss === 0 ? 100 : 100 - 100 / (1 + averageGain / averageLoss));
+    });
+    return result;
+  }
+  window.SIIndicators = { rsiWilder };
+
   function formatCompactKorean(value) {
     if (value === null || value === undefined || value === "") return "—";
     const numeric = Number(value);
@@ -232,7 +259,7 @@
     requestAnimationFrame(() => { if (chart) chart.timeScale().fitContent(); });
     const s = sec.stats || {};
     stats.innerHTML = `
-      <span class="num muted">RSI14 <b>${s.rsi14 === undefined ? "—" : fmt(s.rsi14, 0)}</b></span>
+      <span class="num muted" title="Wilder 지수이동평균 방식">RSI14 <b>${s.rsi14 === undefined ? "—" : fmt(s.rsi14, 0)}</b></span>
       <span class="num muted">60일선 <b class="${cls(s.disp60_pct)}">${pct(s.disp60_pct)}</b></span>
       <span class="num muted">고점 대비 <b class="${cls(s.drawdown_pct)}">${pct(s.drawdown_pct)}</b></span>
       ${s.per !== undefined ? `<span class="badge">PER <b class="num">${fmt(s.per)}</b>${s.per_note ? " " + esc(s.per_note) : ""}</span>` : ""}
@@ -246,7 +273,7 @@
     const host = $("watchlist");
     if (!sec || !sec.rows) { host.innerHTML = unavailable(sec && sec.reason); return; }
     $("watchlist-meta").textContent = `보유 ${sec.held_count ?? 0} · 관심 ${sec.watch_count ?? 0}`;
-    host.innerHTML = `<div class="tr th watch"><div>종목</div><div>보유</div><div class="r">현재가</div><div class="r">등락</div><div class="r">고점 대비</div><div class="r">RSI</div></div>` +
+    host.innerHTML = `<div class="tr th watch"><div>종목</div><div>보유</div><div class="r">현재가</div><div class="r">등락</div><div class="r">고점 대비</div><div class="r">RSI14</div></div>` +
       sec.rows.map((r) => `<div class="tr watch">
         <div><div>${esc(r.name)}</div>${r.flag ? `<div class="flag">조건 도달 · ${esc(r.flag)}</div>` : ""}</div>
         <div class="${r.held ? "" : "muted"}" style="font-size:10.5px">${r.held ? "보유 " + formatSharePercent(r.weight_pct) : "관심"}</div>
@@ -406,6 +433,6 @@
     renderWatchlist(s.watchlist); renderAccount(s.account); renderFlows(s.flows); renderDerivatives(s.derivatives);
     renderSchedule(s.schedule); renderBrief(s.brief); renderScanner(s.scanner); renderSummaryStrip(s);
   }
-  if (typeof module !== "undefined" && module.exports) module.exports = { aggregateCandles, brokerReportedPnl, formatCompactKorean, formatSharePercent };
+  if (typeof module !== "undefined" && module.exports) module.exports = { aggregateCandles, brokerReportedPnl, formatCompactKorean, formatSharePercent, rsiWilder };
   if (typeof document !== "undefined") document.addEventListener("DOMContentLoaded", () => { if ($("home-page")) boot(); });
 })();
