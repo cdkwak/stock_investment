@@ -1,6 +1,6 @@
 # Exact-date market daily incrementals
 
-Status: `LIVE_VALIDATED_WITH_PER_DATASET_LIMITS / KR_BUNDLE_V5_SCHEDULED`.
+Status: `LIVE_VALIDATED_WITH_PER_DATASET_LIMITS / KR_BUNDLE_V7_SCHEDULED`.
 
 Use `scripts/manual/collect/run_market_daily_incremental.py` with an explicit
 market date, explicit latest-finalized date, and bounded request budget. Any
@@ -102,6 +102,27 @@ preserving the dataset-specific finality rules below.
   `REVISED/DIFFERENT`, resets the anchor, and remains unpromoted. This is a
   finality-observation lane, not evidence that the provider has a proven daily
   publication clock or that predictive use is safe.
+
+### 2026-09-03 liquidity/credit stall root cause
+
+- The lane always queried the latest completed XKRX session for both KOFIA endpoints.
+- Credit returned `VALID_EMPTY` on that same-day date because publication lags the session.
+- Two matching empty captures became terminal `STABLE`, so that date was never queried later.
+- The next occurrence moved to a new same-day target; no lagged credit row could promote.
+- Runtime coverage then used provisional/stable observation dates instead of the Normalized max.
+- Credit now makes one extra call only after an empty target, selecting one of the prior 1–3 sessions.
+- A stable-empty date is reopened; a newly complete row is `REVISED` until an identical second pass.
+- This keeps two-pass promotion (no single-observation shortcut); market-liquidity fallback is unchanged.
+- Credit health now reports the contract-valid Normalized max, so an old row is `STALE`/`지연/경고`.
+
+Human-run commands (the live command performs public-provider calls):
+
+```powershell
+# LIQUIDITY_CREDIT_DAILY is bundle-only (not a --lane choice); it runs inside the KR_MARKET_DAILY 09:10 and 20:30 slots.
+# Manual single-lane check from the repo root (dry run, then live; repeat live once when the fallback reports REVISED/COMPLETE):
+$env:PYTHONIOENCODING='utf-8'; .\.venv\Scripts\python.exe -c "import sys; sys.path[:0]=['src','scripts/maintenance']; from datetime import datetime, timezone; from pathlib import Path; import json, run_provider_scheduler as r; print(json.dumps(r._run_liquidity_credit_observation(Path('.').resolve(), clock=datetime.now(timezone.utc), dry_run=True), ensure_ascii=False))"
+$env:PYTHONIOENCODING='utf-8'; .\.venv\Scripts\python.exe -c "import sys; sys.path[:0]=['src','scripts/maintenance']; from datetime import datetime, timezone; from pathlib import Path; import json, run_provider_scheduler as r; print(json.dumps(r._run_liquidity_credit_observation(Path('.').resolve(), clock=datetime.now(timezone.utc), dry_run=False), ensure_ascii=False))"
+```
 
 All provider errors, restrictions, schema changes, valid-empty observations,
 checkpoint conflicts, and validation failures stop only the selected dataset

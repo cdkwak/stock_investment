@@ -12,7 +12,7 @@ runbook, checkpoint, or retained evidence.
 | Selected domain | `DATA_PRIMARY / PARALLEL_ENGINEERING_ACTIVE` |
 | Current phase | `RECOVERY_PROMOTED / WEB_DASHBOARD_PRIMARY / PYSIDE6_PARITY_BRIDGE / AUTONOMOUS_DATA_AND_READONLY_ACCOUNT_OPERATIONS / GUI_BACKTEST_FEATURE_ENGINEERING_ACTIVE / FINAL_HOLDOUT_SEALED / FINANCIAL_MUTATIONS_DISABLED` |
 | Next domain | No phase handoff required for ordinary in-scope engineering |
-| Exact next action | Observe the 2026-09-02 20:30 KR slot naturally and reconcile its exact receipt and managed Health. When an administrator token is available, apply the already approved ACL repair only to the quarantined futures-investor dataset, then hash/audit it and rerun release readiness. |
+| Exact next action | Human-run the provider-free `LIQUIDITY_CREDIT_DAILY --dry-run`, then the live lane; if credit fallback reports `REVISED/COMPLETE`, run the lane once more for two-pass promotion and verify Health shows the real Normalized latest date. |
 | Real external blockers | Exact future provider publication/session windows, unavailable secret/entitlement, rejected protected-resource escalation, or a user-only financial/legal/access action |
 | Parallel work | GUI, Features, offline Backtest/ML, portfolio simulation, local paper simulation, diagnostics, and read-only account integration may proceed with disjoint scopes |
 | Queue role | Hermes coordinates the current direct recovery. The file-backed request queue remains available for queue-backed work; the inactive repository-local PM subsystem was removed in cleanup phase 2. Direct user tasks do not require queue registration. |
@@ -60,7 +60,10 @@ authority.
   task and an idempotent global-futures run ended with result `0`. The natural
   14:10 bundle advanced its three Data lanes through their targets, then ended
   result `1` only because pre-20:30 downstream rows were projected as stale; the
-  schedule-aware Health fix is on `master` and native recomputation is `39/39`.
+  schedule-aware Health fix is on `master`; the prior `39/39` projection is now
+  known to have masked stale `kr_credit_balance_daily` Normalized data with
+  valid-empty observation-state dates, and the corrected projection is pending
+  human execution.
   The 20:30 task remains `Ready` for its natural 2026-09-02 occurrence. The
   separate read-only KB account task failed closed at 07:10 after one supplier
   call and preserved the prior snapshot. A separately keyed manual read-only

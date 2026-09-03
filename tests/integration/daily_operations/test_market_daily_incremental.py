@@ -21,6 +21,7 @@ from stock_data.orchestration.market_daily_incremental import (
     plan_data_go_kr_daily,
     plan_liquidity_credit_two_pass,
     plan_short_selling_daily,
+    select_credit_balance_fallback_date,
     short_selling_raw_call_budget,
 )
 from stock_data.orchestration.daily_operations import (
@@ -132,6 +133,16 @@ def _liquidity_row(deposits=100):
         "exchange_derivatives_deposits": 200, "customer_rp_sell_balance": 300,
         "brokerage_receivables": 400, "forced_sale_amount": 500,
         "forced_sale_ratio": 1.5,
+    }
+
+
+def _credit_row(total=100):
+    return {
+        "date": TARGET.isoformat(), "credit_financing_total": total,
+        "credit_financing_kospi": 40, "credit_financing_kosdaq": 60,
+        "credit_stock_lending_total": 20, "credit_stock_lending_kospi": 8,
+        "credit_stock_lending_kosdaq": 12, "subscription_loan": 5,
+        "securities_collateral_loan": 30,
     }
 
 
@@ -704,6 +715,72 @@ def test_credit_two_pass_valid_empty_requires_two_observations(tmp_path):
         tmp_path / "data/state/kr_credit_balance_daily.json"
     ).read_text(encoding="utf-8"))
     assert checkpoint["valid_empty_partitions"] == ["20260813"]
+
+
+def test_market_liquidity_stable_empty_behavior_remains_noop(tmp_path):
+    for _ in range(2):
+        execute_liquidity_credit_two_pass(
+            two_pass_plan(tmp_path, "market_liquidity"), project_root=tmp_path,
+            date_runner=_two_pass_runner({}, [], status="VALID_EMPTY"),
+        )
+
+    replay = two_pass_plan(tmp_path, "market_liquidity")
+    assert (replay.action, replay.estimated_api_calls) == ("NOOP_STABLE", 0)
+
+
+def test_credit_two_pass_rechecks_stable_empty_and_promotes_lagged_row(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setattr(market_daily, "read_dataset", _fake_two_pass_read)
+    for _ in range(2):
+        execute_liquidity_credit_two_pass(
+            two_pass_plan(tmp_path, "credit_balance"), project_root=tmp_path,
+            date_runner=_two_pass_runner({}, [], status="VALID_EMPTY"),
+        )
+
+    recheck = two_pass_plan(tmp_path, "credit_balance")
+    assert (recheck.action, recheck.estimated_api_calls) == (
+        "CAPTURE_RECHECK_EMPTY", 1,
+    )
+    revised = execute_liquidity_credit_two_pass(
+        recheck, project_root=tmp_path,
+        date_runner=_two_pass_runner(_credit_row(), []),
+    )
+    assert (revised.status, revised.response_status) == ("REVISED", "COMPLETE")
+    assert not (tmp_path / "data/normalized/kr_credit_balance_daily").exists()
+
+    confirmed = execute_liquidity_credit_two_pass(
+        two_pass_plan(tmp_path, "credit_balance"), project_root=tmp_path,
+        date_runner=_two_pass_runner(_credit_row(), []),
+    )
+    assert (confirmed.status, confirmed.response_status, confirmed.stable) == (
+        "STABLE", "COMPLETE", True,
+    )
+    assert (tmp_path / "data/normalized/kr_credit_balance_daily/row.json").exists()
+
+
+def test_credit_fallback_prefers_pending_complete_then_oldest_unretained(tmp_path):
+    candidates = (date(2026, 8, 10), date(2026, 8, 11), date(2026, 8, 12))
+    state = tmp_path / "data/state/finality/kr_credit_balance_daily.json"
+    _write_json(state, {
+        "dataset": "kr_credit_balance_daily", "dates": {
+            "20260810": {
+                "status": "REVISED",
+                "observations": [{"response_status": "COMPLETE"}],
+            },
+            "20260811": {
+                "status": "STABLE", "stable_response_status": "VALID_EMPTY",
+                "observations": [{"response_status": "VALID_EMPTY"}],
+            },
+        },
+    })
+    _write_json(tmp_path / "data/state/kr_credit_balance_daily.json", {
+        "completed_partitions": ["20260812"],
+    })
+
+    assert select_credit_balance_fallback_date(
+        project_root=tmp_path, market_date=TARGET, candidate_dates=candidates,
+    ) == date(2026, 8, 10)
 
 
 def test_liquidity_two_pass_failed_confirmation_preserves_production_and_evidence(

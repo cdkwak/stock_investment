@@ -16,7 +16,7 @@ FILTERS = ("OPERATIONAL", "DAILY", "BLOCKED", "ALL")
 FRESHNESS = {
     "CURRENT": ("정상", "current"),
     "EXPECTED_LAG": ("예상 지연", "expected-lag"),
-    "STALE": ("오래됨", "stale"),
+    "STALE": ("지연/경고", "stale"),
     "UNKNOWN": ("미확인", "unknown"),
     "NOT_APPLICABLE": ("해당 없음", "not-applicable"),
 }

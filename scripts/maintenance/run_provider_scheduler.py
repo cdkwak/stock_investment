@@ -25,6 +25,7 @@ from stock_data.orchestration.kr_equity_provisional_daily import (
 from stock_data.orchestration.market_daily_incremental import (
     execute_liquidity_credit_two_pass,
     plan_liquidity_credit_two_pass,
+    select_credit_balance_fallback_date,
 )
 from stock_data.orchestration.derivatives_daily_live import (
     latest_finalized_session as latest_finalized_derivatives_session,
@@ -367,10 +368,11 @@ def _run_liquidity_credit_observation(
         result = execute_liquidity_credit_two_pass(
             plan, project_root=project_root,
         )
-        observations.append({
+        observation = {
             "dataset": result.dataset,
             "target_date": result.market_date,
             "status": result.status,
+            "response_status": getattr(result, "response_status", None),
             "comparison": (
                 "OK" if result.status in {"STABLE", "NOOP_STABLE"}
                 else "DIFFERENT" if result.status == "REVISED"
@@ -381,7 +383,57 @@ def _run_liquidity_credit_observation(
             # exact provider call count; no separate api_calls field exists.
             "api_calls": result.pages,
             "observation_count": result.observation_count,
-        })
+        }
+        if (
+            dataset == "credit_balance"
+            and getattr(result, "response_status", None) == "VALID_EMPTY"
+        ):
+            previous_sessions: list[date] = []
+            candidate = target
+            for _ in range(3):
+                candidate = calendar.previous_trading_day(candidate)
+                previous_sessions.append(candidate)
+            fallback_date = select_credit_balance_fallback_date(
+                project_root=project_root,
+                market_date=target,
+                candidate_dates=previous_sessions,
+            )
+            if fallback_date is not None:
+                fallback_plan = plan_liquidity_credit_two_pass(
+                    project_root=project_root,
+                    dataset=dataset,
+                    market_date=fallback_date,
+                    latest_finalized_market_date=target,
+                    accepted_market_dates=(fallback_date,),
+                    operation_reviewed=True,
+                    max_api_calls=1,
+                )
+                if is_morning_confirmation and fallback_plan.action == "CAPTURE_PROVISIONAL":
+                    observation["fallback"] = {
+                        "target_date": fallback_date.isoformat(),
+                        "status": "WAITING_FOR_2030_PROVISIONAL",
+                        "response_status": None,
+                        "api_calls": 0,
+                    }
+                else:
+                    fallback = execute_liquidity_credit_two_pass(
+                        fallback_plan, project_root=project_root,
+                    )
+                    fallback_calls = int(fallback.pages)
+                    observation["api_calls"] = int(observation["api_calls"]) + fallback_calls
+                    observation["fallback"] = {
+                        "target_date": fallback.market_date,
+                        "status": fallback.status,
+                        "response_status": fallback.response_status,
+                        "comparison": (
+                            "OK" if fallback.status in {"STABLE", "NOOP_STABLE"}
+                            else "DIFFERENT" if fallback.status == "REVISED"
+                            else "PENDING"
+                        ),
+                        "api_calls": fallback_calls,
+                        "observation_count": fallback.observation_count,
+                    }
+        observations.append(observation)
     return {
         "schema_version": 1,
         "lane": "LIQUIDITY_CREDIT_DAILY",

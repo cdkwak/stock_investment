@@ -1363,6 +1363,7 @@ def test_liquidity_credit_observation_reports_match_and_revision(
             self.dataset = f"kr_{dataset}_daily"
             self.market_date = "2026-08-24"
             self.status = status
+            self.response_status = "COMPLETE"
             self.pages = 1
             self.observation_count = 2
 
@@ -1423,6 +1424,78 @@ def test_liquidity_credit_morning_does_not_create_first_observation(
     assert {item["status"] for item in result["observations"]} == {
         "WAITING_FOR_2030_PROVISIONAL",
     }
+
+
+def test_liquidity_credit_empty_credit_uses_one_lag_fallback_only(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    target = date(2026, 8, 24)
+    fallback_date = date(2026, 8, 21)
+    monkeypatch.setattr(
+        MODULE.ExchangeTradingCalendar,
+        "latest_completed_session",
+        lambda *_args, **_kwargs: target,
+    )
+    monkeypatch.setattr(
+        MODULE.ExchangeTradingCalendar,
+        "previous_trading_day",
+        lambda _self, value: value.replace(day=value.day - 1),
+    )
+    selected: list[tuple[date, ...]] = []
+
+    def select_fallback(**kwargs):
+        selected.append(tuple(kwargs["candidate_dates"]))
+        return fallback_date
+
+    monkeypatch.setattr(MODULE, "select_credit_balance_fallback_date", select_fallback)
+    monkeypatch.setattr(
+        MODULE, "plan_liquidity_credit_two_pass",
+        lambda **kwargs: SimpleNamespace(
+            dataset=f"kr_{kwargs['dataset']}_daily",
+            market_date=kwargs["market_date"],
+            estimated_api_calls=1,
+            action=(
+                "CAPTURE_CONFIRMATION"
+                if kwargs["market_date"] == fallback_date
+                else "CAPTURE_PROVISIONAL"
+            ),
+        ),
+    )
+
+    def execute(plan, **_kwargs):
+        is_credit = plan.dataset == "kr_credit_balance_daily"
+        is_fallback = plan.market_date == fallback_date
+        return SimpleNamespace(
+            dataset=plan.dataset,
+            market_date=plan.market_date.isoformat(),
+            status="REVISED" if is_fallback else "PROVISIONAL",
+            response_status=(
+                "COMPLETE" if not is_credit or is_fallback else "VALID_EMPTY"
+            ),
+            pages=1,
+            observation_count=2 if is_fallback else 1,
+        )
+
+    monkeypatch.setattr(MODULE, "execute_liquidity_credit_two_pass", execute)
+    result = MODULE._run_liquidity_credit_observation(
+        tmp_path,
+        clock=datetime(2026, 8, 24, 11, 30, tzinfo=timezone.utc),
+        dry_run=False,
+    )
+
+    market, credit = result["observations"]
+    assert "fallback" not in market and market["api_calls"] == 1
+    assert credit["response_status"] == "VALID_EMPTY"
+    assert credit["fallback"] == {
+        "target_date": "2026-08-21",
+        "status": "REVISED",
+        "response_status": "COMPLETE",
+        "comparison": "DIFFERENT",
+        "api_calls": 1,
+        "observation_count": 2,
+    }
+    assert len(selected[0]) == 3
+    assert result["api_calls"] == 3
 
 
 def test_provider_cli_retains_bound_success_and_noop_events(

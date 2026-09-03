@@ -175,14 +175,14 @@ def _latest_year_contract_reader(contract, validator):
     return read
 
 
-def _latest_finality_observation_reader(contract, validator, dataset_id: str):
+def _latest_finality_observation_reader(
+    contract, validator, dataset_id: str, *, include_observation_dates: bool = True,
+):
     """Validate Normalized data and count retained valid-empty observations.
 
-    Liquidity and credit are two-pass observation lanes.  A STABLE valid-empty
-    date intentionally has no Normalized row, while a PROVISIONAL date proves
-    that the first scheduled observation occurred and is awaiting the next
-    distinct 09:10 occurrence.  Health freshness must use that retained
-    operational date without inventing a numeric row.
+    A retained observation can be used as an operational watermark only when
+    the caller explicitly permits it. Numeric dataset health must instead use
+    the latest contract-valid Normalized row.
     """
 
     read_normalized = _latest_year_contract_reader(contract, validator)
@@ -220,7 +220,9 @@ def _latest_finality_observation_reader(contract, validator, dataset_id: str):
                 raise ValueError("finality-observation market date differs")
             retained.append(parsed)
 
-        latest = max(normalized_dates.max().date(), max(retained))
+        latest = normalized_dates.max().date()
+        if include_observation_dates:
+            latest = max(latest, max(retained))
         return pd.DataFrame({"date": [latest]})
 
     return read
@@ -589,6 +591,7 @@ _PROBES = (
             KR_CREDIT_BALANCE_DAILY,
             _data_v1_validator(KR_CREDIT_BALANCE_DAILY),
             "kr_credit_balance_daily",
+            include_observation_dates=False,
         ),
     ),
     _CoverageProbe(

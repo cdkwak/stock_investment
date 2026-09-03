@@ -1,7 +1,11 @@
 from datetime import date
 from pathlib import Path
 
-from stock_web.api.data_page import load_credential_expiries
+from stock_web.api.data_page import FRESHNESS, load_credential_expiries
+
+
+def test_stale_data_page_rows_use_delay_warning_label() -> None:
+    assert FRESHNESS["STALE"] == ("지연/경고", "stale")
 
 
 def test_credential_expiries_read_only_dates_and_flag_soon_or_expired(tmp_path: Path) -> None:

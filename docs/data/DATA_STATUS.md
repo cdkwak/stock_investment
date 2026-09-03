@@ -25,7 +25,7 @@ For sovereign yields and bond ETFs, also preserve
 | Domain state | `AUTONOMOUS_PUBLIC_AND_EXISTING_CREDENTIAL_READONLY_OPERATIONS_ACTIVE` |
 | Data flow | `Provider -> Landing -> Normalized -> Derived -> Published`; never merge layers |
 | Registry | 44 operation entries, 87 universe rows, 43 automation-enabled datasets |
-| Runtime health | Native offline recomputation at 2026-09-02 18:24 KST is managed `39/39`: 2 `CURRENT`, 37 contract-valid `EXPECTED_LAG`, 0 managed `STALE`, 0 invalid, and 0 runtime failures. The post-close schedule fix prevents pre-20:30 one-session gaps in the sixteen 20:30 Korean lanes from being mislabeled stale; the general stale gate is unchanged. A new retry-zero Yahoo occurrence promoted SP500, NASDAQ Composite, and NASDAQ-100 through 2026-08-31, and FRED VIX independently promoted `VIXCLS` through that date; their same-target replays were API 0. |
+| Runtime health | The prior managed `39/39` projection is invalid for `kr_credit_balance_daily`: runtime coverage used provisional/stable valid-empty observation dates as its latest date while the contract-valid Normalized max remained 2026-08-06. The projector now uses the real Normalized max for credit and classifies it `STALE`; live fallback observation and two-pass confirmation remain pending human execution. The post-close schedule fix for genuine one-session pre-20:30 gaps is unchanged. |
 | Scheduler baseline | Thirteen enabled Data definitions remain; no extra Windows task was created. Release policy matches the installed `pythonw.exe` actions and direct Toss UR246 action, and live readback reports definition mismatch `0`. The 09:10 KR task and idempotent global-futures run ended with result `0`. The natural 14:10 bundle used five API calls and successfully advanced Canonical Equity and Lending through 2026-09-01 while Short Selling was already current; it terminalized result `1` only because the then-current Health projection incorrectly treated pre-20:30 downstream rows as stale. That classifier is fixed. The 20:30 v7 order is Canonical Equity, `KR_EQUITY_PROVISIONAL_DAILY`, then `KR_ETF_PRICE_DAILY`, with `BOK_FX_DAILY` also moved into that bundle because the 17:10 BOK task runs the Treasury-observation entry point rather than the provider scheduler. All 43 automation-enabled datasets map to 22 logical lanes. The BOK Treasury source observation stays on its 17:10 task. The separate read-only KB account task remains outside the 87-row market universe. Stable relations are in [Scheduler Data Map](SCHEDULER_DATA_MAP.md). |
 | BOK finality gate | `THREE_BATCH_GATE_REVIEWED / BOUNDED_THREE_BATCH_AVAILABILITY_CONFIRMED / PERMANENT_FINALITY_UNKNOWN`. The 2026-08-26..28 batches each selected the same-day provider-native date across all six tenors with six data calls, one separate UI call, retry zero, and no Normalized write. Both next-provider-day comparisons were field/byte `SAME`; all UI table markers were `N/N`. The 2026-08-29 scheduler receipt stopped at 3 to 3 with API calls zero. A separate daily-route contract may use only the runbook's provider-native common-date and preceding-date-unchanged gate; automatic expected latest, predictive use, promotion, and Dashboard numeric use remain disabled. |
 | Scheduler expansion validation | The first natural v5 20:30 run exposed two bounded contract mismatches without partial canonical loss: exact KRX KOSPI200 membership returned 201 observed rows, and short-investor data was available same-day after 18:10. Contract/test fixes then atomically advanced the breadth chain through 2026-08-26 (201/201 prices; 144/54/3), short investor through 2026-08-27, and index fundamentals through 2026-08-26; each replay passed at API 0. Toss Treasury remains advanced through its T+1 target and LS t8462 Raw remains non-promoted. |
@@ -47,11 +47,10 @@ still apply.
 
 ## Immediate checkpoints
 
-1. Observe the 20:30 KR bundle occurrence. Confirm its exact receipt completes
-   and managed Health reflects all `43` automation-enabled datasets, including
-   provisional equity and BOK FX on their corrected route; do not run the slot early. Preserve the
-   immutable 14:10 failed receipt even though all three Data lanes succeeded and
-   its Health-classification defect is now fixed.
+1. Human-run the `LIQUIDITY_CREDIT_DAILY` dry-run and live lane. If the credit
+   fallback reports `REVISED/COMPLETE`, run it once more to supply the required
+   identical confirmation, then verify the retained credit max and managed
+   Health row. Preserve the immutable historical receipts.
 2. Observe the next date-keyed Toss account 07:00 occurrence; reconcile its
    identifier-free terminal receipt, Normalized digest, and call budget.
 3. With an administrator token, perform the already approved reset on only the

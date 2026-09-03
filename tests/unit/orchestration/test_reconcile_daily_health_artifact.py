@@ -461,6 +461,62 @@ def test_runtime_coverage_counts_valid_empty_finality_observation_without_numeri
     assert frame["date"].iloc[0].isoformat() == "2026-08-26"
 
 
+def test_credit_runtime_coverage_uses_real_normalized_latest_not_empty_watermark(
+    tmp_path, monkeypatch,
+):
+    normalized = pd.DataFrame({"date": ["2026-08-06"]})
+    monkeypatch.setattr(
+        runtime_coverage, "_latest_year_contract_reader",
+        lambda _contract, _validator: lambda _root: normalized,
+    )
+    root = tmp_path / "data/normalized/kr_credit_balance_daily"
+    state = tmp_path / "data/state/finality/kr_credit_balance_daily.json"
+    state.parent.mkdir(parents=True)
+    state.write_text(
+        '{"dataset":"kr_credit_balance_daily","dates":{'
+        '"20260903":{"market_date":"2026-09-03","status":"PROVISIONAL",'
+        '"observations":[{"response_status":"VALID_EMPTY"}]}} ,"failures":[]}',
+        encoding="utf-8",
+    )
+
+    reader = runtime_coverage._latest_finality_observation_reader(
+        SimpleNamespace(), lambda _frame: None, "kr_credit_balance_daily",
+        include_observation_dates=False,
+    )
+
+    assert reader(root)["date"].iloc[0].isoformat() == "2026-08-06"
+
+
+def test_credit_stale_normalized_latest_degrades_health_after_lane_cutoff(
+    tmp_path, monkeypatch,
+):
+    rows = [{
+        "dataset_id": dataset_id, "actual_latest": None,
+        "expected_latest": None, "freshness_status": "UNKNOWN",
+    } for dataset_id in MODULE.DATASET_OPERATIONS]
+    monkeypatch.setattr(
+        MODULE, "validated_runtime_coverage",
+        lambda _root: SimpleNamespace(
+            latest={"kr_credit_balance_daily": "2026-08-06"}, failures={},
+        ),
+    )
+
+    result = MODULE.reconcile_universe({
+        "run_id": "stale-credit",
+        "as_of": "2026-09-03T22:40:00+09:00",
+        "datasets": rows,
+    }, project_root=tmp_path)
+    credit = next(
+        row for row in result["datasets"]
+        if row["dataset"] == "kr_credit_balance_daily"
+    )
+
+    assert credit["latest"] == "2026-08-06"
+    assert credit["expected"] == "2026-09-03"
+    assert credit["freshness"] == "STALE"
+    assert result["actionable_incident_count"] >= 1
+
+
 def test_runtime_coverage_probes_all_automated_partitioned_daily_outputs():
     probes = {probe.dataset_id: probe.relative_root for probe in runtime_coverage._PROBES}
 

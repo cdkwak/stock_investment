@@ -68,6 +68,7 @@ class TwoPassResult:
     observation_count: int
     stable: bool
     landing_path: str | None
+    response_status: str | None = None
 
 
 SHORT_SELLING_EXACT_DATE_SCOPE_COUNTS = {
@@ -449,6 +450,16 @@ def plan_liquidity_credit_two_pass(
     day = state.get("dates", {}).get(market_date.strftime("%Y%m%d"), {})
     if gate:
         action, reason, calls = gate[0], gate[1], 0
+    elif (
+        contract.name == KR_CREDIT_BALANCE_DAILY.name
+        and day.get("status") == "STABLE"
+        and day.get("stable_response_status") == "VALID_EMPTY"
+    ):
+        action, reason, calls = (
+            "CAPTURE_RECHECK_EMPTY",
+            "STABLE_EMPTY_RECHECK_FOR_LAGGED_PUBLICATION",
+            1,
+        )
     elif day.get("status") == "STABLE":
         action, reason, calls = "NOOP_STABLE", "TWO_PASS_STABILITY_CONFIRMED", 0
     elif day.get("observations") or _legacy_two_pass_observation(
@@ -461,6 +472,55 @@ def plan_liquidity_credit_two_pass(
         "LIQUIDITY_CREDIT_TWO_PASS", contract.name, market_date,
         latest_finalized_market_date, action, reason, calls,
     )
+
+
+def select_credit_balance_fallback_date(
+    *, project_root: Path, market_date: date, candidate_dates: Iterable[date],
+) -> date | None:
+    """Select one lagged credit date without widening the bounded call budget."""
+    candidates = tuple(sorted(set(candidate_dates)))
+    if not 1 <= len(candidates) <= 3:
+        raise ValueError("credit fallback requires one to three candidate sessions")
+    if any(candidate >= market_date for candidate in candidates):
+        raise ValueError("credit fallback candidates must precede the target session")
+
+    dataset = KR_CREDIT_BALANCE_DAILY.name
+    checkpoint = _read_json(project_root / "data/state" / f"{dataset}.json")
+    completed = set(checkpoint.get("completed_partitions", ()))
+    state = _read_json(_two_pass_state_path(project_root, dataset))
+    dates = state.get("dates", {})
+    if not isinstance(dates, dict):
+        raise MarketDailyIncrementalError("two-pass finality dates are invalid")
+
+    pending_complete: list[date] = []
+    eligible: list[date] = []
+    for candidate in candidates:
+        token = candidate.strftime("%Y%m%d")
+        if token in completed:
+            continue
+        day = dates.get(token, {})
+        if not isinstance(day, dict):
+            raise MarketDailyIncrementalError("two-pass finality date entry is invalid")
+        observations = day.get("observations", ())
+        latest_observation = (
+            observations[-1]
+            if isinstance(observations, list) and observations
+            and isinstance(observations[-1], dict)
+            else {}
+        )
+        if (
+            day.get("status") in {"PROVISIONAL", "REVISED"}
+            and latest_observation.get("response_status") == "COMPLETE"
+        ):
+            pending_complete.append(candidate)
+        elif not (
+            day.get("status") == "STABLE"
+            and day.get("stable_response_status") == "COMPLETE"
+        ):
+            eligible.append(candidate)
+    if pending_complete:
+        return min(pending_complete)
+    return min(eligible) if eligible else None
 
 
 def plan_data_go_kr_daily(
@@ -716,6 +776,7 @@ def execute_liquidity_credit_two_pass(
         return TwoPassResult(
             plan.dataset, plan.market_date.isoformat(), "NOOP_STABLE", 0,
             len(day.get("observations", ())), True, None,
+            day.get("stable_response_status"),
         )
 
     key = next(key for key, values in _DATA_GO_DAILY.items() if values[0].name == plan.dataset)
@@ -832,6 +893,7 @@ def execute_liquidity_credit_two_pass(
                 plan.dataset, plan.market_date.isoformat(), final_status,
                 int(getattr(result, "pages", 0)), len(observations),
                 final_status == "STABLE", observation["landing_path"],
+                result.status,
             )
         except Exception as error:
             _rollback_data_go_transaction(
@@ -907,6 +969,7 @@ __all__ = [
     "execute_data_go_kr_daily", "execute_short_selling_daily",
     "health_from_exact_date_plan", "plan_data_go_kr_daily",
     "plan_liquidity_credit_two_pass", "plan_short_selling_daily",
+    "select_credit_balance_fallback_date",
     "short_selling_raw_call_budget", "SHORT_SELLING_EXACT_DATE_SCOPE_COUNTS",
     "SHORT_SELLING_FINALITY_POLICIES",
 ]
