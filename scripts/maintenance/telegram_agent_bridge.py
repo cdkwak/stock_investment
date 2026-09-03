@@ -511,10 +511,53 @@ def persist_market_report(
     return target
 
 
+def watchlist_condition_summary(limit: int = 12) -> str:
+    """Deterministic local block: watchlist rows whose user-defined conditions are met today.
+
+    Computed from retained data through the web stocks page builder (no network, no Codex);
+    holdings/balances are never included — only symbol, price, change and the condition names.
+    """
+    source_root = REPOSITORY / "src"
+    if str(source_root) not in sys.path:
+        sys.path.insert(0, str(source_root))
+    from stock_web.api.stocks_page import build_stocks_page_data
+
+    table = build_stocks_page_data(REPOSITORY).get("table", [])
+    hits = [row for row in table if row.get("condition_matches")]
+    lines = ["📌 관심종목 조건 도달"]
+    if not hits:
+        lines.append("오늘 조건에 걸린 관심종목 없음")
+        return "\n".join(lines)
+    for row in hits[:limit]:
+        price = row.get("price")
+        change = row.get("change_pct")
+        price_text = f"{price:,.2f}" if isinstance(price, (int, float)) and price < 1000 else (
+            f"{price:,.0f}" if isinstance(price, (int, float)) else "—"
+        )
+        change_text = f"{change:+.1f}%" if isinstance(change, (int, float)) else "—"
+        names = " · ".join(str(match.get("name", "")) for match in row["condition_matches"])
+        lines.append(f"- {row.get('name', row.get('symbol', ''))} {price_text} ({change_text}): {names}")
+    if len(hits) > limit:
+        lines.append(f"- 외 {len(hits) - limit}종목")
+    lines.append("설명용 관찰 · 추천/주문 신호 아님")
+    return "\n".join(lines)
+
+
 def generate_send_and_persist_market_report(
     client: TelegramClient, chat_id: int, report_kind: str,
 ) -> Path | None:
     report = generate_market_report(report_kind)
+    if report_kind == "close":
+        try:
+            summary = watchlist_condition_summary()
+            if summary:
+                report = report + "\n\n" + summary
+        except Exception as exc:  # the brief must still go out when local data is unavailable
+            print(
+                "telegram_bridge: warning: watchlist condition summary failed: "
+                f"{type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
     send_error: BridgeError | None = None
     try:
         send_long_message(client, chat_id, report)

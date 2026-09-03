@@ -343,6 +343,7 @@ def test_market_report_send_failure_is_saved_as_unsent(
     monkeypatch.setattr(bridge, "BRIEFS_ROOT", tmp_path / "briefs")
     monkeypatch.setattr(bridge, "_kst_now", lambda: generated_at)
     monkeypatch.setattr(bridge, "generate_market_report", lambda kind: "마감 본문")
+    monkeypatch.setattr(bridge, "watchlist_condition_summary", lambda: "")
 
     class FailingClient:
         def send(self, chat_id: int, text: str) -> None:
