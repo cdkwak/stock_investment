@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
+from datetime import date, datetime
 import hashlib
 import json
 import os
@@ -526,9 +526,28 @@ def generate_send_and_persist_market_report(
             f"telegram_bridge: report {report_kind} sent="
             f"{'true' if send_error is None else 'false'} saved={saved_path}"
         )
+    if report_kind == "morning" and send_error is None and saved_path is not None:
+        try:
+            write_investing_journal_draft(_kst_now().date())
+        except Exception as exc:
+            print(
+                "telegram_bridge: warning: investing journal draft failed: "
+                f"{type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
     if send_error is not None:
         raise send_error
     return saved_path
+
+
+def write_investing_journal_draft(journal_date: date) -> object:
+    """Late import keeps the bridge standalone while making the hook mockable."""
+    source_root = REPOSITORY / "src"
+    if str(source_root) not in sys.path:
+        sys.path.insert(0, str(source_root))
+    from stock_data.journal import write_investing_journal
+
+    return write_investing_journal(REPOSITORY, journal_date)
 
 
 def run_market_report(client: TelegramClient, chat_id: int, report_kind: str) -> int:

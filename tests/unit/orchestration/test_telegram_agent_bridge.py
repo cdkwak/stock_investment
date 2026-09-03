@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import importlib.util
 import json
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
+from typing import Iterator
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -14,6 +16,37 @@ SPEC = importlib.util.spec_from_file_location("telegram_agent_bridge", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
 bridge = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(bridge)
+
+
+class _SafeTemporaryDirectory:
+    """Python 3.13's Windows 0700 mode denies this sandbox after creation."""
+
+    def __init__(self, *, prefix: str = "tmp-", dir: Path | str) -> None:
+        self.path = Path(dir) / f"{prefix}{uuid4().hex}"
+
+    def __enter__(self) -> str:
+        self.path.mkdir(parents=True)
+        return str(self.path)
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+
+@pytest.fixture(autouse=True)
+def safe_temporary_directory(monkeypatch) -> None:
+    monkeypatch.setattr(bridge.tempfile, "TemporaryDirectory", _SafeTemporaryDirectory)
+
+
+@pytest.fixture
+def tmp_path() -> Iterator[Path]:
+    """Avoid pytest's broken Python 3.13 Windows 0700 temporary ACL."""
+    root = (
+        Path(__file__).resolve().parents[3]
+        / ".tmp/agents/journal-morning-draft-20260903/bridge-fixtures"
+        / uuid4().hex
+    )
+    root.mkdir(parents=True)
+    yield root
 
 
 class RecordingClient:
@@ -262,6 +295,8 @@ def test_market_report_is_saved_with_kst_name_frontmatter_and_body(
     monkeypatch.setattr(bridge, "BRIEFS_ROOT", tmp_path / "briefs")
     monkeypatch.setattr(bridge, "_kst_now", lambda: generated_at)
     monkeypatch.setattr(bridge, "generate_market_report", lambda kind: report)
+    journal_dates: list[date] = []
+    monkeypatch.setattr(bridge, "write_investing_journal_draft", journal_dates.append)
     client = RecordingClient()
 
     assert bridge.run_market_report(client, 42, "morning") == 0
@@ -277,7 +312,28 @@ def test_market_report_is_saved_with_kst_name_frontmatter_and_body(
         "# 아침 시장 요약\n\n본문입니다.\n"
     )
     assert client.messages == [(42, report)]
+    assert journal_dates == [generated_at.date()]
     assert f"saved={saved}" in capsys.readouterr().out
+
+
+def test_morning_journal_failure_only_warns_and_keeps_telegram_success(
+    monkeypatch, tmp_path: Path, capsys,
+) -> None:
+    generated_at = datetime(2026, 9, 3, 7, 45, tzinfo=ZoneInfo("Asia/Seoul"))
+    monkeypatch.setattr(bridge, "BRIEFS_ROOT", tmp_path / "briefs")
+    monkeypatch.setattr(bridge, "_kst_now", lambda: generated_at)
+    monkeypatch.setattr(bridge, "generate_market_report", lambda kind: "아침 본문")
+
+    def fail_journal(_journal_date: date) -> None:
+        raise RuntimeError("mock journal failure")
+
+    monkeypatch.setattr(bridge, "write_investing_journal_draft", fail_journal)
+    client = RecordingClient()
+
+    assert bridge.run_market_report(client, 42, "morning") == 0
+    assert client.messages == [(42, "아침 본문")]
+    assert (tmp_path / "briefs" / "2026-09-03-morning.md").is_file()
+    assert "warning: investing journal draft failed" in capsys.readouterr().err
 
 
 def test_market_report_send_failure_is_saved_as_unsent(
