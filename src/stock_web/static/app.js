@@ -34,8 +34,19 @@
     return value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value)) ? `${Number(value).toFixed(1)}%` : "—";
   }
 
+  function formatSharePercent(value) {
+    if (value === null || value === undefined || !Number.isFinite(Number(value))) return "—";
+    const numeric = Number(value);
+    if (numeric > 0 && numeric < 0.05) return "<0.1%";
+    return `${fmt(numeric, 0)}%`;
+  }
+
   function formatPcr(value) {
     return value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value)) ? Number(value).toFixed(2) : "—";
+  }
+
+  function brokerReportedPnl(section, metric) {
+    return (metric || {}).broker_reported_pnl_krw ?? (section || {}).broker_reported_pnl_krw;
   }
 
   function renderLineChart(host, rawPoints, options = {}) {
@@ -138,19 +149,52 @@
   // ---- tiles ----------------------------------------------------------------
   function renderTiles(tiles, onPick) {
     const host = $("tiles");
-    host.innerHTML = (tiles || []).map((t) => `
-      <div class="tile" data-symbol="${esc(t.symbol || "")}">
+    host.innerHTML = (tiles || []).map((t) => {
+      const interactive = Boolean(t.symbol);
+      return `
+      <div class="tile" data-symbol="${esc(t.symbol || "")}" ${interactive ? 'role="button" tabindex="0"' : 'aria-disabled="true"'}>
         <div class="n">${esc(t.name)}</div>
-        <div class="v"><span class="headline-value"><b class="num">${t.value ?? "—"}</b>${t.latest_intraday ? `<small class="muted">장중 <span class="num">${intradayValue(t.latest_intraday.value)}</span> · ${asof(t.latest_intraday.time).slice(-5)}${t.close_change_pct !== undefined && t.close_change_pct !== null ? ` · 마감${t.close_date ? " " + t.close_date : ""} <span class="num ${cls(t.close_change_pct)}">${pct(t.close_change_pct)}</span>` : ""}</small>` : ""}</span><span class="num ${cls(t.change_pct)}">${t.change_label ?? pct(t.change_pct)}</span></div>
-        <div class="ma"><span>5일 <span class="num ${cls(t.ma5_pct)}">${pct(t.ma5_pct)}</span></span><span>20일 <span class="num ${cls(t.ma20_pct)}">${pct(t.ma20_pct)}</span></span></div>
+        <div class="v"><span class="headline-value"><b class="num">${esc(t.value ?? "—")}</b></span>${t.latest_intraday ? "" : `<span class="num ${cls(t.change_pct)}">${esc(t.change_label ?? pct(t.change_pct))}</span>`}</div>
+        ${t.latest_intraday ? `<div class="tile-market-moves"><span>장중 <b class="num ${cls(t.change_pct)}">${esc(t.change_label ?? pct(t.change_pct))}</b> · ${intradayValue(t.latest_intraday.value)} · ${asof(t.latest_intraday.time).slice(-5)}</span>${t.close_change_pct !== undefined && t.close_change_pct !== null ? `<span>전일 마감 대비 <b class="num ${cls(t.close_change_pct)}">${pct(t.close_change_pct)}</b>${t.close_date ? ` · ${esc(t.close_date)}` : ""}</span>` : ""}</div>` : ""}
+        <div class="ma"><span>MA5 대비 <span class="num ${cls(t.ma5_pct)}">${esc(t.ma5_label ?? pct(t.ma5_pct))}</span></span><span>MA20 대비 <span class="num ${cls(t.ma20_pct)}">${esc(t.ma20_label ?? pct(t.ma20_pct))}</span></span></div>
         ${t.spark ? `<div class="spark">${sparkline(t.spark)}<small>${esc(t.window || "")}</small></div>` : `<div class="note">${esc(t.note || "표시 불가")}</div>`}
         ${t.sub_note ? `<div class="tile-sub-note">${esc(t.sub_note)}</div>` : ""}
-      </div>`).join("");
-    host.querySelectorAll(".tile").forEach((el) => el.addEventListener("click", () => el.dataset.symbol && onPick(el.dataset.symbol)));
+      </div>`;
+    }).join("");
+    host.querySelectorAll(".tile[data-symbol]:not([data-symbol=''])").forEach((el) => {
+      const pick = () => onPick(el.dataset.symbol);
+      el.addEventListener("click", pick);
+      el.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); pick(); } });
+    });
   }
 
   // ---- chart ----------------------------------------------------------------
-  let chart, candleSeries, volSeries, maSeries = {};
+  let chart, candleSeries, volSeries, chartResizeObserver, chartResizeTimer, loadedChart = null, maSeries = {};
+  function aggregateCandles(candles, interval) {
+    if (interval === "day") return candles;
+    const groups = new Map();
+    candles.forEach((candle) => {
+      const observed = new Date(`${candle.t}T00:00:00Z`);
+      let key;
+      if (interval === "month") key = candle.t.slice(0, 7);
+      else {
+        const monday = new Date(observed); const weekday = (monday.getUTCDay() + 6) % 7;
+        monday.setUTCDate(monday.getUTCDate() - weekday); key = monday.toISOString().slice(0, 10);
+      }
+      const group = groups.get(key);
+      if (!group) groups.set(key, { ...candle });
+      else { group.t = candle.t; group.h = Math.max(group.h, candle.h); group.l = Math.min(group.l, candle.l); group.c = candle.c; group.v = Number(group.v || 0) + Number(candle.v || 0); }
+    });
+    return [...groups.values()];
+  }
+  function movingAverage(candles, windowSize) {
+    return candles.map((candle, index) => {
+      if (index + 1 < windowSize) return null;
+      const values = candles.slice(index + 1 - windowSize, index + 1).map((item) => Number(item.c));
+      return { time: candle.t, value: values.reduce((sum, value) => sum + value, 0) / windowSize };
+    }).filter(Boolean);
+  }
+  function currentInterval() { const b = document.querySelector("#chart-interval button.on"); return b ? b.dataset.v : "day"; }
   function ensureChart() {
     if (chart || !window.LightweightCharts) return;
     const el = $("chart");
@@ -165,16 +209,27 @@
     chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
     const colors = { ma5: "#4a3aa7", ma20: "#2a78d6", ma60: "#eb6834", ma120: "#1baf7a" };
     for (const k of Object.keys(colors)) maSeries[k] = chart.addLineSeries({ color: colors[k], lineWidth: k === "ma5" ? 1 : 2, priceLineVisible: false, lastValueVisible: false });
+    if (window.ResizeObserver) {
+      chartResizeObserver = new ResizeObserver(() => {
+        clearTimeout(chartResizeTimer);
+        chartResizeTimer = setTimeout(() => { if (chart) chart.timeScale().fitContent(); }, 80);
+      });
+      chartResizeObserver.observe(el);
+    }
   }
   function renderChart(sec) {
+    if (arguments.length) loadedChart = sec;
+    sec = loadedChart;
     const stats = $("chart-stats"), legend = $("chart-legend");
     if (!sec || !sec.candles || !sec.candles.length) { $("chart").innerHTML = unavailable(sec && sec.reason); stats.innerHTML = ""; return; }
     ensureChart();
     if (!chart) { $("chart").innerHTML = unavailable("차트 라이브러리 로드 실패"); return; }
-    candleSeries.setData(sec.candles.map((c) => ({ time: c.t, open: c.o, high: c.h, low: c.l, close: c.c })));
-    volSeries.setData(sec.candles.map((c) => ({ time: c.t, value: c.v ?? 0, color: c.c >= c.o ? "rgba(192,57,43,.45)" : "rgba(43,98,192,.45)" })));
-    for (const k of Object.keys(maSeries)) maSeries[k].setData((sec.ma && sec.ma[k]) ? sec.ma[k].filter((p) => p.v !== null).map((p) => ({ time: p.t, value: p.v })) : []);
+    const candles = aggregateCandles(sec.candles, currentInterval());
+    candleSeries.setData(candles.map((c) => ({ time: c.t, open: c.o, high: c.h, low: c.l, close: c.c })));
+    volSeries.setData(candles.map((c) => ({ time: c.t, value: c.v ?? 0, color: c.c >= c.o ? "rgba(192,57,43,.45)" : "rgba(43,98,192,.45)" })));
+    for (const k of Object.keys(maSeries)) maSeries[k].setData(movingAverage(candles, Number(k.slice(2))));
     chart.timeScale().fitContent();
+    requestAnimationFrame(() => { if (chart) chart.timeScale().fitContent(); });
     const s = sec.stats || {};
     stats.innerHTML = `
       <span class="num muted">RSI14 <b>${s.rsi14 === undefined ? "—" : fmt(s.rsi14, 0)}</b></span>
@@ -190,52 +245,52 @@
   function renderWatchlist(sec) {
     const host = $("watchlist");
     if (!sec || !sec.rows) { host.innerHTML = unavailable(sec && sec.reason); return; }
-    $("watchlist-meta").textContent = `보유 ${sec.held_count ?? 0} · 관심 ${sec.watch_count ?? 0} · 당일 순매수 억원`;
-    host.innerHTML = `<div class="tr th watch"><div>종목</div><div>보유</div><div class="r">현재가</div><div class="r">등락</div><div class="r">고점 대비</div><div class="r">RSI</div><div class="r">외국인</div><div class="r">기관</div><div class="r">개인</div></div>` +
+    $("watchlist-meta").textContent = `보유 ${sec.held_count ?? 0} · 관심 ${sec.watch_count ?? 0}`;
+    host.innerHTML = `<div class="tr th watch"><div>종목</div><div>보유</div><div class="r">현재가</div><div class="r">등락</div><div class="r">고점 대비</div><div class="r">RSI</div></div>` +
       sec.rows.map((r) => `<div class="tr watch">
         <div><div>${esc(r.name)}</div>${r.flag ? `<div class="flag">조건 도달 · ${esc(r.flag)}</div>` : ""}</div>
-        <div class="${r.held ? "" : "muted"}" style="font-size:10.5px">${r.held ? "보유 " + pct(r.weight_pct, 0).replace("+", "") : "관심"}</div>
+        <div class="${r.held ? "" : "muted"}" style="font-size:10.5px">${r.held ? "보유 " + formatSharePercent(r.weight_pct) : "관심"}</div>
         <div class="r num">${r.price ?? "—"}</div>
         <div class="r num ${cls(r.change_pct)}">${pct(r.change_pct)}</div>
         <div class="r num ${cls(r.drawdown_pct)}">${pct(r.drawdown_pct)}</div>
         <div class="r num">${r.rsi14 === null || r.rsi14 === undefined ? "—" : Math.round(r.rsi14)}</div>
-        <div class="r num ${cls(r.flow_foreign)}">${r.flow_foreign ?? "—"}</div>
-        <div class="r num ${cls(r.flow_inst)}">${r.flow_inst ?? "—"}</div>
-        <div class="r num ${cls(r.flow_indiv)}">${r.flow_indiv ?? "—"}</div>
       </div>`).join("");
   }
 
   // ---- account ------------------------------------------------------------------
-  const signedKrw = (value) => value === null || value === undefined ? "—" : `${value > 0 ? "+" : value < 0 ? "−" : ""}₩${fmt(Math.abs(value) / 1e4, 0)}만`;
-  function renderAccount(sec, selectedWindow = "3M") {
+  const signedKrw = (value) => value === null || value === undefined ? "—" : `${value > 0 ? "+" : value < 0 ? "−" : ""}₩${formatCompactKorean(Math.abs(value))}`;
+  function renderAccount(sec, selectedWindow = null) {
     const host = $("account");
     const investTotal = sec && sec.invest_total_krw !== undefined ? sec.invest_total_krw : sec && sec.total_krw;
     if (!sec || investTotal === undefined) { host.innerHTML = unavailable(sec && sec.reason); return; }
+    selectedWindow = selectedWindow || sec.period_label || "3M";
+    document.querySelectorAll("#account-range button").forEach((button) => button.classList.toggle("on", button.dataset.v === selectedWindow));
     const metric = (sec.return_metrics || {})[selectedWindow] || {};
+    const brokerPnl = brokerReportedPnl(sec, metric);
     const startDate = metric.start_date;
     const chartHistory = startDate ? (sec.history || []).filter((point) => point.t >= startDate) : (sec.history || []);
     const chartBenchmark = startDate ? (sec.benchmark || []).filter((point) => point.t >= startDate) : (sec.benchmark || []);
     host.innerHTML = `
-      <div class="acct-total"><span class="muted">투자 자산</span><b class="num">₩ ${fmt(investTotal / 1e8, 2)}억</b></div>
+      <div class="acct-total"><span class="muted">투자 자산</span><b class="num">₩ ${formatCompactKorean(investTotal)}</b></div>
       <div class="acct-truth-lines">
         <span>총자산 변동 어제 <b class="num ${cls(sec.daily_true_change_krw)}">${signedKrw(sec.daily_true_change_krw)}</b> <small>(순입금 제외)</small></span>
         <span>이번 달 진짜 손익 <b class="num ${cls(sec.month_true_pnl_krw)}">${signedKrw(sec.month_true_pnl_krw)}</b></span>
         <span title="입출금 시점을 반영해 내가 실제 투입한 돈 대비 수익률입니다.">${esc(selectedWindow === "ALL" ? "전체" : selectedWindow)} 돈 가중(내 실제 수익률) <b class="num ${cls(metric.return_pct_modified_dietz)}">${pct(metric.return_pct_modified_dietz)}</b></span>
       </div>
-      ${sec.net_worth_krw !== undefined && sec.net_worth_krw !== null ? `<div class="acct-net-worth"><span>순자산</span> <b class="num">₩${fmt(sec.net_worth_krw / 1e8, 2)}억</b> <small>(부동산·예금 포함, ${esc(sec.net_worth_as_of_label || asof(sec.net_worth_as_of))} 기준)</small></div>` : ""}
+      ${sec.net_worth_krw !== undefined && sec.net_worth_krw !== null ? `<div class="acct-net-worth"><span>순자산</span> <b class="num">₩${formatCompactKorean(sec.net_worth_krw)}</b> <small>(부동산·예금 포함, ${esc(sec.net_worth_as_of_label || asof(sec.net_worth_as_of))} 기준)</small></div>` : ""}
       <div class="acct-meta">
         ${metric.reason ? `<span class="muted">${esc(metric.reason)}</span>` : ""}
         <span title="입출금 영향을 잘라내고 운용 성과만 이어 붙인 수익률입니다.">시간 가중(운용 실력) <b class="num ${cls(metric.return_pct_twr)}">${pct(metric.return_pct_twr)}</b></span>
         <span>KOSPI 동기간 <b class="num ${cls(metric.kospi_return_pct)}">${pct(metric.kospi_return_pct)}</b></span>
-        <span>증권사 표시 손익 <b class="num ${cls(metric.broker_reported_pnl_krw)}">${signedKrw(metric.broker_reported_pnl_krw)}</b></span>
+        <span>증권사 표시 손익 <b class="num ${cls(brokerPnl)}">${signedKrw(brokerPnl)}</b></span>
         ${metric.partial ? '<span class="badge dashed">부분 관측 포함</span>' : ""}
-        ${sec.effective_exposure_pct !== undefined ? `<span>실효 노출 <b class="num">${fmt(sec.effective_exposure_pct, 0)}%</b></span>` : ""}
-        ${sec.leveraged_weight_pct !== undefined ? `<span>레버리지 명목 <b class="num">${fmt(sec.leveraged_weight_pct, 0)}%</b></span>` : ""}
-        ${sec.cash_pct !== undefined ? `<span>현금 <b class="num">${fmt(sec.cash_pct, 0)}%</b></span>` : ""}
-        ${sec.short_treasury_pct !== undefined ? `<span>단기국채 <b class="num">${fmt(sec.short_treasury_pct, 0)}%</b></span>` : ""}
+        ${sec.effective_exposure_pct !== undefined ? `<span>실효 노출 <b class="num">${formatSharePercent(sec.effective_exposure_pct)}</b></span>` : ""}
+        ${sec.leveraged_weight_pct !== undefined ? `<span>레버리지 명목 <b class="num">${formatSharePercent(sec.leveraged_weight_pct)}</b></span>` : ""}
+        ${sec.cash_unknown ? '<span title="현금 미확인 계좌 포함">현금 <b class="num">—</b></span>' : sec.cash_pct !== undefined ? `<span>현금 <b class="num">${formatSharePercent(sec.cash_pct)}</b></span>` : ""}
+        ${sec.short_treasury_pct !== undefined ? `<span>단기국채 <b class="num">${formatSharePercent(sec.short_treasury_pct)}</b></span>` : ""}
       </div>
       <div class="acct-meta">
-        ${sec.usd_assets_usd !== undefined ? `<span>달러 자산 <b class="num">$${fmt(sec.usd_assets_usd, 0)} = ${fmt(sec.usd_assets_krw / 1e8, 2)}억</b> (${fmt(sec.usdkrw, 2)}원 · ${esc(sec.usdkrw_as_of_label || asof(sec.usdkrw_as_of))})</span>` : `<span>달러 자산 —</span>`}
+        ${sec.usd_assets_usd !== undefined ? `<span>달러 자산 <b class="num">$${fmt(sec.usd_assets_usd, 0)} = ${formatCompactKorean(sec.usd_assets_krw)}원</b> (${fmt(sec.usdkrw, 2)}원 · ${esc(sec.usdkrw_as_of_label || asof(sec.usdkrw_as_of))})</span>` : `<span>달러 자산 —</span>`}
         ${sec.fx_effect_pct !== undefined ? `<span>환율 효과 어제 <b class="num ${cls(sec.fx_effect_pct)}">${pct(sec.fx_effect_pct)}</b></span>` : ""}
         ${sec.equity_effect_pct !== undefined ? `<span>주식 효과 <b class="num ${cls(sec.equity_effect_pct)}">${pct(sec.equity_effect_pct)}</b></span>` : ""}
       </div>
@@ -276,25 +331,28 @@
     const host = $("scanner");
     if (!sec) { host.innerHTML = `<b>과매도 스캐너</b><span class="muted">표시 불가</span>`; return; }
     host.innerHTML = `<b>과매도 스캐너</b><span class="muted">${esc(sec.as_of || "")} 기준 후보 <b style="color:var(--ink)">${sec.count ?? 0}</b>개 · ${esc(sec.rule || "")}</span>` +
-      `<span style="display:flex;gap:10px">${(sec.top || []).map((t) => `<span>${esc(t.name)} <span class="num down">${esc(t.why)}</span></span>`).join("")}</span><span class="ml">전체 목록은 종목 페이지에서 ▸</span>`;
+      `<span style="display:flex;gap:10px">${(sec.top || []).map((t) => `<span>${esc(t.name)} <span class="num down">${esc(t.why)}</span></span>`).join("")}</span><a class="ml" href="/stocks">전체 목록은 종목 페이지에서 ▸</a>`;
   }
   function renderSummaryStrip(d) {
     const f = d.flows && d.flows.rows ? d.flows.rows[0] : null;
     const dv = d.derivatives && d.derivatives.groups ? d.derivatives.groups[0] : null;
     const groups = [];
-    if (f) groups.push(`<span class="summary-group"><b>수급</b><span>외국인 오늘 ${signed(f.today)} · 5일 ${signed(f.d5)}</span></span>`);
+    if (f) groups.push(`<span class="summary-group"><b>수급</b><span>외국인 오늘 ${signed(f.today)}억원 · 5일 ${signed(f.d5)}억원</span></span>`);
     if (dv && dv.rows && dv.rows.length) groups.push(`<span class="summary-group"><b>파생</b><span>${dv.rows.slice(0, 2).map((r) => `${esc(r[0])} ${esc(r[1])}`).join(" · ")}</span></span>`);
     if (d.schedule && d.schedule.items && d.schedule.items.length) groups.push(`<span class="summary-group"><b>일정</b><span>${d.schedule.items.slice(0, 2).map((i) => `${esc(i.when)} ${esc(i.what)}`).join(" · ")}</span></span>`);
     const more = [];
     if (d.brief && d.brief.lines && d.brief.lines.length) more.push("브리핑");
     if (d.scanner && d.scanner.count !== undefined) more.push(`스캐너 ${d.scanner.count}개`);
-    if (more.length) groups.push(`<span class="summary-group ml">${more.join(" · ")} · 자세히 ▸</span>`);
+    if (more.length) groups.push(`<span class="summary-group ml">${more.join(" · ")} · <a href="/stocks">자세히 ▸</a></span>`);
     $("summary-strip").innerHTML = groups.length ? groups.join('<span class="summary-separator">|</span>') : '<span class="muted">표시할 요약이 없습니다.</span>';
   }
   function renderHealth(h) {
     const chip = $("health-chip");
-    if (!h || h.reason) { chip.textContent = h && h.reason ? `데이터 갱신 상태 미확인 · ${h.reason}` : "데이터 갱신 상태 미확인"; return; }
-    chip.textContent = `데이터 갱신: 정상 ${h.current ?? 0} · 지연 ${h.lag ?? 0} · 실패 ${h.fail ?? 0} ▸`;
+    const text = !h || h.reason
+      ? (h && h.reason ? `데이터 갱신 상태 미확인 · ${h.reason}` : "데이터 갱신 상태 미확인")
+      : `데이터 갱신: 정상 ${h.current ?? 0} · 지연 ${h.lag ?? 0} · 실패 ${h.fail ?? 0} ▸`;
+    chip.textContent = text;
+    chip.title = text;
   }
 
   // ---- boot -----------------------------------------------------------------------
@@ -320,6 +378,7 @@
     });
     $("tiles-more").addEventListener("click", () => { const t = $("tiles"); t.classList.toggle("collapsed"); $("tiles-more").textContent = t.classList.contains("collapsed") ? "지표 더 보기 ▾" : "지표 접기 ▴"; });
     $("tiles").classList.add("collapsed");
+    document.querySelectorAll("#chart-interval button").forEach((b) => b.addEventListener("click", () => { document.querySelectorAll("#chart-interval button").forEach((x) => x.classList.remove("on")); b.classList.add("on"); renderChart(); }));
     document.querySelectorAll("#chart-range button").forEach((b) => b.addEventListener("click", () => { document.querySelectorAll("#chart-range button").forEach((x) => x.classList.remove("on")); b.classList.add("on"); loadChart($("chart-symbol").value, b.dataset.v); }));
     document.querySelectorAll("#account-range button").forEach((b) => b.addEventListener("click", () => { document.querySelectorAll("#account-range button").forEach((x) => x.classList.remove("on")); b.classList.add("on"); renderAccount(((payload || {}).sections || {}).account, b.dataset.v); }));
     $("chart-symbol").addEventListener("change", () => loadChart($("chart-symbol").value, currentRange()));
@@ -347,5 +406,6 @@
     renderWatchlist(s.watchlist); renderAccount(s.account); renderFlows(s.flows); renderDerivatives(s.derivatives);
     renderSchedule(s.schedule); renderBrief(s.brief); renderScanner(s.scanner); renderSummaryStrip(s);
   }
-  document.addEventListener("DOMContentLoaded", () => { if ($("home-page")) boot(); });
+  if (typeof module !== "undefined" && module.exports) module.exports = { aggregateCandles, brokerReportedPnl, formatCompactKorean, formatSharePercent };
+  if (typeof document !== "undefined") document.addEventListener("DOMContentLoaded", () => { if ($("home-page")) boot(); });
 })();

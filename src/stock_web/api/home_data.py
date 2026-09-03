@@ -203,10 +203,12 @@ def _tile_from_series(name: str, symbol: str | None, frame: pd.DataFrame | None,
     last, prev = values.iloc[-1], values.iloc[-2]
     ma5 = values.rolling(5).mean().iloc[-1]
     ma20 = values.rolling(20).mean().iloc[-1]
+    ma5_delta = (last - ma5) * 100 if change_kind == "bp" else (last / ma5 - 1) * 100 if ma5 else None
+    ma20_delta = (last - ma20) * 100 if change_kind == "bp" else (last / ma20 - 1) * 100 if ma20 else None
     tile: dict[str, object] = {
         "name": name, "symbol": symbol, "value": fmt.format(last),
-        "ma5_pct": _nan_to_none((last / ma5 - 1) * 100) if ma5 else None,
-        "ma20_pct": _nan_to_none((last / ma20 - 1) * 100) if ma20 else None,
+        "ma5_pct": _nan_to_none(ma5_delta),
+        "ma20_pct": _nan_to_none(ma20_delta),
         "spark": [round(float(v), 4) for v in values.iloc[-30:]],
         "window": f"{window_label} · {series['date'].iloc[-1]:%m-%d}",
         "_daily_value": float(last),
@@ -218,6 +220,8 @@ def _tile_from_series(name: str, symbol: str | None, frame: pd.DataFrame | None,
         bp = (last - prev) * 100
         tile["change_pct"] = _nan_to_none(bp)
         tile["change_label"] = f"{bp:+.0f}bp"
+        tile["ma5_label"] = f"{ma5_delta:+.0f}bp" if pd.notna(ma5_delta) else None
+        tile["ma20_label"] = f"{ma20_delta:+.0f}bp" if pd.notna(ma20_delta) else None
     return tile
 
 
@@ -271,10 +275,23 @@ def _fx_reference_note(
     bok = _latest_value_date(bok_fx, "rate_krw_per_usd")
     fred = _latest_value_date(fred_fx, "dexkous")
     if bok is not None:
-        parts.append(f"BOK 매매기준율 {bok[1]:%m-%d}: {bok[0]:,.2f}")
+        parts.append(f"BOK 매매기준율 {bok[1]:%m-%d}")
     if fred is not None:
         parts.append(f"FRED {fred[1]:%m-%d}")
     return " · ".join(parts) or None
+
+
+def _fx_intraday_displacements(
+    latest_value: float, daily_frame: pd.DataFrame | None, value_column: str,
+) -> tuple[float | None, float | None]:
+    if daily_frame is None or daily_frame.empty or value_column not in daily_frame:
+        return None, None
+    values = pd.to_numeric(daily_frame[value_column], errors="coerce").dropna()
+    deltas: list[float | None] = []
+    for window in (5, 20):
+        mean = values.iloc[-window:].mean() if len(values) >= window else None
+        deltas.append((latest_value / mean - 1.0) * 100.0 if mean else None)
+    return deltas[0], deltas[1]
 
 
 def build_tiles(project_root: Path) -> list[dict[str, object]]:
@@ -285,15 +302,14 @@ def build_tiles(project_root: Path) -> list[dict[str, object]]:
     fred_fx = dsx.load(project_root, "data/normalized/fred_usd_fx_daily")
     bok_fx = dsx.load(project_root, "data/normalized/bok_ecos_usd_krw_daily")
     bok_latest = _latest_value_date(bok_fx, "rate_krw_per_usd")
-    fred_latest = _latest_value_date(fred_fx, "dexkous")
-    if bok_latest is not None and (
-        fred_latest is None or bok_latest[1] >= fred_latest[1]
-    ):
+    if bok_latest is not None:
         fx = bok_fx.rename(columns={"rate_krw_per_usd": "dexkous"})
         fx_window = "BOK 일별"
+        fx_source = "BOK 매매기준율"
     else:
         fx = fred_fx
         fx_window = "FRED 일별"
+        fx_source = "FRED"
     fx_note = _fx_reference_note(bok_fx, fred_fx)
     vix = dsx.load(project_root, "data/normalized/fred_vix_daily")
     yields = dsx.load(project_root, "data/normalized/fred_treasury_yield_daily")
@@ -333,11 +349,18 @@ def build_tiles(project_root: Path) -> list[dict[str, object]]:
                 tile["value"] = f"{latest_value:,.2f}"
                 tile["window"] = f"24h · {latest_clock} KST"
                 previous_close = _previous_kst_session_close(intraday["points"])
+                if previous_close is None and daily_value is not None:
+                    previous_close = float(daily_value)
                 tile.pop("change_label", None)
                 if previous_close:
                     tile["change_pct"] = (latest_value / previous_close - 1.0) * 100.0
                 else:
                     tile.pop("change_pct", None)
+                ma5_pct, ma20_pct = _fx_intraday_displacements(latest_value, fx, "dexkous")
+                tile["ma5_pct"] = _nan_to_none(ma5_pct)
+                tile["ma20_pct"] = _nan_to_none(ma20_pct)
+                tile["daily_reference_source"] = fx_source
+                tile["daily_reference_date"] = str(daily_date) if daily_date else None
                 if fx_note is not None:
                     tile["sub_note"] = fx_note
             elif daily_value is not None and str(latest.get("t", ""))[:10] <= str(daily_date or ""):
@@ -350,10 +373,11 @@ def build_tiles(project_root: Path) -> list[dict[str, object]]:
                 # the headline change follows the live value; the close-to-close move is kept
                 # separately (a -4% close yesterday must not read as today's move).
                 intraday_change = (latest_value / float(daily_value) - 1.0) * 100.0
-                tile["latest_intraday"] = {
-                    "value": latest_value, "time": latest["t"], "change_pct": intraday_change,
-                }
                 if tile.get("change_pct") is not None and "change_label" not in tile:
+                    tile["latest_intraday"] = {
+                        "value": latest_value, "time": latest["t"],
+                        "change_pct": intraday_change,
+                    }
                     tile["close_change_pct"] = tile["change_pct"]
                     tile["close_date"] = str(daily_date)[5:10] if daily_date else None
                     tile["change_pct"] = intraday_change
@@ -484,6 +508,15 @@ def _leverage_multiple(name: str, style: str | None) -> tuple[float, bool]:
     return 1.0, bool(style)
 
 
+def _default_account_period(return_metrics: dict[str, dict[str, object]]) -> str:
+    metric = return_metrics.get("3M", {})
+    has_three_month_window = metric.get("start_date") is not None and any(
+        metric.get(key) is not None
+        for key in ("return_pct_modified_dietz", "return_pct_twr", "kospi_return_pct")
+    )
+    return "3M" if has_three_month_window else "ALL"
+
+
 def build_account(project_root: Path) -> dict[str, object]:
     from stock_data.gui.account_snapshot_service import (
         LocalAccountPortfolioService,
@@ -496,6 +529,13 @@ def build_account(project_root: Path) -> dict[str, object]:
 
     account_page = build_account_page_data(project_root)
     account_summary = account_page["summary"]
+    account_rows = account_page.get("rows", [])
+    cash_unknown = any(
+        bool(row.get("included"))
+        and row.get("kind") in {"api", "manual"}
+        and row.get("cash_krw") is None
+        for row in account_rows
+    )
     manual_data = account_page["manual_accounts"]
     manual_accounts = manual_data.get("accounts", [])
     invest_total = float(account_summary.get("invest_total_krw") or 0.0)
@@ -558,11 +598,15 @@ def build_account(project_root: Path) -> dict[str, object]:
             "month_true_pnl_krw": month_true_pnl,
             "broker_reported_pnl_krw": account_summary.get("broker_reported_pnl_krw"),
             "return_metrics": return_metrics,
-            "period_label": "3M",
+            "period_label": _default_account_period(return_metrics),
             "period_pct": return_metrics.get("3M", {}).get("return_pct_modified_dietz"),
             "kospi_period_pct": return_metrics.get("3M", {}).get("kospi_return_pct"),
             "ytd_pct": return_metrics.get("YTD", {}).get("return_pct_modified_dietz"),
-            "cash_pct": manual_cash / invest_total * 100.0 if invest_total else None,
+            "cash_pct": (
+                manual_cash / invest_total * 100.0
+                if invest_total and not cash_unknown else None
+            ),
+            "cash_unknown": cash_unknown,
             "usd_assets_usd": manual_usd_krw / float(usdkrw) if usdkrw else None,
             "usd_assets_krw": manual_usd_krw,
             "usdkrw": usdkrw,
@@ -696,13 +740,14 @@ def build_account(project_root: Path) -> dict[str, object]:
         "month_true_pnl_krw": month_true_pnl,
         "broker_reported_pnl_krw": account_summary.get("broker_reported_pnl_krw"),
         "return_metrics": return_metrics,
-        "period_label": "3M",
+        "period_label": _default_account_period(return_metrics),
         "period_pct": period_pct,
         "kospi_period_pct": kospi_period_pct,
         "ytd_pct": ytd_pct,
         "cash_pct": (
             cash["KRW"] + cash["USD"] * float(usdkrw or 0.0) + manual_cash_krw
-        ) / invest_total * 100.0 if invest_total else None,
+        ) / invest_total * 100.0 if invest_total and not cash_unknown else None,
+        "cash_unknown": cash_unknown,
         "usd_assets_usd": usd_assets_krw / float(usdkrw) if usdkrw else None,
         "usd_assets_krw": usd_assets_krw,
         "usdkrw": usdkrw,
