@@ -755,13 +755,19 @@ def load_leveraged_etfs(project_root: Path) -> pd.DataFrame:
         partitioning="hive",
         columns=("symbol", "name", "leverage_multiple"),
     )
-    leveraged_symbols = master.loc[
-        pd.to_numeric(master["leverage_multiple"], errors="coerce").gt(1), "symbol"
-    ].astype(str)
+    multiples = pd.to_numeric(master["leverage_multiple"], errors="coerce")
+    master_symbols = master["symbol"].astype(str)
+    leveraged_symbols = master_symbols.loc[multiples.gt(1)]
+    # Non-leveraged retained KR ETFs (e.g. 139260 TIGER 200 IT, the user's
+    # reference product for the KOSPI200 IT basket) are kept as descriptive
+    # reference series; they never enter threshold fitting either.
+    reference_symbols = master_symbols.loc[~multiples.gt(1)]
     kr_price["symbol"] = kr_price["symbol"].astype(str)
-    kr_price = kr_price.loc[kr_price["symbol"].isin(leveraged_symbols)].copy()
+    kr_price = kr_price.loc[kr_price["symbol"].isin(master_symbols)].copy()
     kr_price["series_id"] = kr_price["symbol"]
-    kr_price["basket"] = "LEVERAGED_KR"
+    kr_price["basket"] = np.where(
+        kr_price["symbol"].isin(set(leveraged_symbols)), "LEVERAGED_KR", "REFERENCE_KR_ETF",
+    )
     kr_price["dataset_source"] = "kr_etf_price_daily"
     return pd.concat([global_etf, kr_price], ignore_index=True, sort=False)[[
         "date", "series_id", "basket", "close", "volume", "dataset_source"
