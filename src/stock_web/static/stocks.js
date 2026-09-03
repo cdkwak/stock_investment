@@ -206,7 +206,7 @@
     const actionLabel = selectedInCurrentList() ? "관심종목에서 제거" : "관심종목에 추가";
     $("stock-headline-card").innerHTML = `
       <div class="stock-headline-top">
-        <div><h1>${esc(identity.name)}</h1><p>${esc(identity.symbol)} · ${esc(identity.market)} · ${esc(identity.security_type)}</p></div>
+        <div><h1>${esc(identity.market === "US ETF" && String(identity.name || "").length > 22 ? identity.symbol : identity.name)}</h1><p>${identity.market === "US ETF" && String(identity.name || "").length > 22 ? `${esc(identity.name)} · ` : ""}${esc(identity.symbol)} · ${esc(identity.market)} · ${esc(identity.security_type)}</p></div>
         <div class="stock-detail-actions"><button type="button" class="button primary" id="toggle-detail-watchlist">${actionLabel}</button><button type="button" class="button" id="edit-detail-conditions">조건 편집</button></div>
       </div>
       <div class="stock-headline-price">
@@ -221,7 +221,7 @@
         ${statTile("52주 고점 대비", pct(stats.drawdown_pct), "", tone(stats.drawdown_pct))}
         ${statTile("20일 거래량 배수", stats.volume20_multiple === null ? "—" : number(stats.volume20_multiple, 2), stats.volume20_multiple === null ? "" : "×")}
         ${statTile("시가총액", stats.market_cap === null ? "—" : compact(stats.market_cap))}
-        ${statTile("시가배당률", pct(stats.dividend_yield_pct))}
+        ${statTile("시가배당률", plainPct(stats.dividend_yield_pct))}
       </div>`;
   }
 
@@ -261,12 +261,12 @@
     if (!fundamentals.available) { $("stock-fundamentals").innerHTML = `<div class="unavailable">${esc(fundamentals.message)}</div>`; return; }
     const rows = fundamentals.rows || [];
     $("stock-fundamentals").innerHTML = `<div class="fundamentals-overview">${operatingBars(rows)}<div class="fundamentals-health"><span>최근 4분기 흑자 여부 <b>${esc(fundamentals.profitability_label)}</b></span><span>매출 추세 <b>${esc(fundamentals.revenue_trend)}</b></span></div></div>
-      <div class="data-table-wrap"><table class="data-table stock-fundamentals-table"><thead><tr><th>분기</th><th>매출</th><th>영업이익</th><th>순이익</th><th>영업이익률</th><th>부채비율</th></tr></thead><tbody>${rows.map((row) => `<tr><td>${esc(row.quarter)}</td><td class="num">${trillion(row.revenue)}</td><td class="num ${tone(row.operating_income)}">${trillion(row.operating_income)}</td><td class="num ${tone(row.net_income)}">${trillion(row.net_income)}</td><td class="num">${pct(row.operating_margin_pct)}</td><td class="num">${pct(row.debt_ratio_pct)}</td></tr>`).join("")}</tbody></table></div>`;
+      <div class="data-table-wrap"><table class="data-table stock-fundamentals-table"><thead><tr><th>분기</th><th>매출</th><th>영업이익</th><th>순이익</th><th>영업이익률</th><th>부채비율</th></tr></thead><tbody>${rows.map((row) => `<tr><td>${esc(row.quarter)}</td><td class="num">${trillion(row.revenue)}</td><td class="num ${tone(row.operating_income)}">${trillion(row.operating_income)}</td><td class="num ${tone(row.net_income)}">${trillion(row.net_income)}</td><td class="num">${plainPct(row.operating_margin_pct)}</td><td class="num">${plainPct(row.debt_ratio_pct)}</td></tr>`).join("")}</tbody></table></div>`;
   }
 
   function renderDividends(dividends) {
     if (!dividends.available) { $("stock-dividends").innerHTML = `<div class="unavailable">${esc(dividends.message)}</div>`; return; }
-    $("stock-dividends").innerHTML = `<div class="dividend-summary"><span>최근 4분기 합계 <b class="num">${number(dividends.trailing_4q_sum, 0)}원</b></span><span>시가배당률 <b class="num">${pct(dividends.dividend_yield_pct)}</b></span><span>다음 지급 예정 <b>${esc(dividends.next_payment_label)}</b></span></div>
+    $("stock-dividends").innerHTML = `<div class="dividend-summary"><span>최근 4분기 합계 <b class="num">${number(dividends.trailing_4q_sum, 0)}원</b></span><span>시가배당률 <b class="num">${plainPct(dividends.dividend_yield_pct)}</b></span><span>다음 지급 예정 <b>${esc(dividends.next_payment_label)}</b></span></div>
       <div class="data-table-wrap"><table class="data-table stock-dividend-table"><thead><tr><th>기준일</th><th>지급일</th><th>구분</th><th>주당 배당</th></tr></thead><tbody>${dividends.rows.map((row) => `<tr><td>${esc(row.dividend_record_date || "—")}</td><td>${esc(row.cash_payment_date || "—")}</td><td>${esc(row.category)}</td><td class="num">${number(row.ordinary_dividend_amount, 0)}원</td></tr>`).join("")}</tbody></table></div>`;
   }
 
@@ -284,6 +284,14 @@
     priceChart.priceScale("volume").applyOptions({ scaleMargins: { top: .84, bottom: 0 } });
     const colors = { ma5: "#4a3aa7", ma20: "#2a78d6", ma60: "#eb6834", ma120: "#1baf7a" };
     Object.entries(colors).forEach(([key, color]) => { maSeries[key] = priceChart.addLineSeries({ color, lineWidth: key === "ma5" ? 1 : 2, priceLineVisible: false, lastValueVisible: false }); });
+    if (window.ResizeObserver) {
+      let pending = null;
+      new ResizeObserver(() => {
+        if (!priceChart) return;
+        clearTimeout(pending);
+        pending = setTimeout(() => { if (priceChart) priceChart.timeScale().fitContent(); }, 80);
+      }).observe(host);
+    }
   }
 
   function aggregateCandles(candles, interval) {
@@ -358,6 +366,7 @@
         series.setData(enabled ? points : []);
       });
       priceChart.timeScale().fitContent();
+      requestAnimationFrame(() => { if (priceChart) priceChart.timeScale().fitContent(); });
     } else {
       $("stock-price-chart").innerHTML = '<div class="unavailable">차트 라이브러리 로드 실패</div>';
     }

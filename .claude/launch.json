@@ -23,6 +23,14 @@
         "C:\\Users\\k4545\\AppData\\Local\\Temp\\claude\\C--Users-k4545-Desktop-stock-investment-rev1\\fa23660b-892f-40de-a630-1c6e322bbaa7\\scratchpad\\run_review_server.py"
       ],
       "port": 8788
+    },
+    {
+      "name": "review-server-2",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "C:\\Users\\k4545\\AppData\\Local\\Temp\\claude\\C--Users-k4545-Desktop-stock-investment-rev1\\fa23660b-892f-40de-a630-1c6e322bbaa7\\scratchpad\\run_review_server2.py"
+      ],
+      "port": 8789
     }
   ]
 }
