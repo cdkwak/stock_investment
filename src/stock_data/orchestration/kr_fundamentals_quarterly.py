@@ -137,6 +137,9 @@ def prepare_collection(
     if captured_now.tzinfo is None or captured_now.utcoffset() is None:
         raise FundamentalsRefreshError("operation clock must be timezone-aware")
     captured_now = captured_now.astimezone(timezone.utc)
+    # An injected `now` also stamps retrieved_at so runs are reproducible in tests; live runs
+    # keep per-request wall-clock stamps.
+    clock: Callable[[], datetime] | None = (lambda: captured_now) if now is not None else None
     run_id = captured_now.strftime("%Y%m%dT%H%M%SZ") + "_" + uuid4().hex
     landing_root = project_root / "data/landing/opendart/kr_fundamentals_quarterly"
     run_dir = landing_root / run_id
@@ -205,7 +208,7 @@ def prepare_collection(
                 http, corp_code_request(), key=key, run_dir=run_dir,
                 ledger_path=ledger_path, checkpoint=checkpoint,
                 checkpoint_path=checkpoint_path, max_calls=max_calls,
-                sleeper=sleeper,
+                sleeper=sleeper, clock=clock,
             )
             map_rows = parse_corp_code_zip(body)
             map_frame = pd.DataFrame(map_rows, columns=KR_CORP_CODE_MAP.column_names)
@@ -245,7 +248,7 @@ def prepare_collection(
                     http, financial_statement_request(corp_code, year, report, scope),
                     key=key, run_dir=run_dir, ledger_path=ledger_path,
                     checkpoint=checkpoint, checkpoint_path=checkpoint_path,
-                    max_calls=max_calls, sleeper=sleeper,
+                    max_calls=max_calls, sleeper=sleeper, clock=clock,
                 )
                 classification, rows = parse_financial_statement(
                     body, expected_corp_code=corp_code, expected_year=year,
@@ -499,6 +502,7 @@ def _capture_request(
     checkpoint_path: Path,
     max_calls: int,
     sleeper: Callable[[float], None],
+    clock: Callable[[], datetime] | None = None,
 ) -> tuple[bytes, str]:
     current = int(checkpoint["http_calls"])
     if current >= max_calls:
@@ -523,7 +527,7 @@ def _capture_request(
         request.endpoint, params=params, timeout=REQUEST_TIMEOUT_SECONDS,
         allow_redirects=False,
     )
-    retrieved_at = datetime.now(timezone.utc).isoformat()
+    retrieved_at = (clock() if clock is not None else datetime.now(timezone.utc)).isoformat()
     body = bytes(response.content)
     if key.encode("utf-8") in body:
         raise FundamentalsRefreshError("credential echo detected; Landing write refused")
