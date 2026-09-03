@@ -42,3 +42,4 @@ htmlcov/
 /artifacts/runtime_logs/web/
 /artifacts/analysis/
 artifacts/research/
+/artifacts/daily_health/universe_data_v2_latest.json
