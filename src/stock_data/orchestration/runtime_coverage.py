@@ -18,6 +18,8 @@ from stock_data.contracts.data_v1 import (
 from stock_data.contracts.bok_ecos_treasury import (
     BOK_ECOS_KR_TREASURY_YIELD_SOURCE_OBSERVATION,
 )
+from stock_data.contracts.bok_ecos_fx import BOK_ECOS_USD_KRW_DAILY
+from stock_data.orchestration.bok_ecos_fx_daily import validate_bok_fx
 from stock_data.contracts.kr_derivatives import (
     KR_KOSPI200_FUTURES_DAILY,
     KR_KOSPI200_OPTIONS_DAILY,
@@ -506,6 +508,10 @@ _PROBES = (
     _CoverageProbe(
         "fred_usd_fx_daily", "data/normalized/fred_usd_fx_daily", "date",
         _contract_reader(FRED_USD_FX_DAILY, validate_fred),
+    ),
+    _CoverageProbe(
+        "bok_ecos_usd_krw_daily", "data/normalized/bok_ecos_usd_krw_daily", "date",
+        _contract_reader(BOK_ECOS_USD_KRW_DAILY, validate_bok_fx),
     ),
     _CoverageProbe(
         "fred_vix_daily", "data/normalized/fred_vix_daily", "date",

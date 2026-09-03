@@ -120,6 +120,14 @@ def _account_project() -> Path:
         "data/normalized/fred_usd_fx_daily/year=2026/data.parquet",
         pd.DataFrame({"date": [pd.Timestamp("2026-09-01")], "dexkous": [1_300.0]}),
     )
+    _write_parquet(
+        root,
+        "data/normalized/bok_ecos_usd_krw_daily/year=2026/data.parquet",
+        pd.DataFrame({
+            "date": [pd.Timestamp("2026-09-03")],
+            "rate_krw_per_usd": [1_400.0],
+        }),
+    )
     snapshot = root / "data/normalized/toss_account_snapshot/latest.json"
     snapshot.parent.mkdir(parents=True, exist_ok=True)
     snapshot.write_text(json.dumps(_local_mock_snapshot(), ensure_ascii=False), encoding="utf-8")
@@ -151,13 +159,14 @@ def test_account_totals_use_local_prices_fx_and_exclude_unpriced_holdings() -> N
     assert net_worth_post.status_code == 200
     assert response.status_code == 200
     payload = response.json()
-    # Toss 10,000 + KRW manual (100 cash + 2*1,000) + USD (10 cash + 2*12)*1,300.
-    assert payload["summary"]["invest_total_krw"] == 56_300
+    # Toss 10,000 + KRW manual (100 cash + 2*1,000) + USD (10 cash + 2*12)*1,400.
+    assert payload["summary"]["invest_total_krw"] == 59_700
     # Other assets 105,000 - liabilities 20,000 are added to investment assets.
-    assert payload["summary"]["net_worth_krw"] == 141_300
-    assert payload["summary"]["fx_krw_per_usd"] == 1_300
-    assert payload["summary"]["fx_as_of"] == "2026-09-01"
-    assert payload["summary"]["fx_as_of_label"] == "09-01"
+    assert payload["summary"]["net_worth_krw"] == 144_700
+    assert payload["summary"]["fx_krw_per_usd"] == 1_400
+    assert payload["summary"]["fx_as_of"] == "2026-09-03"
+    assert payload["summary"]["fx_as_of_label"] == "09-03"
+    assert payload["summary"]["fx_source"] == "BOK 매매기준율 09-03"
     assert payload["summary"]["broker_reported_pnl_krw"] == 500
     assert set(payload["return_metrics"]) == {"1M", "3M", "YTD", "ALL"}
     assert payload["cash_flows"]["entries"] == []
@@ -217,8 +226,8 @@ def test_home_account_keeps_total_alias_and_adds_split_fields() -> None:
 
     account = home_data.build_account(root)
 
-    assert account["total_krw"] == account["invest_total_krw"] == 56_300
-    assert account["net_worth_krw"] == 141_300
+    assert account["total_krw"] == account["invest_total_krw"] == 59_700
+    assert account["net_worth_krw"] == 144_700
     assert account["net_worth_as_of"] == "2026-08-15"
     assert account["net_worth_as_of_label"] == "08-15"
     assert account["day_change_pct"] is None

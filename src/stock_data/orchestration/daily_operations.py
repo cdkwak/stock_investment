@@ -1666,6 +1666,16 @@ DAILY_LANE_READINESS = (
         False,
         "provider publication/revision timing and a first reviewed daily live run remain unresolved",
         "finish the three-batch observation; keep source observation separate from canonical daily use"),
+    LaneReadiness("BOK_FX_DAILY", LaneReadinessStatus.READY,
+        "BOK ECOS StatisticSearch 731Y001 item 0000001",
+        "provider weekday daily observations; BOK holiday calendar is unverified",
+        "today at/after 17:00 KST, otherwise previous business day",
+        "one retry-zero range call from retained latest + 1 through target, capped at 30 sessions",
+        "immutable raw JSON, redacted call ledger, manifest, and atomic append-only Parquet",
+        "offline fixture parsing, range cap, target lag, idempotency, and read-back validation",
+        "display and account valuation; finality unknown and predictive/backtest use blocked",
+        True, None,
+        "run in the existing 17:10 BOK task after the Treasury observation lane; a missing target row is EXPECTED_PROVIDER_LAG"),
     LaneReadiness("TOSS_KR_TREASURY_DAILY", LaneReadinessStatus.READY,
         "Toss Invest market-indicator candles", "KR government-bond daily OHLC",
         "T+1 completed XKRX successor session; retained AS_RETRIEVED",
@@ -1998,6 +2008,42 @@ CORE_DATASET_SPECS = REPRESENTATIVE_DATASET_SPECS + (
         1, provider_auth_id="bok_ecos", status=OperationalStatus.AUTO_READY,
         pit=PitStatus.PIT_BLOCKED, idempotency=IdempotencyStatus.CONFIRMED,
         automation_enabled=True),
+    DatasetOperationSpec(
+        dataset_id="bok_ecos_usd_krw_daily",
+        economic_variable="Official daily KRW per USD reference rate",
+        cadence=Cadence.KR_DAILY,
+        tier=DatasetTier.TIER_1_CRITICAL,
+        primary_source="BOK ECOS StatisticSearch 731Y001/0000001",
+        contract_id="bok_ecos_usd_krw_daily",
+        contract_version=1,
+        operational_status=OperationalStatus.AUTO_READY,
+        freshness_policy=FreshnessPolicy(
+            "bok_ecos_fx_daily_1700_kst",
+            "Asia/Seoul",
+            "today at or after 17:00 KST, otherwise previous provider business day",
+            FinalityPolicy(
+                FinalityEvidence.UNKNOWN,
+                "Asia/Seoul",
+                provider_available_rule=(
+                    "requested target row present; absence is EXPECTED_PROVIDER_LAG"
+                ),
+                provider_final_rule=(
+                    "UNVERIFIED publication/revision timing; descriptive use only"
+                ),
+                collection_window="existing BOK task at 17:10 KST after Treasury observation",
+            ),
+        ),
+        pipeline_dependencies=(),
+        idempotency_status=IdempotencyStatus.CONFIRMED,
+        pit_status=PitStatus.PIT_BLOCKED,
+        automation_enabled=True,
+        provider_auth_id="bok_ecos",
+        validation_policy=(
+            "Landing-first table/item/date/unit/value validation, append-only merge, "
+            "atomic Parquet, and read-back validation"
+        ),
+        dashboard_required=True,
+    ),
     _registered_manual_spec("kr_market_investor_net_purchase_bridge_daily", "Provider-boundary market investor bridge",
         "legacy pykrx plus Toss", 1, provider_auth_id="tossinvest", pit=PitStatus.PIT_BLOCKED,
         dependencies=("kr_market_investor_net_purchase_daily", "kr_market_investor_trading_daily"),
@@ -2086,7 +2132,7 @@ def build_daily_universe_gap_status(
             plan_status=status,
             pre_network_noop=noop,
         ))
-    if len(rows) != 65:
+    if len(rows) != 66:
         raise RuntimeError("daily-grain universe count differs from the typed registry")
     return tuple(rows)
 

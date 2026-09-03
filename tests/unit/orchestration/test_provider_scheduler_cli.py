@@ -428,6 +428,7 @@ def test_every_automation_enabled_dataset_lane_has_a_scheduler_route() -> None:
     } | {
         "FRED_DAILY", "GLOBAL_ETF_DAILY", "GLOBAL_INDEX_DAILY",
         "GLOBAL_COMMODITY_DAILY", "BOK_TREASURY_OBSERVATION_DAILY",
+        "BOK_FX_DAILY",
     }
 
     assert automated <= scheduled

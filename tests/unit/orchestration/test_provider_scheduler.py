@@ -429,6 +429,29 @@ def test_current_registry_enables_fred_with_source_specific_targets(tmp_path: Pa
     ]
 
 
+def test_bok_fx_lane_dry_run_is_registered_and_network_free(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        scheduler, "run_bok_fx_daily_lane",
+        lambda *_args, **_kwargs: pytest.fail("dry-run entered BOK provider operation"),
+    )
+
+    result = run_lane(
+        tmp_path, "BOK_FX_DAILY",
+        as_of=datetime(2026, 9, 3, 8, 10, tzinfo=timezone.utc),
+        dry_run=True,
+    )
+
+    assert result["status"] == "DRY_RUN_PASS"
+    assert result["api_calls"] == 0
+    assert result["phase_targets"] == {"bok_fx": "2026-09-03"}
+    assert result["automation_dataset_ids"] == ["bok_ecos_usd_krw_daily"]
+    assert result["provider_availability_policies"] == {
+        "bok_fx": "BOK_ECOS_FX_DAILY_1700_KST",
+    }
+
+
 def test_current_registry_enables_completed_dashboard_futures(tmp_path: Path) -> None:
     result = run_lane(
         tmp_path, "GLOBAL_COMMODITY_DAILY", as_of=FUTURES_AS_OF, dry_run=True,

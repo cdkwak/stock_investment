@@ -478,20 +478,37 @@ def save_manual_accounts(project_root: Path, payload: object) -> dict[str, objec
     return normalized
 
 
-def _latest_fx(project_root: Path) -> tuple[float | None, str | None]:
-    frame = datasets.load(
-        project_root, "data/normalized/fred_usd_fx_daily",
-        columns=["date", "dexkous"],
+def _latest_fx(project_root: Path) -> tuple[float | None, str | None, str | None]:
+    candidates: list[tuple[pd.Timestamp, float, int, str]] = []
+    sources = (
+        (
+            "data/normalized/bok_ecos_usd_krw_daily",
+            "rate_krw_per_usd",
+            1,
+            "BOK 매매기준율",
+        ),
+        ("data/normalized/fred_usd_fx_daily", "dexkous", 0, "FRED"),
     )
-    if frame is None or frame.empty:
-        return None, None
-    work = frame.copy()
-    work["date"] = pd.to_datetime(work["date"], errors="coerce")
-    work["dexkous"] = pd.to_numeric(work["dexkous"], errors="coerce")
-    work = work.dropna(subset=["date", "dexkous"]).sort_values("date")
-    if work.empty:
-        return None, None
-    return float(work.iloc[-1]["dexkous"]), work.iloc[-1]["date"].date().isoformat()
+    for path, value_column, priority, label in sources:
+        frame = datasets.load(project_root, path, columns=["date", value_column])
+        if frame is None or frame.empty:
+            continue
+        work = frame.copy()
+        work["date"] = pd.to_datetime(work["date"], errors="coerce")
+        work[value_column] = pd.to_numeric(work[value_column], errors="coerce")
+        work = work.dropna(subset=["date", value_column]).sort_values("date")
+        work = work[work[value_column] > 0]
+        if work.empty:
+            continue
+        row = work.iloc[-1]
+        candidates.append((row["date"], float(row[value_column]), priority, label))
+    if not candidates:
+        return None, None, None
+    observed, value, _priority, label = max(
+        candidates, key=lambda item: (item[0], item[2]),
+    )
+    observed_date = observed.date().isoformat()
+    return value, observed_date, f"{label} {observed:%m-%d}"
 
 
 def _latest_kr_prices(
@@ -536,7 +553,7 @@ def build_manual_account_data(project_root: Path) -> dict[str, object]:
         if re.fullmatch(r"\d{6}", str(position["ticker"]))
     }
     prices = _latest_kr_prices(project_root, kr_tickers)
-    fx, fx_as_of = _latest_fx(project_root)
+    fx, fx_as_of, fx_source = _latest_fx(project_root)
     total_krw = 0.0
     cash_krw = 0.0
     unpriced_count = 0
@@ -636,6 +653,7 @@ def build_manual_account_data(project_root: Path) -> dict[str, object]:
         "unpriced_count": unpriced_count,
         "fx_krw_per_usd": fx,
         "fx_as_of": fx_as_of,
+        "fx_source": fx_source,
         "reason": None,
     }
 
@@ -653,7 +671,7 @@ def _convert(value: float | None, currency: str, fx: float | None) -> float | No
 def build_api_account_data(project_root: Path) -> dict[str, object]:
     from stock_data.gui.account_snapshot_service import LocalAccountSnapshotService
 
-    fx, fx_as_of = _latest_fx(project_root)
+    fx, fx_as_of, fx_source = _latest_fx(project_root)
     candidates = (
         ("toss_self", "Toss", project_root / "data/normalized/toss_account_snapshot/latest.json"),
         ("kb_self", "KB", project_root / "data/local/account_snapshots/kb_self.json"),
@@ -752,7 +770,7 @@ def build_api_account_data(project_root: Path) -> dict[str, object]:
         })
     return {
         "rows": rows, "total_krw": total_krw, "cash_krw": cash_krw,
-        "fx_krw_per_usd": fx, "fx_as_of": fx_as_of,
+        "fx_krw_per_usd": fx, "fx_as_of": fx_as_of, "fx_source": fx_source,
         "broker_reported_pnl_krw": (
             broker_reported_pnl_krw if broker_reported_seen else None
         ),
@@ -1527,6 +1545,7 @@ def build_account_page_data(project_root: Path) -> dict[str, object]:
             "fx_krw_per_usd": api.get("fx_krw_per_usd") or manual.get("fx_krw_per_usd"),
             "fx_as_of": api.get("fx_as_of") or manual.get("fx_as_of"),
             "fx_as_of_label": format_kst(api.get("fx_as_of") or manual.get("fx_as_of")),
+            "fx_source": api.get("fx_source") or manual.get("fx_source"),
             "broker_reported_pnl_krw": api.get("broker_reported_pnl_krw"),
             "sources": sources,
         },

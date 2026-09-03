@@ -444,6 +444,7 @@ _CLASSIFICATION_IDS = {
         kr_etf_master kr_etf_price_daily
         global_index_price_daily global_etf_price_daily global_commodity_futures_daily
         fred_treasury_yield_daily fred_usd_fx_daily fred_vix_daily
+        bok_ecos_usd_krw_daily
         kr_short_selling_balance_daily kr_short_selling_investor_daily kr_market_liquidity_daily
         kr_credit_balance_daily kr_stock_lending_daily kr_stock_lending_market_daily
         kr_stock_lending_participant_daily kr_kospi200_index_daily kr_vkospi_daily
@@ -659,6 +660,7 @@ _LANE_GROUPS = {
     """.split()),
     "TOSS_KR_TREASURY_DAILY": frozenset({"kr_treasury_yield_daily"}),
     "BOK_TREASURY_OBSERVATION_DAILY": frozenset({"bok_ecos_kr_treasury_yield_source_observation"}),
+    "BOK_FX_DAILY": frozenset({"bok_ecos_usd_krw_daily"}),
     "CORPORATE_ACTION_EVENT": frozenset("""
         kr_equity_master kr_equity_dividend kr_equity_rights_schedule
         kr_equity_dividend_source_observation kr_equity_stock_issuance_source_observation
@@ -731,7 +733,8 @@ _DIRECT_GUI = frozenset("""
     kr_corp_code_map kr_fundamentals_quarterly
     market_price_60m_observation
     kr_index_daily kr_kospi200_index_daily global_index_price_daily global_etf_price_daily
-    bok_ecos_kr_treasury_yield_source_observation fred_treasury_yield_daily fred_usd_fx_daily
+    bok_ecos_kr_treasury_yield_source_observation bok_ecos_usd_krw_daily
+    fred_treasury_yield_daily fred_usd_fx_daily
     global_commodity_futures_daily kr_market_breadth_daily
     kr_kospi200_breadth_daily
     kr_market_investor_net_purchase_bridge_daily fred_vix_daily kr_vkospi_daily
@@ -859,6 +862,7 @@ _READY_WITH_LIMITS_IDS = frozenset({
     "global_index_price_daily", "global_etf_price_daily", "global_commodity_futures_daily",
     "kr_etf_master", "kr_etf_price_daily",
     "fred_treasury_yield_daily", "fred_usd_fx_daily", "fred_vix_daily",
+    "bok_ecos_usd_krw_daily",
     "us_treasury_spread_daily", "kr_treasury_yield_daily",
     "bok_ecos_kr_treasury_yield_source_observation",
     "kr_market_investor_net_purchase_bridge_daily",
@@ -1045,6 +1049,7 @@ def _predictive_status(dataset_id: str, operation: object | None) -> PredictiveP
 
 _AUTO_ENABLED_IDS: frozenset[str] = frozenset({
     "fred_treasury_yield_daily", "fred_usd_fx_daily", "fred_vix_daily",
+    "bok_ecos_usd_krw_daily",
     "us_treasury_spread_daily",
     "kr_stock_lending_daily", "kr_stock_lending_market_daily",
     "kr_stock_lending_participant_daily",

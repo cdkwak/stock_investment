@@ -5,6 +5,7 @@ from pathlib import Path
 
 import time
 
+import pandas as pd
 import pytest
 
 from stock_web.api import home_data
@@ -15,6 +16,12 @@ from stock_web.api.regime import (
     temperature_label,
 )
 from tests.unit.web import make_project, new_temp_root
+
+
+def _write_parquet(root: Path, relative: str, frame: pd.DataFrame) -> None:
+    path = root / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    frame.to_parquet(path, index=False)
 
 
 def test_regime_formulas_match_hand_calculations() -> None:
@@ -136,3 +143,66 @@ def test_optional_local_artifacts_are_projected_without_inventing_content() -> N
     assert brief_payload["meta"] == "09-17 08:00 · local test"
     assert home_data.build_scanner(root)["status"] == "UNAVAILABLE"
     assert home_data.build_scanner(root)["top"] == []
+
+
+def test_usdkrw_tile_keeps_intraday_value_and_labels_bok_and_fred(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = new_temp_root()
+    _write_parquet(
+        root, "data/normalized/bok_ecos_usd_krw_daily/year=2026/data.parquet",
+        pd.DataFrame({
+            "date": [pd.Timestamp("2026-09-03")],
+            "rate_krw_per_usd": [1_337.50],
+        }),
+    )
+    _write_parquet(
+        root, "data/normalized/fred_usd_fx_daily/year=2026/data.parquet",
+        pd.DataFrame({
+            "date": [pd.Timestamp("2026-08-28")], "dexkous": [1_330.25],
+        }),
+    )
+
+    def intraday(_root: Path, name: str):
+        if name != "USD/KRW":
+            return None
+        return {
+            "source": "Yahoo KRW=X",
+            "window": "24h",
+            "points": [
+                {"t": "2026-09-02T06:00:00Z", "v": 1330.0},
+                {"t": "2026-09-03T05:00:00Z", "v": 1338.0},
+                {"t": "2026-09-03T06:00:00Z", "v": 1339.25},
+            ],
+        }
+
+    monkeypatch.setattr(home_data, "load_intraday_series", intraday)
+    tile = next(item for item in home_data.build_tiles(root) if item["name"] == "USD/KRW")
+
+    assert tile["value"] == "1,339.25"
+    assert tile["sub_note"] == (
+        "BOK 매매기준율 09-03: 1,337.50 · FRED 08-28"
+    )
+    assert tile["spark_source"] == "Yahoo KRW=X"
+
+
+def test_home_account_fx_prefers_newer_bok_and_keeps_source_as_appended_field() -> None:
+    root = new_temp_root()
+    _write_parquet(
+        root, "data/normalized/fred_usd_fx_daily/year=2026/data.parquet",
+        pd.DataFrame({"date": [pd.Timestamp("2026-08-28")], "dexkous": [1330.0]}),
+    )
+    _write_parquet(
+        root, "data/normalized/bok_ecos_usd_krw_daily/year=2026/data.parquet",
+        pd.DataFrame({
+            "date": [pd.Timestamp("2026-09-03")],
+            "rate_krw_per_usd": [1337.5],
+        }),
+    )
+
+    frame, value, observed, source = home_data._latest_fx(root)
+
+    assert not frame.empty
+    assert (value, observed, source) == (
+        1337.5, "2026-09-03", "BOK 매매기준율 09-03",
+    )

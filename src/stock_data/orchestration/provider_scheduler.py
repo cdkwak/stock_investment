@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 from types import MappingProxyType
 from typing import Callable
@@ -37,6 +38,7 @@ from stock_data.orchestration.kr_index_fundamental_daily import (
     run_index_fundamental_daily,
 )
 from stock_data.orchestration.kr_etf_daily import run_kr_etf_scheduler_lane
+from stock_data.orchestration.bok_ecos_fx_daily import run_daily_lane as run_bok_fx_daily_lane
 from stock_data.orchestration.toss_market_investor_daily import (
     is_toss_market_investor_date_complete, refresh_toss_market_investor_daily,
 )
@@ -129,6 +131,14 @@ LANE_SCHEDULES = MappingProxyType({
             "us_treasury_spread_daily",
         ),
         accepted_source="FRED fredgraph CSV",
+    ),
+    "BOK_FX_DAILY": LaneSchedule(
+        lane="BOK_FX_DAILY",
+        cadence_group="BOK_PROVIDER_DAILY_1700",
+        market=ExchangeMarket.KR,
+        phases=("bok_fx",),
+        dataset_ids=("bok_ecos_usd_krw_daily",),
+        accepted_source="BOK ECOS StatisticSearch 731Y001 item 0000001",
     ),
     "LENDING_DAILY": LaneSchedule(
         lane="LENDING_DAILY",
@@ -354,6 +364,25 @@ def _run_accepted_phase(project_root: Path, phase: str, target: object) -> dict[
     if promoted.get("status") != "PROMOTED":
         raise ProviderSchedulerError(f"promotion did not commit: {promoted.get('status')}")
     return promoted
+
+
+def _run_bok_fx_phase(
+    project_root: Path, phase: str, target: object,
+) -> dict[str, object]:
+    if phase != "bok_fx" or not isinstance(target, date):
+        raise ProviderSchedulerError("invalid BOK ECOS FX scheduler phase")
+    from dotenv import load_dotenv
+
+    load_dotenv(project_root / ".env", override=False)
+    result = run_bok_fx_daily_lane(
+        project_root,
+        target=target,
+        api_key=os.environ.get("BOK_ECOS_API_KEY", ""),
+    )
+    return {
+        **result,
+        "http_calls": int(result.get("api_calls", 0) or 0),
+    }
 
 
 def _run_lending_phase(project_root: Path, phase: str, target: object) -> dict[str, object]:
@@ -1018,6 +1047,7 @@ def run_lane(
         "fred_yields": "fred_treasury_yield_daily",
         "fred_fx": "fred_usd_fx_daily",
         "fred_vix": "fred_vix_daily",
+        "bok_fx": "bok_ecos_usd_krw_daily",
         "canonical_equity": "kr_equity_canonical_universe_daily",
         "kr_etf_prices": "kr_etf_price_daily",
         "kospi200_breadth": "kr_kospi200_breadth_daily",
@@ -1080,6 +1110,7 @@ def run_lane(
     try:
         execute = phase_runner or {
             "FRED_DAILY": _run_accepted_phase,
+            "BOK_FX_DAILY": _run_bok_fx_phase,
             "CANONICAL_EQUITY_DAILY": _run_canonical_equity_phase,
             "KR_ETF_PRICE_DAILY": _run_kr_etf_price_phase,
             "KOSPI200_BREADTH_DAILY": _run_kospi200_breadth_phase,

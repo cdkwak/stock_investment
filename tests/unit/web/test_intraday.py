@@ -244,7 +244,7 @@ def test_fx_intraday_becomes_headline_against_previous_kst_session(monkeypatch) 
     assert tile["value"] == "1,400.00"
     assert tile["change_pct"] == pytest.approx((1_400 / 1_380 - 1) * 100)
     assert tile["window"] == "24h · 01:30 KST"
-    assert tile["sub_note"].startswith("FRED 확정 ")
+    assert tile["sub_note"].startswith("FRED ")
     assert "latest_intraday" not in tile
 
 

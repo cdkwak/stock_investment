@@ -9,6 +9,7 @@
 
 - [BOK ECOS Open API](https://ecos.bok.or.kr/api/)
 - [817Y002 publication/finality evidence](817Y002_PUBLICATION_FINALITY.md)
+- [731Y001 USD/KRW daily source contract](731Y001_USD_KRW_DAILY.md)
 
 Project URL shape:
 
@@ -40,6 +41,8 @@ in the dataset contract.
 - Pilot: `scripts/manual/pilot/pilot_bok_ecos_treasury.py`
 - Backfill: `scripts/manual/backfill/backfill_bok_ecos_treasury.py`
 - Contract: `src/stock_data/contracts/bok_ecos_treasury.py`
+- USD/KRW collector: `scripts/manual/collect/refresh_bok_ecos_fx_daily.py`
+- USD/KRW contract: `src/stock_data/contracts/bok_ecos_fx.py`
 
 ## Boundaries
 

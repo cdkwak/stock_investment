@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from enum import StrEnum
 from zoneinfo import ZoneInfo
 
@@ -34,6 +34,7 @@ class ProviderAvailabilityPolicy(StrEnum):
     KRX_SHORT_BALANCE_T_PLUS_2_1810 = "KRX_SHORT_BALANCE_T_PLUS_2_1810"
     KRX_SHORT_INVESTOR_SAME_DAY_1810 = "KRX_SHORT_INVESTOR_SAME_DAY_1810"
     KRX_COMPLETED_SUCCESSOR_SESSION = "KRX_COMPLETED_SUCCESSOR_SESSION"
+    BOK_ECOS_FX_DAILY_1700_KST = "BOK_ECOS_FX_DAILY_1700_KST"
     MANUAL_OBSERVATION = "MANUAL_OBSERVATION"
     NOT_APPLICABLE = "NOT_APPLICABLE"
 
@@ -140,6 +141,13 @@ def policy_for_dataset(dataset: str, lane: str) -> ExpectedLatestPolicy | None:
             ExpectedLagPolicy.NEXT_PROVIDER_BUSINESS_DAY,
             ProviderFinality.UNKNOWN,
             ExchangeMarket.KR,
+        )
+    if dataset == "bok_ecos_usd_krw_daily" and lane == "BOK_FX_DAILY":
+        return ExpectedLatestPolicy(
+            ObservationCalendar.PROVIDER_BUSINESS_DAY,
+            ProviderAvailabilityPolicy.BOK_ECOS_FX_DAILY_1700_KST,
+            ExpectedLagPolicy.NONE,
+            ProviderFinality.UNKNOWN,
         )
     if lane == "KOSPI200_BREADTH_DAILY":
         return ExpectedLatestPolicy(
@@ -298,6 +306,21 @@ def _recent_sessions(calendar: ExchangeTradingCalendar, as_of: datetime) -> tupl
     return tuple(calendar.sessions_in_range(start, last))
 
 
+def _previous_weekday(day: date) -> date:
+    candidate = day - timedelta(days=1)
+    while candidate.weekday() >= 5:
+        candidate -= timedelta(days=1)
+    return candidate
+
+
+def _bok_fx_target(as_of: datetime) -> date:
+    local = as_of.astimezone(ZoneInfo("Asia/Seoul"))
+    candidate = local.date() if local.time() >= time(17, 0) else local.date() - timedelta(days=1)
+    while candidate.weekday() >= 5:
+        candidate -= timedelta(days=1)
+    return candidate
+
+
 def _provider_target(
     policy: ExpectedLatestPolicy, calendar: ExchangeTradingCalendar, as_of: datetime,
 ) -> tuple[date, ProviderAvailability]:
@@ -394,6 +417,38 @@ def resolve_expected_latest(
     policy = policy_for_dataset(dataset, lane)
     if policy is None:
         return None
+    if (
+        policy.provider_availability_policy
+        is ProviderAvailabilityPolicy.BOK_ECOS_FX_DAILY_1700_KST
+    ):
+        target = _bok_fx_target(as_of)
+        effective_availability = availability or ProviderAvailability.AVAILABLE
+        if retained_latest is None:
+            freshness = ExpectedFreshness.UNKNOWN
+        elif retained_latest >= target:
+            freshness = ExpectedFreshness.CURRENT
+        elif retained_latest >= _previous_weekday(target):
+            # The 17:00 clock is operational, not a verified publication SLA.
+            # One absent target row is expected provider lag, not stale/failure.
+            freshness = ExpectedFreshness.EXPECTED_LAG
+        else:
+            freshness = ExpectedFreshness.STALE
+        return ExpectedLatestResult(
+            dataset=dataset,
+            calendar="BOK_ECOS_PROVIDER_WEEKDAY",
+            expected_market_date=target,
+            expected_available_observation=target,
+            retained_latest=retained_latest,
+            freshness=freshness,
+            availability=effective_availability,
+            finality=policy.finality_policy,
+            collection_required=(retained_latest is None or retained_latest < target),
+            observation_calendar=policy.observation_calendar,
+            provider_availability_policy=policy.provider_availability_policy,
+            expected_lag_policy=policy.expected_lag_policy,
+            calendar_source="project-weekday-operating-rule",
+            calendar_version="1",
+        )
     if policy.exchange_market is None:
         unavailable = (
             policy.provider_availability_policy

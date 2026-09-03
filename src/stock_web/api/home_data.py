@@ -216,12 +216,53 @@ def _compact_number(value: object) -> str:
     return f"{float(value):,.2f}".rstrip("0").rstrip(".")
 
 
+def _latest_value_date(
+    frame: pd.DataFrame | None, value_column: str,
+) -> tuple[float, pd.Timestamp] | None:
+    if frame is None or frame.empty or not {"date", value_column}.issubset(frame.columns):
+        return None
+    work = frame[["date", value_column]].copy()
+    work["date"] = pd.to_datetime(work["date"], errors="coerce")
+    work[value_column] = pd.to_numeric(work[value_column], errors="coerce")
+    work = work.dropna(subset=["date", value_column])
+    work = work[work[value_column] > 0].sort_values("date")
+    if work.empty:
+        return None
+    row = work.iloc[-1]
+    return float(row[value_column]), row["date"]
+
+
+def _fx_reference_note(
+    bok_fx: pd.DataFrame | None, fred_fx: pd.DataFrame | None,
+) -> str | None:
+    parts: list[str] = []
+    bok = _latest_value_date(bok_fx, "rate_krw_per_usd")
+    fred = _latest_value_date(fred_fx, "dexkous")
+    if bok is not None:
+        parts.append(f"BOK 매매기준율 {bok[1]:%m-%d}: {bok[0]:,.2f}")
+    if fred is not None:
+        parts.append(f"FRED {fred[1]:%m-%d}")
+    return " · ".join(parts) or None
+
+
 def build_tiles(project_root: Path) -> list[dict[str, object]]:
     def idx(sym: str):
         frame, _ = _ohlcv(project_root, sym)
         return frame
 
-    fx = dsx.load(project_root, "data/normalized/fred_usd_fx_daily")
+    fred_fx = dsx.load(project_root, "data/normalized/fred_usd_fx_daily")
+    bok_fx = dsx.load(project_root, "data/normalized/bok_ecos_usd_krw_daily")
+    bok_latest = _latest_value_date(bok_fx, "rate_krw_per_usd")
+    fred_latest = _latest_value_date(fred_fx, "dexkous")
+    if bok_latest is not None and (
+        fred_latest is None or bok_latest[1] >= fred_latest[1]
+    ):
+        fx = bok_fx.rename(columns={"rate_krw_per_usd": "dexkous"})
+        fx_window = "BOK 일별"
+    else:
+        fx = fred_fx
+        fx_window = "FRED 일별"
+    fx_note = _fx_reference_note(bok_fx, fred_fx)
     vix = dsx.load(project_root, "data/normalized/fred_vix_daily")
     yields = dsx.load(project_root, "data/normalized/fred_treasury_yield_daily")
     spread = dsx.load(project_root, "data/derived/us_treasury_spread_daily")
@@ -231,7 +272,7 @@ def build_tiles(project_root: Path) -> list[dict[str, object]]:
         _tile_from_series("밤사이 한국 ETF (EWY)", "EWY", idx("EWY"), "close"),
         _tile_from_series("NASDAQ 100 선물", "NQF", idx("NQF"), "close", fmt="{:,.0f}"),
         _tile_from_series("S&P 500 선물", "ESF", idx("ESF"), "close"),
-        _tile_from_series("USD/KRW", None, fx, "dexkous", window_label="FRED 일별"),
+        _tile_from_series("USD/KRW", None, fx, "dexkous", window_label=fx_window),
         _tile_from_series("미국 10Y", None, yields, "dgs10", fmt="{:.2f}%", change_kind="bp", window_label="FRED 일별"),
         _tile_from_series("10Y-2Y 스프레드", None, spread, "spread_10y_2y", fmt="{:+.2f}%p", change_kind="bp", window_label="FRED 일별"),
         _tile_from_series("필라델피아 반도체", "SOX", idx("SOX"), "close", fmt="{:,.0f}"),
@@ -265,10 +306,8 @@ def build_tiles(project_root: Path) -> list[dict[str, object]]:
                     tile["change_pct"] = (latest_value / previous_close - 1.0) * 100.0
                 else:
                     tile.pop("change_pct", None)
-                if daily_value is not None:
-                    tile["sub_note"] = (
-                        f"FRED 확정 {format_kst(daily_date)}: {float(daily_value):,.2f}"
-                    )
+                if fx_note is not None:
+                    tile["sub_note"] = fx_note
             elif daily_value is not None and str(latest.get("t", ""))[:10] <= str(daily_date or ""):
                 # The intraday observation belongs to the session whose close is already retained
                 # (e.g. the 15:00 KOSPI observation after the 20:30 close arrives): the close is the
@@ -311,6 +350,8 @@ def build_tiles(project_root: Path) -> list[dict[str, object]]:
                     f"FRED 마감 {format_kst(daily_date)} {_compact_number(daily_value)}%"
                     " · ^TNX 지수는 장중 관측"
                 )
+        if tile["name"] == "USD/KRW" and fx_note is not None:
+            tile["sub_note"] = fx_note
     return tiles
 
 
@@ -370,22 +411,34 @@ def build_health(project_root: Path) -> dict[str, object]:
     }
 
 
-def _latest_fx(project_root: Path) -> tuple[pd.DataFrame, float | None, str | None]:
+def _latest_fx(
+    project_root: Path,
+) -> tuple[pd.DataFrame, float | None, str | None, str | None]:
     from stock_data.gui.query import LocalParquetQuery
 
-    frame = LocalParquetQuery(project_root / "data").tail(
-        "normalized/fred_usd_fx_daily", rows=400,
-        columns=["date", "dexkous"],
+    query = LocalParquetQuery(project_root / "data")
+    candidates: list[tuple[pd.Timestamp, float, int, str, pd.DataFrame]] = []
+    for path, column, priority, label in (
+        ("normalized/bok_ecos_usd_krw_daily", "rate_krw_per_usd", 1, "BOK 매매기준율"),
+        ("normalized/fred_usd_fx_daily", "dexkous", 0, "FRED"),
+    ):
+        frame = query.tail(path, rows=400, columns=["date", column])
+        latest = _latest_value_date(frame, column)
+        if latest is None:
+            continue
+        normalized = frame.rename(columns={column: "dexkous"}).copy()
+        candidates.append((latest[1], latest[0], priority, label, normalized))
+    if not candidates:
+        return pd.DataFrame(), None, None, None
+    observed, value, _priority, label, frame = max(
+        candidates, key=lambda item: (item[0], item[2]),
     )
-    if frame.empty:
-        return frame, None, None
-    frame = frame.copy()
-    frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
-    frame["dexkous"] = pd.to_numeric(frame["dexkous"], errors="coerce")
-    frame = frame.dropna(subset=["date", "dexkous"]).sort_values("date")
-    if frame.empty:
-        return frame, None, None
-    return frame, float(frame["dexkous"].iloc[-1]), frame["date"].iloc[-1].date().isoformat()
+    return (
+        frame,
+        value,
+        observed.date().isoformat(),
+        f"{label} {observed:%m-%d}",
+    )
 
 
 def _leverage_multiple(name: str, style: str | None) -> tuple[float, bool]:
@@ -499,7 +552,7 @@ def build_account(project_root: Path) -> dict[str, object]:
     if not presentation.available:
         return {"reason": "로컬 계좌 스냅샷이 표시 가능한 상태가 아닙니다."}
 
-    fx, usdkrw, usdkrw_as_of = _latest_fx(project_root)
+    fx, usdkrw, usdkrw_as_of, usdkrw_source = _latest_fx(project_root)
     amounts = {"KRW": 0.0, "USD": 0.0}
     cash = {"KRW": 0.0, "USD": 0.0}
     for entry in portfolio.entries:
@@ -623,6 +676,7 @@ def build_account(project_root: Path) -> dict[str, object]:
         "usdkrw": usdkrw,
         "usdkrw_as_of": usdkrw_as_of,
         "usdkrw_as_of_label": format_kst(usdkrw_as_of),
+        "usdkrw_source": usdkrw_source,
         "fx_effect_pct": fx_effect_pct,
         "equity_effect_pct": equity_effect_pct,
         "effective_exposure_pct": (exposure_krw + manual_exposure_krw) / invest_total * 100.0 if invest_total else None,
