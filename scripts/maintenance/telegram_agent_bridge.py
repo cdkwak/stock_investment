@@ -575,6 +575,13 @@ def persist_market_report(
     return target
 
 
+
+def _short_label(row: Mapping[str, object]) -> str:
+    """Phone-width label: long English fund names (US ETFs) fall back to the ticker."""
+    name = str(row.get("name") or row.get("symbol") or "").strip()
+    symbol = str(row.get("symbol") or "").strip()
+    return symbol if len(name) > 16 and symbol else name
+
 def watchlist_condition_summary(limit: int = 8) -> str:
     """Deterministic local block: watchlist rows whose user-defined conditions are met today.
 
@@ -614,7 +621,7 @@ def watchlist_condition_summary(limit: int = 8) -> str:
                 names.append(_CONDITION_NAMES.get(name, name))
         condition_text = " · ".join(names)
         lines.append(
-            f"{row.get('name', row.get('symbol', ''))} {price_text} "
+            f"{_short_label(row)} {price_text} "
             f"{change_text} · {condition_text}"
         )
     lines.append("설명용 · 신호 아님")
