@@ -105,3 +105,21 @@ def test_dashboard_static_polish_contracts_are_present() -> None:
     assert ".market-main-chart { width: 100%; height: 440px; }" in css
     assert ".market-main-chart { height: 280px; }" in css
     assert ".data-health-table td::before" in css
+
+
+def test_private_network_guard_allows_loopback_and_tailscale_only() -> None:
+    from tests.unit.web import ASGITestClient, make_project, new_temp_root
+
+    client = ASGITestClient(create_app(make_project(new_temp_root())))
+    assert client.get("/", client_host="127.0.0.1").status_code == 200
+    assert client.get("/", client_host="100.107.40.4").status_code == 200
+    assert client.get("/", client_host="100.127.255.254").status_code == 200
+    refused = client.get("/", client_host="192.168.0.20")
+    assert refused.status_code == 403
+    assert "Tailscale" in refused.text
+    assert client.get("/api/home", client_host="8.8.8.8").status_code == 403
+    # Writes stay loopback-only even for Tailscale peers.
+    assert client.post(
+        "/api/watchlist/items", json={"list_id": "favorites", "market": "KRX", "symbol": "123320"},
+        client_host="100.107.40.4",
+    ).status_code == 403

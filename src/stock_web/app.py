@@ -11,13 +11,30 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+import ipaddress
 
 from stock_web.api.fmt import format_kst
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
+TAILSCALE_NETWORK = ipaddress.ip_network("100.64.0.0/10")
+LOOPBACK_HOSTS = {"127.0.0.1", "::1", "testclient"}
+
+
+def client_allowed(request: Request) -> bool:
+    """Loopback or a Tailscale (CGNAT-range) peer; anything else is refused."""
+    client = request.client
+    if client is None:
+        return True  # in-process test clients without a transport address
+    host = str(client.host)
+    if host in LOOPBACK_HOSTS:
+        return True
+    try:
+        return ipaddress.ip_address(host) in TAILSCALE_NETWORK
+    except ValueError:
+        return False
 
 
 def _project_root() -> Path:
@@ -42,6 +59,15 @@ def create_app(project_root: Path | None = None) -> FastAPI:
     from stock_web.api.router import build_router
 
     app.include_router(build_router(root), prefix="/api")
+
+    @app.middleware("http")
+    async def _private_network_only(request: Request, call_next):
+        # The dashboard has no login. When bound beyond loopback it may only be reached from
+        # this machine or over the user's Tailscale network (CGNAT range 100.64.0.0/10);
+        # every other client address is refused before any handler runs.
+        if not client_allowed(request):
+            return PlainTextResponse("이 대시보드는 로컬 또는 Tailscale 기기에서만 열 수 있습니다.", status_code=403)
+        return await call_next(request)
 
     @app.get("/", response_class=HTMLResponse)
     def home(request: Request, symbol: str = "") -> HTMLResponse:
