@@ -1,4 +1,4 @@
-/* Local stocks page: provider-free reads and loopback-only preference writes. */
+/* Local stocks page: retained reads and loopback-only preference writes. */
 (function () {
   "use strict";
   const $ = (id) => document.getElementById(id);
@@ -7,13 +7,12 @@
   }[char]));
   const number = (value, digits = 1) => value === null || value === undefined
     ? "—" : Number(value).toLocaleString("ko-KR", { maximumFractionDigits: digits, minimumFractionDigits: digits });
-  const price = (row) => !row.price_available ? "—" : Number(row.price).toLocaleString("ko-KR", {
-    maximumFractionDigits: row.market === "US ETF" ? 2 : 0,
-  });
   const pct = (value, digits = 1) => value === null || value === undefined
     ? "—" : `${Number(value) > 0 ? "+" : ""}${Number(value).toFixed(digits)}%`;
   const tone = (value) => value === null || value === undefined ? "muted" : value > 0 ? "up" : value < 0 ? "down" : "muted";
+  const arrow = (value) => value > 0 ? "▲" : value < 0 ? "▼" : "";
   const uid = () => window.crypto && crypto.randomUUID ? crypto.randomUUID() : `condition-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const compact = (value) => window.SIChart ? SIChart.formatCompactKorean(value) : number(value, 0);
 
   let page = { watchlists: { lists: [] }, conditions: { conditions: [] }, table: [] };
   let selectedListId = "favorites";
@@ -22,6 +21,15 @@
   let flashIdentity = null;
   let scannerResult = null;
   let scannerElapsed = 0;
+  let sparklines = {};
+  let selectedIdentity = null;
+  let selectedDetail = null;
+  let loadedChart = null;
+  let priceChart = null;
+  let candleSeries = null;
+  let volumeSeries = null;
+  let maSeries = {};
+  let searchTimer = null;
 
   async function requestJson(url, options) {
     const response = await fetch(url, options);
@@ -39,6 +47,49 @@
   function currentList() {
     return (page.watchlists.lists || []).find((item) => item.list_id === selectedListId)
       || (page.watchlists.lists || [])[0];
+  }
+
+  function selectedWatchRow() {
+    if (!selectedIdentity) return null;
+    return (page.table || []).find((row) => row.symbol === selectedIdentity.symbol && row.market === selectedIdentity.market)
+      || (page.table || []).find((row) => row.symbol === selectedIdentity.symbol) || null;
+  }
+
+  function selectedInCurrentList() {
+    const list = currentList();
+    return Boolean(list && selectedIdentity && (list.items || []).some((item) => item.symbol === selectedIdentity.symbol && item.market === selectedIdentity.market));
+  }
+
+  function formatPriceValue(value, market) {
+    if (value === null || value === undefined) return "—";
+    return Number(value).toLocaleString("ko-KR", { maximumFractionDigits: market === "US ETF" ? 2 : 0 });
+  }
+
+  const price = (row) => !row.price_available ? "—" : formatPriceValue(row.price, row.market);
+
+  function sparklineSvg(values) {
+    const numeric = (values || []).map(Number).filter(Number.isFinite);
+    if (numeric.length < 2) return '<span class="sidebar-spark-empty">—</span>';
+    const width = 90, height = 24, low = Math.min(...numeric), high = Math.max(...numeric);
+    const span = high - low || 1;
+    const points = numeric.map((value, index) => `${(index / (numeric.length - 1) * width).toFixed(1)},${(height - 2 - (value - low) / span * (height - 4)).toFixed(1)}`).join(" ");
+    return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="최근 ${numeric.length}개 종가 추이"><polyline points="${points}" fill="none" stroke="#1f1d1a" stroke-width="1.4" vector-effect="non-scaling-stroke"></polyline></svg>`;
+  }
+
+  function renderSidebar() {
+    const rows = page.table || [];
+    $("sidebar-count").textContent = `${rows.length}개`;
+    $("watchlist-sidebar").innerHTML = rows.length ? rows.map((row) => {
+      const longUsName = row.market === "US ETF" && String(row.name || "").length > 22;
+      const name = longUsName ? row.symbol : row.name;
+      const flags = row.condition_matches || [];
+      const selected = selectedIdentity && selectedIdentity.symbol === row.symbol
+        && selectedIdentity.market === row.market && row.list_id === selectedListId;
+      return `<button type="button" role="listitem" class="watchlist-sidebar-item${selected ? " on" : ""}" data-symbol="${esc(row.symbol)}" data-market="${esc(row.market)}" data-list-id="${esc(row.list_id)}">
+        <span class="sidebar-item-top"><span><b>${esc(name)}</b><small>${esc(row.symbol)} · ${esc(row.market)}</small></span><span class="sidebar-quote"><b>${price(row)}</b><small class="${tone(row.change_pct)}">${arrow(row.change_pct)} ${pct(row.change_pct)}</small></span></span>
+        <span class="sidebar-item-bottom">${sparklineSvg(sparklines[row.symbol])}<span class="sidebar-flags">${flags.map((item) => `<i>${esc(item.name)}</i>`).join("")}</span></span>
+      </button>`;
+    }).join("") : '<div class="unavailable sidebar-empty">관심종목이 없습니다.<br>위 검색에서 상세를 열 수 있습니다.</div>';
   }
 
   function renderWatchlistEditor() {
@@ -62,7 +113,7 @@
   function renderWatchlistTable() {
     const rows = page.table || [];
     $("watchlist-table-rows").innerHTML = rows.length ? rows.map((row) => `<tr class="${flashIdentity === `${row.market}:${row.symbol}` ? "flash-new" : ""}">
-      <td><b>${esc(row.name)}</b><small>${esc(row.list_name)}</small></td>
+      <td><button type="button" class="text-button open-stock-detail" data-symbol="${esc(row.symbol)}" data-market="${esc(row.market)}"><b>${esc(row.name)}</b></button><small>${esc(row.list_name)}</small></td>
       <td class="num">${esc(row.symbol)}</td>
       <td class="num">${price(row)}${row.price_available ? "" : `<small>${esc(row.unavailable_reason)}</small>`}</td>
       <td class="num ${tone(row.change_pct)}">${pct(row.change_pct)}</td>
@@ -73,7 +124,7 @@
       <td class="num ${tone(row.drawdown_pct)}">${pct(row.drawdown_pct)}</td>
       <td class="num">${row.volume20_multiple === null || row.volume20_multiple === undefined ? "—" : `${number(row.volume20_multiple, 2)}×`}</td>
       <td>${row.flag ? `<span class="flag">${esc(row.flag)}</span>` : "—"}</td>
-      <td><a class="button chart-link" href="/?symbol=${encodeURIComponent(row.symbol)}">차트</a></td>
+      <td><button type="button" class="button chart-link open-stock-detail" data-symbol="${esc(row.symbol)}" data-market="${esc(row.market)}">상세</button></td>
     </tr>`).join("") : `<tr><td colspan="12" class="unavailable">관심종목이 없습니다.</td></tr>`;
   }
 
@@ -106,23 +157,10 @@
     }));
   }
 
-  function renderAll() {
-    conditions = (page.conditions.conditions || []).map((item) => ({ ...item }));
-    renderWatchlistEditor(); renderWatchlistTable(); renderConditions();
-    renderSelectedSearch();
-    $("stocks-safety").textContent = page.note || "";
-  }
-
-  async function refreshPage(message = "") {
-    page = await requestJson("/api/stocks");
-    renderAll();
-    $("watchlist-status").textContent = message;
-  }
-
-  function renderSearch(payload) {
+  function renderSearch(payload, hostId = "stock-search-results", detailMode = false) {
     const matches = payload.matches || [];
-    $("stock-search-results").innerHTML = matches.length ? matches.map((item) => `
-      <button type="button" class="search-result" data-market="${esc(item.market)}" data-symbol="${esc(item.symbol)}" data-name="${esc(item.name)}">
+    $(hostId).innerHTML = matches.length ? matches.map((item) => `
+      <button type="button" class="${detailMode ? "sidebar-search-result" : "search-result"}" data-market="${esc(item.market)}" data-symbol="${esc(item.symbol)}" data-name="${esc(item.name)}">
         <b>${esc(item.name)}</b><span>${esc(item.symbol)} · ${esc(item.market)} · ${esc(item.security_type)}</span>
       </button>`).join("") : `<div class="unavailable">${esc(payload.reason || "검색 결과가 없습니다.")}</div>`;
   }
@@ -140,23 +178,274 @@
     renderSearch(await requestJson(`/api/stocks/search?q=${encodeURIComponent(query)}`));
   }
 
+  async function runSidebarSearch() {
+    const query = $("sidebar-stock-search").value.trim();
+    if (!query) { $("sidebar-search-results").innerHTML = ""; return; }
+    renderSearch(await requestJson(`/api/stocks/search?q=${encodeURIComponent(query)}`), "sidebar-search-results", true);
+  }
+
+  function basisLabel(detail) {
+    const row = selectedWatchRow();
+    const provisional = row && row.price_basis === "provisional";
+    const asOf = (row && row.as_of) || detail.basis.as_of;
+    if (!asOf) return "마감 기준 없음";
+    return `${String(asOf).slice(5)} 마감${provisional || detail.basis.provisional ? " · 잠정" : ""}`;
+  }
+
+  function statTile(label, value, suffix = "", valueTone = "") {
+    return `<div><span>${label}</span><b class="num ${valueTone}">${value === "—" ? value : `${value}${suffix}`}</b></div>`;
+  }
+
+  function renderHeadline(detail) {
+    const identity = detail.identity;
+    const headline = detail.headline;
+    const stats = detail.stats;
+    const change = headline.change;
+    const row = selectedWatchRow();
+    const flags = row ? (row.condition_matches || []) : (detail.conditions || []);
+    const actionLabel = selectedInCurrentList() ? "관심종목에서 제거" : "관심종목에 추가";
+    $("stock-headline-card").innerHTML = `
+      <div class="stock-headline-top">
+        <div><h1>${esc(identity.name)}</h1><p>${esc(identity.symbol)} · ${esc(identity.market)} · ${esc(identity.security_type)}</p></div>
+        <div class="stock-detail-actions"><button type="button" class="button primary" id="toggle-detail-watchlist">${actionLabel}</button><button type="button" class="button" id="edit-detail-conditions">조건 편집</button></div>
+      </div>
+      <div class="stock-headline-price">
+        <b class="num">${headline.price_available ? formatPriceValue(headline.price, identity.market) : "—"}</b>
+        <span class="num ${tone(change)}">${change === null || change === undefined ? "" : `${arrow(change)} ${formatPriceValue(Math.abs(change), identity.market)} · ${pct(headline.change_pct)}`}</span>
+      </div>
+      <div class="stock-basis-line">${esc(basisLabel(detail))}</div>
+      <div class="stock-condition-chips">${flags.length ? flags.map((item) => `<span>${esc(item.name)}</span>`).join("") : '<span class="empty">도달 조건 없음</span>'}</div>
+      <div class="stock-stat-row">
+        ${statTile("RSI14", number(stats.rsi14, 1))}
+        ${statTile("60일선 대비", pct(stats.disp60_pct), "", tone(stats.disp60_pct))}
+        ${statTile("52주 고점 대비", pct(stats.drawdown_pct), "", tone(stats.drawdown_pct))}
+        ${statTile("20일 거래량 배수", stats.volume20_multiple === null ? "—" : number(stats.volume20_multiple, 2), stats.volume20_multiple === null ? "" : "×")}
+        ${statTile("시가총액", stats.market_cap === null ? "—" : compact(stats.market_cap))}
+        ${statTile("시가배당률", pct(stats.dividend_yield_pct))}
+      </div>`;
+  }
+
+  function renderCompany(company) {
+    if (!company.available) { $("stock-company").innerHTML = `<div class="unavailable">${esc(company.message)}</div>`; return; }
+    const rows = [
+      ["시장", company.market], ["증권 유형", company.security_type], ["상장일", company.listing_date],
+      ["발행주식수", company.issued_shares === null ? "—" : `${number(company.issued_shares, 0)}주`],
+      ["액면가", company.par_value === null ? "—" : `${number(company.par_value, 0)}원`], ["ISIN", company.isin],
+      ["업종", company.industry || company.industry_message],
+    ];
+    $("stock-company").innerHTML = `<dl class="stock-kv-list">${rows.map(([label, value]) => `<div><dt>${label}</dt><dd>${esc(value || "—")}</dd></div>`).join("")}</dl>`;
+  }
+
+  function renderTarget(target) {
+    if (!target.available) { $("stock-target-price").innerHTML = `<div class="unavailable">${esc(target.message)}</div>`; return; }
+    $("stock-target-price").innerHTML = `<div class="target-price-value"><span>평균 목표가</span><b class="num">${esc(target.currency)} ${number(target.target_mean, 2)}</b></div>
+      <dl class="stock-kv-list"><div><dt>표본 수</dt><dd>${number(target.analyst_count, 0)}개</dd></div><div><dt>기준일</dt><dd>${esc(target.as_of)}</dd></div><div><dt>괴리율</dt><dd class="num ${tone(target.upside_pct)}">${pct(target.upside_pct)}</dd></div></dl>`;
+  }
+
+  function operatingBars(rows) {
+    const ordered = [...rows].reverse();
+    const values = ordered.map((row) => Number(row.operating_income || 0));
+    const limit = Math.max(...values.map(Math.abs), 1);
+    const barWidth = 34, gap = 12, width = ordered.length * (barWidth + gap) + 20, mid = 48;
+    return `<svg class="fundamentals-bars" viewBox="0 0 ${width} 94" role="img" aria-label="분기별 영업이익 막대 차트"><line x1="4" x2="${width - 4}" y1="${mid}" y2="${mid}" class="fundamentals-zero"></line>${ordered.map((row, index) => {
+      const value = Number(row.operating_income || 0); const height = Math.max(1, Math.abs(value) / limit * 36); const x = 12 + index * (barWidth + gap); const y = value >= 0 ? mid - height : mid;
+      return `<rect x="${x}" y="${y}" width="${barWidth}" height="${height}" class="${value >= 0 ? "positive" : "negative"}"></rect><text x="${x + barWidth / 2}" y="89" text-anchor="middle">${esc(row.quarter.replace("년 ", "Q").replace("분기", ""))}</text>`;
+    }).join("")}</svg>`;
+  }
+
+  function trillion(value) {
+    return value === null || value === undefined ? "—" : `${number(Number(value) / 1e12, 1)}조`;
+  }
+
+  function renderFundamentals(fundamentals) {
+    if (!fundamentals.available) { $("stock-fundamentals").innerHTML = `<div class="unavailable">${esc(fundamentals.message)}</div>`; return; }
+    const rows = fundamentals.rows || [];
+    $("stock-fundamentals").innerHTML = `<div class="fundamentals-overview">${operatingBars(rows)}<div class="fundamentals-health"><span>최근 4분기 흑자 여부 <b>${esc(fundamentals.profitability_label)}</b></span><span>매출 추세 <b>${esc(fundamentals.revenue_trend)}</b></span></div></div>
+      <div class="data-table-wrap"><table class="data-table stock-fundamentals-table"><thead><tr><th>분기</th><th>매출</th><th>영업이익</th><th>순이익</th><th>영업이익률</th><th>부채비율</th></tr></thead><tbody>${rows.map((row) => `<tr><td>${esc(row.quarter)}</td><td class="num">${trillion(row.revenue)}</td><td class="num ${tone(row.operating_income)}">${trillion(row.operating_income)}</td><td class="num ${tone(row.net_income)}">${trillion(row.net_income)}</td><td class="num">${pct(row.operating_margin_pct)}</td><td class="num">${pct(row.debt_ratio_pct)}</td></tr>`).join("")}</tbody></table></div>`;
+  }
+
+  function renderDividends(dividends) {
+    if (!dividends.available) { $("stock-dividends").innerHTML = `<div class="unavailable">${esc(dividends.message)}</div>`; return; }
+    $("stock-dividends").innerHTML = `<div class="dividend-summary"><span>최근 4분기 합계 <b class="num">${number(dividends.trailing_4q_sum, 0)}원</b></span><span>시가배당률 <b class="num">${pct(dividends.dividend_yield_pct)}</b></span><span>다음 지급 예정 <b>${esc(dividends.next_payment_label)}</b></span></div>
+      <div class="data-table-wrap"><table class="data-table stock-dividend-table"><thead><tr><th>기준일</th><th>지급일</th><th>구분</th><th>주당 배당</th></tr></thead><tbody>${dividends.rows.map((row) => `<tr><td>${esc(row.dividend_record_date || "—")}</td><td>${esc(row.cash_payment_date || "—")}</td><td>${esc(row.category)}</td><td class="num">${number(row.ordinary_dividend_amount, 0)}원</td></tr>`).join("")}</tbody></table></div>`;
+  }
+
+  function ensurePriceChart() {
+    if (priceChart || !window.LightweightCharts) return;
+    const host = $("stock-price-chart");
+    host.innerHTML = "";
+    priceChart = LightweightCharts.createChart(host, {
+      layout: { background: { color: "#fff" }, textColor: "#6b6660", fontFamily: "IBM Plex Sans KR, system-ui" },
+      grid: { vertLines: { color: "#f0ece5" }, horzLines: { color: "#e6e1d8" } },
+      rightPriceScale: { borderColor: "#d9d3ca" }, timeScale: { borderColor: "#d9d3ca" }, crosshair: { mode: 1 }, autoSize: true,
+    });
+    candleSeries = priceChart.addCandlestickSeries({ upColor: "#c0392b", downColor: "#2b62c0", borderUpColor: "#c0392b", borderDownColor: "#2b62c0", wickUpColor: "#c0392b", wickDownColor: "#2b62c0" });
+    volumeSeries = priceChart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "volume" });
+    priceChart.priceScale("volume").applyOptions({ scaleMargins: { top: .84, bottom: 0 } });
+    const colors = { ma5: "#4a3aa7", ma20: "#2a78d6", ma60: "#eb6834", ma120: "#1baf7a" };
+    Object.entries(colors).forEach(([key, color]) => { maSeries[key] = priceChart.addLineSeries({ color, lineWidth: key === "ma5" ? 1 : 2, priceLineVisible: false, lastValueVisible: false }); });
+  }
+
+  function aggregateCandles(candles, interval) {
+    if (interval === "day") return candles;
+    const groups = new Map();
+    candles.forEach((candle) => {
+      const observed = new Date(`${candle.t}T00:00:00Z`);
+      let key;
+      if (interval === "month") key = candle.t.slice(0, 7);
+      else {
+        const monday = new Date(observed); const weekday = (monday.getUTCDay() + 6) % 7;
+        monday.setUTCDate(monday.getUTCDate() - weekday); key = monday.toISOString().slice(0, 10);
+      }
+      const group = groups.get(key);
+      if (!group) groups.set(key, { ...candle });
+      else { group.t = candle.t; group.h = Math.max(group.h, candle.h); group.l = Math.min(group.l, candle.l); group.c = candle.c; group.v = Number(group.v || 0) + Number(candle.v || 0); }
+    });
+    return [...groups.values()];
+  }
+
+  function movingAverage(candles, windowSize) {
+    return candles.map((candle, index) => {
+      if (index + 1 < windowSize) return null;
+      const values = candles.slice(index + 1 - windowSize, index + 1).map((item) => Number(item.c));
+      return { time: candle.t, value: values.reduce((sum, value) => sum + value, 0) / windowSize };
+    }).filter(Boolean);
+  }
+
+  function rsiPoints(candles) {
+    const result = [];
+    for (let index = 14; index < candles.length; index += 1) {
+      let gains = 0, losses = 0;
+      for (let cursor = index - 13; cursor <= index; cursor += 1) {
+        const delta = Number(candles[cursor].c) - Number(candles[cursor - 1].c);
+        if (delta > 0) gains += delta; else losses -= delta;
+      }
+      const avgGain = gains / 14, avgLoss = losses / 14;
+      const value = avgLoss === 0 ? (avgGain > 0 ? 100 : 50) : 100 - 100 / (1 + avgGain / avgLoss);
+      result.push({ t: candles[index].t, v: value });
+    }
+    return result;
+  }
+
+  function renderLoadedChart() {
+    const source = loadedChart && loadedChart.candles;
+    if (!source || !source.length) {
+      if (priceChart) {
+        priceChart.remove(); priceChart = null; candleSeries = null; volumeSeries = null; maSeries = {};
+      }
+      $("stock-price-chart").innerHTML = `<div class="unavailable">${esc((loadedChart || {}).reason || "보존 데이터 없음")}</div>`;
+      $("stock-rsi-chart").innerHTML = '<div class="unavailable">RSI14 계산 데이터 없음</div>';
+      return;
+    }
+    const interval = document.querySelector("#stock-interval button.on").dataset.v;
+    const allCandles = aggregateCandles(source, interval);
+    const range = currentRange();
+    const windowSizes = {
+      day: { "3M": 63, "6M": 126, "1Y": 252, "3Y": 756 },
+      week: { "3M": 13, "6M": 26, "1Y": 52, "3Y": 156 },
+      month: { "3M": 3, "6M": 6, "1Y": 12, "3Y": 36 },
+    };
+    const count = (windowSizes[interval] || {})[range];
+    const candles = count ? allCandles.slice(-count) : allCandles;
+    const firstTime = candles.length ? candles[0].t : "";
+    ensurePriceChart();
+    if (priceChart) {
+      candleSeries.setData(candles.map((item) => ({ time: item.t, open: item.o, high: item.h, low: item.l, close: item.c })));
+      volumeSeries.setData(candles.map((item) => ({ time: item.t, value: item.v || 0, color: item.c >= item.o ? "rgba(192,57,43,.38)" : "rgba(43,98,192,.38)" })));
+      Object.entries(maSeries).forEach(([key, series]) => {
+        const enabled = document.querySelector(`[data-ma="${key}"]`).checked;
+        const points = movingAverage(allCandles, Number(key.slice(2))).filter((point) => point.time >= firstTime);
+        series.setData(enabled ? points : []);
+      });
+      priceChart.timeScale().fitContent();
+    } else {
+      $("stock-price-chart").innerHTML = '<div class="unavailable">차트 라이브러리 로드 실패</div>';
+    }
+    const rsi = rsiPoints(allCandles).filter((point) => point.t >= firstTime);
+    if (window.SIChart) SIChart.renderLineChart($("stock-rsi-chart"), rsi, {
+      height: 130, ariaLabel: "RSI14 차트", valueLabel: "RSI14", color: "#a8621a",
+      axisFormatter: (value) => Number(value).toFixed(0), valueFormatter: (value) => Number(value).toFixed(1),
+      guides: [{ value: 30, label: "30" }, { value: 70, label: "70" }], emptyMessage: "RSI14 계산에는 15개 이상 봉이 필요합니다.",
+    });
+    $("stock-chart-basis").textContent = selectedDetail ? basisLabel(selectedDetail) : (loadedChart.as_of || "마감 기준 없음");
+  }
+
+  function currentRange() {
+    const selected = document.querySelector("#stock-range button.on");
+    return selected ? selected.dataset.v : "6M";
+  }
+
+  async function loadChart(symbol) {
+    loadedChart = await requestJson(`/api/chart?symbol=${encodeURIComponent(symbol)}&range=ALL`);
+    renderLoadedChart();
+  }
+
+  async function loadDetail(identity, replaceUrl = true) {
+    if (identity.list_id && identity.list_id !== selectedListId) {
+      selectedListId = identity.list_id; renderWatchlistEditor(); renderSelectedSearch();
+    }
+    selectedIdentity = { symbol: identity.symbol, market: identity.market || (identity.symbol.length === 6 ? "KOSPI" : "US ETF") };
+    renderSidebar();
+    $("stock-headline-card").innerHTML = '<div class="stock-detail-loading">종목 상세를 불러오는 중…</div>';
+    if (replaceUrl) history.replaceState(null, "", `/stocks?symbol=${encodeURIComponent(selectedIdentity.symbol)}`);
+    const [detail] = await Promise.all([
+      requestJson(`/api/stock-detail?symbol=${encodeURIComponent(selectedIdentity.symbol)}&market=${encodeURIComponent(selectedIdentity.market)}`),
+      loadChart(selectedIdentity.symbol),
+    ]);
+    selectedDetail = detail;
+    selectedIdentity = { symbol: detail.identity.symbol, market: detail.identity.market };
+    renderSidebar(); renderHeadline(detail); renderCompany(detail.company); renderTarget(detail.target_price);
+    renderFundamentals(detail.fundamentals); renderDividends(detail.dividends);
+    $("stock-chart-basis").textContent = basisLabel(detail);
+  }
+
+  async function loadSparklines() {
+    const symbols = [...new Set((page.table || []).map((row) => row.symbol))];
+    if (!symbols.length) { sparklines = {}; renderSidebar(); return; }
+    const result = await requestJson(`/api/stock-sparklines?symbols=${encodeURIComponent(symbols.join(","))}`);
+    sparklines = result.sparklines || {};
+    renderSidebar();
+  }
+
+  function renderAll() {
+    conditions = (page.conditions.conditions || []).map((item) => ({ ...item }));
+    renderWatchlistEditor(); renderWatchlistTable(); renderConditions(); renderSidebar();
+    renderSelectedSearch();
+    $("stocks-safety").textContent = page.note || "";
+  }
+
+  async function resolveInitialIdentity() {
+    const requested = ($("stocks-page").dataset.initialSymbol || new URLSearchParams(window.location.search).get("symbol") || "").trim().toUpperCase();
+    let row = requested ? (page.table || []).find((item) => item.symbol === requested) : null;
+    if (row) return row;
+    if (requested) {
+      const result = await requestJson(`/api/stocks/search?q=${encodeURIComponent(requested)}`);
+      const exact = (result.matches || []).find((item) => item.symbol === requested);
+      if (exact) return exact;
+      return { symbol: requested, market: /^\d{6}$/.test(requested) ? "KOSPI" : "US ETF" };
+    }
+    return (page.table || [])[0] || null;
+  }
+
+  async function refreshPage(message = "", preserveSelection = true) {
+    page = await requestJson("/api/stocks");
+    renderAll();
+    await loadSparklines();
+    $("watchlist-status").textContent = message;
+    const identity = preserveSelection && selectedIdentity ? selectedIdentity : await resolveInitialIdentity();
+    if (identity) await loadDetail(identity, true);
+  }
+
   const wonEok = (value, digits = 1) => value === null || value === undefined
     ? "—" : `${number(Number(value) / 100000000, digits)}억원`;
   const plainPct = (value) => value === null || value === undefined ? "—" : `${number(value, 1)}%`;
   const healthValue = (row, key, formatter) => {
     if (!row.fundamentals_as_of) return '<span class="muted">미수집</span>';
-    return row[key] === null || row[key] === undefined
-      ? '<span class="muted">확인 불가</span>' : formatter(row[key]);
+    return row[key] === null || row[key] === undefined ? '<span class="muted">확인 불가</span>' : formatter(row[key]);
   };
   const fourQuarter = (value) => value ? "4/4 양수" : "음수 포함";
-  const revenueTrend = (value) => ({
-    INCREASING: "증가", DECLINING: "감소", FLAT: "보합", MIXED: "혼조", UNAVAILABLE: "확인 불가",
-  }[value] || "확인 불가");
-  const valueTrap = (state) => ({
-    FLAGGED: ["가치 함정 후보", "amber"],
-    NOT_FLAGGED: ["가치 함정 아님", "muted"],
-    UNAVAILABLE: ["가치 함정 판정 불가", "muted"],
-  }[state] || ["가치 함정 판정 불가", "muted"]);
+  const revenueTrend = (value) => ({ INCREASING: "증가", DECLINING: "감소", FLAT: "보합", MIXED: "혼조", UNAVAILABLE: "확인 불가" }[value] || "확인 불가");
+  const valueTrap = (state) => ({ FLAGGED: ["가치 함정 후보", "amber"], NOT_FLAGGED: ["가치 함정 아님", "muted"], UNAVAILABLE: ["가치 함정 판정 불가", "muted"] }[state] || ["가치 함정 판정 불가", "muted"]);
 
   function renderScanner() {
     const result = scannerResult;
@@ -168,71 +457,61 @@
     }
     const fundamentalColumns = result.fundamental_columns || [];
     const fundamentalsOnly = $("scanner-fundamentals-only").checked;
-    const rows = fundamentalsOnly
-      ? result.candidates.filter((row) => Boolean(row.fundamentals_as_of))
-      : result.candidates;
+    const rows = fundamentalsOnly ? result.candidates.filter((row) => Boolean(row.fundamentals_as_of)) : result.candidates;
     $("scanner-head").innerHTML = `<th>종목명</th><th>시장</th><th>코드</th><th>현재가</th><th>등락률</th><th>RSI14</th><th>60일선</th><th>52주 낙폭</th><th>20일 거래대금</th><th>시총</th><th class="scanner-debt">부채비율</th><th>영업이익 4Q</th><th>순이익 4Q</th><th class="scanner-revenue">매출 추세</th>${fundamentalColumns.includes("per") ? "<th>PER</th>" : ""}${fundamentalColumns.includes("pbr") ? "<th>PBR</th>" : ""}<th>관찰 근거</th>`;
     const coverage = result.fundamentals_coverage || { available: 0, total: result.count, as_of: null };
     const displayed = fundamentalsOnly ? ` · 재무 수집됨 ${rows.length}개 표시` : "";
     $("scanner-summary").textContent = `${result.as_of} · ${result.scanned_instruments.toLocaleString("ko-KR")}개 확인 · ${result.count.toLocaleString("ko-KR")}개 후보${displayed} · ${result.rule} · ${result.liquidity_note} · 재무 ${coverage.available}/${coverage.total} 수집 · ${scannerElapsed.toFixed(2)}초 · ${result.fundamentals_note}`;
     $("scanner-rows").innerHTML = rows.length ? rows.map((row) => {
       const trap = valueTrap(row.value_trap_state);
-      return `<tr>
-      <td><a href="/?symbol=${encodeURIComponent(row.symbol)}"><b>${esc(row.name)}</b></a>${row.data_caution ? `<small class="amber">${esc(row.data_caution)}</small>` : ""}</td>
-      <td>${esc(row.market)}</td><td class="num">${esc(row.symbol)}</td><td class="num">${number(row.price, 0)}</td>
-      <td class="num ${tone(row.change_pct)}">${pct(row.change_pct)}</td><td class="num">${number(row.rsi14, 1)}</td>
-      <td class="num ${tone(row.disp60_pct)}">${pct(row.disp60_pct)}</td><td class="num ${tone(row.drawdown_pct)}">${pct(row.drawdown_pct)}</td>
-      <td class="num">${wonEok(row.avg_value_20d, 1)}</td><td class="num">${wonEok(row.market_cap, 1)}</td>
-      <td class="num scanner-debt">${healthValue(row, "debt_ratio_pct", plainPct)}</td>
-      <td>${healthValue(row, "op_income_positive_4q", fourQuarter)}<small class="${trap[1]}">${trap[0]}</small></td>
-      <td>${healthValue(row, "net_income_positive_4q", fourQuarter)}</td>
-      <td class="scanner-revenue">${healthValue(row, "revenue_trend", revenueTrend)}</td>
-      ${fundamentalColumns.includes("per") ? `<td class="num">${number(row.per, 2)}</td>` : ""}${fundamentalColumns.includes("pbr") ? `<td class="num">${number(row.pbr, 2)}</td>` : ""}
-      <td>${esc(row.why)}</td>
-    </tr>`;
+      return `<tr><td><button type="button" class="text-button open-stock-detail" data-symbol="${esc(row.symbol)}" data-market="${esc(row.market)}"><b>${esc(row.name)}</b></button>${row.data_caution ? `<small class="amber">${esc(row.data_caution)}</small>` : ""}</td>
+      <td>${esc(row.market)}</td><td class="num">${esc(row.symbol)}</td><td class="num">${number(row.price, 0)}</td><td class="num ${tone(row.change_pct)}">${pct(row.change_pct)}</td><td class="num">${number(row.rsi14, 1)}</td>
+      <td class="num ${tone(row.disp60_pct)}">${pct(row.disp60_pct)}</td><td class="num ${tone(row.drawdown_pct)}">${pct(row.drawdown_pct)}</td><td class="num">${wonEok(row.avg_value_20d, 1)}</td><td class="num">${wonEok(row.market_cap, 1)}</td>
+      <td class="num scanner-debt">${healthValue(row, "debt_ratio_pct", plainPct)}</td><td>${healthValue(row, "op_income_positive_4q", fourQuarter)}<small class="${trap[1]}">${trap[0]}</small></td><td>${healthValue(row, "net_income_positive_4q", fourQuarter)}</td><td class="scanner-revenue">${healthValue(row, "revenue_trend", revenueTrend)}</td>
+      ${fundamentalColumns.includes("per") ? `<td class="num">${number(row.per, 2)}</td>` : ""}${fundamentalColumns.includes("pbr") ? `<td class="num">${number(row.pbr, 2)}</td>` : ""}<td>${esc(row.why)}</td></tr>`;
     }).join("") : `<tr><td colspan="${15 + fundamentalColumns.length}" class="unavailable">${fundamentalsOnly ? "재무가 수집된 후보가 없습니다." : "현재 조건에 도달한 종목이 없습니다."}</td></tr>`;
   }
 
   async function loadScanner() {
     const started = performance.now();
     $("scanner-summary").textContent = "보존 데이터를 읽는 중…";
-    const minValue = Number($("scanner-min-value").value);
-    const minCap = Number($("scanner-min-cap").value);
-    if (!Number.isFinite(minValue) || minValue < 0 || !Number.isFinite(minCap) || minCap < 0) {
-      throw new Error("유동성 기준은 0 이상의 숫자여야 합니다.");
-    }
-    const params = new URLSearchParams({
-      min_value: String(minValue * 100000000), min_cap: String(minCap * 100000000),
-    });
-    scannerResult = await requestJson(`/api/scanner?${params.toString()}`);
-    scannerElapsed = (performance.now() - started) / 1000;
-    renderScanner();
+    const minValue = Number($("scanner-min-value").value), minCap = Number($("scanner-min-cap").value);
+    if (!Number.isFinite(minValue) || minValue < 0 || !Number.isFinite(minCap) || minCap < 0) throw new Error("유동성 기준은 0 이상의 숫자여야 합니다.");
+    scannerResult = await requestJson(`/api/scanner?${new URLSearchParams({ min_value: String(minValue * 100000000), min_cap: String(minCap * 100000000) })}`);
+    scannerElapsed = (performance.now() - started) / 1000; renderScanner();
   }
 
   document.addEventListener("click", async (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
     try {
-      if (target.id === "run-stock-search") {
+      const sidebarItem = target.closest(".watchlist-sidebar-item, .sidebar-search-result, .open-stock-detail");
+      if (sidebarItem) {
+        if (sidebarItem.dataset.listId) {
+          selectedListId = sidebarItem.dataset.listId; renderWatchlistEditor(); renderSelectedSearch();
+        }
+        $("sidebar-search-results").innerHTML = "";
+        await loadDetail({ symbol: sidebarItem.dataset.symbol, market: sidebarItem.dataset.market });
+      } else if (target.id === "run-stock-search") {
         await runSearch();
       } else if (target.closest(".search-result")) {
         const result = target.closest(".search-result");
-        selectedSearch = {
-          market: result.dataset.market, symbol: result.dataset.symbol, name: result.dataset.name,
-        };
+        selectedSearch = { market: result.dataset.market, symbol: result.dataset.symbol, name: result.dataset.name };
         document.querySelectorAll(".search-result").forEach((item) => item.classList.toggle("on", item === result));
         renderSelectedSearch();
       } else if (target.id === "add-selected-stock" && selectedSearch) {
         const added = { ...selectedSearch };
         await mutate("/api/watchlist/items", { list_id: selectedListId, market: added.market, symbol: added.symbol });
-        flashIdentity = `${added.market}:${added.symbol}`;
-        selectedSearch = null;
-        $("stock-search-results").innerHTML = "";
+        flashIdentity = `${added.market}:${added.symbol}`; selectedSearch = null; $("stock-search-results").innerHTML = "";
         await refreshPage("종목을 추가했습니다.");
-        window.setTimeout(() => {
-          document.querySelectorAll(".flash-new").forEach((row) => row.classList.remove("flash-new"));
-          flashIdentity = null;
-        }, 1900);
+        window.setTimeout(() => { document.querySelectorAll(".flash-new").forEach((row) => row.classList.remove("flash-new")); flashIdentity = null; }, 1900);
+      } else if (target.id === "toggle-detail-watchlist" && selectedIdentity) {
+        const remove = selectedInCurrentList();
+        await mutate("/api/watchlist/items", { list_id: selectedListId, market: selectedIdentity.market, symbol: selectedIdentity.symbol }, remove ? "DELETE" : "POST");
+        await refreshPage(remove ? "종목을 삭제했습니다." : "종목을 추가했습니다.");
+      } else if (target.id === "edit-detail-conditions") {
+        const section = [...document.querySelectorAll("details.stocks-management")].find((item) => item.querySelector("#condition-rows"));
+        section.open = true; section.scrollIntoView({ behavior: "smooth", block: "start" });
       } else if (target.classList.contains("remove-watch-item")) {
         const row = target.closest(".watchlist-edit-row");
         if (!window.confirm("이 종목을 현재 관심목록에서 삭제할까요?")) return;
@@ -244,41 +523,33 @@
         await refreshPage("순서를 변경했습니다.");
       } else if (target.id === "create-watchlist") {
         await mutate("/api/watchlists", { action: "create", name: $("new-watchlist-name").value.trim() });
-        $("new-watchlist-name").value = "";
-        await refreshPage("관심목록을 만들었습니다.");
+        $("new-watchlist-name").value = ""; await refreshPage("관심목록을 만들었습니다.");
       } else if (target.id === "rename-watchlist") {
         await mutate("/api/watchlists", { action: "rename", list_id: selectedListId, name: $("watchlist-name").value.trim() });
         await refreshPage("목록 이름을 변경했습니다.");
       } else if (target.id === "add-condition") {
-        conditions = collectConditions();
-        conditions.push({ id: uid(), name: "", field: "rsi14", op: "<=", value: 30, scope: "watchlist" });
-        renderConditions();
+        conditions = collectConditions(); conditions.push({ id: uid(), name: "", field: "rsi14", op: "<=", value: 30, scope: "watchlist" }); renderConditions();
       } else if (target.classList.contains("remove-condition")) {
-        conditions = collectConditions();
-        conditions.splice(Number(target.closest("tr").dataset.index), 1);
-        renderConditions();
+        conditions = collectConditions(); conditions.splice(Number(target.closest("tr").dataset.index), 1); renderConditions();
       } else if (target.id === "save-conditions") {
         $("condition-status").textContent = "저장 중…";
         await mutate("/api/watch-conditions", { schema_version: 1, conditions: collectConditions() });
-        await refreshPage("조건을 반영했습니다.");
-        $("condition-status").textContent = "저장했습니다.";
+        await refreshPage("조건을 반영했습니다."); $("condition-status").textContent = "저장했습니다.";
       } else if (target.id === "refresh-scanner") {
         await loadScanner();
       }
-    } catch (error) {
-      $("stocks-safety").textContent = `처리 실패 · ${error.message}`;
-    }
+    } catch (error) { $("stocks-safety").textContent = `처리 실패 · ${error.message}`; }
   });
 
   document.addEventListener("DOMContentLoaded", async () => {
     $("scanner-fundamentals-only").addEventListener("change", renderScanner);
-    $("watchlist-select").addEventListener("change", () => {
-      selectedListId = $("watchlist-select").value; renderWatchlistEditor(); renderSelectedSearch();
-    });
-    $("stock-search").addEventListener("keydown", (event) => {
-      if (event.key === "Enter") { event.preventDefault(); runSearch().catch((error) => { $("stocks-safety").textContent = `검색 실패 · ${error.message}`; }); }
-    });
-    try { await refreshPage(); }
+    $("watchlist-select").addEventListener("change", () => { selectedListId = $("watchlist-select").value; renderWatchlistEditor(); renderSelectedSearch(); if (selectedDetail) renderHeadline(selectedDetail); });
+    $("stock-search").addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); runSearch().catch((error) => { $("stocks-safety").textContent = `검색 실패 · ${error.message}`; }); } });
+    $("sidebar-stock-search").addEventListener("input", () => { window.clearTimeout(searchTimer); searchTimer = window.setTimeout(() => runSidebarSearch().catch((error) => { $("stocks-safety").textContent = `검색 실패 · ${error.message}`; }), 180); });
+    document.querySelectorAll("#stock-range button").forEach((button) => button.addEventListener("click", () => { document.querySelectorAll("#stock-range button").forEach((item) => item.classList.remove("on")); button.classList.add("on"); renderLoadedChart(); }));
+    document.querySelectorAll("#stock-interval button").forEach((button) => button.addEventListener("click", () => { document.querySelectorAll("#stock-interval button").forEach((item) => item.classList.remove("on")); button.classList.add("on"); renderLoadedChart(); }));
+    document.querySelectorAll("#stock-ma-toggles input").forEach((input) => input.addEventListener("change", renderLoadedChart));
+    try { await refreshPage("", false); }
     catch (error) { $("stocks-safety").textContent = `종목 화면을 불러오지 못했습니다. · ${error.message}`; }
   });
 })();

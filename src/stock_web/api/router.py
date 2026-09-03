@@ -187,6 +187,26 @@ def build_router(project_root: Path) -> APIRouter:
 
         return json_response(search_stocks(project_root, q))
 
+    @router.get("/stock-detail")
+    def stock_detail(symbol: str, market: str = "") -> Response:
+        from stock_web.api.stock_detail import build_stock_detail_payload
+
+        try:
+            return json_response(build_stock_detail_payload(
+                project_root, symbol=symbol, market=market,
+            ))
+        except ValueError as error:
+            return json_response({"error": str(error)}, status_code=400)
+
+    @router.get("/stock-sparklines")
+    def stock_sparklines(symbols: str = "") -> Response:
+        from stock_web.api.stock_detail import build_stock_sparklines
+
+        try:
+            return json_response(build_stock_sparklines(project_root, symbols=symbols))
+        except ValueError as error:
+            return json_response({"error": str(error)}, status_code=400)
+
     @router.get("/scanner")
     def scanner(
         min_value: float = 1_000_000_000.0,
