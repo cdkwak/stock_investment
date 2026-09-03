@@ -65,9 +65,19 @@ def _ohlcv(project_root: Path, symbol: str) -> tuple[pd.DataFrame | None, str]:
         root, col, val, name = INDEX_SOURCES[symbol]
         frame = dsx.load(project_root, root, filter_expr=(field(col) == val))
         return frame, name
-    if symbol.isdigit() and len(symbol) == 6:
+    if len(symbol) == 6 and symbol.isalnum() and symbol[0].isdigit():
         frame = dsx.load(project_root, "data/normalized/kr_equity_price_daily", filter_expr=(field("symbol") == symbol))
+        if frame is not None and not frame.empty:
+            return frame, _stock_name(project_root, symbol)
+        # Korean ETFs live in their own retained dataset (pykrx, kr_etf_price_daily).
+        frame = dsx.load(
+            project_root, "data/normalized/kr_etf_price_daily",
+            filter_expr=(field("symbol") == symbol), partitioning=None,
+        )
         return frame, _stock_name(project_root, symbol)
+    if symbol.isalpha() and 1 <= len(symbol) <= 5:
+        frame = dsx.load(project_root, "data/normalized/global_etf_price_daily", filter_expr=(field("symbol") == symbol))
+        return frame, symbol
     return None, symbol
 
 
@@ -78,9 +88,10 @@ def _stock_name(project_root: Path, symbol: str) -> str:
     key = str(project_root.resolve())
     names = _NAME_CACHE.setdefault(key, {})
     if not names:
-        master = dsx.load(project_root, "data/normalized/kr_equity_master")
-        if master is not None and {"symbol", "name"} <= set(master.columns):
-            names.update(dict(zip(master["symbol"].astype(str), master["name"].astype(str))))
+        for dataset in ("data/normalized/kr_equity_master", "data/normalized/kr_etf_master"):
+            master = dsx.load(project_root, dataset)
+            if master is not None and {"symbol", "name"} <= set(master.columns):
+                names.update(dict(zip(master["symbol"].astype(str), master["name"].astype(str))))
     return names.get(symbol, symbol)
 
 

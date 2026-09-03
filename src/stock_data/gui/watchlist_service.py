@@ -226,6 +226,7 @@ class LocalWatchlistService:
                             "currency": item.identity.currency,
                             "leverage_style": item.identity.leverage_style,
                             "distribution_style": item.identity.distribution_style,
+                            "leverage_multiple": item.identity.leverage_multiple,
                             "identity_source": item.identity.identity_source,
                             "added_at_kst": item.added_at_kst,
                         }
@@ -269,7 +270,15 @@ class LocalWatchlistService:
                     leverage_style=self._optional_text(raw.get("leverage_style")),
                     distribution_style=self._optional_text(raw.get("distribution_style")),
                     identity_source=self._optional_text(raw.get("identity_source")),
+                    leverage_multiple=self._optional_int(raw.get("leverage_multiple")),
                 )
+                if identity.market == "US ETF" and identity.leverage_multiple is None:
+                    # Files written before leverage_multiple existed: complete from the static catalog.
+                    canonical = next(
+                        (item for item in US_ETF_CHART_IDENTITIES if item.key == identity.key), None,
+                    )
+                    if canonical is not None:
+                        identity = replace(identity, leverage_multiple=canonical.leverage_multiple)
                 self._validate_identity(identity)
                 if identity.key in item_keys:
                     raise ValueError("duplicate watchlist item")
@@ -282,6 +291,12 @@ class LocalWatchlistService:
         if revision < 0:
             raise ValueError("invalid watchlist revision")
         return WatchlistState(tuple(lists), revision, migration_required=version == 0)
+
+    @staticmethod
+    def _optional_int(value: object) -> int | None:
+        if value is None or value == "":
+            return None
+        return int(value)
 
     @staticmethod
     def _optional_text(value: object) -> str | None:
@@ -299,8 +314,10 @@ class LocalWatchlistService:
 
     @staticmethod
     def _validate_identity(identity: EquityIdentity) -> None:
-        if identity.market not in {"KOSPI", "KOSDAQ", "US ETF"}:
+        if identity.market not in {"KOSPI", "KOSDAQ", "US ETF", "KRX"}:
             raise ValueError("unsupported watchlist market")
+        if identity.market == "KRX" and identity.security_type != "ETF":
+            raise ValueError("KRX watchlist identities must be retained ETFs")
         if identity.market == "US ETF":
             if not identity.is_us_etf or not identity.symbol.isalpha() or not 1 <= len(identity.symbol) <= 5:
                 raise ValueError("invalid U.S. ETF watchlist identity")
@@ -315,6 +332,9 @@ class LocalWatchlistService:
             )
             if canonical is None or canonical != identity:
                 raise ValueError("U.S. ETF watchlist identity does not match the accepted catalog")
+        elif identity.market == "KRX":
+            if len(identity.symbol) != 6 or not identity.symbol.isalnum():
+                raise ValueError("KRX ETF ticker must be six characters")
         elif len(identity.symbol) != 6 or not identity.symbol.isdigit():
             raise ValueError("watchlist ticker must be six digits")
         if not identity.name.strip() or not identity.security_type.strip():

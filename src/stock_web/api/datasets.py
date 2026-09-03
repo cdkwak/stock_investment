@@ -21,16 +21,19 @@ def _root_signature(root: Path) -> float:
 
 
 def load(project_root: Path, relative_root: str, *, columns: list[str] | None = None,
-         filter_expr: ds.Expression | None = None) -> pd.DataFrame | None:
+         filter_expr: ds.Expression | None = None, partitioning: str | None = "hive") -> pd.DataFrame | None:
+    """Read a retained Parquet dataset. `partitioning=None` ignores hive directory keys, which is
+    required when the files already carry the partition column (e.g. `symbol=123320/` with a
+    string `symbol` column that hive inference would otherwise type as int32)."""
     root = project_root / relative_root
     if not root.is_dir():
         return None
-    key = (str(root), _root_signature(root), f"{columns}|{filter_expr}")
+    key = (str(root), _root_signature(root), f"{columns}|{filter_expr}|{partitioning}")
     cached = _CACHE.get(key)
     if cached is not None:
         return cached
     try:
-        dataset = ds.dataset(str(root), format="parquet", partitioning="hive")
+        dataset = ds.dataset(str(root), format="parquet", partitioning=partitioning)
         table = dataset.to_table(columns=columns, filter=filter_expr)
     except Exception:
         return None
