@@ -90,7 +90,7 @@ def load_watchlist_symbols(project_root: Path) -> tuple[str, ...]:
                 raise FundamentalsRefreshError("local watchlist item is invalid")
             market = item.get("market")
             symbol = item.get("symbol")
-            if market in {"KOSPI", "KOSDAQ"} and isinstance(symbol, str) and re.fullmatch(r"\d{6}", symbol):
+            if market in {"KOSPI", "KOSDAQ"} and isinstance(symbol, str) and re.fullmatch(r"[0-9A-Z]{6}", symbol):
                 symbols.add(symbol)
     if not symbols:
         raise FundamentalsRefreshError("local watchlists contain no Korean equity symbols")
@@ -109,7 +109,7 @@ def load_universe_symbols(project_root: Path) -> tuple[str, ...]:
         frames = [pd.read_parquet(path, columns=["symbol"]) for path in paths]
         values = {
             str(value) for value in pd.concat(frames, ignore_index=True)["symbol"].dropna()
-            if re.fullmatch(r"\d{6}", str(value))
+            if re.fullmatch(r"[0-9A-Z]{6}", str(value))
         }
         if values:
             return tuple(sorted(values))
@@ -558,7 +558,7 @@ def _capture_request(
 
 def _validate_symbols(symbols: Sequence[str]) -> tuple[str, ...]:
     values = tuple(dict.fromkeys(str(value) for value in symbols))
-    if not values or any(not re.fullmatch(r"\d{6}", value) for value in values):
+    if not values or any(not re.fullmatch(r"[0-9A-Z]{6}", value) for value in values):
         raise FundamentalsRefreshError("symbols must be non-empty six-digit Korean stock codes")
     return values
 
@@ -578,7 +578,7 @@ def _validate_corp_map(frame: pd.DataFrame) -> None:
     if not frame["corp_code"].astype(str).str.fullmatch(r"\d{8}").all():
         raise FundamentalsRefreshError("corporation-map corp_code is invalid")
     present = frame["stock_code"].dropna().astype(str)
-    if not present.str.fullmatch(r"\d{6}").all() or present.duplicated().any():
+    if not present.str.fullmatch(r"[0-9A-Z]{6}").all() or present.duplicated().any():
         raise FundamentalsRefreshError("corporation-map listed stock_code is invalid or duplicated")
     if pd.to_datetime(frame["modify_date"], errors="coerce").isna().any():
         raise FundamentalsRefreshError("corporation-map modify_date is invalid")
@@ -591,7 +591,7 @@ def _validate_fundamentals(frame: pd.DataFrame) -> None:
         return
     if frame.duplicated(list(KR_FUNDAMENTALS_QUARTERLY.primary_key)).any():
         raise FundamentalsRefreshError("fundamentals vintage primary key is duplicated")
-    if not frame["symbol"].astype(str).str.fullmatch(r"\d{6}").all():
+    if not frame["symbol"].astype(str).str.fullmatch(r"[0-9A-Z]{6}").all():
         raise FundamentalsRefreshError("fundamentals symbol is invalid")
     if not frame["corp_code"].astype(str).str.fullmatch(r"\d{8}").all():
         raise FundamentalsRefreshError("fundamentals corp_code is invalid")

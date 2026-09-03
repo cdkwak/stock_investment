@@ -37,15 +37,20 @@ REPORT_CODES = ("11013", "11012", "11014", "11011")
 STATEMENT_SCOPES = ("CFS", "OFS")
 
 _CORP_CODE = re.compile(r"\d{8}\Z")
-_STOCK_CODE = re.compile(r"\d{6}\Z")
+_STOCK_CODE = re.compile(r"[0-9A-Z]{6}\Z")
 _RECEIPT = re.compile(r"\d{14}\Z")
 _YEAR = re.compile(r"\d{4}\Z")
 _MODIFY_DATE = re.compile(r"\d{8}\Z")
 
 _REQUIRED_ACCOUNT_FIELDS = (
-    "rcept_no", "reprt_code", "bsns_year", "corp_code", "sj_div",
-    "account_id", "account_nm", "thstrm_amount", "thstrm_add_amount",
-    "frmtrm_amount", "frmtrm_add_amount", "ord", "currency",
+    "rcept_no", "reprt_code", "bsns_year", "corp_code", "sj_div", "account_nm", "thstrm_amount",
+)
+# Observed live (2026-09-03, 005930 2024/11013): the guide lists more fields, but rows omit keys
+# that do not apply — ``thstrm_add_amount``/``frmtrm_add_amount`` appear only on interim
+# income-statement rows, and ``frmtrm_amount`` is absent on CIS/CF/SCE rows of the first quarter.
+# Everything beyond the identity + current-period amount is therefore optional (missing -> None).
+_OPTIONAL_ACCOUNT_FIELDS = (
+    "account_id", "thstrm_add_amount", "frmtrm_amount", "frmtrm_add_amount", "ord", "currency",
 )
 
 _ACCOUNT_IDS: Mapping[str, tuple[str, ...]] = {
@@ -229,6 +234,8 @@ def parse_financial_statement(
         if item["sj_div"] not in {"BS", "IS", "CIS", "CF", "SCE"}:
             raise OpenDartFundamentalsError("financial response sj_div is unsupported")
         row = dict(item)
+        for field in _OPTIONAL_ACCOUNT_FIELDS:
+            row.setdefault(field, None)
         row["fs_div"] = requested_fs_div
         row["source_item_ordinal"] = ordinal
         rows.append(row)

@@ -47,6 +47,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--approval-digest")
     args = parser.parse_args(argv)
     root = args.project_root.resolve()
+    # Same convention as the other manual collectors: the key lives in <root>/.env and is
+    # loaded into the process environment only (never printed, never persisted elsewhere).
+    from dotenv import load_dotenv
+
+    load_dotenv(root / ".env", override=False)
     if args.promote_checkpoint:
         if not args.confirm_offline_promotion or not args.approval_digest:
             raise SystemExit("promotion requires offline confirmation and the exact approval digest")
