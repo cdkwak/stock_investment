@@ -7,6 +7,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 from typing import Iterable
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -22,7 +23,7 @@ from stock_web.api.indicators import rsi_latest
 from stock_web.api.stocks_page import evaluate_conditions, load_conditions
 
 
-SCANNER_CACHE_SCHEMA_VERSION = 2
+SCANNER_CACHE_SCHEMA_VERSION = 3
 BASE_RULE = "RSI14 ≤ 30 또는 60일선 대비 -20% 이하"
 DEFAULT_AVG_VALUE_20D_MIN = 1_000_000_000.0
 DEFAULT_MARKET_CAP_MIN = 100_000_000_000.0
@@ -303,7 +304,97 @@ def _as_iso(value: object, *, scanner_as_of: pd.Timestamp) -> str | None:
         return None
     if pd.isna(timestamp) or timestamp.date() > scanner_as_of.date():
         return None
-    return timestamp.isoformat()
+    return timestamp.date().isoformat()
+
+
+def _receipt_date(frame: pd.DataFrame) -> pd.Series:
+    """Return disclosure availability dates without consulting retrieval time."""
+    receipt = pd.Series(pd.NaT, index=frame.index, dtype="datetime64[ns]")
+    if "rcept_date" in frame.columns:
+        receipt = pd.to_datetime(frame["rcept_date"], errors="coerce").dt.normalize()
+    if "rcept_no" in frame.columns:
+        from_number = pd.to_datetime(
+            frame["rcept_no"].astype(str).str.extract(r"^(\d{8})", expand=False),
+            format="%Y%m%d", errors="coerce",
+        )
+        receipt = receipt.fillna(from_number)
+    return receipt
+
+
+def _fundamental_health_frame(project_root: Path, *, as_of: pd.Timestamp) -> pd.DataFrame:
+    """Build health from filings disclosed by ``as_of``, independent of collection time."""
+    root = Path(project_root) / "data/normalized/kr_fundamentals_quarterly"
+    frames: list[pd.DataFrame] = []
+    try:
+        for path in sorted(root.rglob("*.parquet")):
+            frames.append(pd.read_parquet(path))
+    except (OSError, PermissionError, ValueError):
+        frames = []
+    if not frames:
+        # Retain a narrow fallback for tests/minimal projections.  It is accepted
+        # only when the helper exposes a disclosure receipt field.
+        fallback = fundamental_health(project_root, as_of=as_of.date())
+        return fallback if isinstance(fallback, pd.DataFrame) else pd.DataFrame()
+
+    work = pd.concat(frames, ignore_index=True, sort=False)
+    required = {
+        "symbol", "bsns_year", "reprt_code", "fs_div", "period_end",
+        "revenue", "operating_income", "net_income", "debt_ratio_pct",
+    }
+    if not required.issubset(work.columns) or not ({"rcept_date", "rcept_no"} & set(work.columns)):
+        return pd.DataFrame()
+    work = work.copy()
+    work["_receipt_date"] = _receipt_date(work)
+    work["_period_end"] = pd.to_datetime(work["period_end"], errors="coerce").dt.normalize()
+    work = work.loc[
+        work["_receipt_date"].notna()
+        & work["_receipt_date"].le(as_of.normalize())
+        & work["_period_end"].notna()
+        & work["_period_end"].le(as_of.normalize())
+    ].copy()
+    if work.empty:
+        return pd.DataFrame()
+
+    work["_rcept_sort"] = work.get("rcept_no", pd.Series("", index=work.index)).astype(str)
+    revision_key = ["symbol", "bsns_year", "reprt_code", "fs_div"]
+    work = work.sort_values(revision_key + ["_receipt_date", "_rcept_sort"], kind="stable")
+    work = work.drop_duplicates(revision_key, keep="last")
+    work["_scope_rank"] = work["fs_div"].astype(str).str.upper().map({"CFS": 0, "OFS": 1}).fillna(2)
+    period_key = ["symbol", "bsns_year", "reprt_code"]
+    work = work.sort_values(period_key + ["_scope_rank"], kind="stable")
+    work = work.drop_duplicates(period_key, keep="first")
+
+    results: list[dict[str, object]] = []
+    for symbol, group in work.groupby("symbol", sort=True):
+        quarters = group.sort_values("_period_end", kind="stable").tail(4)
+        complete_four = len(quarters) == 4
+        same_scope = complete_four and quarters["fs_div"].astype(str).nunique(dropna=False) == 1
+        operating = pd.to_numeric(quarters["operating_income"], errors="coerce")
+        net_income = pd.to_numeric(quarters["net_income"], errors="coerce")
+        revenue = pd.to_numeric(quarters["revenue"], errors="coerce")
+        if same_scope and revenue.notna().all():
+            values = revenue.astype(float).tolist()
+            increases = [right > left for left, right in zip(values, values[1:])]
+            decreases = [right < left for left, right in zip(values, values[1:])]
+            revenue_trend = (
+                "FLAT" if not any(increases) and not any(decreases)
+                else "INCREASING" if not any(decreases)
+                else "DECLINING" if not any(increases)
+                else "MIXED"
+            )
+        else:
+            revenue_trend = "UNAVAILABLE"
+        latest_receipt = quarters["_receipt_date"].max()
+        results.append({
+            "symbol": str(symbol),
+            "debt_ratio_pct": quarters.iloc[-1].get("debt_ratio_pct"),
+            "op_income_positive_4q": bool((operating > 0).all()) if same_scope and operating.notna().all() else None,
+            "net_income_positive_4q": bool((net_income > 0).all()) if same_scope and net_income.notna().all() else None,
+            "revenue_trend": revenue_trend,
+            "fundamentals_as_of": latest_receipt,
+            "rcept_date": latest_receipt,
+        })
+    return pd.DataFrame(results)
 
 
 def _bool_or_none(value: object) -> bool | None:
@@ -318,7 +409,7 @@ def _fundamental_health_values(
     project_root: Path, *, as_of: pd.Timestamp,
 ) -> tuple[dict[str, dict[str, object]], str | None]:
     try:
-        frame = fundamental_health(project_root, as_of=as_of.date())
+        frame = _fundamental_health_frame(project_root, as_of=as_of)
         required = {"symbol", *FUNDAMENTAL_HEALTH_COLUMNS}
         if not isinstance(frame, pd.DataFrame) or frame.empty or not required.issubset(frame.columns):
             return {}, None
@@ -326,8 +417,14 @@ def _fundamental_health_values(
             return {}, None
         values: dict[str, dict[str, object]] = {}
         observed_as_of: list[pd.Timestamp] = []
-        for row in frame.loc[:, ["symbol", *FUNDAMENTAL_HEALTH_COLUMNS]].to_dict(orient="records"):
-            available_at = _as_iso(row["fundamentals_as_of"], scanner_as_of=as_of)
+        projection = ["symbol", *FUNDAMENTAL_HEALTH_COLUMNS]
+        projection.extend(column for column in ("rcept_date", "rcept_no") if column in frame.columns)
+        for row in frame.loc[:, projection].to_dict(orient="records"):
+            disclosure_value = row.get("rcept_date")
+            if disclosure_value is None or pd.isna(disclosure_value):
+                match = re.match(r"^(\d{8})", str(row.get("rcept_no") or ""))
+                disclosure_value = match.group(1) if match else None
+            available_at = _as_iso(disclosure_value, scanner_as_of=as_of)
             if available_at is None:
                 values[str(row["symbol"])] = {column: None for column in FUNDAMENTAL_HEALTH_COLUMNS}
                 continue
@@ -342,7 +439,7 @@ def _fundamental_health_values(
                 "fundamentals_as_of": available_at,
             }
             observed_as_of.append(pd.Timestamp(available_at))
-        latest_available = max(observed_as_of).isoformat() if observed_as_of else None
+        latest_available = max(observed_as_of).date().isoformat() if observed_as_of else None
         return values, latest_available
     except Exception:
         return {}, None

@@ -13,6 +13,7 @@ from stock_web.api.stocks_page import (
     build_stocks_page_data,
     evaluate_conditions,
     save_conditions,
+    search_stocks,
 )
 from stock_web.app import create_app
 from tests.unit.web import ASGITestClient, make_project, new_temp_root
@@ -144,14 +145,30 @@ def test_scanner_liquidity_filters_and_fundamental_annotations_are_queryable(
         "avg_value_20d": [2_000_000_000.0, 500_000_000.0, 1_000_000_000.0],
         "market_cap": [200_000_000_000, 500_000_000_000, 100_000_000_000],
     }))
-    monkeypatch.setattr(scanner_api, "fundamental_health", lambda project_root, as_of: pd.DataFrame({
-        "symbol": ["000660"],
-        "debt_ratio_pct": [42.25],
-        "op_income_positive_4q": [True],
-        "net_income_positive_4q": [False],
-        "revenue_trend": ["INCREASING"],
-        "fundamentals_as_of": [pd.Timestamp("2026-09-01T06:00:00+00:00")],
-    }))
+    fundamentals_path = root / "data/normalized/kr_fundamentals_quarterly/data.parquet"
+    fundamentals_path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame({
+        "symbol": ["000660"] * 7,
+        "bsns_year": [2025, 2025, 2025, 2025, 2026, 2026, 2026],
+        "reprt_code": ["11013", "11012", "11014", "11011", "11013", "11012", "11012"],
+        "fs_div": ["CFS"] * 7,
+        "period_end": pd.to_datetime([
+            "2025-03-31", "2025-06-30", "2025-09-30", "2025-12-31",
+            "2026-03-31", "2026-06-30", "2026-06-30",
+        ]),
+        "revenue": [10, 11, 12, 13, 14, 15, 99],
+        "operating_income": [1, 1, 1, 1, 1, 1, -99],
+        "net_income": [1, 1, 1, -1, 1, 1, -99],
+        "debt_ratio_pct": [40, 41, 42, 43, 44, 42.25, 999],
+        "rcept_no": [
+            "20250515000001", "20250814000001", "20251114000001",
+            "20260331000001", "20260515000001", "20260814000001",
+            "20260903000002",
+        ],
+        # All rows were collected after the 09-02 price basis. Availability
+        # must still follow the earlier disclosure dates encoded in rcept_no.
+        "retrieved_at": pd.to_datetime(["2026-09-03T06:00:00Z"] * 7),
+    }).to_parquet(fundamentals_path, index=False)
     client = ASGITestClient(create_app(root))
 
     filtered = client.get("/api/scanner").json()
@@ -171,7 +188,7 @@ def test_scanner_liquidity_filters_and_fundamental_annotations_are_queryable(
     assert filtered["fundamentals_coverage"] == {
         "available": 1,
         "total": 2,
-        "as_of": "2026-09-01T06:00:00+00:00",
+        "as_of": "2026-08-14",
     }
     health = next(item for item in filtered["candidates"] if item["symbol"] == "000660")
     missing = next(item for item in filtered["candidates"] if item["symbol"] == "035720")
@@ -231,6 +248,37 @@ def test_search_endpoint_combines_korean_catalog_and_static_us_etfs() -> None:
     assert row["unavailable_reason"] == "로컬 가격 없음"
 
 
+def test_search_index_ranks_exact_then_prefix_by_latest_market_cap() -> None:
+    root = make_project(new_temp_root())
+    master_path = root / "data/normalized/kr_equity_master/market=KOSPI/data.parquet"
+    master = pd.read_parquet(master_path)
+    additions = pd.DataFrame({
+        "symbol": ["000001", "000002", "000003"],
+        "name": ["삼성스팩10호", "삼성스팩11호", "삼성스팩12호"],
+        "market": ["KOSPI"] * 3,
+        "isin": ["KR7000000001", "KR7000000002", "KR7000000003"],
+        "listing_date": ["2025-01-01"] * 3,
+        "delisting_date": [None] * 3,
+        "security_type_name": ["보통주"] * 3,
+    })
+    pd.concat([master, additions], ignore_index=True).to_parquet(master_path, index=False)
+    cap_path = root / "data/normalized/kr_equity_market_cap_daily/market=KOSPI/year=2026/data.parquet"
+    cap_path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame({
+        "date": [pd.Timestamp("2026-09-02")] * 4,
+        "symbol": ["005930", "000001", "000002", "000003"],
+        "market_cap": [500_000_000_000_000, 100, 300, 200],
+    }).to_parquet(cap_path, index=False)
+
+    prefix = search_stocks(root, "삼성")["matches"]
+    exact_name = search_stocks(root, "삼성스팩10호")["matches"]
+    exact_symbol = search_stocks(root, "000003")["matches"]
+
+    assert [item["symbol"] for item in prefix[:4]] == ["005930", "000002", "000003", "000001"]
+    assert exact_name[0]["symbol"] == "000001"
+    assert exact_symbol[0]["symbol"] == "000003"
+
+
 def test_stocks_posts_refuse_non_loopback_and_page_renders() -> None:
     root = make_project(new_temp_root())
     client = ASGITestClient(create_app(root))
@@ -259,6 +307,9 @@ def test_stocks_search_selection_and_new_row_flash_are_client_side() -> None:
     script = (
         Path(__file__).parents[3] / "src/stock_web/static/stocks.js"
     ).read_text(encoding="utf-8")
+    shared_script = (
+        Path(__file__).parents[3] / "src/stock_web/static/app.js"
+    ).read_text(encoding="utf-8")
 
     assert "선택: ${selectedSearch.name} ${selectedSearch.symbol} → 목록 '${list.name}'에 추가" in script
     assert 'target.id === "add-selected-stock"' in script
@@ -266,6 +317,15 @@ def test_stocks_search_selection_and_new_row_flash_are_client_side() -> None:
     assert "SIIndicators.rsiWilder" in script
     assert "function rsiPoints" not in script
     assert script.count("Wilder 지수이동평균 방식") == 2
+    assert "sidebarSearchSequence" in script
+    assert "sequence !== sidebarSearchSequence" in script
+    assert "query.length < 2" in script
+    assert "), 350);" in script
+    assert 'xMode: "index"' in script
+    assert 'type: "custom"' in script
+    assert 'type: "custom"' in shared_script
+    assert 'options.xMode === "index"' in shared_script
+    assert '정식 종가 기준 (${String(result.as_of).slice(5)}) · 잠정 미포함' in script
 
 
 def test_home_symbol_query_is_embedded_for_chart_preselection() -> None:

@@ -30,6 +30,7 @@
   let volumeSeries = null;
   let maSeries = {};
   let searchTimer = null;
+  let sidebarSearchSequence = 0;
 
   async function requestJson(url, options) {
     const response = await fetch(url, options);
@@ -62,7 +63,8 @@
 
   function formatPriceValue(value, market) {
     if (value === null || value === undefined) return "—";
-    return Number(value).toLocaleString("ko-KR", { maximumFractionDigits: market === "US ETF" ? 2 : 0 });
+    const digits = market === "US ETF" ? 2 : 0;
+    return Number(value).toLocaleString("ko-KR", { maximumFractionDigits: digits, minimumFractionDigits: digits });
   }
 
   const price = (row) => !row.price_available ? "—" : formatPriceValue(row.price, row.market);
@@ -73,20 +75,22 @@
     const width = 90, height = 24, low = Math.min(...numeric), high = Math.max(...numeric);
     const span = high - low || 1;
     const points = numeric.map((value, index) => `${(index / (numeric.length - 1) * width).toFixed(1)},${(height - 2 - (value - low) / span * (height - 4)).toFixed(1)}`).join(" ");
-    return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="최근 ${numeric.length}개 종가 추이"><polyline points="${points}" fill="none" stroke="#1f1d1a" stroke-width="1.4" vector-effect="non-scaling-stroke"></polyline></svg>`;
+    const color = numeric[numeric.length - 1] > numeric[0] ? "#c0392b" : numeric[numeric.length - 1] < numeric[0] ? "#2b62c0" : "#1f1d1a";
+    return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="최근 ${numeric.length}개 종가 추이"><polyline points="${points}" fill="none" stroke="${color}" stroke-width="1.4" vector-effect="non-scaling-stroke"></polyline></svg>`;
   }
 
   function renderSidebar() {
     const rows = page.table || [];
     $("sidebar-count").textContent = `${rows.length}개`;
     $("watchlist-sidebar").innerHTML = rows.length ? rows.map((row) => {
-      const longUsName = row.market === "US ETF" && String(row.name || "").length > 22;
-      const name = longUsName ? row.symbol : row.name;
+      const isUsEtf = row.market === "US ETF";
+      const name = isUsEtf ? row.symbol : row.name;
+      const subtitle = isUsEtf ? `${row.name} · ${row.market}` : `${row.symbol} · ${row.market}`;
       const flags = row.condition_matches || [];
       const selected = selectedIdentity && selectedIdentity.symbol === row.symbol
         && selectedIdentity.market === row.market && row.list_id === selectedListId;
       return `<button type="button" role="listitem" class="watchlist-sidebar-item${selected ? " on" : ""}" data-symbol="${esc(row.symbol)}" data-market="${esc(row.market)}" data-list-id="${esc(row.list_id)}">
-        <span class="sidebar-item-top"><span><b>${esc(name)}</b><small>${esc(row.symbol)} · ${esc(row.market)}</small></span><span class="sidebar-quote"><b>${price(row)}</b><small class="${tone(row.change_pct)}">${arrow(row.change_pct)} ${pct(row.change_pct)}</small></span></span>
+        <span class="sidebar-item-top"><span><b>${esc(name)}</b><small>${esc(subtitle)}</small></span><span class="sidebar-quote"><b>${price(row)}</b><small class="${tone(row.change_pct)}">${arrow(row.change_pct)} ${pct(row.change_pct)}</small></span></span>
         <span class="sidebar-item-bottom">${sparklineSvg(sparklines[row.symbol])}<span class="sidebar-flags">${flags.map((item) => `<i>${esc(item.name)}</i>`).join("")}</span></span>
       </button>`;
     }).join("") : '<div class="unavailable sidebar-empty">관심종목이 없습니다.<br>위 검색에서 상세를 열 수 있습니다.</div>';
@@ -115,7 +119,7 @@
     const rsiHeader = $("watchlist-table-rows").closest("table").querySelector("thead th:nth-child(8)");
     if (rsiHeader) { rsiHeader.textContent = "RSI14"; rsiHeader.title = "Wilder 지수이동평균 방식"; }
     $("watchlist-table-rows").innerHTML = rows.length ? rows.map((row) => `<tr class="${flashIdentity === `${row.market}:${row.symbol}` ? "flash-new" : ""}">
-      <td><button type="button" class="text-button open-stock-detail" data-symbol="${esc(row.symbol)}" data-market="${esc(row.market)}"><b>${esc(row.name)}</b></button><small>${esc(row.list_name)}</small></td>
+      <td><button type="button" class="text-button open-stock-detail stock-name-button" title="${esc(row.name)}" data-symbol="${esc(row.symbol)}" data-market="${esc(row.market)}"><b>${esc(row.name)}</b></button>${row.flag ? `<span class="flag stocks-table-inline-flag">${esc(row.flag)}</span>` : ""}</td>
       <td class="num">${esc(row.symbol)}</td>
       <td class="num">${price(row)}${row.price_available ? "" : `<small>${esc(row.unavailable_reason)}</small>`}</td>
       <td class="num ${tone(row.change_pct)}">${pct(row.change_pct)}</td>
@@ -125,7 +129,7 @@
       <td class="num">${number(row.rsi14, 1)}</td>
       <td class="num ${tone(row.drawdown_pct)}">${pct(row.drawdown_pct)}</td>
       <td class="num">${row.volume20_multiple === null || row.volume20_multiple === undefined ? "—" : `${number(row.volume20_multiple, 2)}×`}</td>
-      <td>${row.flag ? `<span class="flag">${esc(row.flag)}</span>` : "—"}</td>
+      <td class="stocks-table-condition">${row.flag ? `<span class="flag">${esc(row.flag)}</span>` : "—"}</td>
       <td><button type="button" class="button chart-link open-stock-detail" data-symbol="${esc(row.symbol)}" data-market="${esc(row.market)}">상세</button></td>
     </tr>`).join("") : `<tr><td colspan="12" class="unavailable">관심종목이 없습니다.</td></tr>`;
   }
@@ -180,10 +184,12 @@
     renderSearch(await requestJson(`/api/stocks/search?q=${encodeURIComponent(query)}`));
   }
 
-  async function runSidebarSearch() {
+  async function runSidebarSearch(sequence) {
     const query = $("sidebar-stock-search").value.trim();
-    if (!query) { $("sidebar-search-results").innerHTML = ""; return; }
-    renderSearch(await requestJson(`/api/stocks/search?q=${encodeURIComponent(query)}`), "sidebar-search-results", true);
+    if (query.length < 2) { $("sidebar-search-results").innerHTML = ""; return; }
+    const result = await requestJson(`/api/stocks/search?q=${encodeURIComponent(query)}`);
+    if (sequence !== sidebarSearchSequence) return;
+    renderSearch(result, "sidebar-search-results", true);
   }
 
   function basisLabel(detail) {
@@ -208,7 +214,7 @@
     const actionLabel = selectedInCurrentList() ? "관심종목에서 제거" : "관심종목에 추가";
     $("stock-headline-card").innerHTML = `
       <div class="stock-headline-top">
-        <div><h1>${esc(identity.market === "US ETF" && String(identity.name || "").length > 22 ? identity.symbol : identity.name)}</h1><p>${identity.market === "US ETF" && String(identity.name || "").length > 22 ? `${esc(identity.name)} · ` : ""}${esc(identity.symbol)} · ${esc(identity.market)} · ${esc(identity.security_type)}</p></div>
+        <div><h1>${esc(identity.market === "US ETF" ? identity.symbol : identity.name)}</h1><p>${identity.market === "US ETF" ? `${esc(identity.name)} · ` : ""}${esc(identity.symbol)} · ${esc(identity.market)} · ${esc(identity.security_type)}</p></div>
         <div class="stock-detail-actions"><button type="button" class="button primary" id="toggle-detail-watchlist">${actionLabel}</button><button type="button" class="button" id="edit-detail-conditions">조건 편집</button></div>
       </div>
       <div class="stock-headline-price">
@@ -263,12 +269,12 @@
     if (!fundamentals.available) { $("stock-fundamentals").innerHTML = `<div class="unavailable">${esc(fundamentals.message)}</div>`; return; }
     const rows = fundamentals.rows || [];
     $("stock-fundamentals").innerHTML = `<div class="fundamentals-overview">${operatingBars(rows)}<div class="fundamentals-health"><span>최근 4분기 흑자 여부 <b>${esc(fundamentals.profitability_label)}</b></span><span>매출 추세 <b>${esc(fundamentals.revenue_trend)}</b></span></div></div>
-      <div class="data-table-wrap"><table class="data-table stock-fundamentals-table"><thead><tr><th>분기</th><th>매출</th><th>영업이익</th><th>순이익</th><th>영업이익률</th><th>부채비율</th></tr></thead><tbody>${rows.map((row) => `<tr><td>${esc(row.quarter)}</td><td class="num">${trillion(row.revenue)}</td><td class="num ${tone(row.operating_income)}">${trillion(row.operating_income)}</td><td class="num ${tone(row.net_income)}">${trillion(row.net_income)}</td><td class="num">${plainPct(row.operating_margin_pct)}</td><td class="num">${plainPct(row.debt_ratio_pct)}</td></tr>`).join("")}</tbody></table></div>`;
+      <div class="data-table-wrap"><table class="data-table stock-fundamentals-table"><thead><tr><th>분기</th><th>매출</th><th>영업이익</th><th>순이익</th><th>영업이익률</th><th>부채비율</th></tr></thead><tbody>${rows.map((row) => `<tr><td>${esc(row.quarter)}${row.sanity_check_required ? '<small class="fundamentals-sanity-badge" title="순이익이 매출을 초과 — 공시값 확인 필요">확인 필요</small>' : ""}</td><td class="num">${trillion(row.revenue)}</td><td class="num ${tone(row.operating_income)}">${trillion(row.operating_income)}</td><td class="num ${tone(row.net_income)}">${trillion(row.net_income)}</td><td class="num">${plainPct(row.operating_margin_pct)}</td><td class="num">${plainPct(row.debt_ratio_pct)}</td></tr>`).join("")}</tbody></table></div>`;
   }
 
   function renderDividends(dividends) {
     if (!dividends.available) { $("stock-dividends").innerHTML = `<div class="unavailable">${esc(dividends.message)}</div>`; return; }
-    $("stock-dividends").innerHTML = `<div class="dividend-summary"><span>최근 4분기 합계 <b class="num">${number(dividends.trailing_4q_sum, 0)}원</b></span><span>시가배당률 <b class="num">${plainPct(dividends.dividend_yield_pct)}</b></span><span>다음 지급 예정 <b>${esc(dividends.next_payment_label)}</b></span></div>
+    $("stock-dividends").innerHTML = `<div class="dividend-summary"><span>최근 4분기 합계 <b class="num">${number(dividends.trailing_4q_sum, 0)}원</b></span><span>시가배당률 <b class="num">${plainPct(dividends.dividend_yield_pct)}</b></span><span>${esc(dividends.next_event_label)} <b>${esc(dividends.next_event_value)}</b></span></div>
       <div class="data-table-wrap"><table class="data-table stock-dividend-table"><thead><tr><th>기준일</th><th>지급일</th><th>구분</th><th>주당 배당</th></tr></thead><tbody>${dividends.rows.map((row) => `<tr><td>${esc(row.dividend_record_date || "—")}</td><td>${esc(row.cash_payment_date || "—")}</td><td>${esc(row.category)}</td><td class="num">${number(row.ordinary_dividend_amount, 0)}원</td></tr>`).join("")}</tbody></table></div>`;
   }
 
@@ -281,11 +287,12 @@
       grid: { vertLines: { color: "#f0ece5" }, horzLines: { color: "#e6e1d8" } },
       rightPriceScale: { borderColor: "#d9d3ca" }, timeScale: { borderColor: "#d9d3ca" }, crosshair: { mode: 1 }, autoSize: true,
     });
-    candleSeries = priceChart.addCandlestickSeries({ upColor: "#c0392b", downColor: "#2b62c0", borderUpColor: "#c0392b", borderDownColor: "#2b62c0", wickUpColor: "#c0392b", wickDownColor: "#2b62c0" });
+    const priceFormatter = (value) => formatPriceValue(value, (selectedIdentity && selectedIdentity.market) || (selectedDetail && selectedDetail.identity.market));
+    candleSeries = priceChart.addCandlestickSeries({ upColor: "#c0392b", downColor: "#2b62c0", borderUpColor: "#c0392b", borderDownColor: "#2b62c0", wickUpColor: "#c0392b", wickDownColor: "#2b62c0", priceFormat: { type: "custom", formatter: priceFormatter } });
     volumeSeries = priceChart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "volume" });
     priceChart.priceScale("volume").applyOptions({ scaleMargins: { top: .84, bottom: 0 } });
     const colors = { ma5: "#4a3aa7", ma20: "#2a78d6", ma60: "#eb6834", ma120: "#1baf7a" };
-    Object.entries(colors).forEach(([key, color]) => { maSeries[key] = priceChart.addLineSeries({ color, lineWidth: key === "ma5" ? 1 : 2, priceLineVisible: false, lastValueVisible: false }); });
+    Object.entries(colors).forEach(([key, color]) => { maSeries[key] = priceChart.addLineSeries({ color, lineWidth: key === "ma5" ? 1 : 2, priceLineVisible: false, lastValueVisible: false, priceFormat: { type: "custom", formatter: priceFormatter } }); });
     if (window.ResizeObserver) {
       let pending = null;
       new ResizeObserver(() => {
@@ -322,6 +329,29 @@
     }).filter(Boolean);
   }
 
+  function currentInterval() {
+    const selected = document.querySelector("#stock-interval button.on");
+    return selected ? selected.dataset.v : "day";
+  }
+
+  function syncIntervalControls() {
+    const interval = currentInterval();
+    const suffix = interval === "week" ? "주" : interval === "month" ? "월" : "";
+    document.querySelectorAll("#stock-ma-toggles [data-ma-label]").forEach((label) => {
+      label.textContent = `${label.dataset.maLabel}${suffix}`;
+    });
+    $("stock-rsi-title").textContent = interval === "day" ? "RSI14" : `RSI14 (${interval === "week" ? "주봉" : "월봉"})`;
+    const shortRange = document.querySelector("#stock-range button.on[data-v='3M'], #stock-range button.on[data-v='6M']");
+    document.querySelectorAll("#stock-range button[data-v='3M'], #stock-range button[data-v='6M']").forEach((button) => {
+      button.disabled = interval === "month";
+      button.title = interval === "month" ? "월봉은 최소 1년 범위로 표시합니다." : "";
+    });
+    if (interval === "month" && shortRange) {
+      shortRange.classList.remove("on");
+      document.querySelector("#stock-range button[data-v='1Y']").classList.add("on");
+    }
+  }
+
   function renderLoadedChart() {
     const source = loadedChart && loadedChart.candles;
     if (!source || !source.length) {
@@ -332,7 +362,8 @@
       $("stock-rsi-chart").innerHTML = '<div class="unavailable">RSI14 계산 데이터 없음</div>';
       return;
     }
-    const interval = document.querySelector("#stock-interval button.on").dataset.v;
+    syncIntervalControls();
+    const interval = currentInterval();
     const allCandles = aggregateCandles(source, interval);
     const range = currentRange();
     const windowSizes = {
@@ -362,7 +393,7 @@
     if (window.SIChart) SIChart.renderLineChart($("stock-rsi-chart"), rsi, {
       height: 130, ariaLabel: "RSI14 차트", valueLabel: "RSI14", color: "#a8621a",
       axisFormatter: (value) => Number(value).toFixed(0), valueFormatter: (value) => Number(value).toFixed(1),
-      guides: [{ value: 30, label: "30" }, { value: 70, label: "70" }], emptyMessage: "RSI14 계산에는 15개 이상 봉이 필요합니다.",
+      guides: [{ value: 30, label: "30" }, { value: 70, label: "70" }], emptyMessage: "RSI14 계산에는 15개 이상 봉이 필요합니다.", xMode: "index",
     });
     $("stock-chart-basis").textContent = selectedDetail ? basisLabel(selectedDetail) : (loadedChart.as_of || "마감 기준 없음");
   }
@@ -458,7 +489,7 @@
     $("scanner-head").innerHTML = `<th>종목명</th><th>시장</th><th>코드</th><th>현재가</th><th>등락률</th><th>RSI14</th><th>60일선</th><th>52주 낙폭</th><th>20일 거래대금</th><th>시총</th><th class="scanner-debt">부채비율</th><th>영업이익 4Q</th><th>순이익 4Q</th><th class="scanner-revenue">매출 추세</th>${fundamentalColumns.includes("per") ? "<th>PER</th>" : ""}${fundamentalColumns.includes("pbr") ? "<th>PBR</th>" : ""}<th>관찰 근거</th>`;
     const coverage = result.fundamentals_coverage || { available: 0, total: result.count, as_of: null };
     const displayed = fundamentalsOnly ? ` · 재무 수집됨 ${rows.length}개 표시` : "";
-    $("scanner-summary").textContent = `${result.as_of} · ${result.scanned_instruments.toLocaleString("ko-KR")}개 확인 · ${result.count.toLocaleString("ko-KR")}개 후보${displayed} · ${result.rule} · ${result.liquidity_note} · 재무 ${coverage.available}/${coverage.total} 수집 · ${scannerElapsed.toFixed(2)}초 · ${result.fundamentals_note}`;
+    $("scanner-summary").textContent = `정식 종가 기준 (${String(result.as_of).slice(5)}) · 잠정 미포함 · ${result.scanned_instruments.toLocaleString("ko-KR")}개 확인 · ${result.count.toLocaleString("ko-KR")}개 후보${displayed} · ${result.rule} · ${result.liquidity_note} · 재무 ${coverage.available}/${coverage.total} 수집 · ${scannerElapsed.toFixed(2)}초 · ${result.fundamentals_note}`;
     $("scanner-rows").innerHTML = rows.length ? rows.map((row) => {
       const trap = valueTrap(row.value_trap_state);
       return `<tr><td><button type="button" class="text-button open-stock-detail" data-symbol="${esc(row.symbol)}" data-market="${esc(row.market)}"><b>${esc(row.name)}</b></button>${row.data_caution ? `<small class="amber">${esc(row.data_caution)}</small>` : ""}</td>
@@ -542,10 +573,19 @@
     $("scanner-fundamentals-only").addEventListener("change", renderScanner);
     $("watchlist-select").addEventListener("change", () => { selectedListId = $("watchlist-select").value; renderWatchlistEditor(); renderSelectedSearch(); if (selectedDetail) renderHeadline(selectedDetail); });
     $("stock-search").addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); runSearch().catch((error) => { $("stocks-safety").textContent = `검색 실패 · ${error.message}`; }); } });
-    $("sidebar-stock-search").addEventListener("input", () => { window.clearTimeout(searchTimer); searchTimer = window.setTimeout(() => runSidebarSearch().catch((error) => { $("stocks-safety").textContent = `검색 실패 · ${error.message}`; }), 180); });
-    document.querySelectorAll("#stock-range button").forEach((button) => button.addEventListener("click", () => { document.querySelectorAll("#stock-range button").forEach((item) => item.classList.remove("on")); button.classList.add("on"); renderLoadedChart(); }));
-    document.querySelectorAll("#stock-interval button").forEach((button) => button.addEventListener("click", () => { document.querySelectorAll("#stock-interval button").forEach((item) => item.classList.remove("on")); button.classList.add("on"); renderLoadedChart(); }));
+    $("sidebar-stock-search").addEventListener("input", () => {
+      window.clearTimeout(searchTimer);
+      sidebarSearchSequence += 1;
+      const sequence = sidebarSearchSequence;
+      if ($("sidebar-stock-search").value.trim().length < 2) { $("sidebar-search-results").innerHTML = ""; return; }
+      searchTimer = window.setTimeout(() => runSidebarSearch(sequence).catch((error) => {
+        if (sequence === sidebarSearchSequence) $("stocks-safety").textContent = `검색 실패 · ${error.message}`;
+      }), 350);
+    });
+    document.querySelectorAll("#stock-range button").forEach((button) => button.addEventListener("click", () => { if (button.disabled) return; document.querySelectorAll("#stock-range button").forEach((item) => item.classList.remove("on")); button.classList.add("on"); renderLoadedChart(); }));
+    document.querySelectorAll("#stock-interval button").forEach((button) => button.addEventListener("click", () => { document.querySelectorAll("#stock-interval button").forEach((item) => item.classList.remove("on")); button.classList.add("on"); syncIntervalControls(); renderLoadedChart(); }));
     document.querySelectorAll("#stock-ma-toggles input").forEach((input) => input.addEventListener("change", renderLoadedChart));
+    syncIntervalControls();
     try { await refreshPage("", false); }
     catch (error) { $("stocks-safety").textContent = `종목 화면을 불러오지 못했습니다. · ${error.message}`; }
   });

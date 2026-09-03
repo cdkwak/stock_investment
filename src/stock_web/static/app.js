@@ -108,7 +108,10 @@
     const rawMin = Math.min(...allValues), rawMax = Math.max(...allValues), padding = (rawMax - rawMin) * 0.08 || Math.max(Math.abs(rawMax) * 0.02, 1);
     const min = rawMin - padding, max = rawMax + padding;
     const span = finish - start || 1;
-    const x = (point) => left + (point.ms - start) / span * plotW;
+    const indexByTime = new Map(orderedTimes.map((point, index) => [point.ms, index]));
+    const x = options.xMode === "index"
+      ? (point) => left + (indexByTime.get(point.ms) || 0) / Math.max(orderedTimes.length - 1, 1) * plotW
+      : (point) => left + (point.ms - start) / span * plotW;
     const y = (value) => top + (max - value) / (max - min) * plotH;
     const path = (series) => series.filter((point) => point.ms >= start && point.ms <= finish).map((point, index) => `${index ? "L" : "M"}${x(point).toFixed(2)} ${y(point.v).toFixed(2)}`).join(" ");
     const yTicks = Array.from({ length: 4 }, (_, index) => min + (max - min) * index / 3);
@@ -231,11 +234,16 @@
       rightPriceScale: { borderColor: "#d9d3ca" }, timeScale: { borderColor: "#d9d3ca" },
       crosshair: { mode: 1 }, autoSize: true,
     });
-    candleSeries = chart.addCandlestickSeries({ upColor: "#c0392b", downColor: "#2b62c0", borderUpColor: "#c0392b", borderDownColor: "#2b62c0", wickUpColor: "#c0392b", wickDownColor: "#2b62c0" });
+    const priceFormatter = (value) => {
+      const symbol = String((loadedChart || {}).symbol || "").toUpperCase();
+      const isKrw = /^\d{6}$/.test(symbol) || ["KOSPI", "KOSDAQ", "KOSPI200"].includes(symbol);
+      return Number(value).toLocaleString("ko-KR", { minimumFractionDigits: isKrw ? 0 : 2, maximumFractionDigits: isKrw ? 0 : 2 });
+    };
+    candleSeries = chart.addCandlestickSeries({ upColor: "#c0392b", downColor: "#2b62c0", borderUpColor: "#c0392b", borderDownColor: "#2b62c0", wickUpColor: "#c0392b", wickDownColor: "#2b62c0", priceFormat: { type: "custom", formatter: priceFormatter } });
     volSeries = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol" });
     chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
     const colors = { ma5: "#4a3aa7", ma20: "#2a78d6", ma60: "#eb6834", ma120: "#1baf7a" };
-    for (const k of Object.keys(colors)) maSeries[k] = chart.addLineSeries({ color: colors[k], lineWidth: k === "ma5" ? 1 : 2, priceLineVisible: false, lastValueVisible: false });
+    for (const k of Object.keys(colors)) maSeries[k] = chart.addLineSeries({ color: colors[k], lineWidth: k === "ma5" ? 1 : 2, priceLineVisible: false, lastValueVisible: false, priceFormat: { type: "custom", formatter: priceFormatter } });
     if (window.ResizeObserver) {
       chartResizeObserver = new ResizeObserver(() => {
         clearTimeout(chartResizeTimer);

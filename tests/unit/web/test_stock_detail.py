@@ -135,7 +135,42 @@ def test_korean_stock_detail_projects_stats_company_fundamentals_and_dividends()
     assert [row["ordinary_dividend_amount"] for row in dividends["rows"]] == [500, 400, 300, 200]
     assert dividends["trailing_4q_sum"] == 1400
     assert dividends["dividend_yield_pct"] == 1400 / payload["headline"]["price"] * 100
+    assert dividends["next_event_label"] == "다음 기준일 (예상)"
+    assert dividends["next_event_value"] == "2026-12-31"
+    assert dividends["next_payment_label"] == "다음 기준일 (예상) 2026-12-31"
     assert payload["stats"]["dividend_yield_pct"] == dividends["dividend_yield_pct"]
+
+
+def test_latest_dividend_without_payment_date_is_labeled_pending() -> None:
+    root = _make_detail_project()
+    path = root / "data/normalized/kr_equity_dividend/data.parquet"
+    frame = pd.read_parquet(path)
+    frame.loc[frame["dividend_record_date"].eq("20260930"), "cash_payment_date"] = None
+    frame.to_parquet(path, index=False)
+
+    dividends = ASGITestClient(create_app(root)).get(
+        "/api/stock-detail", params={"symbol": "005930", "market": "KOSPI"},
+    ).json()["dividends"]
+
+    assert dividends["next_event_label"] == "지급 예정"
+    assert dividends["next_event_value"] == "기준일 2026-09-30, 지급일 미공시"
+    assert dividends["next_payment_label"] == "지급 예정 (기준일 2026-09-30, 지급일 미공시)"
+
+
+def test_fundamental_row_marks_profit_above_revenue_for_review() -> None:
+    root = _make_detail_project()
+    path = root / "data/normalized/kr_fundamentals_quarterly/data.parquet"
+    frame = pd.read_parquet(path)
+    latest = frame["rcept_no"].eq("20260814000003")
+    frame.loc[latest, "net_income"] = frame.loc[latest, "revenue"] * 1.1
+    frame.to_parquet(path, index=False)
+
+    rows = ASGITestClient(create_app(root)).get(
+        "/api/stock-detail", params={"symbol": "005930", "market": "KOSPI"},
+    ).json()["fundamentals"]["rows"]
+
+    assert rows[0]["sanity_check_required"] is True
+    assert all(row["sanity_check_required"] is False for row in rows[1:])
 
 
 def test_us_etf_keeps_unavailable_sections_typed_and_reads_target_price() -> None:

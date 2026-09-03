@@ -21,7 +21,7 @@
     <aside class="stocks-sidebar" aria-label="관심종목">
       <div class="stocks-sidebar-sticky">
         <div class="stocks-sidebar-title"><b>관심종목</b><span class="muted" id="sidebar-count"></span></div>
-        <label class="stocks-sidebar-search"><span class="sr-only">종목 검색</span><input id="sidebar-stock-search" autocomplete="off" placeholder="종목명 · 코드 · 티커"></label>
+        <label class="stocks-sidebar-search"><span class="sr-only">종목 검색 (2자 이상)</span><input id="sidebar-stock-search" autocomplete="off" placeholder="종목명 · 코드 · 티커 (2자 이상)"></label>
         <div id="sidebar-search-results" class="sidebar-search-results"></div>
         <div id="watchlist-sidebar" class="watchlist-sidebar" role="list"></div>
       </div>
@@ -45,13 +45,13 @@
           </div>
         </div>
         <div class="stock-ma-toggles" id="stock-ma-toggles" aria-label="이동평균선">
-          <label><input type="checkbox" data-ma="ma5" checked><i class="ma5"></i>MA5</label>
-          <label><input type="checkbox" data-ma="ma20" checked><i class="ma20"></i>MA20</label>
-          <label><input type="checkbox" data-ma="ma60" checked><i class="ma60"></i>MA60</label>
-          <label><input type="checkbox" data-ma="ma120" checked><i class="ma120"></i>MA120</label>
+          <label><input type="checkbox" data-ma="ma5" checked><i class="ma5"></i><span data-ma-label="MA5">MA5</span></label>
+          <label><input type="checkbox" data-ma="ma20" checked><i class="ma20"></i><span data-ma-label="MA20">MA20</span></label>
+          <label><input type="checkbox" data-ma="ma60" checked><i class="ma60"></i><span data-ma-label="MA60">MA60</span></label>
+          <label><input type="checkbox" data-ma="ma120" checked><i class="ma120"></i><span data-ma-label="MA120">MA120</span></label>
         </div>
         <div id="stock-price-chart" class="stock-price-chart"><div class="unavailable">종목을 선택하세요.</div></div>
-        <div class="stock-rsi-label"><b>RSI14</b><span class="muted">30 · 70 기준선</span></div>
+        <div class="stock-rsi-label"><b id="stock-rsi-title">RSI14</b><span class="muted">30 · 70 기준선</span></div>
         <div id="stock-rsi-chart" class="stock-rsi-chart"></div>
         <div class="muted stock-chart-basis" id="stock-chart-basis">마감 기준 없음</div>
       </section>
@@ -99,7 +99,7 @@
           </div>
           <div id="watchlist-items" class="watchlist-edit-list"></div>
           <div class="card-head stocks-table-head"><b>관심종목 표</b><span class="muted">최신 보존 일봉 · 종목별 조건 도달</span></div>
-          <div class="data-table-wrap">
+          <div class="data-table-wrap stocks-table-wrap">
             <table class="data-table stocks-table">
               <thead><tr><th>종목명</th><th>코드</th><th>현재가</th><th>등락률</th><th>5일선</th><th>20일선</th><th>60일선</th><th>RSI14</th><th>52주 고점 대비</th><th>20일 거래량 배수</th><th>조건 도달</th><th></th></tr></thead>
               <tbody id="watchlist-table-rows"></tbody>

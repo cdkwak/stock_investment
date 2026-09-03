@@ -320,6 +320,13 @@ def _fundamentals(project_root: Path, symbol: str, korean: bool) -> dict[str, ob
             "net_income": net_income,
             "operating_margin_pct": margin,
             "debt_ratio_pct": _finite(row.get("debt_ratio_pct")),
+            "sanity_check_required": bool(
+                revenue is not None
+                and (
+                    (net_income is not None and net_income > revenue)
+                    or (operating is not None and operating > revenue)
+                )
+            ),
         })
     recent = rows[-4:]
     op_values = [item["operating_income"] for item in recent]
@@ -342,13 +349,8 @@ def _fundamentals(project_root: Path, symbol: str, korean: bool) -> dict[str, ob
     }
 
 
-def _next_quarter_label(observed: pd.Timestamp) -> str:
-    quarter = int(observed.quarter) + 1
-    year = int(observed.year)
-    if quarter == 5:
-        year += 1
-        quarter = 1
-    return f"{year}년 {quarter}분기"
+def _next_quarter_end(observed: pd.Timestamp) -> str:
+    return (observed.normalize() + pd.offsets.QuarterEnd()).date().isoformat()
 
 
 def _dividends(
@@ -386,12 +388,24 @@ def _dividends(
     amounts = [item["ordinary_dividend_amount"] for item in rows]
     trailing = sum(float(value) for value in amounts if value is not None)
     dividend_yield = trailing / price * 100.0 if price and trailing else None
+    latest = rows[0]
+    latest_record_date = str(latest["dividend_record_date"])
+    if latest["cash_payment_date"] is None:
+        next_event_label = "지급 예정"
+        next_event_value = f"기준일 {latest_record_date}, 지급일 미공시"
+        next_payment_label = f"{next_event_label} ({next_event_value})"
+    else:
+        next_event_label = "다음 기준일 (예상)"
+        next_event_value = _next_quarter_end(pd.Timestamp(latest_record_date))
+        next_payment_label = f"{next_event_label} {next_event_value}"
     return {
         "available": True,
         "rows": rows,
         "trailing_4q_sum": trailing,
         "dividend_yield_pct": dividend_yield,
-        "next_payment_label": _next_quarter_label(work["_record_date"].max()),
+        "next_event_label": next_event_label,
+        "next_event_value": next_event_value,
+        "next_payment_label": next_payment_label,
     }
 
 

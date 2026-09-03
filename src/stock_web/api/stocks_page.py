@@ -5,8 +5,12 @@ import json
 import math
 import os
 from pathlib import Path
+import re
+import threading
 from typing import Iterable, Mapping
 from uuid import uuid4
+
+import pandas as pd
 
 from stock_data.gui.services import (
     EquityChartService,
@@ -22,6 +26,8 @@ CONDITION_FIELDS = frozenset({
 })
 CONDITION_OPS = frozenset({"<=", ">="})
 CONDITION_SCOPES = frozenset({"watchlist", "universe"})
+_SEARCH_INDEX_CACHE: dict[str, tuple[str, tuple[tuple[EquityIdentity, float | None], ...]]] = {}
+_SEARCH_INDEX_LOCK = threading.Lock()
 
 
 class StocksInputError(ValueError):
@@ -180,32 +186,166 @@ def evaluate_conditions(
     return matches
 
 
+def _master_signature(project_root: Path) -> str:
+    """Return a cheap identity-dataset signature used by the process search cache."""
+    root = Path(project_root)
+    parts: list[str] = []
+    for relative in (
+        "data/normalized/kr_equity_master",
+        "data/normalized/kr_etf_master",
+    ):
+        dataset = root / relative
+        try:
+            paths = sorted(dataset.rglob("*.parquet"))
+        except OSError:
+            paths = []
+        for path in paths:
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            parts.append(f"{path.relative_to(root).as_posix()}:{stat.st_size}:{stat.st_mtime_ns}")
+    return "|".join(parts) or "MISSING"
+
+
+def _latest_market_caps(project_root: Path) -> dict[str, float]:
+    root = Path(project_root) / "data/normalized/kr_equity_market_cap_daily"
+    try:
+        paths = sorted(root.rglob("*.parquet"))
+        if not paths:
+            return {}
+        years = {
+            int(match.group(1))
+            for path in paths for part in path.parts
+            if (match := re.fullmatch(r"year=(\d{4})", part))
+        }
+        if years:
+            latest_year = max(years)
+            paths = [path for path in paths if f"year={latest_year}" in path.parts]
+        frames = [pd.read_parquet(path, columns=["date", "symbol", "market_cap"]) for path in paths]
+        frame = pd.concat(frames, ignore_index=True)
+        frame["_date"] = pd.to_datetime(frame["date"], errors="coerce")
+        frame["_cap"] = pd.to_numeric(frame["market_cap"], errors="coerce")
+        frame = frame.dropna(subset=["_date", "symbol", "_cap"])
+        frame = frame.sort_values(["symbol", "_date"], kind="stable").drop_duplicates("symbol", keep="last")
+        return {
+            str(row["symbol"]): float(row["_cap"])
+            for row in frame.loc[:, ["symbol", "_cap"]].to_dict(orient="records")
+        }
+    except (KeyError, OSError, PermissionError, TypeError, ValueError):
+        return {}
+
+
+def _issued_share_price_caps(project_root: Path) -> dict[str, float]:
+    """Use the cheap latest retained snapshot when the market-cap dataset is unavailable."""
+    root = Path(project_root)
+    try:
+        masters = [
+            pd.read_parquet(path, columns=["symbol", "issued_shares"])
+            for path in sorted((root / "data/normalized/kr_equity_master").rglob("*.parquet"))
+        ]
+        price_paths = sorted(
+            (root / "data/normalized/kr_equity_price_provisional_daily").rglob("*.parquet")
+        )
+        if not masters or not price_paths:
+            return {}
+        prices = [pd.read_parquet(path, columns=["date", "symbol", "close"]) for path in price_paths]
+        master = pd.concat(masters, ignore_index=True)
+        price = pd.concat(prices, ignore_index=True)
+        master["_shares"] = pd.to_numeric(master["issued_shares"], errors="coerce")
+        price["_date"] = pd.to_datetime(price["date"], errors="coerce")
+        price["_close"] = pd.to_numeric(price["close"], errors="coerce")
+        price = price.dropna(subset=["symbol", "_date", "_close"])
+        price = price.sort_values(["symbol", "_date"], kind="stable").drop_duplicates("symbol", keep="last")
+        joined = master.loc[:, ["symbol", "_shares"]].merge(
+            price.loc[:, ["symbol", "_close"]], on="symbol", how="inner", validate="one_to_one",
+        ).dropna(subset=["_shares", "_close"])
+        joined["_cap"] = joined["_shares"] * joined["_close"]
+        return {
+            str(row["symbol"]): float(row["_cap"])
+            for row in joined.loc[joined["_cap"].gt(0), ["symbol", "_cap"]].to_dict(orient="records")
+        }
+    except (KeyError, OSError, PermissionError, TypeError, ValueError):
+        return {}
+
+
+def _search_index(project_root: Path) -> tuple[tuple[EquityIdentity, float | None], ...]:
+    root = Path(project_root).resolve()
+    key = str(root)
+    signature = _master_signature(root)
+    cached = _SEARCH_INDEX_CACHE.get(key)
+    if cached is not None and cached[0] == signature:
+        return cached[1]
+    with _SEARCH_INDEX_LOCK:
+        cached = _SEARCH_INDEX_CACHE.get(key)
+        if cached is not None and cached[0] == signature:
+            return cached[1]
+        try:
+            catalog = EquityChartService(root)._catalog()
+        except (KeyError, OSError, PermissionError, TypeError, ValueError):
+            catalog = ()
+        market_caps = _latest_market_caps(root) if catalog else {}
+        if catalog and len(market_caps) < len(catalog):
+            market_caps = {**_issued_share_price_caps(root), **market_caps}
+        index = tuple(
+            (identity, market_caps.get(identity.symbol))
+            for identity in (*catalog, *US_ETF_CHART_IDENTITIES)
+        )
+        _SEARCH_INDEX_CACHE[key] = (signature, index)
+        return index
+
+
+def _search_rank(identity: EquityIdentity, market_cap: float | None, folded: str) -> tuple[object, ...] | None:
+    symbol = identity.symbol.casefold()
+    name = identity.name.casefold()
+    if symbol == folded:
+        match_rank = 0
+    elif name == folded:
+        match_rank = 1
+    elif name.startswith(folded):
+        match_rank = 2
+    elif folded in name:
+        match_rank = 3
+    elif (
+        folded in (identity.issuer or "").casefold()
+        or folded in (identity.exposure or "").casefold()
+    ):
+        match_rank = 4
+    else:
+        return None
+    cap_missing = market_cap is None or not math.isfinite(float(market_cap))
+    return (
+        match_rank,
+        cap_missing,
+        -float(market_cap) if not cap_missing else 0.0,
+        len(identity.name),
+        name,
+        identity.market,
+        identity.symbol,
+    )
+
+
 def search_stocks(project_root: Path, text: str) -> dict[str, object]:
     query = str(text or "").strip()
     if not query:
         return {"query": query, "matches": [], "reason": "회사명·6자리 코드·미국 ETF 티커를 입력하세요."}
-    korean = EquityChartService(Path(project_root)).search(query, limit=30)
     folded = query.casefold()
-    etfs = [
-        identity for identity in US_ETF_CHART_IDENTITIES
-        if folded == identity.symbol.casefold()
-        or folded == identity.name.casefold()
-        or folded in identity.name.casefold()
-        or folded in (identity.issuer or "").casefold()
-        or folded in (identity.exposure or "").casefold()
-    ]
-    combined: list[EquityIdentity] = []
-    seen: set[tuple[str, str]] = set()
-    for identity in (*korean.matches, *etfs):
-        if identity.key not in seen:
-            combined.append(identity)
-            seen.add(identity.key)
-        if len(combined) == 30:
-            break
+    try:
+        ranked = [
+            (rank, identity)
+            for identity, market_cap in _search_index(Path(project_root))
+            if (rank := _search_rank(identity, market_cap, folded)) is not None
+        ]
+        ranked.sort(key=lambda item: item[0])
+        combined = [identity for _, identity in ranked[:30]]
+        unavailable_reason = None
+    except (KeyError, OSError, PermissionError, TypeError, ValueError):
+        combined = []
+        unavailable_reason = "종목 식별정보를 읽거나 검증할 수 없습니다."
     return {
         "query": query,
         "matches": [_identity_payload(item) for item in combined],
-        "reason": None if combined else (korean.unavailable_reason or "일치하는 종목이 없습니다."),
+        "reason": None if combined else (unavailable_reason or "일치하는 종목이 없습니다."),
     }
 
 
