@@ -3209,7 +3209,10 @@ class DerivativesDashboardService:
             return pd.DataFrame(), {"status": "N/A", "reason": "retained Wall review artifact missing"}
         frame = pd.read_csv(path, parse_dates=["date"])
         for side in ("call", "put"):
-            frame[f"{side}_distance_percentile_250d"] = frame[f"{side}_wall_distance_pct"].rank(pct=True) * 100
+            for prefix in (f"{side}_wall", f"near_{side}_wall"):
+                distance = f"{prefix}_distance_pct"
+                if distance in frame:
+                    frame[f"{prefix}_distance_percentile_250d"] = frame[distance].rank(pct=True) * 100
         return frame, {"status": "RAW", "as_of": frame["date"].max(), "pit": "PIT_SAFE_EOD_T_PLUS_1"}
 
     def pcr(self, days: int = 60) -> pd.DataFrame:

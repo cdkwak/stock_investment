@@ -6,6 +6,7 @@ from stock_data.derived.option_walls import (
     EXTREME_MONEYNESS,
     LIMITED_STATUS,
     NO_OPEN_INTEREST,
+    NO_NEAR_WINDOW_OI,
     VERIFIED_STATUS,
     MoneynessWarningPolicy,
     OptionWallError,
@@ -121,3 +122,56 @@ def test_explicit_pit_safe_kospi200_join_and_configurable_warning():
         join_kospi200_daily_index(
             walls, index, dataset_name="x", symbol="KOSPI200", pit_status="UNVERIFIED"
         )
+
+
+def test_near_wall_ignores_far_stale_max_oi_and_keeps_all_strike_wall():
+    options = pd.DataFrame([
+        _row("2026-09-02", "2026-09", 1597.5, "CALL", 90_000, 0),
+        _row("2026-09-02", "2026-09", 1050.0, "CALL", 8_000, 200),
+        _row("2026-09-02", "2026-09", 700.0, "PUT", 80_000, 0),
+        _row("2026-09-02", "2026-09", 1000.0, "PUT", 9_000, 250),
+    ])
+    index = pd.DataFrame({
+        "date": ["2026-09-02"], "symbol": ["KOSPI200"],
+        "close": [1030.0], "source": ["official_krx"],
+    })
+
+    joined = join_kospi200_daily_index(
+        compute_front_month_wall(compute_option_walls(options)),
+        index,
+        dataset_name="kr_kospi200_index_daily",
+        symbol="KOSPI200",
+        pit_status="PIT_SAFE_EOD_T_PLUS_1",
+    ).iloc[0]
+
+    assert joined.call_wall_strike == 1597.5
+    assert joined.put_wall_strike == 700.0
+    assert joined.near_call_wall_strike == 1050.0
+    assert joined.near_put_wall_strike == 1000.0
+    assert joined.near_call_wall_distance_pct == pytest.approx(1.94174757)
+    assert joined.near_put_wall_distance_pct == pytest.approx(-2.91262136)
+
+
+def test_near_wall_reports_no_oi_inside_window():
+    options = pd.DataFrame([
+        _row("2026-09-02", "2026-09", 1597.5, "CALL", 90_000, 0),
+        _row("2026-09-02", "2026-09", 1030.0, "CALL", 0, 1),
+        _row("2026-09-02", "2026-09", 700.0, "PUT", 80_000, 0),
+    ])
+    index = pd.DataFrame({
+        "date": ["2026-09-02"], "symbol": ["KOSPI200"],
+        "close": [1030.0], "source": ["official_krx"],
+    })
+
+    joined = join_kospi200_daily_index(
+        compute_front_month_wall(compute_option_walls(options)),
+        index,
+        dataset_name="kr_kospi200_index_daily",
+        symbol="KOSPI200",
+        pit_status="PIT_SAFE_EOD_T_PLUS_1",
+    ).iloc[0]
+
+    assert joined.near_call_wall_status == NO_NEAR_WINDOW_OI
+    assert joined.near_put_wall_status == NO_NEAR_WINDOW_OI
+    assert np.isnan(joined.near_call_wall_strike)
+    assert np.isnan(joined.near_put_wall_strike)

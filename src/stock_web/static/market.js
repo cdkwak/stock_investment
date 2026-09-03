@@ -3,59 +3,64 @@
   "use strict";
   const $ = (id) => document.getElementById(id);
   const esc = (value) => String(value ?? "").replace(/[&<>\"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[char]));
-  const fmt = (value, digits = 2) => value === null || value === undefined || Number.isNaN(Number(value))
-    ? "—" : Number(value).toLocaleString("ko-KR", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  const fmt = (value, digits = 2) => value === null || value === undefined || Number.isNaN(Number(value)) ? "—" : Number(value).toLocaleString("ko-KR", { minimumFractionDigits: digits, maximumFractionDigits: digits });
   const signed = (value, digits = 0) => value === null || value === undefined ? "—" : `${Number(value) > 0 ? "+" : ""}${fmt(value, digits)}`;
+  const compact = (value) => window.SIChart ? SIChart.formatCompactKorean(value) : fmt(value, 0);
+  const percent = (value) => window.SIChart ? SIChart.formatPercent(value) : `${fmt(value, 1)}%`;
+  const pcr = (value) => window.SIChart ? SIChart.formatPcr(value) : fmt(value, 2);
   const unavailable = (reason) => `표시 불가 · ${esc(reason || "보존 데이터 없음")}`;
   const chartOptions = () => ({
     layout: { background: { color: "#fff" }, textColor: "#6b6660", fontFamily: "IBM Plex Sans KR, system-ui", fontSize: 10 },
     grid: { vertLines: { color: "#f0ece5" }, horzLines: { color: "#e6e1d8" } },
-    rightPriceScale: { borderColor: "#d9d3ca" },
-    timeScale: { borderColor: "#d9d3ca", timeVisible: false },
+    rightPriceScale: { borderColor: "#d9d3ca" }, timeScale: { borderColor: "#d9d3ca", timeVisible: false },
     crosshair: { mode: 1 }, autoSize: true,
   });
   const pointData = (points) => (points || []).filter((point) => point.v !== null && point.v !== undefined).map((point) => ({ time: point.t, value: point.v }));
-
-  const indicatorLabels = {
-    ma5: "MA5", ma20: "MA20", ma60: "MA60", ma120: "MA120",
-    bollinger: "볼린저 (20, 2)", volume: "거래량", rsi14: "RSI14",
-    macd: "MACD (12, 26, 9)", stochastic: "스토캐스틱 (14, 3)",
+  const colors = { ma5: "#4a3aa7", ma20: "#2a78d6", ma60: "#eb6834", ma120: "#1baf7a", volume: "#8a847b", rsi14: "#8b4c9e" };
+  const indicatorLabels = { ma5: "MA5", ma20: "MA20", ma60: "MA60", ma120: "MA120", volume: "거래량", rsi14: "RSI14" };
+  const indicatorDefaults = {
+    ma5: { enabled: true, placement: "overlay" }, ma20: { enabled: true, placement: "overlay" },
+    ma60: { enabled: true, placement: "overlay" }, ma120: { enabled: true, placement: "overlay" },
+    volume: { enabled: true, placement: "panel" }, rsi14: { enabled: false, placement: "panel" },
   };
-  const allowedIndicators = Object.keys(indicatorLabels);
-  const defaultIndicators = ["ma5", "ma20", "ma60", "ma120", "volume"];
-  const lineColors = { ma5: "#4a3aa7", ma20: "#2a78d6", ma60: "#eb6834", ma120: "#1baf7a" };
-  let activeIndicators = loadIndicatorState();
-  let mainChart, candleSeries;
+  const flowColors = { foreigner: "#4a3aa7", institution: "#2a78d6", individual: "#eb6834" };
+  let indicatorState = loadIndicatorState();
+  let mainChart, candleSeries, mainPayload, pagePayload;
   let dynamicSeries = [];
-  const smallCharts = [];
+  const mainCache = new Map();
+  const hiddenFlowSeries = { KOSPI: new Set(), KOSDAQ: new Set() };
 
   function loadIndicatorState() {
     try {
-      const saved = JSON.parse(localStorage.getItem("stock-web-market-indicators"));
-      if (Array.isArray(saved)) {
-        return [...new Set(saved.filter((item) => allowedIndicators.includes(item)))];
+      const saved = JSON.parse(localStorage.getItem("stock-web-market-indicators-v2"));
+      if (saved && typeof saved === "object" && !Array.isArray(saved)) {
+        return Object.fromEntries(Object.entries(indicatorDefaults).map(([key, fallback]) => [key, {
+          enabled: Boolean(saved[key] ? saved[key].enabled : fallback.enabled),
+          placement: saved[key] && ["overlay", "panel"].includes(saved[key].placement) ? saved[key].placement : fallback.placement,
+        }]));
       }
-    } catch (_error) { /* default below */ }
-    return [...defaultIndicators];
+      const legacy = JSON.parse(localStorage.getItem("stock-web-market-indicators"));
+      if (Array.isArray(legacy)) return Object.fromEntries(Object.entries(indicatorDefaults).map(([key, fallback]) => [key, { ...fallback, enabled: legacy.includes(key) }]));
+    } catch (_error) { /* defaults below */ }
+    return JSON.parse(JSON.stringify(indicatorDefaults));
   }
 
   function saveIndicatorState() {
-    try { localStorage.setItem("stock-web-market-indicators", JSON.stringify(activeIndicators)); } catch (_error) { /* storage is optional */ }
+    try { localStorage.setItem("stock-web-market-indicators-v2", JSON.stringify(indicatorState)); } catch (_error) { /* optional */ }
   }
 
   function syncIndicatorMenu() {
-    document.querySelectorAll("#indicator-menu input[type=checkbox]").forEach((input) => {
-      input.checked = activeIndicators.includes(input.value);
+    document.querySelectorAll("#indicator-menu [data-indicator]").forEach((row) => {
+      const state = indicatorState[row.dataset.indicator];
+      row.querySelector('input[type="checkbox"]').checked = Boolean(state && state.enabled);
+      row.querySelector("select").value = state ? state.placement : "overlay";
     });
   }
 
-  function setIndicator(value, enabled) {
-    activeIndicators = enabled
-      ? [...new Set([...activeIndicators, value])]
-      : activeIndicators.filter((item) => item !== value);
-    saveIndicatorState();
-    syncIndicatorMenu();
-    loadMainChart();
+  function changeIndicator(key, changes) {
+    if (!indicatorState[key]) return;
+    indicatorState[key] = { ...indicatorState[key], ...changes };
+    saveIndicatorState(); syncIndicatorMenu(); renderMainChart(mainPayload);
   }
 
   function selectedButtonValue(selector, fallback) {
@@ -69,16 +74,13 @@
     candleSeries = mainChart.addCandlestickSeries({
       upColor: "#c0392b", downColor: "#2b62c0", borderUpColor: "#c0392b",
       borderDownColor: "#2b62c0", wickUpColor: "#c0392b", wickDownColor: "#2b62c0",
+      priceFormat: { type: "custom", formatter: compact },
     });
   }
 
   function addLine(options, data) {
-    const series = mainChart.addLineSeries({
-      lineWidth: 1, priceLineVisible: false, lastValueVisible: false, ...options,
-    });
-    series.setData(pointData(data));
-    dynamicSeries.push(series);
-    return series;
+    const series = mainChart.addLineSeries({ lineWidth: 1, priceLineVisible: false, lastValueVisible: false, ...options });
+    series.setData(pointData(data)); dynamicSeries.push(series); return series;
   }
 
   function addHistogram(options, data, colorBuilder) {
@@ -86,14 +88,34 @@
     series.setData((data || []).filter((point) => point.v !== null && point.v !== undefined).map((point) => ({
       time: point.t, value: point.v, color: colorBuilder ? colorBuilder(point.v, point) : options.color,
     })));
-    dynamicSeries.push(series);
-    return series;
+    dynamicSeries.push(series); return series;
   }
 
   function clearDynamicSeries() {
     if (!mainChart) return;
-    dynamicSeries.forEach((series) => mainChart.removeSeries(series));
-    dynamicSeries = [];
+    dynamicSeries.forEach((series) => mainChart.removeSeries(series)); dynamicSeries = [];
+  }
+
+  function calculateIndicators(candles) {
+    const close = candles.map((candle) => Number(candle.c));
+    const result = { volume: candles.map((candle) => ({ t: candle.t, v: candle.v })) };
+    [5, 20, 60, 120].forEach((windowSize) => {
+      result[`ma${windowSize}`] = candles.slice(windowSize - 1).map((candle, offset) => ({
+        t: candle.t, v: close.slice(offset, offset + windowSize).reduce((sum, value) => sum + value, 0) / windowSize,
+      }));
+    });
+    result.rsi14 = [];
+    for (let index = 14; index < close.length; index += 1) {
+      let gains = 0, losses = 0;
+      for (let cursor = index - 13; cursor <= index; cursor += 1) {
+        const delta = close[cursor] - close[cursor - 1];
+        if (delta > 0) gains += delta; else losses -= delta;
+      }
+      const averageGain = gains / 14, averageLoss = losses / 14;
+      const value = averageLoss === 0 ? (averageGain === 0 ? 50 : 100) : 100 - 100 / (1 + averageGain / averageLoss);
+      result.rsi14.push({ t: candles[index].t, v: value });
+    }
+    return result;
   }
 
   function panelMargins(index, height) {
@@ -101,154 +123,149 @@
   }
 
   function renderMainChart(payload) {
-    const stats = $("market-chart-stats");
-    const legend = $("market-chart-legend");
+    const stats = $("market-chart-stats"), legend = $("market-chart-legend");
     if (!payload || !payload.candles || !payload.candles.length) {
       if (mainChart) { clearDynamicSeries(); candleSeries.setData([]); }
       else $("market-chart").innerHTML = `<div class="unavailable">${unavailable(payload && payload.reason)}</div>`;
-      stats.innerHTML = "";
-      legend.innerHTML = "";
-      return;
+      stats.innerHTML = ""; legend.innerHTML = ""; return;
     }
     ensureMainChart();
-    if (!mainChart) {
-      $("market-chart").innerHTML = `<div class="unavailable">${unavailable("차트 라이브러리 로드 실패")}</div>`;
-      return;
-    }
+    if (!mainChart) { $("market-chart").innerHTML = `<div class="unavailable">${unavailable("차트 라이브러리 로드 실패")}</div>`; return; }
     clearDynamicSeries();
-    candleSeries.setData(payload.candles.map((candle) => ({
-      time: candle.t, open: candle.o, high: candle.h, low: candle.l, close: candle.c,
-    })));
-    const values = payload.indicators || {};
-    Object.keys(lineColors).forEach((name) => {
-      if (activeIndicators.includes(name) && values[name]) addLine({ color: lineColors[name] }, values[name]);
-    });
-    if (activeIndicators.includes("bollinger") && values.bollinger) {
-      addLine({ color: "#a8621a", lineStyle: 2 }, values.bollinger.upper);
-      addLine({ color: "#b5aea4", lineStyle: 2 }, values.bollinger.middle);
-      addLine({ color: "#a8621a", lineStyle: 2 }, values.bollinger.lower);
-    }
-
-    const lower = ["volume", "rsi14", "macd", "stochastic"].filter((name) => activeIndicators.includes(name) && values[name]);
-    const candleColors = new Map(payload.candles.map((candle) => [
-      candle.t, candle.c >= candle.o ? "rgba(192,57,43,.42)" : "rgba(43,98,192,.42)",
-    ]));
-    const height = lower.length ? Math.min(0.14, 0.58 / lower.length) : 0;
-    mainChart.priceScale("right").applyOptions({ scaleMargins: { top: 0.04, bottom: lower.length * height + 0.02 } });
-    lower.forEach((name, index) => {
-      const scaleId = `market-${name}`;
-      if (name === "volume") {
-        addHistogram({ priceScaleId: scaleId, priceFormat: { type: "volume" } }, values.volume,
-          (_value, point) => candleColors.get(point.t) || "rgba(107,102,96,.35)");
-      } else if (name === "rsi14") {
-        addLine({ priceScaleId: scaleId, color: "#4a3aa7" }, values.rsi14);
-      } else if (name === "macd") {
-        addLine({ priceScaleId: scaleId, color: "#2a78d6" }, values.macd.macd);
-        addLine({ priceScaleId: scaleId, color: "#eb6834" }, values.macd.signal);
-        addHistogram({ priceScaleId: scaleId }, values.macd.histogram,
-          (value) => value >= 0 ? "rgba(192,57,43,.38)" : "rgba(43,98,192,.38)");
-      } else {
-        addLine({ priceScaleId: scaleId, color: "#2a78d6" }, values.stochastic.k);
-        addLine({ priceScaleId: scaleId, color: "#eb6834" }, values.stochastic.d);
+    candleSeries.setData(payload.candles.map((candle) => ({ time: candle.t, open: candle.o, high: candle.h, low: candle.l, close: candle.c })));
+    const values = calculateIndicators(payload.candles);
+    const enabled = Object.keys(indicatorState).filter((name) => indicatorState[name].enabled);
+    const panels = enabled.filter((name) => indicatorState[name].placement === "panel");
+    const height = panels.length ? Math.min(0.14, 0.58 / panels.length) : 0;
+    mainChart.priceScale("right").applyOptions({ scaleMargins: { top: 0.04, bottom: panels.length * height + 0.02 } });
+    const candleColors = new Map(payload.candles.map((candle) => [candle.t, candle.c >= candle.o ? "rgba(192,57,43,.42)" : "rgba(43,98,192,.42)"]));
+    enabled.forEach((name) => {
+      const placement = indicatorState[name].placement;
+      const panelIndex = panels.indexOf(name);
+      const scaleId = placement === "panel" ? `market-${name}` : name === "volume" || name === "rsi14" ? `market-overlay-${name}` : undefined;
+      if (name === "volume") addHistogram({ priceScaleId: scaleId, priceFormat: { type: "custom", formatter: compact } }, values.volume, (_value, point) => candleColors.get(point.t) || "rgba(107,102,96,.35)");
+      else addLine({ color: colors[name], priceFormat: { type: "custom", formatter: name === "rsi14" ? percent : compact }, ...(scaleId ? { priceScaleId: scaleId } : {}) }, values[name]);
+      if (name === "rsi14" && values.rsi14.length) {
+        const ends = [values.rsi14[0], values.rsi14[values.rsi14.length - 1]];
+        [30, 70].forEach((guide) => addLine({ color: "rgba(138,132,123,.6)", lineStyle: 2, lineWidth: 1, priceFormat: { type: "custom", formatter: percent }, ...(scaleId ? { priceScaleId: scaleId } : {}) }, ends.map((point) => ({ t: point.t, v: guide }))));
       }
-      mainChart.priceScale(scaleId).applyOptions({ scaleMargins: panelMargins(index, height), borderVisible: false });
+      if (placement === "panel") mainChart.priceScale(scaleId).applyOptions({ scaleMargins: panelMargins(panelIndex, height), borderVisible: false });
+      else if (scaleId) mainChart.priceScale(scaleId).applyOptions({ visible: false, scaleMargins: name === "volume" ? { top: .72, bottom: .02 } : { top: .08, bottom: .08 } });
     });
     mainChart.timeScale().fitContent();
-    stats.innerHTML = `<span class="muted">기준일 <b class="num">${esc(payload.as_of)}</b></span>${payload.stats && payload.stats.rsi14 !== null ? `<span class="muted">RSI14 <b class="num">${fmt(payload.stats.rsi14, 1)}</b></span>` : ""}`;
-    legend.innerHTML = `<span class="market-symbol-label"><i style="background:#1f1d1a"></i>${esc(payload.symbol_name || payload.symbol)}</span>` +
-      activeIndicators.map((name) => `<span class="market-indicator-label"><i style="background:${lineColors[name] || "#6b6660"}"></i>${esc(indicatorLabels[name])}<button type="button" data-remove-indicator="${name}" aria-label="${esc(indicatorLabels[name])} 제거">×</button></span>`).join("");
-    legend.querySelectorAll("[data-remove-indicator]").forEach((button) => button.addEventListener("click", () => setIndicator(button.dataset.removeIndicator, false)));
+    const latestRsi = values.rsi14.length ? values.rsi14[values.rsi14.length - 1].v : null;
+    stats.innerHTML = `<span class="muted">기준일 <b class="num">${esc(payload.as_of)}</b></span>${latestRsi !== null ? `<span class="muted">RSI14 <b class="num">${fmt(latestRsi, 1)}</b></span>` : ""}`;
+    legend.innerHTML = `<span class="market-symbol-label"><i style="background:#1f1d1a"></i>${esc(payload.symbol_name || payload.symbol)}</span>` + enabled.map((name) => `<span class="market-indicator-label"><i style="background:${colors[name]}"></i>${esc(indicatorLabels[name])} · ${indicatorState[name].placement === "panel" ? "아래" : "겹침"}<button type="button" data-remove-indicator="${name}" aria-label="${esc(indicatorLabels[name])} 제거">×</button></span>`).join("");
+    legend.querySelectorAll("[data-remove-indicator]").forEach((button) => button.addEventListener("click", () => changeIndicator(button.dataset.removeIndicator, { enabled: false })));
   }
 
   async function loadMainChart() {
     const symbol = $("market-chart-symbol").value || "KOSPI";
     const interval = selectedButtonValue("#market-chart-interval", "1d");
-    const range = selectedButtonValue("#market-chart-range", "6M");
-    const params = new URLSearchParams({ symbol, interval, range, indicators: activeIndicators.join(",") });
+    const range = selectedButtonValue("#market-chart-range", "1Y");
+    const cacheKey = `${symbol}|${interval}|${range}`;
+    if (mainCache.has(cacheKey)) { mainPayload = mainCache.get(cacheKey); renderMainChart(mainPayload); return; }
     $("market-chart-stats").textContent = "차트 확인 중";
     try {
+      const params = new URLSearchParams({ symbol, interval, range, indicators: "" });
       const response = await fetch(`/api/market/chart?${params}`);
-      renderMainChart(response.ok ? await response.json() : { reason: `HTTP ${response.status}` });
-    } catch (error) { renderMainChart({ reason: String(error) }); }
+      mainPayload = response.ok ? await response.json() : { reason: `HTTP ${response.status}` };
+      if (response.ok) mainCache.set(cacheKey, mainPayload);
+      renderMainChart(mainPayload);
+    } catch (error) { mainPayload = { reason: String(error) }; renderMainChart(mainPayload); }
   }
 
-  function makeSmallChart(host, options = {}) {
-    if (!window.LightweightCharts || !host) return null;
-    const chart = LightweightCharts.createChart(host, { ...chartOptions(), ...options });
-    smallCharts.push(chart);
-    return chart;
+  function rangeValue(cardId, fallback = "1Y") {
+    return selectedButtonValue(`[data-range-card="${cardId}"]`, fallback);
   }
 
-  function renderLinePanel(chartId, metaId, view, seriesSpecs) {
+  function slicePoints(points, rangeKey) {
+    const clean = (points || []).filter((point) => point && point.t && Number.isFinite(Number(point.v)));
+    if (rangeKey === "ALL") return clean;
+    if (rangeKey === "20D" || rangeKey === "60D") return clean.slice(-Number.parseInt(rangeKey, 10));
+    if (!clean.length) return clean;
+    const years = Number.parseInt(rangeKey, 10);
+    const last = new Date(`${clean[clean.length - 1].t}T00:00:00Z`), start = new Date(last);
+    start.setUTCFullYear(start.getUTCFullYear() - years);
+    return clean.filter((point) => new Date(`${point.t}T00:00:00Z`) >= start);
+  }
+
+  function renderSvg(host, points, options) {
+    if (!window.SIChart) { host.innerHTML = `<div class="unavailable">${unavailable("공용 SVG 차트 로드 실패")}</div>`; return; }
+    SIChart.renderLineChart(host, points, options);
+  }
+
+  function renderLinePanel(chartId, metaId, view, kind, rangeCard) {
     const host = $(chartId), meta = $(metaId);
     if (!view || view.status !== "VALUE" || !view.series || !view.series.length) {
-      host.innerHTML = `<div class="unavailable">${unavailable(view && view.reason)}</div>`;
-      meta.textContent = "";
-      return;
+      host.innerHTML = `<div class="unavailable">${unavailable(view && view.reason)}</div>`; meta.textContent = ""; return;
     }
-    meta.innerHTML = `<b class="num">${esc(view.display_value || "")}</b><span>${esc(view.as_of || "")}</span>`;
-    const chart = makeSmallChart(host);
-    if (!chart) { host.innerHTML = `<div class="unavailable">${unavailable("차트 라이브러리 로드 실패")}</div>`; return; }
-    (seriesSpecs || [{ color: "#1f1d1a", data: view.series }]).forEach((spec) => {
-      const line = chart.addLineSeries({ color: spec.color, lineWidth: 2, priceLineVisible: false, lastValueVisible: false });
-      line.setData(pointData(spec.data));
-    });
-    chart.timeScale().fitContent();
+    const formatter = kind === "pcr" ? pcr : (value) => fmt(value, 2);
+    meta.innerHTML = `<b class="num">${esc(kind === "pcr" ? pcr(view.value) : signed(view.value, 2))}</b><span>${esc(view.basis_label || `기준일 ${view.as_of || "—"}`)}</span>`;
+    const points = slicePoints(view.series, rangeValue(rangeCard));
+    renderSvg(host, points, { height: 150, ariaLabel: `${kind === "pcr" ? "PCR" : "Basis"} 추이`, axisFormatter: formatter, valueFormatter: formatter });
   }
 
   function renderDerivatives(section) {
     $("derivatives-unavailable").textContent = section && section.status === "UNAVAILABLE" ? unavailable(section.reason) : "";
-    renderLinePanel("basis-chart", "basis-meta", section && section.basis);
-    renderLinePanel("volume-pcr-chart", "volume-pcr-meta", section && section.pcr && section.pcr.volume);
-    renderLinePanel("oi-pcr-chart", "oi-pcr-meta", section && section.pcr && section.pcr.oi);
+    renderLinePanel("basis-chart", "basis-meta", section && section.basis, "basis", "basis");
+    renderLinePanel("volume-pcr-chart", "volume-pcr-meta", section && section.pcr && section.pcr.volume, "pcr", "volume-pcr");
+    renderLinePanel("oi-pcr-chart", "oi-pcr-meta", section && section.pcr && section.pcr.oi, "pcr", "oi-pcr");
     const ls = section && section.ls_flow;
-    $("ls-flow").innerHTML = ls && ls.status === "VALUE"
-      ? `<b class="num ${Number(ls.value) > 0 ? "up" : Number(ls.value) < 0 ? "down" : ""}">${esc(ls.display_value)}</b><span>${esc(ls.as_of || "")}</span><small>${esc(ls.warning || "Raw descriptive only")}</small>`
-      : `<div class="unavailable">${unavailable(ls && ls.reason)}</div>`;
+    $("ls-flow").innerHTML = ls && ls.status === "VALUE" ? `<b class="num ${Number(ls.value) > 0 ? "up" : Number(ls.value) < 0 ? "down" : ""}">${esc(signed(Math.round(ls.value), 0))}</b><span>${esc(ls.basis_label || `기준일 ${ls.as_of || "—"}`)}</span><small>${esc(ls.warning || "설명용 원시 관측 · 신호 아님")}</small>` : `<div class="unavailable">${unavailable(ls && ls.reason)}</div>`;
     const wall = section && section.wall;
+    $("wall-meta").textContent = wall && wall.status === "VALUE" ? (wall.basis_label || `기준일 ${wall.as_of || "—"}`) : "";
     $("wall-unavailable").textContent = wall && wall.status !== "VALUE" ? unavailable(wall.reason) : "";
     $("wall-rows").innerHTML = wall && wall.status === "VALUE" ? (wall.rows || []).map((row) => `<tr>
-      <td>${esc(row.date)}</td><td>${esc(row.maturity_month || "—")}</td><td class="num">${fmt(row.underlying_price)}</td>
-      <td class="num up">${fmt(row.call_wall_strike)}</td><td class="num">${fmt(row.call_wall_oi, 0)}</td><td class="num">${row.call_wall_distance_pct === null || row.call_wall_distance_pct === undefined ? "—" : signed(row.call_wall_distance_pct, 1) + "%"}</td>
-      <td class="num down">${fmt(row.put_wall_strike)}</td><td class="num">${fmt(row.put_wall_oi, 0)}</td><td class="num">${row.put_wall_distance_pct === null || row.put_wall_distance_pct === undefined ? "—" : signed(row.put_wall_distance_pct, 1) + "%"}</td>
+      <td>${esc(row.date)}</td><td>${esc(row.maturity_month || "—")}</td><td class="num">${fmt(row.underlying_price, 2)}</td>
+      <td class="num up">${row.near_call_wall_strike === null || row.near_call_wall_strike === undefined ? "창 내 OI 없음" : fmt(row.near_call_wall_strike, 2)}</td><td class="num">${compact(row.near_call_wall_oi)}</td><td class="num">${row.near_call_wall_distance_pct === null || row.near_call_wall_distance_pct === undefined ? "—" : signed(row.near_call_wall_distance_pct, 1) + "%"}</td>
+      <td class="num down">${row.near_put_wall_strike === null || row.near_put_wall_strike === undefined ? "창 내 OI 없음" : fmt(row.near_put_wall_strike, 2)}</td><td class="num">${compact(row.near_put_wall_oi)}</td><td class="num">${row.near_put_wall_distance_pct === null || row.near_put_wall_distance_pct === undefined ? "—" : signed(row.near_put_wall_distance_pct, 1) + "%"}</td>
+      <td class="muted">${esc(row.near_wall_note || "±15% 창")}</td>
     </tr>`).join("") : "";
   }
 
-  function renderFlowChart(hostId, metaId, market) {
-    const host = $(hostId), meta = $(metaId);
-    if (!market || market.status !== "VALUE") {
-      host.innerHTML = `<div class="unavailable">${unavailable(market && market.reason)}</div>`;
-      meta.textContent = "";
-      return;
-    }
-    meta.innerHTML = `<span><i class="legend-dot foreign"></i>외국인</span><span><i class="legend-dot institution"></i>기관</span><span><i class="legend-dot individual"></i>개인</span>`;
-    const chart = makeSmallChart(host);
-    if (!chart) return;
-    const opacity = { foreigner: ".62", institution: ".42", individual: ".25" };
-    Object.entries(market.series || {}).forEach(([key, item]) => {
-      const series = chart.addHistogramSeries({ priceLineVisible: false, lastValueVisible: false });
-      series.setData((item.points || []).filter((point) => point.v !== null).map((point) => ({
-        time: point.t, value: point.v,
-        color: Number(point.v) >= 0 ? `rgba(192,57,43,${opacity[key] || ".4"})` : `rgba(43,98,192,${opacity[key] || ".4"})`,
-      })));
+  function cumulative(points) {
+    let total = 0;
+    return points.map((point, index) => {
+      if (index > 0) total += Number(point.v);
+      return { t: point.t, v: index === 0 ? 0 : Math.round(total) };
     });
-    chart.timeScale().fitContent();
   }
 
-  function renderBalanceChart(chartId, metaId, view, color) {
+  function renderFlowChart(hostId, metaId, market) {
+    const host = $(hostId), meta = $(metaId), marketName = market && market.market;
+    if (!market || market.status !== "VALUE") {
+      host.innerHTML = `<div class="unavailable">${unavailable(market && market.reason)}</div>`; meta.textContent = ""; return;
+    }
+    const range = rangeValue(`${marketName.toLowerCase()}-flow`, "60D");
+    const daily = document.querySelector(`[data-flow-mode="${marketName}"]`).classList.contains("on");
+    const hidden = hiddenFlowSeries[marketName];
+    const specs = Object.entries(market.series || {}).map(([key, item]) => {
+      const points = slicePoints(item.daily_points, range);
+      return { key, label: item.label, color: flowColors[key], type: daily ? "bar" : "line", points: daily ? points : cumulative(points), hidden: hidden.has(key) };
+    });
+    meta.innerHTML = `<span>기준일 ${esc(market.as_of || "—")} · ${daily ? "일별" : "기간 시작=0 누적"}</span><span class="market-series-toggles">${specs.map((spec) => `<button type="button" data-flow-series="${spec.key}" class="${spec.hidden ? "off" : ""}"><i style="background:${spec.color}"></i>${esc(spec.label)}</button>`).join("")}</span>`;
+    meta.querySelectorAll("[data-flow-series]").forEach((button) => button.addEventListener("click", () => {
+      const key = button.dataset.flowSeries;
+      if (hidden.has(key)) hidden.delete(key); else hidden.add(key);
+      renderFlowChart(hostId, metaId, market);
+    }));
+    const visible = specs.filter((spec) => !spec.hidden);
+    renderSvg(host, visible[0] ? visible[0].points : [], {
+      height: 210, ariaLabel: `${marketName} 투자자 ${daily ? "일별" : "누적"} 순매수`, series: visible,
+      axisFormatter: (value) => `${fmt(value, 0)}억`, valueFormatter: (value) => `${signed(Math.round(value), 0)}억원`,
+    });
+  }
+
+  function renderBalanceChart(chartId, metaId, view, color, rangeCard) {
     const host = $(chartId), meta = $(metaId);
     if (!view || view.status !== "VALUE" || !view.series || !view.series.length) {
-      host.innerHTML = `<div class="unavailable">${unavailable(view && view.reason)}</div>`;
-      meta.textContent = "";
-      return;
+      host.innerHTML = `<div class="unavailable">${unavailable(view && view.reason)}</div>`; meta.textContent = ""; return;
     }
     const latest = view.series[view.series.length - 1];
-    meta.innerHTML = `<b class="num">${fmt(latest.v / 1e12, 1)}조원</b><span>${esc(view.as_of || "")}</span>`;
-    const chart = makeSmallChart(host);
-    if (!chart) return;
-    const line = chart.addLineSeries({ color, lineWidth: 2, priceLineVisible: false, lastValueVisible: false });
-    line.setData(pointData(view.series));
-    chart.timeScale().fitContent();
+    meta.innerHTML = `<b class="num">${compact(latest.v)}원</b><span>기준일 ${esc(view.as_of || "—")}</span>`;
+    const points = slicePoints(view.series, rangeValue(rangeCard));
+    renderSvg(host, points, { height: 210, color, ariaLabel: `${rangeCard} 잔고 추이`, axisFormatter: compact, valueFormatter: (value) => `${compact(value)}원` });
   }
 
   function renderFlows(section) {
@@ -256,91 +273,87 @@
     const byMarket = Object.fromEntries(((section && section.markets) || []).map((market) => [market.market, market]));
     renderFlowChart("kospi-flow-chart", "kospi-flow-meta", byMarket.KOSPI);
     renderFlowChart("kosdaq-flow-chart", "kosdaq-flow-meta", byMarket.KOSDAQ);
-    renderBalanceChart("credit-chart", "credit-meta", section && section.credit, "#a8621a");
-    if (section && section.lending) {
-      $("lending-panel").hidden = false;
-      renderBalanceChart("lending-chart", "lending-meta", section.lending, "#2a78d6");
-    } else $("lending-panel").hidden = true;
+    renderBalanceChart("credit-chart", "credit-meta", section && section.credit, "#a8621a", "credit");
+    if (section && section.lending) { $("lending-panel").hidden = false; renderBalanceChart("lending-chart", "lending-meta", section.lending, "#2a78d6", "lending"); }
+    else $("lending-panel").hidden = true;
     const micro = section && section.microstructure;
     $("micro-unavailable").textContent = micro && micro.status !== "VALUE" ? unavailable(micro.reason) : "";
     $("micro-rows").innerHTML = micro && micro.status === "VALUE" ? (micro.rows || []).map((row) => `<tr>
       <td>${esc(row.name)}</td><td>${esc(row.market || "—")}</td><td>${esc(row.as_of || "—")}</td>
-      <td class="num">${row.advancing !== undefined ? fmt(row.advancing, 0) : row.value !== undefined ? fmt(row.value / 1e12, 2) + "조원" : "—"}</td>
-      <td class="num">${row.declining !== undefined ? fmt(row.declining, 0) : row.change_1d !== undefined ? signed(row.change_1d / 1e8, 0) + "억원" : "—"}</td>
-      <td class="num">${row.unchanged !== undefined ? fmt(row.unchanged, 0) : row.change_5d !== undefined ? signed(row.change_5d / 1e8, 0) + "억원" : "—"}</td>
-      <td class="num">${fmt(row.ad_ratio)}</td>
+      <td class="num">${row.advancing !== undefined && row.advancing !== null ? fmt(row.advancing, 0) : row.value !== undefined && row.value !== null ? compact(row.value) + "원" : "—"}</td>
+      <td class="num">${row.declining !== undefined && row.declining !== null ? fmt(row.declining, 0) : row.change_1d !== undefined && row.change_1d !== null ? signed(Math.round(row.change_1d / 1e8), 0) + "억원" : "—"}</td>
+      <td class="num">${row.unchanged !== undefined && row.unchanged !== null ? fmt(row.unchanged, 0) : row.change_5d !== undefined && row.change_5d !== null ? signed(Math.round(row.change_5d / 1e8), 0) + "억원" : "—"}</td>
+      <td class="num">${fmt(row.ad_ratio, 2)}</td>
     </tr>`).join("") : "";
   }
 
-  function renderValuationChart(chartId, metaId, market) {
+  function renderValuationChart(chartId, metaId, market, rangeCard) {
     const host = $(chartId), meta = $(metaId);
     if (!market || market.status !== "VALUE") {
-      host.innerHTML = `<div class="unavailable">${unavailable(market && market.reason)}</div>`;
-      meta.textContent = "";
-      return;
+      host.innerHTML = `<div class="unavailable">${unavailable(market && market.reason)}</div>`; meta.textContent = ""; return;
     }
-    const current = market.current || {};
-    meta.innerHTML = `<span>PER <b class="num">${fmt(current.per)}</b> · 5년 백분위 ${fmt(current.per_percentile, 0)}%</span><span>PBR <b class="num">${fmt(current.pbr)}</b> · 5년 백분위 ${fmt(current.pbr_percentile, 0)}%</span>`;
-    const chart = makeSmallChart(host);
-    if (!chart) return;
-    const per = chart.addLineSeries({ color: "#c0392b", lineWidth: 2, priceScaleId: "per", priceLineVisible: false, lastValueVisible: false });
-    const pbr = chart.addLineSeries({ color: "#2b62c0", lineWidth: 2, priceScaleId: "pbr", priceLineVisible: false, lastValueVisible: false });
-    per.setData(pointData(market.per)); pbr.setData(pointData(market.pbr));
-    if (current.t) {
-      per.setMarkers([{ time: current.t, position: "inBar", color: "#c0392b", shape: "circle", text: "현재 PER" }]);
-      pbr.setMarkers([{ time: current.t, position: "inBar", color: "#2b62c0", shape: "circle", text: "현재 PBR" }]);
-    }
-    chart.priceScale("per").applyOptions({ scaleMargins: { top: 0.08, bottom: 0.08 } });
-    chart.priceScale("pbr").applyOptions({ scaleMargins: { top: 0.08, bottom: 0.08 }, visible: false });
-    chart.timeScale().fitContent();
+    const current = market.current || {}, range = rangeValue(rangeCard);
+    meta.innerHTML = `<span data-explanation="weighted_per">PER <b class="num">${fmt(current.per, 2)}</b> · <span data-explanation="five_year_percentile">5년 백분위 ${percent(current.per_percentile)}</span></span><span data-explanation="weighted_pbr">PBR <b class="num">${fmt(current.pbr, 2)}</b> · <span data-explanation="five_year_percentile">5년 백분위 ${percent(current.pbr_percentile)}</span></span><span>기준일 ${esc(current.t || "—")}</span>`;
+    const perPoints = slicePoints(market.per, range), pbrPoints = slicePoints(market.pbr, range);
+    renderSvg(host, perPoints, { height: 210, ariaLabel: `${market.market} 가중 PER PBR`, series: [
+      { key: "per", label: "PER", color: "#c0392b", points: perPoints }, { key: "pbr", label: "PBR", color: "#2b62c0", points: pbrPoints },
+    ], axisFormatter: (value) => fmt(value, 2), valueFormatter: (value) => fmt(value, 2) });
+    applyExplanations(pagePayload.explanations || {}, meta);
   }
 
   function renderValuation(section) {
     $("valuation-unavailable").textContent = section && section.status === "UNAVAILABLE" ? unavailable(section.reason) : "";
     const byMarket = Object.fromEntries(((section && section.markets) || []).map((market) => [market.market, market]));
-    renderValuationChart("kospi-valuation-chart", "kospi-valuation-meta", byMarket.KOSPI);
-    renderValuationChart("kosdaq-valuation-chart", "kosdaq-valuation-meta", byMarket.KOSDAQ);
+    renderValuationChart("kospi-valuation-chart", "kospi-valuation-meta", byMarket.KOSPI, "kospi-valuation");
+    renderValuationChart("kosdaq-valuation-chart", "kosdaq-valuation-meta", byMarket.KOSDAQ, "kosdaq-valuation");
+  }
+
+  function applyExplanations(explanations, root = document) {
+    root.querySelectorAll("[data-explanation]").forEach((node) => {
+      const text = explanations[node.dataset.explanation];
+      if (!text) return;
+      node.title = text;
+      if (!node.querySelector(":scope > .metric-info")) node.insertAdjacentHTML("beforeend", ` <span class="metric-info" tabindex="0" aria-label="${esc(text)}">ⓘ</span>`);
+    });
+  }
+
+  function rerenderSmallCharts() {
+    if (!pagePayload) return;
+    const sections = pagePayload.sections || {};
+    renderDerivatives(sections.derivatives || {}); renderFlows(sections.flows || {}); renderValuation(sections.valuation || {});
   }
 
   function wireControls() {
     syncIndicatorMenu();
     $("indicator-picker-button").addEventListener("click", () => {
-      const menu = $("indicator-menu");
-      menu.hidden = !menu.hidden;
+      const menu = $("indicator-menu"); menu.hidden = !menu.hidden;
       $("indicator-picker-button").setAttribute("aria-expanded", String(!menu.hidden));
     });
-    document.querySelectorAll("#indicator-menu input[type=checkbox]").forEach((input) => input.addEventListener("change", () => setIndicator(input.value, input.checked)));
+    document.querySelectorAll("#indicator-menu [data-indicator]").forEach((row) => {
+      const key = row.dataset.indicator;
+      row.querySelector('input[type="checkbox"]').addEventListener("change", (event) => changeIndicator(key, { enabled: event.target.checked }));
+      row.querySelector("select").addEventListener("change", (event) => changeIndicator(key, { placement: event.target.value }));
+    });
     document.addEventListener("click", (event) => {
-      if (!$("indicator-picker").contains(event.target)) {
-        $("indicator-menu").hidden = true;
-        $("indicator-picker-button").setAttribute("aria-expanded", "false");
-      }
+      if (!$("indicator-picker").contains(event.target)) { $("indicator-menu").hidden = true; $("indicator-picker-button").setAttribute("aria-expanded", "false"); }
     });
-    ["#market-chart-interval", "#market-chart-range"].forEach((selector) => {
-      document.querySelectorAll(`${selector} button`).forEach((button) => button.addEventListener("click", () => {
-        document.querySelectorAll(`${selector} button`).forEach((item) => item.classList.remove("on"));
-        button.classList.add("on"); loadMainChart();
-      }));
-    });
+    ["#market-chart-interval", "#market-chart-range"].forEach((selector) => document.querySelectorAll(`${selector} button`).forEach((button) => button.addEventListener("click", () => {
+      document.querySelectorAll(`${selector} button`).forEach((item) => item.classList.remove("on")); button.classList.add("on"); loadMainChart();
+    })));
+    document.querySelectorAll("[data-range-card] button").forEach((button) => button.addEventListener("click", () => {
+      const group = button.closest("[data-range-card]"); group.querySelectorAll("button").forEach((item) => item.classList.remove("on")); button.classList.add("on"); rerenderSmallCharts();
+    }));
+    document.querySelectorAll("[data-flow-mode]").forEach((button) => button.addEventListener("click", () => { button.classList.toggle("on"); rerenderSmallCharts(); }));
     $("market-chart-symbol").addEventListener("change", loadMainChart);
   }
 
   async function boot() {
     wireControls();
-    let payload;
-    try {
-      const response = await fetch("/api/market");
-      payload = response.ok ? await response.json() : { sections: {} };
-    } catch (_error) { payload = { sections: {} }; }
-    const symbols = payload.chart_symbols || [];
-    $("market-chart-symbol").innerHTML = symbols.length
-      ? symbols.map((item) => `<option value="${esc(item.symbol)}">${esc(item.name)}</option>`).join("")
-      : `<option value="KOSPI">KOSPI</option>`;
-    const sections = payload.sections || {};
-    renderDerivatives(sections.derivatives || { status: "UNAVAILABLE", reason: "파생 상세를 읽을 수 없습니다." });
-    renderFlows(sections.flows || { status: "UNAVAILABLE", reason: "수급·잔고 상세를 읽을 수 없습니다." });
-    renderValuation(sections.valuation || { status: "UNAVAILABLE", reason: "밸류에이션을 읽을 수 없습니다." });
-    loadMainChart();
+    try { const response = await fetch("/api/market"); pagePayload = response.ok ? await response.json() : { sections: {} }; }
+    catch (_error) { pagePayload = { sections: {} }; }
+    const symbols = pagePayload.chart_symbols || [];
+    $("market-chart-symbol").innerHTML = symbols.length ? symbols.map((item) => `<option value="${esc(item.symbol)}">${esc(item.name)}</option>`).join("") : `<option value="KOSPI">KOSPI</option>`;
+    applyExplanations(pagePayload.explanations || {}); rerenderSmallCharts(); loadMainChart();
   }
 
   document.addEventListener("DOMContentLoaded", boot);

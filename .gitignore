@@ -40,3 +40,4 @@ htmlcov/
 # Recovery scan lists (paths only; the JSON report is kept)
 /artifacts/recovery/acl_denied_dirs.txt
 /artifacts/runtime_logs/web/
+/artifacts/analysis/

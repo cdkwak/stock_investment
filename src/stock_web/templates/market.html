@@ -24,22 +24,18 @@
         <button type="button" data-v="1d" class="on">일</button><button type="button" data-v="1w">주</button><button type="button" data-v="1M">월</button>
       </div>
       <div class="segmented" id="market-chart-range" aria-label="조회 기간">
-        <button type="button" data-v="3M">3M</button><button type="button" data-v="6M" class="on">6M</button><button type="button" data-v="1Y">1Y</button><button type="button" data-v="3Y">3Y</button><button type="button" data-v="ALL">전체</button>
+        <button type="button" data-v="3M">3M</button><button type="button" data-v="6M">6M</button><button type="button" data-v="1Y" class="on">1Y</button><button type="button" data-v="3Y">3Y</button><button type="button" data-v="ALL">전체</button>
       </div>
       <div class="indicator-picker" id="indicator-picker">
         <button type="button" class="button indicator-picker-button" id="indicator-picker-button" aria-expanded="false">＋ 지표 추가</button>
         <div class="indicator-menu" id="indicator-menu" hidden>
-          <div class="indicator-menu-title">오버레이</div>
-          <label><input type="checkbox" value="ma5"> MA5</label>
-          <label><input type="checkbox" value="ma20"> MA20</label>
-          <label><input type="checkbox" value="ma60"> MA60</label>
-          <label><input type="checkbox" value="ma120"> MA120</label>
-          <label><input type="checkbox" value="bollinger"> 볼린저 (20, 2)</label>
-          <div class="indicator-menu-title">아래 패널</div>
-          <label><input type="checkbox" value="volume"> 거래량</label>
-          <label><input type="checkbox" value="rsi14"> RSI14</label>
-          <label><input type="checkbox" value="macd"> MACD (12, 26, 9)</label>
-          <label><input type="checkbox" value="stochastic"> 스토캐스틱 (14, 3)</label>
+          <div class="indicator-menu-title">표시 · 배치</div>
+          <label data-indicator="ma5"><span><input type="checkbox"> MA5</span><select aria-label="MA5 배치"><option value="overlay">겹쳐 보기</option><option value="panel">아래 창</option></select></label>
+          <label data-indicator="ma20"><span><input type="checkbox"> MA20</span><select aria-label="MA20 배치"><option value="overlay">겹쳐 보기</option><option value="panel">아래 창</option></select></label>
+          <label data-indicator="ma60"><span><input type="checkbox"> MA60</span><select aria-label="MA60 배치"><option value="overlay">겹쳐 보기</option><option value="panel">아래 창</option></select></label>
+          <label data-indicator="ma120"><span><input type="checkbox"> MA120</span><select aria-label="MA120 배치"><option value="overlay">겹쳐 보기</option><option value="panel">아래 창</option></select></label>
+          <label data-indicator="volume"><span><input type="checkbox"> 거래량</span><select aria-label="거래량 배치"><option value="overlay">겹쳐 보기</option><option value="panel">아래 창</option></select></label>
+          <label data-indicator="rsi14"><span><input type="checkbox"> RSI14</span><select aria-label="RSI14 배치"><option value="overlay">겹쳐 보기</option><option value="panel">아래 창</option></select></label>
         </div>
       </div>
       <div class="toolbar-right" id="market-chart-stats"></div>
@@ -51,18 +47,18 @@
   </section>
 
   <section class="card market-section" id="derivatives-section">
-    <div class="card-head"><b>파생 상세 <span class="muted">· KOSPI200</span></b><span class="muted">60거래일 · 표시 상태 통과분만</span></div>
+    <div class="card-head"><b>파생 상세 <span class="muted">· KOSPI200</span></b><span class="muted">D+1 보존 데이터 · 표시 상태 통과분만</span></div>
     <div id="derivatives-unavailable" class="unavailable"></div>
     <div class="market-small-grid derivatives-grid">
-      <article class="market-panel"><div class="market-panel-title">선물 Basis</div><div id="basis-meta" class="market-panel-meta"></div><div id="basis-chart" class="market-small-chart"></div></article>
-      <article class="market-panel"><div class="market-panel-title">거래량 PCR</div><div id="volume-pcr-meta" class="market-panel-meta"></div><div id="volume-pcr-chart" class="market-small-chart"></div></article>
-      <article class="market-panel"><div class="market-panel-title">미결제약정 PCR</div><div id="oi-pcr-meta" class="market-panel-meta"></div><div id="oi-pcr-chart" class="market-small-chart"></div></article>
-      <article class="market-panel"><div class="market-panel-title">LS 선물 외국인 순계약</div><div id="ls-flow" class="market-value-block"></div></article>
+      <article class="market-panel"><div class="market-panel-head"><div class="market-panel-title" data-explanation="futures_basis">선물 Basis</div><div class="segmented small market-range" data-range-card="basis"><button type="button" data-v="1Y" class="on">1Y</button><button type="button" data-v="3Y">3Y</button><button type="button" data-v="5Y">5Y</button><button type="button" data-v="ALL">전체</button></div></div><div id="basis-meta" class="market-panel-meta"></div><div id="basis-chart" class="market-small-chart"></div></article>
+      <article class="market-panel"><div class="market-panel-head"><div class="market-panel-title" data-explanation="volume_pcr">거래량 PCR</div><div class="segmented small market-range" data-range-card="volume-pcr"><button type="button" data-v="1Y" class="on">1Y</button><button type="button" data-v="3Y">3Y</button><button type="button" data-v="5Y">5Y</button><button type="button" data-v="ALL">전체</button></div></div><div id="volume-pcr-meta" class="market-panel-meta"></div><div id="volume-pcr-chart" class="market-small-chart"></div></article>
+      <article class="market-panel"><div class="market-panel-head"><div class="market-panel-title" data-explanation="oi_pcr">미결제약정 PCR</div><div class="segmented small market-range" data-range-card="oi-pcr"><button type="button" data-v="1Y" class="on">1Y</button><button type="button" data-v="3Y">3Y</button><button type="button" data-v="5Y">5Y</button><button type="button" data-v="ALL">전체</button></div></div><div id="oi-pcr-meta" class="market-panel-meta"></div><div id="oi-pcr-chart" class="market-small-chart"></div></article>
+      <article class="market-panel"><div class="market-panel-title" data-explanation="ls_futures_foreign_net">LS 선물 외국인 순계약</div><div id="ls-flow" class="market-value-block"></div></article>
     </div>
     <div class="market-table-block">
-      <div class="market-panel-title">Call / Put Wall · 최근 10거래일</div>
+      <div class="market-panel-head"><div class="market-panel-title"><span data-explanation="call_wall">Call Wall</span> / <span data-explanation="put_wall">Put Wall</span> · 기초자산 ±15% · 최근 10거래일</div><span id="wall-meta" class="muted"></span></div>
       <div id="wall-unavailable" class="unavailable"></div>
-      <div class="data-table-wrap"><table class="data-table market-wall-table"><thead><tr><th>기준일</th><th>만기월</th><th>기초자산</th><th>Call Wall</th><th>Call OI</th><th>거리</th><th>Put Wall</th><th>Put OI</th><th>거리</th></tr></thead><tbody id="wall-rows"></tbody></table></div>
+      <div class="data-table-wrap"><table class="data-table market-wall-table"><thead><tr><th>기준일</th><th>만기월</th><th>기초자산</th><th data-explanation="call_wall">Call Wall</th><th>Call OI</th><th>거리</th><th data-explanation="put_wall">Put Wall</th><th>Put OI</th><th>거리</th><th>상태</th></tr></thead><tbody id="wall-rows"></tbody></table></div>
     </div>
   </section>
 
@@ -70,15 +66,15 @@
     <div class="card-head"><b>수급 · 잔고 상세</b><span class="muted">순매수 = 매수 − 매도 · 억원</span></div>
     <div id="flows-unavailable" class="unavailable"></div>
     <div class="market-small-grid flow-grid">
-      <article class="market-panel"><div class="market-panel-title">KOSPI 투자자 순매수 · 20거래일</div><div id="kospi-flow-meta" class="market-panel-meta"></div><div id="kospi-flow-chart" class="market-balance-chart"></div></article>
-      <article class="market-panel"><div class="market-panel-title">KOSDAQ 투자자 순매수 · 20거래일</div><div id="kosdaq-flow-meta" class="market-panel-meta"></div><div id="kosdaq-flow-chart" class="market-balance-chart"></div></article>
-      <article class="market-panel"><div class="market-panel-title">신용잔고 · 1년</div><div id="credit-meta" class="market-panel-meta"></div><div id="credit-chart" class="market-balance-chart"></div></article>
-      <article class="market-panel" id="lending-panel"><div class="market-panel-title">대차잔고 · 1년</div><div id="lending-meta" class="market-panel-meta"></div><div id="lending-chart" class="market-balance-chart"></div></article>
+      <article class="market-panel"><div class="market-panel-head"><div class="market-panel-title">KOSPI 투자자 순매수</div><div class="market-head-controls"><div class="segmented small market-range" data-range-card="kospi-flow"><button type="button" data-v="20D">20일</button><button type="button" data-v="60D" class="on">60일</button><button type="button" data-v="1Y">1년</button><button type="button" data-v="ALL">전체</button></div><button type="button" class="text-button market-daily-toggle" data-flow-mode="KOSPI">일별</button></div></div><div id="kospi-flow-meta" class="market-panel-meta market-flow-meta"></div><div id="kospi-flow-chart" class="market-balance-chart"></div></article>
+      <article class="market-panel"><div class="market-panel-head"><div class="market-panel-title">KOSDAQ 투자자 순매수</div><div class="market-head-controls"><div class="segmented small market-range" data-range-card="kosdaq-flow"><button type="button" data-v="20D">20일</button><button type="button" data-v="60D" class="on">60일</button><button type="button" data-v="1Y">1년</button><button type="button" data-v="ALL">전체</button></div><button type="button" class="text-button market-daily-toggle" data-flow-mode="KOSDAQ">일별</button></div></div><div id="kosdaq-flow-meta" class="market-panel-meta market-flow-meta"></div><div id="kosdaq-flow-chart" class="market-balance-chart"></div></article>
+      <article class="market-panel"><div class="market-panel-head"><div class="market-panel-title" data-explanation="credit_balance">신용잔고</div><div class="segmented small market-range" data-range-card="credit"><button type="button" data-v="1Y" class="on">1Y</button><button type="button" data-v="3Y">3Y</button><button type="button" data-v="5Y">5Y</button><button type="button" data-v="ALL">전체</button></div></div><div id="credit-meta" class="market-panel-meta"></div><div id="credit-chart" class="market-balance-chart"></div></article>
+      <article class="market-panel" id="lending-panel"><div class="market-panel-head"><div class="market-panel-title" data-explanation="lending_balance">대차잔고</div><div class="segmented small market-range" data-range-card="lending"><button type="button" data-v="1Y" class="on">1Y</button><button type="button" data-v="3Y">3Y</button><button type="button" data-v="5Y">5Y</button><button type="button" data-v="ALL">전체</button></div></div><div id="lending-meta" class="market-panel-meta"></div><div id="lending-chart" class="market-balance-chart"></div></article>
     </div>
     <div class="market-table-block">
-      <div class="market-panel-title">시장 미시구조</div>
+      <div class="market-panel-title"><span data-explanation="market_breadth">시장 등락 종목</span> · <span data-explanation="ad_ratio">A/D</span></div>
       <div id="micro-unavailable" class="unavailable"></div>
-      <div class="data-table-wrap"><table class="data-table"><thead><tr><th>항목</th><th>시장</th><th>기준일</th><th>값 / 상승</th><th>1일 / 하락</th><th>5일 / 보합</th><th>A/D</th></tr></thead><tbody id="micro-rows"></tbody></table></div>
+      <div class="data-table-wrap"><table class="data-table"><thead><tr><th data-explanation="market_breadth">항목</th><th>시장</th><th>기준일</th><th>값 / 상승</th><th>1일 / 하락</th><th>5일 / 보합</th><th data-explanation="ad_ratio">A/D</th></tr></thead><tbody id="micro-rows"></tbody></table></div>
     </div>
   </section>
 
@@ -86,13 +82,14 @@
     <div class="card-head"><b>밸류에이션</b><span class="badge dashed">선행 PER·PBR — 소스 검증 전</span></div>
     <div id="valuation-unavailable" class="unavailable"></div>
     <div class="market-small-grid valuation-grid">
-      <article class="market-panel"><div class="market-panel-title">KOSPI 가중 PER · PBR · 5년</div><div id="kospi-valuation-meta" class="market-panel-meta"></div><div id="kospi-valuation-chart" class="market-valuation-chart"></div></article>
-      <article class="market-panel"><div class="market-panel-title">KOSDAQ 가중 PER · PBR · 5년</div><div id="kosdaq-valuation-meta" class="market-panel-meta"></div><div id="kosdaq-valuation-chart" class="market-valuation-chart"></div></article>
+      <article class="market-panel"><div class="market-panel-head"><div class="market-panel-title"><span data-explanation="weighted_per">KOSPI 가중 PER</span> · <span data-explanation="weighted_pbr">PBR</span></div><div class="segmented small market-range" data-range-card="kospi-valuation"><button type="button" data-v="1Y" class="on">1Y</button><button type="button" data-v="3Y">3Y</button><button type="button" data-v="5Y">5Y</button><button type="button" data-v="ALL">전체</button></div></div><div id="kospi-valuation-meta" class="market-panel-meta"></div><div id="kospi-valuation-chart" class="market-valuation-chart"></div></article>
+      <article class="market-panel"><div class="market-panel-head"><div class="market-panel-title"><span data-explanation="weighted_per">KOSDAQ 가중 PER</span> · <span data-explanation="weighted_pbr">PBR</span></div><div class="segmented small market-range" data-range-card="kosdaq-valuation"><button type="button" data-v="1Y" class="on">1Y</button><button type="button" data-v="3Y">3Y</button><button type="button" data-v="5Y">5Y</button><button type="button" data-v="ALL">전체</button></div></div><div id="kosdaq-valuation-meta" class="market-panel-meta"></div><div id="kosdaq-valuation-chart" class="market-valuation-chart"></div></article>
     </div>
   </section>
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
+<script src="/static/app.js?v={{ static_version }}"></script>
 <script src="/static/market.js?v={{ static_version }}"></script>
 </body>
 </html>

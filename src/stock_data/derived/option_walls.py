@@ -9,12 +9,15 @@ import pandas as pd
 INPUT_DATASET = "kr_kospi200_options_provider_bridge_daily"
 EXPIRY_STATUS = "MATURITY_MONTH_ONLY_EXACT_EXPIRY_NOT_AVAILABLE"
 WALL_SELECTION_RULE = "MAX_OI_LOWEST_STRIKE_REPRESENTATIVE_ALL_CANDIDATES_PRESERVED"
+NEAR_WALL_SELECTION_RULE = "MAX_OI_WITHIN_15PCT_OF_EXPLICIT_UNDERLYING_LOWEST_STRIKE"
+NEAR_WALL_WINDOW_PCT = 15.0
 FRONT_SELECTION_RULE = "MIN_RETAINED_MATURITY_MONTH_NOT_BEFORE_TRADE_MONTH"
 VERIFIED_STATUS = "WALL_ANALYSIS_VERIFIED"
 LIMITED_STATUS = "WALL_RANKING_USABLE_WITH_UNIT_LIMIT"
 WALL_AVAILABLE = "WALL_AVAILABLE"
 NO_OPEN_INTEREST = "NO_OPEN_INTEREST"
 NO_OI_OBSERVATION = "NO_OI_OBSERVATION"
+NO_NEAR_WINDOW_OI = "NO_NEAR_WINDOW_OI"
 EXTREME_MONEYNESS = "EXTREME_MONEYNESS"
 KOSPI200_SYMBOL = "KOSPI200"
 PIT_SAFE_EOD_T_PLUS_1 = "PIT_SAFE_EOD_T_PLUS_1"
@@ -70,7 +73,7 @@ def _prepare(options: pd.DataFrame) -> pd.DataFrame:
 
 
 def compute_option_walls(options: pd.DataFrame) -> pd.DataFrame:
-    """Compute EOD OI walls without inferring exact expiry dates or joining providers."""
+    """Compute all-strike walls and retain candidates for the explicit near-wall join."""
     frame = _prepare(options)
     keys = ["date", "maturity_month"]
     metadata_columns = ["bridge_segment", "session", "source"]
@@ -104,6 +107,33 @@ def compute_option_walls(options: pd.DataFrame) -> pd.DataFrame:
     wall_stats = wall_stats.unstack("call_put")
     wall_stats.columns = [f"{side.lower()}_{metric}" for metric, side in wall_stats.columns]
     result = result.merge(wall_stats.reset_index(), on=keys, how="left", validate="one_to_one")
+
+    # The authoritative KOSPI200 close is joined separately, so preserve the
+    # complete strike/OI candidates only in this in-memory intermediate.  The
+    # private columns are consumed and removed by ``join_kospi200_daily_index``.
+    candidate_rows: list[dict[str, object]] = []
+    for (observed, maturity, side), group in eligible.groupby(side_keys, observed=True):
+        candidate_rows.append({
+            "date": observed,
+            "maturity_month": maturity,
+            "call_put": side,
+            "candidates": tuple(
+                (float(row.strike), float(row.open_interest), _optional_float(row.volume))
+                for row in group.sort_values("strike").itertuples(index=False)
+            ),
+        })
+    if candidate_rows:
+        packed = pd.DataFrame(candidate_rows).pivot(
+            index=keys, columns="call_put", values="candidates",
+        ).reset_index()
+        packed = packed.rename(columns={
+            "CALL": "_call_wall_candidates", "PUT": "_put_wall_candidates",
+        })
+        result = result.merge(packed, on=keys, how="left", validate="one_to_one")
+    for side in ("call", "put"):
+        internal = f"_{side}_wall_candidates"
+        if internal not in result:
+            result[internal] = [tuple() for _ in range(len(result))]
     for side in ("call", "put"):
         result[f"{side}_wall_candidate_count"] = (
             result[f"{side}_wall_candidate_count"].fillna(0).astype("int64")
@@ -140,6 +170,59 @@ def compute_option_walls(options: pd.DataFrame) -> pd.DataFrame:
             f"{side}_wall_strike"
         ].diff()
     return compute_wall_distance(result)
+
+
+def _optional_float(value: object) -> float | None:
+    return None if pd.isna(value) else float(value)
+
+
+def _compute_near_walls(walls: pd.DataFrame) -> pd.DataFrame:
+    """Select maximum OI strikes inside ±15% of the explicit underlying."""
+    result = walls.copy()
+    result["near_wall_window_pct"] = NEAR_WALL_WINDOW_PCT
+    result["near_wall_selection_rule"] = NEAR_WALL_SELECTION_RULE
+    for side in ("call", "put"):
+        prefix = f"near_{side}_wall"
+        values: dict[str, list[object]] = {
+            "strike": [], "oi": [], "volume": [], "candidate_count": [],
+            "candidate_strikes": [], "tie": [], "status": [],
+        }
+        for _, row in result.iterrows():
+            underlying = _optional_float(row.get("underlying_price", np.nan))
+            candidates = row.get(f"_{side}_wall_candidates", ()) or ()
+            near = [] if underlying is None else [
+                candidate for candidate in candidates
+                if abs(candidate[0] / underlying - 1.0) <= NEAR_WALL_WINDOW_PCT / 100.0 + 1e-12
+            ]
+            positive = [candidate for candidate in near if candidate[1] > 0]
+            if not positive:
+                values["strike"].append(np.nan)
+                values["oi"].append(np.nan)
+                values["volume"].append(np.nan)
+                values["candidate_count"].append(0)
+                values["candidate_strikes"].append("")
+                values["tie"].append(False)
+                values["status"].append(NO_NEAR_WINDOW_OI)
+                continue
+            maximum = max(candidate[1] for candidate in positive)
+            winners = sorted(candidate for candidate in positive if candidate[1] == maximum)
+            winner = winners[0]
+            values["strike"].append(winner[0])
+            values["oi"].append(winner[1])
+            values["volume"].append(winner[2])
+            values["candidate_count"].append(len(winners))
+            values["candidate_strikes"].append("|".join(f"{item[0]:g}" for item in winners))
+            values["tie"].append(len(winners) > 1)
+            values["status"].append(WALL_AVAILABLE)
+        for suffix, column in values.items():
+            result[f"{prefix}_{suffix}"] = column
+        result[f"{prefix}_distance"] = result[f"{prefix}_strike"] - result["underlying_price"]
+        result[f"{prefix}_distance_pct"] = (
+            result[f"{prefix}_strike"] / result["underlying_price"] - 1.0
+        ) * 100.0
+    return result.drop(
+        columns=["_call_wall_candidates", "_put_wall_candidates"], errors="ignore",
+    )
 
 
 def compute_wall_distance(
@@ -208,7 +291,9 @@ def join_kospi200_daily_index(
         raise OptionWallError(f"same-date KOSPI200 join incomplete: missing_dates={missing}")
     result["underlying_dataset"] = dataset_name
     result["underlying_pit_status"] = pit_status
-    return compute_wall_distance(result, warning_policy=warning_policy)
+    return _compute_near_walls(
+        compute_wall_distance(result, warning_policy=warning_policy)
+    )
 
 
 def compute_front_month_wall(walls: pd.DataFrame) -> pd.DataFrame:

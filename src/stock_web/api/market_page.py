@@ -24,6 +24,23 @@ RANGE_OFFSETS = {
     "6M": pd.DateOffset(months=6),
     "1Y": pd.DateOffset(years=1),
     "3Y": pd.DateOffset(years=3),
+    "5Y": pd.DateOffset(years=5),
+}
+
+METRIC_EXPLANATIONS = {
+    "futures_basis": "선물 Basis는 KOSPI200 선물 정산가와 기초지수의 차이입니다. 양수·음수는 두 가격의 상대적 위치를 설명하며 방향 신호가 아닙니다.",
+    "volume_pcr": "거래량 PCR은 풋 거래량 ÷ 콜 거래량입니다. 1보다 크면 해당일 풋 거래가 콜보다 많았다는 뜻입니다.",
+    "oi_pcr": "미결제약정 PCR은 풋 미결제약정 ÷ 콜 미결제약정입니다. 1보다 크면 풋 잔고가 많다는 뜻으로, 하방 헤지 수요가 큰 상태로 읽습니다.",
+    "ls_futures_foreign_net": "LS 선물 외국인 순계약은 보존된 정규장 원시 관측의 외국인 순계약 수입니다. 세션 최종성 검증 전 설명용 수치이며 신호가 아닙니다.",
+    "call_wall": "Call Wall은 기초자산 ±15% 안에서 콜 미결제약정이 가장 큰 행사가입니다. 현재가와의 거리는 위치 관계를 보여줄 뿐 지지·저항을 보장하지 않습니다.",
+    "put_wall": "Put Wall은 기초자산 ±15% 안에서 풋 미결제약정이 가장 큰 행사가입니다. 현재가와의 거리는 위치 관계를 보여줄 뿐 지지·저항을 보장하지 않습니다.",
+    "credit_balance": "신용잔고는 신용융자로 매수한 주식의 남은 금액입니다. 증가는 레버리지 자금이 늘어난 상태를 뜻하지만 방향 신호는 아닙니다.",
+    "lending_balance": "대차잔고는 빌려간 주식의 미상환 금액입니다. 공매도 외 목적도 포함될 수 있어 단독으로 방향을 판단하지 않습니다.",
+    "market_breadth": "시장 등락 종목은 기준일의 상승·하락·보합 종목 수입니다. 지수 움직임이 시장 전반에 퍼졌는지 설명합니다.",
+    "ad_ratio": "A/D는 상승 종목 수 ÷ 하락 종목 수입니다. 1보다 크면 상승 종목이, 1보다 작으면 하락 종목이 더 많습니다.",
+    "weighted_per": "가중 PER은 지수 구성 종목의 주가수익비율을 시가총액 방식으로 집계한 값입니다. 과거와의 상대 위치를 설명하며 적정가 판단이 아닙니다.",
+    "weighted_pbr": "가중 PBR은 지수 구성 종목의 주가순자산비율을 시가총액 방식으로 집계한 값입니다. 업종 구성 변화에 따라 비교 의미가 달라질 수 있습니다.",
+    "five_year_percentile": "5년 백분위는 최근 5년 관측 중 현재 값 이하인 비율입니다. 높고 낮음은 과거 분포상 위치이며 매매 추천이 아닙니다.",
 }
 
 
@@ -42,6 +59,32 @@ def _value(value: object) -> float | None:
 def _date(value: object) -> str | None:
     parsed = pd.to_datetime(value, errors="coerce")
     return None if pd.isna(parsed) else parsed.strftime("%Y-%m-%d")
+
+
+def format_compact_kr(value: object) -> str:
+    """Format finite numbers with compact Korean 만/억/조 units."""
+    numeric = _value(value)
+    if numeric is None:
+        return "—"
+    absolute = abs(numeric)
+    if absolute >= 1e12:
+        scaled, unit, digits = numeric / 1e12, "조", 1
+    elif absolute >= 1e8:
+        scaled, unit, digits = numeric / 1e8, "억", 0 if absolute >= 1e11 else 1
+    elif absolute >= 1e4:
+        scaled, unit, digits = numeric / 1e4, "만", 1
+    else:
+        scaled, unit, digits = numeric, "", 0 if numeric.is_integer() else 1
+    rendered = f"{scaled:,.{digits}f}".rstrip("0").rstrip(".") if digits else f"{scaled:,.0f}"
+    return f"{rendered}{unit}"
+
+
+def _basis_label(value: object, *, d_plus_one: bool = False) -> str | None:
+    observed = _date(value)
+    if observed is None:
+        return None
+    older = pd.Timestamp(observed).date() < pd.Timestamp.now(tz="Asia/Seoul").date()
+    return f"기준일 {observed}{' · D+1 공개' if d_plus_one and older else ''}"
 
 
 def _points(frame: pd.DataFrame, column: str) -> list[dict[str, object]]:
@@ -188,8 +231,8 @@ def build_derivatives(project_root: Path) -> dict[str, object]:
     basis = _metric_view(metrics.get("KOSPI200_BASIS"), pattern="{:+,.2f}")
     if basis["status"] == "VALUE":
         try:
-            frame = service.query.tail(
-                "derived/kr_kospi200_futures_nearest_listed_daily", rows=120,
+            frame = service.query.read(
+                "derived/kr_kospi200_futures_nearest_listed_daily",
                 columns=["date", "session", "settlement_basis", "basis_status"],
             )
             frame = frame.loc[
@@ -197,30 +240,36 @@ def build_derivatives(project_root: Path) -> dict[str, object]:
                 & frame["basis_status"].astype(str).eq(
                     "SAME_ROW_REGULAR_SESSION_SOURCE_NATIVE_DIFFERENCE"
                 )
-            ].sort_values("date").tail(60)
+            ].sort_values("date")
             series = _indicator_points(frame, "settlement_basis")
             if not series:
-                basis = _unavailable("Basis 60거래일 이력이 없습니다.")
+                basis = _unavailable("Basis 이력이 없습니다.")
             else:
-                basis["series"] = series
+                basis.update({"series": series, "basis_label": _basis_label(basis.get("as_of"), d_plus_one=True)})
         except (KeyError, OSError, PermissionError, TypeError, ValueError):
             basis = _unavailable("Basis 60거래일 이력을 읽을 수 없습니다.")
 
     pcr_views: dict[str, dict[str, object]] = {
-        "volume": _metric_view(metrics.get("VOLUME_PCR"), pattern="{:.3f}"),
-        "oi": _metric_view(metrics.get("OI_PCR"), pattern="{:.3f}"),
+        "volume": _metric_view(metrics.get("VOLUME_PCR"), pattern="{:.2f}"),
+        "oi": _metric_view(metrics.get("OI_PCR"), pattern="{:.2f}"),
     }
     try:
-        pcr = service.derivatives.pcr(days=60)
+        pcr = service.query.read(
+            "derived/kr_kospi200_option_pcr_daily",
+            columns=["date", "volume_pcr", "open_interest_pcr", "observation_status"],
+        ).sort_values("date")
     except (KeyError, OSError, PermissionError, TypeError, ValueError):
         pcr = pd.DataFrame()
     for key, column in (("volume", "volume_pcr"), ("oi", "open_interest_pcr")):
         if pcr_views[key]["status"] == "VALUE":
             series = _indicator_points(pcr, column)
             if series:
-                pcr_views[key]["series"] = series
+                pcr_views[key].update({
+                    "series": series,
+                    "basis_label": _basis_label(pcr_views[key].get("as_of"), d_plus_one=True),
+                })
             else:
-                pcr_views[key] = _unavailable(f"{key.upper()} PCR 60거래일 이력이 없습니다.")
+                pcr_views[key] = _unavailable(f"{key.upper()} PCR 이력이 없습니다.")
 
     call_metric = _metric_view(metrics.get("CALL_WALL"), pattern="{:,.2f}")
     put_metric = _metric_view(metrics.get("PUT_WALL"), pattern="{:,.2f}")
@@ -229,16 +278,28 @@ def build_derivatives(project_root: Path) -> dict[str, object]:
             walls, metadata = service.derivatives.option_wall()
             columns = [
                 "date", "maturity_month", "underlying_price",
-                "call_wall_strike", "call_wall_oi", "call_wall_distance_pct",
-                "put_wall_strike", "put_wall_oi", "put_wall_distance_pct",
+                "near_call_wall_strike", "near_call_wall_oi", "near_call_wall_distance_pct", "near_call_wall_status",
+                "near_put_wall_strike", "near_put_wall_oi", "near_put_wall_distance_pct", "near_put_wall_status",
+                "near_wall_window_pct",
             ]
             present = [column for column in columns if column in walls]
             rows = walls[present].sort_values("date").tail(10).iloc[::-1]
+            has_near_columns = {"near_call_wall_strike", "near_put_wall_strike"} <= set(walls.columns)
             wall = {
                 "status": "VALUE", "metadata": metadata,
+                "as_of": _date(rows.iloc[0]["date"]) if not rows.empty else None,
+                "basis_label": _basis_label(rows.iloc[0]["date"], d_plus_one=True) if not rows.empty else None,
+                "near_window_available": has_near_columns,
                 "rows": [
-                    {column: (_date(value) if column == "date" else _nan_to_none(value))
-                     for column, value in row.items()}
+                    ({column: (_date(value) if column == "date" else _nan_to_none(value))
+                      for column, value in row.items()} | {
+                        "near_wall_note": (
+                            "±15% 창 안에 양의 미결제약정이 없습니다."
+                            if row.get("near_call_wall_status") == "NO_NEAR_WINDOW_OI"
+                            or row.get("near_put_wall_status") == "NO_NEAR_WINDOW_OI"
+                            else None
+                        ) if has_near_columns else "기존 파일 형식이라 근접 Wall을 계산할 수 없습니다.",
+                    })
                     for row in rows.to_dict(orient="records")
                 ],
             } if not rows.empty else _unavailable("Call/Put Wall 보존 이력이 없습니다.")
@@ -252,7 +313,10 @@ def build_derivatives(project_root: Path) -> dict[str, object]:
     if ls["status"] == "VALUE":
         try:
             raw = service.derivatives.ls_flow()
-            ls.update({"source_status": raw.get("status"), "warning": raw.get("warning")})
+            ls.update({
+                "source_status": raw.get("status"), "warning": raw.get("warning"),
+                "basis_label": _basis_label(ls.get("as_of"), d_plus_one=True),
+            })
         except (KeyError, OSError, PermissionError, TypeError, ValueError):
             ls = _unavailable("LS 선물 외국인 순계약 보존 행을 읽을 수 없습니다.")
 
@@ -268,28 +332,33 @@ def build_derivatives(project_root: Path) -> dict[str, object]:
 
 
 def _flow_market(frame: pd.DataFrame, market: str) -> dict[str, object]:
-    scoped = frame.loc[frame["market"].astype(str).eq(market)].sort_values("date").tail(20)
+    scoped = frame.loc[frame["market"].astype(str).eq(market)].sort_values("date")
     required = {
         f"{key}_{side}_amount"
         for key in ("foreigner", "institution", "individual")
         for side in ("buy", "sell")
     }
     if scoped.empty or not required <= set(scoped.columns):
-        return _unavailable(f"{market} 투자자 매매 20거래일 데이터가 없습니다.") | {"market": market}
+        return _unavailable(f"{market} 투자자 매매 데이터가 없습니다.") | {"market": market}
     series = {}
     for key, label in (("foreigner", "외국인"), ("institution", "기관"), ("individual", "개인")):
         values = (
             pd.to_numeric(scoped[f"{key}_buy_amount"], errors="coerce")
             - pd.to_numeric(scoped[f"{key}_sell_amount"], errors="coerce")
         ) / 1e8
+        rounded = values.round().astype("Int64")
         series[key] = {
             "label": label,
-            "points": [
-                {"t": date.strftime("%Y-%m-%d"), "v": _value(value)}
-                for date, value in zip(pd.to_datetime(scoped["date"]), values)
+            "daily_points": [
+                {"t": date.strftime("%Y-%m-%d"), "v": None if pd.isna(value) else int(value)}
+                for date, value in zip(pd.to_datetime(scoped["date"]), rounded)
             ],
         }
-    return {"status": "VALUE", "market": market, "series": series}
+    return {
+        "status": "VALUE", "market": market, "series": series,
+        "as_of": _date(scoped["date"].max()), "unit": "억원",
+        "presentation": "CUMULATIVE_FROM_RANGE_START",
+    }
 
 
 def build_flows_and_balances(project_root: Path) -> dict[str, object]:
@@ -310,11 +379,10 @@ def build_flows_and_balances(project_root: Path) -> dict[str, object]:
     else:
         credit_frame = credit_frame.dropna(subset=["credit_financing_total"]).sort_values("date")
         latest = credit_frame["date"].max()
-        year = credit_frame.loc[credit_frame["date"] >= latest - pd.DateOffset(years=1)]
         credit = {
-            "status": "VALUE", "series": _indicator_points(year, "credit_financing_total"),
+            "status": "VALUE", "series": _indicator_points(credit_frame, "credit_financing_total"),
             "as_of": _date(latest), "unit": "원",
-        } if not year.empty else _unavailable("신용잔고 1년 이력이 없습니다.")
+        } if not credit_frame.empty else _unavailable("신용잔고 이력이 없습니다.")
 
     lending_frame = dsx.load(
         project_root, "data/normalized/kr_stock_lending_market_daily",
@@ -328,10 +396,9 @@ def build_flows_and_balances(project_root: Path) -> dict[str, object]:
             ).groupby("date", as_index=False)["balance_amount"].sum(min_count=1).sort_values("date")
         )
         latest = aggregated["date"].max()
-        year = aggregated.loc[aggregated["date"] >= latest - pd.DateOffset(years=1)]
-        if not year.empty:
+        if not aggregated.empty:
             lending = {
-                "status": "VALUE", "series": _indicator_points(year, "balance_amount"),
+                "status": "VALUE", "series": _indicator_points(aggregated, "balance_amount"),
                 "as_of": _date(latest), "unit": "원",
             }
 
@@ -393,8 +460,8 @@ def build_valuation(project_root: Path) -> dict[str, object]:
         pbr_percentile = _value((pbr.dropna() <= current_pbr).mean() * 100.0) if current_pbr is not None else None
         markets.append({
             "status": "VALUE", "market": market,
-            "per": _indicator_points(five_years, "weighted_per"),
-            "pbr": _indicator_points(five_years, "weighted_pbr"),
+            "per": _indicator_points(valid, "weighted_per"),
+            "pbr": _indicator_points(valid, "weighted_pbr"),
             "current": {
                 "t": _date(current["date"]), "per": current_per, "pbr": current_pbr,
                 "per_percentile": per_percentile, "pbr_percentile": pbr_percentile,
@@ -419,6 +486,7 @@ def build_market_page_payload(project_root: Path) -> dict[str, object]:
 
     return {
         "schema_version": 1,
+        "explanations": METRIC_EXPLANATIONS,
         "chart_symbols": build_chart_symbols(project_root),
         "sections": {
             "derivatives": safely(build_derivatives, "파생 상세"),
@@ -430,5 +498,6 @@ def build_market_page_payload(project_root: Path) -> dict[str, object]:
 
 __all__ = [
     "build_derivatives", "build_flows_and_balances", "build_market_chart_payload",
-    "build_market_page_payload", "build_valuation",
+    "build_market_page_payload", "build_valuation", "format_compact_kr",
+    "METRIC_EXPLANATIONS", "_range_view",
 ]

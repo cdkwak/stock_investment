@@ -18,54 +18,94 @@
   };
   const unavailable = (why) => `<div class="unavailable">표시 불가${why ? " · " + esc(why) : ""}</div>`;
 
+  function formatCompactKorean(value) {
+    if (value === null || value === undefined || value === "") return "—";
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return "—";
+    const absolute = Math.abs(numeric);
+    let scaled = numeric, unit = "", digits = Number.isInteger(numeric) ? 0 : 1;
+    if (absolute >= 1e12) { scaled = numeric / 1e12; unit = "조"; digits = 1; }
+    else if (absolute >= 1e8) { scaled = numeric / 1e8; unit = "억"; digits = absolute >= 1e11 ? 0 : 1; }
+    else if (absolute >= 1e4) { scaled = numeric / 1e4; unit = "만"; digits = 1; }
+    return `${scaled.toLocaleString("ko-KR", { maximumFractionDigits: digits })}${unit}`;
+  }
+
+  function formatPercent(value) {
+    return value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value)) ? `${Number(value).toFixed(1)}%` : "—";
+  }
+
+  function formatPcr(value) {
+    return value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value)) ? Number(value).toFixed(2) : "—";
+  }
+
   function renderLineChart(host, rawPoints, options = {}) {
     if (!host) return;
-    const points = (rawPoints || []).filter((point) => point && Number.isFinite(Number(point.v))).map((point) => ({ ...point, v: Number(point.v), ms: Date.parse(`${point.t}T00:00:00Z`) }));
-    if (points.length < 2) {
+    const normalize = (points) => (points || []).filter((point) => point && Number.isFinite(Number(point.v))).map((point) => ({ ...point, v: Number(point.v), ms: Date.parse(`${point.t}T00:00:00Z`) })).filter((point) => Number.isFinite(point.ms));
+    const primary = normalize(rawPoints);
+    let benchmark = normalize(options.benchmark);
+    const specs = Array.isArray(options.series) && options.series.length
+      ? options.series.map((spec, index) => ({
+        key: spec.key || `series-${index}`, label: spec.label || "", color: spec.color || "#1f1d1a",
+        type: spec.type === "bar" ? "bar" : "line", points: normalize(spec.points), hidden: Boolean(spec.hidden),
+      })).filter((spec) => !spec.hidden)
+      : [{ key: "value", label: options.valueLabel || "", color: options.color || "#1f1d1a", type: "line", points: primary, hidden: false }];
+    const timePoints = specs.flatMap((spec) => spec.points);
+    if (timePoints.length < 2) {
       host.innerHTML = `<div class="unavailable">${esc(options.emptyMessage || "관측이 2개 이상이면 선이 표시됩니다.")}</div>`;
       return;
     }
-    let benchmark = (options.benchmark || []).filter((point) => point && Number.isFinite(Number(point.v))).map((point) => ({ ...point, v: Number(point.v), ms: Date.parse(`${point.t}T00:00:00Z`) }));
-    benchmark = benchmark.filter((point) => point.ms >= points[0].ms && point.ms <= points[points.length - 1].ms);
-    if (benchmark.length && benchmark[0].v && options.rebaseBenchmark !== false) {
-      const benchmarkScale = points[0].v / benchmark[0].v;
+    const orderedTimes = [...new Map(timePoints.sort((a, b) => a.ms - b.ms).map((point) => [point.ms, point])).values()];
+    const start = orderedTimes[0].ms, finish = orderedTimes[orderedTimes.length - 1].ms;
+    benchmark = benchmark.filter((point) => point.ms >= start && point.ms <= finish);
+    if (!options.series && benchmark.length && benchmark[0].v && primary[0] && options.rebaseBenchmark !== false) {
+      const benchmarkScale = primary[0].v / benchmark[0].v;
       benchmark = benchmark.map((point) => ({ ...point, v: point.v * benchmarkScale }));
+      specs.push({ key: "benchmark", label: options.benchmarkLabel || "", color: options.benchmarkColor || "#2b62c0", type: "line", points: benchmark, hidden: false });
     }
     const width = 640, height = Number(options.height || 220), left = 62, right = 16, top = 16, bottom = 30;
     const plotW = width - left - right, plotH = height - top - bottom;
-    const allValues = points.concat(benchmark).map((point) => point.v);
+    const allValues = specs.flatMap((spec) => spec.points.map((point) => point.v));
+    if (specs.some((spec) => spec.type === "bar")) allValues.push(0);
+    (options.guides || []).forEach((guide) => { if (Number.isFinite(Number(guide.value))) allValues.push(Number(guide.value)); });
     const rawMin = Math.min(...allValues), rawMax = Math.max(...allValues), padding = (rawMax - rawMin) * 0.08 || Math.max(Math.abs(rawMax) * 0.02, 1);
     const min = rawMin - padding, max = rawMax + padding;
-    const start = points[0].ms, finish = points[points.length - 1].ms, span = finish - start || 1;
+    const span = finish - start || 1;
     const x = (point) => left + (point.ms - start) / span * plotW;
     const y = (value) => top + (max - value) / (max - min) * plotH;
     const path = (series) => series.filter((point) => point.ms >= start && point.ms <= finish).map((point, index) => `${index ? "L" : "M"}${x(point).toFixed(2)} ${y(point.v).toFixed(2)}`).join(" ");
     const yTicks = Array.from({ length: 4 }, (_, index) => min + (max - min) * index / 3);
-    const tickIndexes = [...new Set([0, Math.floor((points.length - 1) / 2), points.length - 1])];
+    const tickIndexes = [...new Set([0, Math.floor((orderedTimes.length - 1) / 2), orderedTimes.length - 1])];
+    const axisFormatter = options.axisFormatter || ((value) => `${(value / 1e8).toFixed(2)}억`);
+    const valueFormatter = options.valueFormatter || ((value) => `₩${Math.round(value).toLocaleString("ko-KR")}`);
+    const barSpecs = specs.filter((spec) => spec.type === "bar");
+    const step = plotW / Math.max(orderedTimes.length - 1, 1);
+    const barWidth = Math.max(1, Math.min(10, step * .72) / Math.max(barSpecs.length, 1));
     host.innerHTML = `<svg class="si-line-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="${esc(options.ariaLabel || "자산 추이")}">
-      ${yTicks.map((value) => `<line x1="${left}" x2="${width - right}" y1="${y(value)}" y2="${y(value)}" class="si-grid"></line><text x="${left - 7}" y="${y(value) + 3}" text-anchor="end" class="si-axis-label">${(value / 1e8).toFixed(2)}억</text>`).join("")}
+      ${yTicks.map((value) => `<line x1="${left}" x2="${width - right}" y1="${y(value)}" y2="${y(value)}" class="si-grid"></line><text x="${left - 7}" y="${y(value) + 3}" text-anchor="end" class="si-axis-label">${esc(axisFormatter(value))}</text>`).join("")}
       <line x1="${left}" x2="${left}" y1="${top}" y2="${height - bottom}" class="si-axis"></line>
       <line x1="${left}" x2="${width - right}" y1="${height - bottom}" y2="${height - bottom}" class="si-axis"></line>
-      ${tickIndexes.map((index) => `<text x="${x(points[index])}" y="${height - 9}" text-anchor="${index === 0 ? "start" : index === points.length - 1 ? "end" : "middle"}" class="si-axis-label">${esc(points[index].t)}</text>`).join("")}
-      ${benchmark.length > 1 ? `<path d="${path(benchmark)}" class="si-benchmark-line"></path>` : ""}
-      <path d="${path(points)}" class="si-value-line"></path>
-      ${points.filter((point) => point.partial).map((point) => `<circle cx="${x(point)}" cy="${y(point.v)}" r="2.5" class="si-partial-point"></circle>`).join("")}
-      <g class="si-hover" style="display:none"><line y1="${top}" y2="${height - bottom}" class="si-hover-line"></line><circle r="4" class="si-hover-point"></circle><rect width="166" height="38" rx="4" class="si-tooltip-bg"></rect><text class="si-tooltip-date"></text><text class="si-tooltip-value"></text></g>
+      ${tickIndexes.map((index) => `<text x="${x(orderedTimes[index])}" y="${height - 9}" text-anchor="${index === 0 ? "start" : index === orderedTimes.length - 1 ? "end" : "middle"}" class="si-axis-label">${esc(orderedTimes[index].t)}</text>`).join("")}
+      ${(options.guides || []).map((guide) => `<line x1="${left}" x2="${width - right}" y1="${y(Number(guide.value))}" y2="${y(Number(guide.value))}" class="si-guide-line"></line><text x="${width - right - 3}" y="${y(Number(guide.value)) - 3}" text-anchor="end" class="si-guide-label">${esc(guide.label || guide.value)}</text>`).join("")}
+      ${barSpecs.map((spec, seriesIndex) => spec.points.map((point) => { const zero = y(0), py = y(point.v), offset = (seriesIndex - (barSpecs.length - 1) / 2) * barWidth; return `<rect x="${x(point) + offset - barWidth / 2}" y="${Math.min(zero, py)}" width="${barWidth}" height="${Math.max(1, Math.abs(zero - py))}" fill="${esc(spec.color)}" class="si-series-bar"></rect>`; }).join("")).join("")}
+      ${specs.filter((spec) => spec.type === "line" && spec.points.length > 1).map((spec, index) => `<path d="${path(spec.points)}" class="${index ? "si-benchmark-line" : "si-value-line"} si-series-line" style="stroke:${esc(spec.color)}"></path>`).join("")}
+      ${primary.filter((point) => point.partial).map((point) => `<circle cx="${x(point)}" cy="${y(point.v)}" r="2.5" class="si-partial-point"></circle>`).join("")}
+      <g class="si-hover" style="display:none"><line y1="${top}" y2="${height - bottom}" class="si-hover-line"></line><g class="si-tooltip"></g></g>
     </svg>`;
-    const svg = host.querySelector("svg"), hover = svg.querySelector(".si-hover"), vertical = hover.querySelector("line"), dot = hover.querySelector("circle"), box = hover.querySelector("rect"), dateText = hover.querySelector(".si-tooltip-date"), valueText = hover.querySelector(".si-tooltip-value");
+    const svg = host.querySelector("svg"), hover = svg.querySelector(".si-hover"), vertical = hover.querySelector("line"), tooltip = hover.querySelector(".si-tooltip");
     svg.addEventListener("pointermove", (event) => {
       const rect = svg.getBoundingClientRect();
       const targetX = (event.clientX - rect.left) / rect.width * width;
-      const nearest = points.reduce((best, point) => Math.abs(x(point) - targetX) < Math.abs(x(best) - targetX) ? point : best, points[0]);
-      const px = x(nearest), py = y(nearest.v), tooltipX = Math.min(Math.max(px + 8, left + 2), width - right - 168), tooltipY = Math.max(top + 2, py - 45);
-      hover.style.display = ""; vertical.setAttribute("x1", px); vertical.setAttribute("x2", px); dot.setAttribute("cx", px); dot.setAttribute("cy", py);
-      box.setAttribute("x", tooltipX); box.setAttribute("y", tooltipY);
-      dateText.setAttribute("x", tooltipX + 8); dateText.setAttribute("y", tooltipY + 14); dateText.textContent = `${nearest.t}${nearest.partial ? " · 부분 관측" : ""}`;
-      valueText.setAttribute("x", tooltipX + 8); valueText.setAttribute("y", tooltipY + 30); valueText.textContent = `₩${Math.round(nearest.v).toLocaleString("ko-KR")}`;
+      const nearest = orderedTimes.reduce((best, point) => Math.abs(x(point) - targetX) < Math.abs(x(best) - targetX) ? point : best, orderedTimes[0]);
+      const rows = specs.map((spec) => ({ spec, point: spec.points.find((point) => point.ms === nearest.ms) })).filter((item) => item.point);
+      const px = x(nearest), boxWidth = 190, boxHeight = 22 + rows.length * 16;
+      const tooltipX = Math.min(Math.max(px + 8, left + 2), width - right - boxWidth - 2), tooltipY = top + 2;
+      hover.style.display = ""; vertical.setAttribute("x1", px); vertical.setAttribute("x2", px);
+      tooltip.innerHTML = `<rect x="${tooltipX}" y="${tooltipY}" width="${boxWidth}" height="${boxHeight}" rx="4" class="si-tooltip-bg"></rect><text x="${tooltipX + 8}" y="${tooltipY + 14}" class="si-tooltip-date">${esc(nearest.t)}${nearest.partial ? " · 부분 관측" : ""}</text>${rows.map((item, index) => `<text x="${tooltipX + 8}" y="${tooltipY + 31 + index * 16}" class="si-tooltip-value" style="fill:${esc(item.spec.color)}">${esc(item.spec.label ? item.spec.label + " " : "")}${esc(valueFormatter(item.point.v, item.spec))}</text>`).join("")}`;
     });
     svg.addEventListener("pointerleave", () => { hover.style.display = "none"; });
   }
   window.SIChart = { renderLineChart };
+  Object.assign(window.SIChart, { formatCompactKorean, formatPercent, formatPcr });
 
   function sparkline(values, w = 140, h = 22) {
     if (!values || values.length < 2) return "";

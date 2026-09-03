@@ -2,12 +2,20 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
 
 from stock_web.api.indicators import calculate_indicators, resample_ohlcv
-from stock_web.api.market_page import build_market_page_payload
+from stock_web.api.market_page import (
+    METRIC_EXPLANATIONS,
+    _flow_market,
+    _range_view,
+    build_derivatives,
+    build_market_page_payload,
+    format_compact_kr,
+)
 from stock_web.app import create_app
 from tests.unit.web import ASGITestClient, make_project, new_temp_root
 
@@ -129,4 +137,115 @@ def test_market_chart_uses_compact_height_and_panel_proportions() -> None:
     assert "height: 440px" in css
     assert "height: 360px" in css
     assert "height: 280px" in css
-    assert "Math.min(0.14, 0.58 / lower.length)" in script
+    assert "Math.min(0.14, 0.58 / panels.length)" in script
+    assert script.count("LightweightCharts.createChart") == 1
+    assert "SIChart.renderLineChart" in script
+
+
+@pytest.mark.parametrize(("value", "expected"), [
+    (28_800_000_000_000, "28.8조"),
+    (423_200_000_000, "4,232억"),
+    (32_000, "3.2만"),
+    (999, "999"),
+])
+def test_compact_korean_number_formatter(value: float, expected: str) -> None:
+    assert format_compact_kr(value) == expected
+
+
+def test_all_range_returns_full_history() -> None:
+    frame = pd.DataFrame({
+        "date": pd.date_range("2010-01-01", periods=20, freq="YE"),
+        "value": range(20),
+    })
+
+    pd.testing.assert_frame_equal(_range_view(frame, "ALL"), frame)
+
+
+def test_flow_payload_is_full_history_integer_100m_krw_for_client_cumulative_view() -> None:
+    frame = pd.DataFrame({
+        "date": pd.date_range("2025-01-01", periods=70, freq="D"),
+        "market": "KOSPI",
+        "foreigner_buy_amount": [12.6e8] * 70,
+        "foreigner_sell_amount": [10e8] * 70,
+        "institution_buy_amount": [8e8] * 70,
+        "institution_sell_amount": [10.4e8] * 70,
+        "individual_buy_amount": [10e8] * 70,
+        "individual_sell_amount": [9.5e8] * 70,
+    })
+
+    result = _flow_market(frame, "KOSPI")
+
+    assert result["presentation"] == "CUMULATIVE_FROM_RANGE_START"
+    assert result["unit"] == "억원"
+    assert result["as_of"] == "2025-03-11"
+    for item in result["series"].values():
+        assert len(item["daily_points"]) == 70
+        assert all(isinstance(point["v"], int) for point in item["daily_points"])
+
+
+def test_metric_explanations_cover_every_requested_head() -> None:
+    assert set(METRIC_EXPLANATIONS) == {
+        "futures_basis", "volume_pcr", "oi_pcr", "ls_futures_foreign_net",
+        "call_wall", "put_wall", "credit_balance", "lending_balance",
+        "market_breadth", "ad_ratio", "weighted_per", "weighted_pbr",
+        "five_year_percentile",
+    }
+    assert all(len(text) >= 25 for text in METRIC_EXPLANATIONS.values())
+
+
+def test_derivatives_payload_uses_near_wall_columns(monkeypatch: pytest.MonkeyPatch) -> None:
+    def metric(value: float, as_of: str = "2026-09-02") -> SimpleNamespace:
+        return SimpleNamespace(displays_value=True, value=value, as_of=as_of, unit="", source="fixture")
+
+    class FakeQuery:
+        def read(self, dataset: str, **_kwargs) -> pd.DataFrame:
+            if dataset.endswith("nearest_listed_daily"):
+                return pd.DataFrame({
+                    "date": pd.date_range("2026-08-31", periods=3),
+                    "session": "REGULAR_DAY", "settlement_basis": [1.0, 1.5, 2.0],
+                    "basis_status": "SAME_ROW_REGULAR_SESSION_SOURCE_NATIVE_DIFFERENCE",
+                })
+            return pd.DataFrame({
+                "date": pd.date_range("2026-08-31", periods=3),
+                "volume_pcr": [0.9, 1.0, 1.1], "open_interest_pcr": [1.1, 1.2, 1.3],
+                "observation_status": "AVAILABLE",
+            })
+
+    class FakeDerivatives:
+        def option_wall(self):
+            return pd.DataFrame([{
+                "date": pd.Timestamp("2026-09-02"), "maturity_month": "2026-09",
+                "underlying_price": 1030.0, "near_wall_window_pct": 15.0,
+                "near_call_wall_strike": 1050.0, "near_call_wall_oi": 8000.0,
+                "near_call_wall_distance_pct": 1.94, "near_call_wall_status": "WALL_AVAILABLE",
+                "near_put_wall_strike": 1000.0, "near_put_wall_oi": 9000.0,
+                "near_put_wall_distance_pct": -2.91, "near_put_wall_status": "WALL_AVAILABLE",
+            }]), {"status": "RAW"}
+
+        def ls_flow(self):
+            return {"status": "RAW_DESCRIPTIVE_ONLY", "warning": "fixture"}
+
+    class FakeDashboardService:
+        def __init__(self, _root: Path):
+            self.query = FakeQuery()
+            self.derivatives = FakeDerivatives()
+
+        def dashboard_metrics(self):
+            return {
+                "KOSPI200_BASIS": metric(2.0), "VOLUME_PCR": metric(1.1),
+                "OI_PCR": metric(1.3), "CALL_WALL": metric(1597.5),
+                "PUT_WALL": metric(700.0), "LS_FUTURES_FOREIGN_NET": metric(1234.4),
+            }
+
+    import stock_data.gui.services as services
+    monkeypatch.setattr(services, "DashboardService", FakeDashboardService)
+
+    payload = build_derivatives(Path("unused"))
+    row = payload["wall"]["rows"][0]
+
+    assert row["near_call_wall_strike"] == 1050.0
+    assert row["near_put_wall_strike"] == 1000.0
+    assert row["near_call_wall_distance_pct"] == pytest.approx(1.94)
+    assert payload["wall"]["near_window_available"] is True
+    assert payload["basis"]["basis_label"] == "기준일 2026-09-02 · D+1 공개"
+    assert payload["wall"]["basis_label"] == "기준일 2026-09-02 · D+1 공개"
