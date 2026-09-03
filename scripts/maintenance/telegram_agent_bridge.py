@@ -524,9 +524,13 @@ def watchlist_condition_summary(limit: int = 12) -> str:
 
     table = build_stocks_page_data(REPOSITORY).get("table", [])
     hits = [row for row in table if row.get("condition_matches")]
-    lines = ["📌 관심종목 조건 도달"]
+    # Conditions are evaluated on retained closes; at 16:10 that is still the previous session
+    # (today's Korean closes arrive with the 20:30 bundle), so the basis date must be visible.
+    as_of_dates = sorted({str(row["as_of"])[:10] for row in table if row.get("as_of")})
+    basis = f" ({as_of_dates[-1][5:].replace('-', '/')} 마감 기준)" if as_of_dates else ""
+    lines = [f"📌 관심종목 조건 도달{basis}"]
     if not hits:
-        lines.append("오늘 조건에 걸린 관심종목 없음")
+        lines.append("조건에 걸린 관심종목 없음")
         return "\n".join(lines)
     for row in hits[:limit]:
         price = row.get("price")
