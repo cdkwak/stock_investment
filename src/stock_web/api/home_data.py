@@ -19,6 +19,7 @@ from pathlib import Path
 import pandas as pd
 
 from stock_web.api import datasets as dsx
+from stock_web.api.changes import build_changes
 from stock_web.api.datasets import field
 from stock_web.api.fmt import KST, format_kst
 from stock_web.api.indicators import rsi_wilder
@@ -1132,6 +1133,12 @@ def _build_home_payload_uncached(
         brief = build_brief(project_root)
         if brief is not None:
             sections["brief"] = brief
+    sections["changes"] = _safe_home_section(
+        lambda: build_changes(project_root, public_mode=public_mode),
+        "오늘 변화 데이터를 읽을 수 없습니다.",
+    )
+    # Retain the existing API projection for older local consumers and the
+    # guest-mode scanner path; Home renders only the changes section.
     sections["scanner"] = build_scanner(project_root, public_mode=public_mode)
     sections["watchlist"] = _safe_home_section(
         lambda: build_watchlist(project_root, public_mode=public_mode),

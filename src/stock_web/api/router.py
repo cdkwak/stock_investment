@@ -54,6 +54,7 @@ def _guest_mode_blocked(method: str, path: str) -> bool:
         path in {"/api/account", "/api/cash-flows", "/api/net-worth", "/api/manual"}
         or path.startswith("/api/trade-journal")
         or path.startswith("/api/manual/")
+        or path.startswith("/api/research/compound")
     )
 
 
@@ -131,6 +132,12 @@ def build_router(project_root: Path, *, public_mode: bool = False) -> APIRouter:
         from stock_web.api import home_data
 
         return json_response(home_data.build_home_payload(project_root, public_mode=public_mode))
+
+    @router.get("/changes")
+    def changes() -> Response:
+        from stock_web.api.changes import build_changes
+
+        return json_response(build_changes(project_root, public_mode=public_mode))
 
     @router.get("/chart")
     def chart(symbol: str = "KOSPI", range: str = "6M") -> Response:
@@ -542,6 +549,66 @@ def build_router(project_root: Path, *, public_mode: bool = False) -> APIRouter:
         except RuntimeError as error:
             return json_response({"error": str(error)}, status_code=500)
         return json_response(payload)
+
+    @router.get("/research/compound/grid")
+    def research_compound_grid(request: Request) -> Response:
+        from stock_web.api.research_page import (
+            CompoundGridNotFound,
+            build_compound_grid_payload,
+        )
+
+        try:
+            payload = build_compound_grid_payload(
+                project_root,
+                basket=str(request.query_params.get("basket") or ""),
+                product=str(request.query_params.get("product") or ""),
+            )
+        except CompoundGridNotFound as error:
+            return json_response({"error": str(error)}, status_code=404)
+        return json_response(payload)
+
+    @router.post("/research/compound/holdout-view")
+    async def research_compound_holdout_view(request: Request) -> Response:
+        from stock_web.api.research_page import (
+            CompoundGridNotFound,
+            ResearchInputError,
+            record_compound_holdout_view,
+        )
+
+        try:
+            payload = record_compound_holdout_view(
+                project_root, await request.json(),
+                client_key=request_client_key(request),
+            )
+        except CompoundGridNotFound as error:
+            return json_response({"error": str(error)}, status_code=404)
+        except (ValueError, ResearchInputError) as error:
+            return json_response({"error": str(error)}, status_code=400)
+        return json_response(payload)
+
+    @router.get("/research/compound/run")
+    def research_compound_run_status() -> Response:
+        from stock_web.api.research_page import build_compound_run_status
+
+        return json_response(build_compound_run_status(project_root))
+
+    @router.post("/research/compound/run")
+    async def research_compound_run(request: Request) -> Response:
+        from stock_web.api.research_page import (
+            CompoundRunConflict,
+            ResearchInputError,
+            start_compound_run,
+        )
+
+        if not loopback(request):
+            return json_response({"error": "계산 실행은 PC에서만 할 수 있습니다."}, status_code=403)
+        try:
+            payload = start_compound_run(project_root, await request.json())
+        except CompoundRunConflict as error:
+            return json_response({"error": str(error)}, status_code=409)
+        except (ValueError, ResearchInputError) as error:
+            return json_response({"error": str(error)}, status_code=400)
+        return json_response(payload, status_code=202)
 
     @router.post("/net-worth")
     async def save_net_worth_snapshot(request: Request) -> Response:

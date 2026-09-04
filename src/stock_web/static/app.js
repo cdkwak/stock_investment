@@ -649,11 +649,47 @@
     $("brief-meta").textContent = "";
     host.innerHTML = '<div class="muted">브리핑 없음 · 07:30/16:10 생성</div>';
   }
-  function renderScanner(sec) {
-    const host = $("scanner");
-    if (!sec) { host.innerHTML = `<b>과매도 스캐너</b><span class="muted">표시 불가</span>`; return; }
-    host.innerHTML = `<b>과매도 스캐너</b><span class="muted">${esc(sec.as_of || "")} 기준 후보 <b style="color:var(--ink)">${sec.count ?? 0}</b>개 · ${esc(sec.rule || "")}</span>` +
-      `<span style="display:flex;gap:10px">${(sec.top || []).map((t) => `<span>${esc(t.name)} <span class="num down">${esc(t.why)}</span></span>`).join("")}</span><a class="ml" href="/stocks">전체 목록은 종목 페이지에서 ▸</a>`;
+  function renderChanges(sec) {
+    const host = $("changes");
+    const data = sec || {};
+    const counts = data.counts || {};
+    const ruleChanges = Array.isArray(data.rule_changes) ? data.rule_changes : [];
+    const entries = Array.isArray(data.condition_entries) ? data.condition_entries : [];
+    const exits = Array.isArray(data.condition_exits) ? data.condition_exits : [];
+    const highs = Array.isArray(data.new_highs_52w_list) ? data.new_highs_52w_list : [];
+    const lows = Array.isArray(data.new_lows_52w_list) ? data.new_lows_52w_list : [];
+    const spikes = Array.isArray(data.volume_spikes) ? data.volume_spikes : [];
+    const ruleCount = counts.rule_changes ?? ruleChanges.length;
+    const entryCount = counts.condition_entries ?? entries.length;
+    const exitCount = counts.condition_exits ?? exits.length;
+    const highCount = counts.new_highs_52w ?? data.new_highs_52w ?? 0;
+    const lowCount = counts.new_lows_52w ?? data.new_lows_52w ?? 0;
+    const spikeCount = counts.volume_spikes ?? spikes.length;
+    const chip = (panel, label, total) => `<button type="button" class="change-chip${total ? "" : " zero"}" data-change-panel="${panel}" aria-expanded="false">${label}</button>`;
+    const empty = '<span class="muted">변화 없음</span>';
+    const conditionRows = [
+      ...entries.map((item) => `<li><span class="change-direction on">진입</span>${esc(item.display || `${item.symbol || ""} ${item.name || ""}`)}</li>`),
+      ...exits.map((item) => `<li><span class="change-direction off">이탈</span>${esc(item.display || `${item.symbol || ""} ${item.name || ""}`)}</li>`),
+    ].join("");
+    const highLowRows = [
+      ...highs.map((item) => `<li><span class="change-direction on">신고가</span>${esc(item.display || item.symbol || "")}</li>`),
+      ...lows.map((item) => `<li><span class="change-direction off">신저가</span>${esc(item.display || item.symbol || "")}</li>`),
+    ].join("");
+    host.innerHTML = `<div class="changes-heading"><b>오늘 달라진 것</b><span class="muted">${esc(data.as_of ? `${data.as_of} 기준` : "표시 가능한 변화 없음")}</span></div>` +
+      `<div class="changes-chips">${chip("rules", `규칙 단계 변화 ${ruleCount}`, ruleCount)}${chip("conditions", `조건 진입 ${entryCount} · 이탈 ${exitCount}`, entryCount + exitCount)}${chip("highlow", `52주 신고가 ${highCount} · 신저가 ${lowCount}`, highCount + lowCount)}${chip("volume", `거래량 급증 ${spikeCount}`, spikeCount)}</div>` +
+      `<div class="change-detail" data-change-detail="rules" hidden>${ruleChanges.length ? `<ul>${ruleChanges.map((item) => `<li><b>${esc(item.rule || "규칙")}</b> ${esc(item.from_level || "—")} → ${esc(item.to_level || "—")}</li>`).join("")}</ul>` : empty}</div>` +
+      `<div class="change-detail" data-change-detail="conditions" hidden>${conditionRows ? `<ul>${conditionRows}</ul>` : empty}</div>` +
+      `<div class="change-detail" data-change-detail="highlow" hidden>${highLowRows ? `<ul>${highLowRows}</ul>` : empty}</div>` +
+      `<div class="change-detail" data-change-detail="volume" hidden>${spikes.length ? `<ul>${spikes.map((item) => `<li><b>${esc(item.display || item.symbol || "")}</b> 20일 평균의 ${fmt(item.ratio, 2)}배</li>`).join("")}</ul>` : empty}</div>` +
+      `<a class="changes-link" href="/stocks">전체 목록은 종목 페이지에서 ▸</a>`;
+    host.querySelectorAll("[data-change-panel]").forEach((button) => button.addEventListener("click", () => {
+      const target = button.dataset.changePanel;
+      const detail = host.querySelector(`[data-change-detail="${target}"]`);
+      const opening = detail && detail.hidden;
+      host.querySelectorAll("[data-change-detail]").forEach((item) => { item.hidden = true; });
+      host.querySelectorAll("[data-change-panel]").forEach((item) => item.setAttribute("aria-expanded", "false"));
+      if (detail && opening) { detail.hidden = false; button.setAttribute("aria-expanded", "true"); }
+    }));
   }
   function renderSummaryStrip(d) {
     const f = d.flows && d.flows.rows ? d.flows.rows[0] : null;
@@ -665,7 +701,10 @@
     if (scheduleEvents.length) groups.push(`<span class="summary-group"><b>일정</b><span>${scheduleEvents.slice(0, 2).map((i) => `${esc(i.when)} ${esc(i.what)}`).join(" · ")}</span></span>`);
     const more = [];
     if ((d.schedule && d.schedule.briefs && d.schedule.briefs.length) || (d.brief && d.brief.lines && d.brief.lines.length)) more.push("브리핑");
-    if (d.scanner && d.scanner.count !== undefined) more.push(`스캐너 ${d.scanner.count}개`);
+    if (d.changes && d.changes.counts) {
+      const c = d.changes.counts;
+      more.push(`오늘 변화 규칙 ${c.rule_changes || 0} · 조건 ${c.condition_entries || 0}/${c.condition_exits || 0}`);
+    }
     if (more.length) groups.push(`<span class="summary-group ml">${more.join(" · ")} · <a href="/stocks">자세히 ▸</a></span>`);
     $("summary-strip").innerHTML = groups.length ? groups.join('<span class="summary-separator">|</span>') : '<span class="muted">표시할 요약이 없습니다.</span>';
   }
@@ -752,7 +791,7 @@
       loadChart(initial, currentRange());
     } else renderChart(null);
     renderWatchlist(s.watchlist); renderAccount(s.account); renderFlows(s.flows, payload.as_of || payload.as_of_label); renderDerivatives(s.derivatives);
-    renderSchedule(s.schedule); renderBrief(s.schedule, s.brief); renderScanner(s.scanner); renderSummaryStrip(s);
+    renderSchedule(s.schedule); renderBrief(s.schedule, s.brief); renderChanges(s.changes); renderSummaryStrip(s);
   }
   function enforcePublicUi(root = document) {
     if (!publicMode) return;

@@ -385,6 +385,8 @@ def test_market_report_send_failure_is_saved_as_unsent(
         bridge, "refresh_close_watchlist_same_day", lambda: "completed · 0 calls",
     )
     monkeypatch.setattr(bridge, "watchlist_condition_summary", lambda **kwargs: "")
+    monkeypatch.setattr(bridge, "_changes_payload", lambda: {})
+    monkeypatch.setattr(bridge, "changes_block", lambda *_args: "")
 
     class FailingClient:
         def send(self, chat_id: int, text: str) -> None:
@@ -436,7 +438,7 @@ def test_handle_manual_brief_rejects_unknown_kind_without_codex(monkeypatch) -> 
         "text": "/brief tomorrow",
     }}]
     assert bridge.handle_updates(client, 42, updates) == 31
-    assert client.messages == [(42, "사용법: /brief morning, close 또는 conditions")]
+    assert client.messages == [(42, "사용법: /brief morning, close, conditions 또는 changes")]
 
 
 def test_report_cli_accepts_conditions_kind() -> None:
@@ -447,6 +449,10 @@ def test_report_cli_accepts_conditions_kind() -> None:
     direct = bridge.build_parser().parse_args(["--report", "conditions"])
     assert direct.command is None
     assert direct.direct_report_kind == "conditions"
+
+    changes = bridge.build_parser().parse_args(["--report", "changes"])
+    assert changes.command is None
+    assert changes.direct_report_kind == "changes"
 
 
 def test_nonregister_agent_decision_never_mutates_queue(monkeypatch) -> None:

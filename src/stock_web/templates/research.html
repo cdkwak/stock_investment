@@ -56,6 +56,86 @@
     </div>
   </details>
 
+  {% if not public_mode %}
+  <section class="card compound-lab-card" id="compound-lab" aria-labelledby="compound-lab-title">
+    <div class="card-head research-section-head compound-lab-head">
+      <div><span class="section-index">00·LAB</span><b id="compound-lab-title">파라미터 실험</b></div>
+      <span class="compound-view-count" id="compound-view-count">홀드아웃 열람 0회 (이 세션 0회)</span>
+    </div>
+    <div class="compound-howto">
+      <b>복리 사다리 빠른 사용법</b>
+      <span>낙폭·이격도는 진입 문턱, 분할 수와 배율은 위기 때 옮길 노출을 정합니다.</span>
+      <span>적합 구간(~2015)은 자유롭게 탐색하고, 홀드아웃(2016~) 열람은 매번 기록됩니다.</span>
+      <span>마음에 드는 조합을 후보로 등록하면 자동 포워드 테스트가 시작됩니다.</span>
+    </div>
+
+    <div class="compound-lab-grid">
+      <form class="compound-knobs" id="compound-knobs">
+        <h3>조절판</h3>
+        <label><span>바스켓 · 지수</span><select id="compound-basket" aria-label="바스켓과 지수"></select></label>
+        <label><span>상품</span><select id="compound-product">
+          <option value="index_1x">지수 1x</option>
+          <option value="synthetic_2x" selected>합성 2x</option>
+          <option value="synthetic_3x">합성 3x</option>
+          <option value="actual_adjusted">실제 상품 보정</option>
+        </select></label>
+        <label class="compound-range-field"><span>낙폭 임계값 <output id="compound-drawdown-value">—</output></span><input id="compound-drawdown" type="range" min="0" max="0" step="1" value="0"></label>
+        <label class="compound-range-field"><span>이격도 임계값 <output id="compound-disp60-value">—</output></span><input id="compound-disp60" type="range" min="0" max="0" step="1" value="0"></label>
+        <label><span>분할 수</span><select id="compound-levels"><option>1</option><option selected>2</option><option>3</option><option>4</option></select></label>
+        <label><span>레버리지 배율</span><select id="compound-multiple"><option>1</option><option selected>2</option><option>3</option></select></label>
+        <label><span>출구 방식</span><select id="compound-exit">
+          <option value="a">a 점수 역주행</option><option value="b60">b60</option><option value="b120">b120</option><option value="c">c 목표수익 분할</option><option value="d">d 안 팔기</option>
+        </select></label>
+        <label class="compound-cost"><input id="compound-cost" type="checkbox" checked> 거래비용 포함</label>
+        <div class="compound-actions">
+          <button type="button" id="compound-holdout">홀드아웃 보기</button>
+          <button type="button" class="primary" id="compound-register">이 조합 후보 등록</button>
+        </div>
+        <p class="compound-knob-note" id="compound-knob-note" role="status">그리드를 불러오는 중…</p>
+      </form>
+
+      <div class="compound-outputs" aria-live="polite">
+        <section class="compound-headline" id="compound-headline"><span>FIT · ~2015</span><b>—</b></section>
+        <div class="compound-metrics" id="compound-fit-metrics"></div>
+        <section class="compound-holdout" id="compound-holdout-output" hidden></section>
+        <section class="compound-chart-block">
+          <div class="compound-subhead"><b>자산 곡선 · FIT</b><span>내 규칙 / 기준선</span></div>
+          <div id="compound-equity-chart" class="compound-equity-chart"></div>
+        </section>
+        <section class="compound-cycle-block">
+          <div class="compound-subhead"><b>사이클별</b><span>기여는 해당 episode의 wealth 변화</span></div>
+          <div class="research-table-wrap"><table class="research-table compound-cycle-table"><thead><tr><th>entry</th><th>max level</th><th>exit</th><th>contribution</th></tr></thead><tbody id="compound-cycle-body"></tbody></table></div>
+        </section>
+        <section class="compound-heatmap-block">
+          <div class="compound-subhead"><b>고원 지도 · FIT/기준선</b><select id="compound-heatmap-axes" aria-label="고원 지도 축">
+            <option value="threshold_x_levels">낙폭 임계값 × 분할 수</option>
+            <option value="levels_x_multiple">분할 수 × 배율</option>
+            <option value="threshold_x_multiple">임계값 × 배율</option>
+          </select></div>
+          <div id="compound-heatmap" class="compound-heatmap"></div>
+          <p id="compound-plateau-verdict" class="compound-plateau-verdict">—</p>
+        </section>
+      </div>
+    </div>
+
+    <details class="compound-run" id="compound-run">
+      <summary><b>계산 실행</b><span>retained data only · 공급자 호출 없음</span></summary>
+      <div class="compound-run-body">
+        <fieldset><legend>바스켓</legend><label><input type="checkbox" name="compound-run-basket" value="KR" checked> KR</label><label><input type="checkbox" name="compound-run-basket" value="US_TECH"> US_TECH</label><label><input type="checkbox" name="compound-run-basket" value="SEMIS"> SEMIS</label><label><input type="checkbox" name="compound-run-basket" value="FOREIGN"> FOREIGN</label></fieldset>
+        <label><span>상품</span><select id="compound-run-product"><option value="index_1x">지수 1x</option><option value="synthetic_2x" selected>합성 2x</option><option value="synthetic_3x">합성 3x</option><option value="actual_adjusted">실제 상품 보정</option></select></label>
+        <label><span>낙폭 임계값 (쉼표)</span><input id="compound-run-drawdowns" placeholder="-0.10,-0.15,-0.20,-0.25,-0.30,-0.35"></label>
+        <label><span>이격도 임계값 (쉼표)</span><input id="compound-run-disp60" placeholder="-0.05,-0.10,-0.15"></label>
+        <label><span>분할 수 (쉼표)</span><input id="compound-run-levels" placeholder="1,2,3,4"></label>
+        <label><span>배율 (쉼표)</span><input id="compound-run-multiples" placeholder="1,2,3"></label>
+        <div class="compound-run-actions"><button type="button" class="primary" id="compound-run-start">계산 시작</button><span id="compound-run-status" role="status">대기</span></div>
+        <div class="compound-command"><b>명령줄로 돌리기</b><code id="compound-command"></code></div>
+        <pre id="compound-run-log" class="compound-run-log" aria-label="계산 진행 로그">아직 실행 기록이 없습니다.</pre>
+      </div>
+    </details>
+    <div class="compound-toast" id="compound-toast" role="status" hidden></div>
+  </section>
+  {% endif %}
+
   <section class="card research-leaderboard-card" aria-labelledby="leaderboard-title">
     <div class="card-head research-section-head">
       <div><span class="section-index">01</span><b id="leaderboard-title">규칙 후보 순위</b></div>

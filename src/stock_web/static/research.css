@@ -56,6 +56,67 @@
 .experiment-dialog p { color: var(--muted); font-size: 10px; margin: 0; }
 .experiment-dialog form > div { display: flex; justify-content: flex-end; gap: 7px; }
 
+.compound-lab-card { position: relative; overflow: hidden; }
+.compound-lab-head { align-items: center; }
+.compound-view-count { color: #fff; background: var(--ink); border-radius: 999px; padding: 5px 10px; font-size: 10px; font-variant-numeric: tabular-nums; }
+.compound-howto { display: grid; gap: 3px; margin: 0 0 14px; padding: 11px 13px; border-left: 3px solid var(--amber); background: #fffaf2; color: #4d4944; font-size: 10px; line-height: 1.45; }
+.compound-howto b { color: var(--ink); font-size: 11px; }
+.compound-lab-grid { display: grid; grid-template-columns: minmax(250px, .72fr) minmax(0, 1.8fr); gap: 16px; align-items: start; }
+.compound-knobs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 13px; border: 1px solid var(--grid); border-radius: 5px; background: #fbfaf7; }
+.compound-knobs h3 { grid-column: 1 / -1; margin: 0; font-size: 12px; }
+.compound-knobs label, .compound-run-body > label { display: grid; gap: 4px; min-width: 0; color: var(--muted); font-size: 10px; }
+.compound-knobs select, .compound-run-body select, .compound-run-body input { min-width: 0; width: 100%; border: 1px solid var(--line); border-radius: 3px; background: #fff; color: var(--ink); padding: 6px; font: inherit; }
+.compound-range-field { grid-column: 1 / -1; }
+.compound-range-field > span { display: flex; justify-content: space-between; }
+.compound-range-field output { color: var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; }
+.compound-range-field input { width: 100%; accent-color: var(--amber); }
+.compound-cost { grid-column: 1 / -1; display: flex !important; align-items: center; color: var(--ink) !important; }
+.compound-cost input { accent-color: var(--amber); }
+.compound-actions { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.compound-actions button, .compound-run-actions button { border: 1px solid var(--line); border-radius: 4px; background: #fff; color: var(--ink); padding: 8px 9px; cursor: pointer; font: inherit; }
+.compound-actions button.primary, .compound-run-actions button.primary { color: #fff; background: var(--ink); border-color: var(--ink); }
+.compound-actions button:disabled, .compound-run-actions button:disabled { cursor: not-allowed; opacity: .48; }
+.compound-knob-note { grid-column: 1 / -1; min-height: 1.3em; margin: 0; color: var(--muted); font-size: 10px; }
+.compound-outputs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; min-width: 0; }
+.compound-headline { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 12px 14px; border-radius: 5px; background: var(--ink); color: #fff; }
+.compound-headline span { color: var(--amber-soft); font-size: 10px; }
+.compound-headline b { font-size: 17px; font-variant-numeric: tabular-nums; text-align: right; }
+.compound-metrics { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+.compound-metric { padding: 8px 10px; border: 1px solid var(--grid); border-radius: 4px; }
+.compound-metric span { display: block; color: var(--muted); font-size: 9px; }
+.compound-metric b { display: block; margin-top: 3px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.compound-holdout { grid-column: 1 / -1; padding: 10px 12px; border: 1px solid #d8b36b; border-radius: 4px; background: #fffaf2; }
+.compound-holdout h3 { margin: 0 0 6px; font-size: 11px; }
+.compound-holdout p { margin: 0; font-variant-numeric: tabular-nums; }
+.compound-chart-block, .compound-cycle-block, .compound-heatmap-block { min-width: 0; padding: 10px; border: 1px solid var(--grid); border-radius: 4px; }
+.compound-chart-block { grid-column: 1 / -1; }
+.compound-heatmap-block { grid-column: 1 / -1; }
+.compound-subhead { display: flex; justify-content: space-between; align-items: center; gap: 9px; margin-bottom: 7px; font-size: 10px; }
+.compound-subhead span { color: var(--muted); font-size: 9px; }
+.compound-subhead select { border: 1px solid var(--line); border-radius: 3px; background: #fff; padding: 4px; color: var(--ink); font: inherit; }
+.compound-equity-chart { min-height: 210px; }
+.compound-equity-chart .si-line-chart { display: block; width: 100%; height: auto; }
+.compound-cycle-table { min-width: 420px; }
+.compound-heatmap svg { display: block; width: 100%; max-height: 300px; }
+.compound-heatmap text { fill: var(--muted); font-size: 9px; font-variant-numeric: tabular-nums; }
+.compound-heatmap .heat-value { fill: var(--ink); font-weight: 700; }
+.compound-heatmap .heat-current { fill: none; stroke: var(--ink); stroke-width: 3; }
+.compound-heatmap .heat-best { fill: var(--ink); font-size: 13px; }
+.compound-plateau-verdict { margin: 6px 0 0; color: var(--ink); font-size: 11px; font-weight: 700; }
+.compound-run { margin-top: 15px; border-top: 1px solid var(--line); }
+.compound-run > summary { display: flex; justify-content: space-between; gap: 10px; padding: 12px 2px 2px; cursor: pointer; }
+.compound-run > summary span { color: var(--muted); font-size: 9px; }
+.compound-run-body { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 9px; padding-top: 12px; }
+.compound-run fieldset { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 12px; border: 0; padding: 0; margin: 0; font-size: 10px; }
+.compound-run legend { float: left; margin-right: 10px; color: var(--muted); }
+.compound-run-actions { grid-column: 1 / -1; display: flex; align-items: center; gap: 9px; }
+.compound-run-actions span { color: var(--muted); font-size: 10px; }
+.compound-command { grid-column: 1 / -1; display: grid; gap: 5px; padding: 9px; background: #f3f0ea; border-radius: 4px; font-size: 9px; }
+.compound-command code { overflow-wrap: anywhere; user-select: all; }
+.compound-run-log { grid-column: 1 / -1; max-height: 180px; overflow: auto; margin: 0; padding: 9px; border-radius: 4px; background: #171612; color: #d8d4ca; font-size: 9px; white-space: pre-wrap; }
+.compound-toast { position: fixed; right: 18px; bottom: 18px; z-index: 40; max-width: min(420px, calc(100vw - 36px)); padding: 10px 13px; border-radius: 4px; background: var(--ink); color: #fff; box-shadow: 0 8px 30px #0004; font-size: 11px; }
+.compound-toast.error { background: #8b2f27; }
+
 .research-leaderboard-card { min-width: 0; overflow: hidden; }
 .research-table-wrap { display: block; width: 100%; max-width: 100%; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; }
 .research-table { width: 100%; border-collapse: collapse; font-size: 11px; font-variant-numeric: tabular-nums; }
@@ -137,6 +198,8 @@
   .forward-candidate-summary { grid-template-columns: 1fr; gap: 3px; }
   .forward-summary-line { text-align: left; }
   .experiment-controls { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .compound-lab-grid { grid-template-columns: 1fr; }
+  .compound-run-body { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 600px) {
@@ -172,4 +235,10 @@
   .experiment-actions { flex-wrap: wrap; }
   .experiment-result-head { flex-direction: column; }
   .experiment-result-head > span { text-align: left; }
+  .compound-lab-head { align-items: flex-start; }
+  .compound-view-count { align-self: flex-start; }
+  .compound-knobs, .compound-outputs, .compound-run-body { grid-template-columns: 1fr; }
+  .compound-metrics { grid-template-columns: 1fr 1fr; }
+  .compound-actions { grid-template-columns: 1fr; }
+  .compound-chart-block, .compound-cycle-block, .compound-heatmap-block, .compound-run fieldset, .compound-run-actions, .compound-command, .compound-run-log { grid-column: 1; }
 }

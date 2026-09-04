@@ -409,8 +409,397 @@
     syncExperimentControls();
   }
 
+  const compoundState = {
+    catalog: [], cache: new Map(), payload: null, frame: 0,
+    holdoutVisible: false, sessionViews: 0, pollTimer: 0, wasRunning: false,
+  };
+  const compoundDefaults = {
+    drawdown_threshold: [-.10, -.15, -.20, -.25, -.30, -.35],
+    disp60_threshold: [-.05, -.10, -.15], levels: [1, 2, 3, 4],
+    leverage_multiple: [1, 2, 3], base_exposure: [0, 1],
+    exit: ["a", "b60", "b120", "c", "d"], cost_enabled: [false, true],
+  };
+  let compoundToastTimer = 0;
+
+  function compoundToast(message, error = false) {
+    const host = $("compound-toast");
+    if (!host) return;
+    clearTimeout(compoundToastTimer);
+    host.textContent = message;
+    host.classList.toggle("error", error);
+    host.hidden = false;
+    compoundToastTimer = setTimeout(() => { host.hidden = true; }, 4200);
+  }
+
+  function compoundEntry() {
+    const value = $("compound-basket").value;
+    return compoundState.catalog.find((item) => `${item.basket}|${item.product}` === value) || null;
+  }
+
+  function cachedList(name) {
+    return (((compoundState.payload || {}).cached_values || {})[name]) || [];
+  }
+
+  function sliderValue(id, values) {
+    return values[Number($(id).value)] ?? values[0];
+  }
+
+  function compoundCombination() {
+    const entry = compoundEntry();
+    if (!entry) return null;
+    return {
+      basket: entry.basket, product: entry.product,
+      drawdown_threshold: sliderValue("compound-drawdown", cachedList("drawdown_thresholds")),
+      disp60_threshold: sliderValue("compound-disp60", cachedList("disp60_thresholds")),
+      levels: Number($("compound-levels").value),
+      leverage_multiple: Number($("compound-multiple").value),
+      exit: $("compound-exit").value, cost_enabled: $("compound-cost").checked,
+      product_variant: $("compound-product").value,
+    };
+  }
+
+  function compoundMetric(row, variant, split) {
+    if (!row) return null;
+    if (variant === "actual_adjusted") return ((row.actual_product_basis || {})[split]) || null;
+    return row[split] || null;
+  }
+
+  function compoundRow(combination) {
+    if (!combination) return null;
+    const rows = (compoundState.payload || {}).rows || [];
+    const row = rows.find((item) => item.base_exposure === 1
+      && Number(item.drawdown_threshold) === Number(combination.drawdown_threshold)
+      && Number(item.disp60_threshold) === Number(combination.disp60_threshold)
+      && Number(item.levels) === combination.levels
+      && Number(item.leverage_multiple) === combination.leverage_multiple
+      && item.exit === combination.exit
+      && Boolean(item.cost_enabled) === combination.cost_enabled) || null;
+    return combination.product_variant === "actual_adjusted" && !(row || {}).actual_product_basis ? null : row;
+  }
+
+  function multipleText(value, digits = 2) {
+    return finite(value) ? `${Number(value).toFixed(digits)}배` : "—";
+  }
+
+  function renderCompoundCurve(row, fit, variant) {
+    const host = $("compound-equity-chart");
+    const baseline = (compoundState.payload || {}).baseline || {};
+    const finish = fit && fit.end ? String(fit.end) : "9999-12-31";
+    const series = (items) => (items || []).filter((point) => point.date <= finish).map((point) => ({ t: point.date, v: point.wealth }));
+    const mine = variant === "actual_adjusted" ? [] : series(row && row.equity_curve_weekly);
+    const base = series(baseline.equity_curve_weekly);
+    if (mine.length < 2 || base.length < 2 || !window.SIChart) {
+      host.innerHTML = '<div class="unavailable">이 조합은 이름 붙은 자산 곡선이 캐시에 없습니다.</div>';
+      return;
+    }
+    window.SIChart.renderLineChart(host, [], {
+      height: 220, ariaLabel: "FIT 기간 내 규칙과 기준선 자산 곡선",
+      series: [
+        { key: "mine", label: "내 규칙", color: "#c07a20", points: mine },
+        { key: "baseline", label: "기준선", color: "#2b62c0", points: base },
+      ],
+      axisFormatter: (value) => `${Number(value).toFixed(1)}x`,
+      valueFormatter: (value) => `${Number(value).toFixed(2)}배`,
+    });
+  }
+
+  function renderCompoundCycles(row, variant) {
+    const cycles = variant === "actual_adjusted" ? [] : ((row && row.cycles) || []);
+    $("compound-cycle-body").innerHTML = cycles.length ? cycles.map((cycle) => `<tr><td>${esc(cycle.entry_date || "—")}</td><td>${number(cycle.max_level_reached, 0)}</td><td>${esc(cycle.exit_date || "open")}</td><td class="${valueClass(cycle.contribution_to_wealth)}">${pct(cycle.contribution_to_wealth)}</td></tr>`).join("") : '<tr><td colspan="4"><div class="unavailable">이 조합의 사이클 상세는 캐시에 없습니다.</div></td></tr>';
+  }
+
+  function heatMetric(row, variant) {
+    return compoundMetric(row, variant, "fit");
+  }
+
+  function renderCompoundHeatmap(combination) {
+    const mode = $("compound-heatmap-axes").value;
+    const definitions = {
+      threshold_x_levels: { x: "drawdown_threshold", y: "levels", fixed: { disp60_threshold: -.10, leverage_multiple: 2 } },
+      levels_x_multiple: { x: "levels", y: "leverage_multiple", fixed: { drawdown_threshold: -.20, disp60_threshold: -.10 } },
+      threshold_x_multiple: { x: "drawdown_threshold", y: "leverage_multiple", fixed: { disp60_threshold: -.10, levels: 2 } },
+    };
+    const definition = definitions[mode];
+    const rows = ((compoundState.payload || {}).rows || []).filter((row) => row.base_exposure === 1 && row.exit === "a" && row.cost_enabled === true
+      && Object.entries(definition.fixed).every(([key, value]) => Number(row[key]) === Number(value))
+      && finite((heatMetric(row, combination.product_variant) || {}).relative_to_baseline));
+    const host = $("compound-heatmap");
+    if (!rows.length) {
+      host.innerHTML = '<div class="unavailable">미계산 조합 · 이 surface가 캐시에 없습니다.</div>';
+      $("compound-plateau-verdict").textContent = "판정할 이웃 셀이 없습니다.";
+      return;
+    }
+    const xs = [...new Set(rows.map((row) => row[definition.x]))].sort((a, b) => Number(a) - Number(b));
+    const ys = [...new Set(rows.map((row) => row[definition.y]))].sort((a, b) => Number(a) - Number(b));
+    const best = rows.reduce((winner, row) => Number(heatMetric(row, combination.product_variant).relative_to_baseline) > Number(heatMetric(winner, combination.product_variant).relative_to_baseline) ? row : winner, rows[0]);
+    const values = rows.map((row) => Number(heatMetric(row, combination.product_variant).relative_to_baseline));
+    const low = Math.min(...values), high = Math.max(...values), span = high - low || 1;
+    const cellW = 86, cellH = 46, left = 70, top = 22;
+    const width = left + xs.length * cellW + 6, height = top + ys.length * cellH + 30;
+    const label = (key, value) => key === "drawdown_threshold" ? `${Math.round(Number(value) * 100)}%` : String(value);
+    const cells = rows.map((row) => {
+      const xi = xs.indexOf(row[definition.x]), yi = ys.indexOf(row[definition.y]);
+      const value = Number(heatMetric(row, combination.product_variant).relative_to_baseline);
+      const ratio = (value - low) / span;
+      const fill = `hsl(${35 + ratio * 85} 48% ${88 - ratio * 24}%)`;
+      const current = Number(row[definition.x]) === Number(combination[definition.x]) && Number(row[definition.y]) === Number(combination[definition.y]);
+      const isBest = row === best;
+      return `<g><rect x="${left + xi * cellW}" y="${top + yi * cellH}" width="${cellW - 3}" height="${cellH - 3}" rx="3" fill="${fill}"></rect>${current ? `<rect class="heat-current" x="${left + xi * cellW + 1.5}" y="${top + yi * cellH + 1.5}" width="${cellW - 6}" height="${cellH - 6}" rx="3"></rect>` : ""}<text class="heat-value" x="${left + xi * cellW + (cellW - 3) / 2}" y="${top + yi * cellH + 27}" text-anchor="middle">${value.toFixed(2)}x</text>${isBest ? `<text class="heat-best" x="${left + xi * cellW + cellW - 14}" y="${top + yi * cellH + 15}" text-anchor="middle">★</text>` : ""}</g>`;
+    }).join("");
+    host.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="FIT 기준선 대비 고원 지도"><title>별은 최적 셀, 굵은 테두리는 현재 조합</title>${xs.map((value, index) => `<text x="${left + index * cellW + (cellW - 3) / 2}" y="${height - 8}" text-anchor="middle">${esc(label(definition.x, value))}</text>`).join("")}${ys.map((value, index) => `<text x="${left - 8}" y="${top + index * cellH + 27}" text-anchor="end">${esc(label(definition.y, value))}</text>`).join("")}${cells}</svg>`;
+    const bestXi = xs.indexOf(best[definition.x]), bestYi = ys.indexOf(best[definition.y]);
+    const neighbours = rows.filter((row) => row !== best
+      && Math.abs(xs.indexOf(row[definition.x]) - bestXi) <= 1
+      && Math.abs(ys.indexOf(row[definition.y]) - bestYi) <= 1);
+    const bestValue = Number(heatMetric(best, combination.product_variant).relative_to_baseline);
+    const neighbourMean = neighbours.length ? neighbours.reduce((sum, row) => sum + Number(heatMetric(row, combination.product_variant).relative_to_baseline), 0) / neighbours.length : NaN;
+    const sharp = bestValue > 1 && Number.isFinite(neighbourMean) && bestValue - neighbourMean > .25 * (bestValue - 1);
+    $("compound-plateau-verdict").textContent = `${sharp ? "뾰족한 봉우리" : "넓은 고원"} · 최적 ${bestValue.toFixed(2)}x${Number.isFinite(neighbourMean) ? ` / 이웃 평균 ${neighbourMean.toFixed(2)}x` : " / 이웃 없음"}`;
+  }
+
+  function renderCompound() {
+    compoundState.frame = 0;
+    const combination = compoundCombination();
+    if (!combination) return;
+    $("compound-drawdown-value").textContent = finite(combination.drawdown_threshold) ? pct(combination.drawdown_threshold, 0, false) : "—";
+    $("compound-disp60-value").textContent = finite(combination.disp60_threshold) ? pct(combination.disp60_threshold, 0, false) : "—";
+    const row = compoundRow(combination);
+    if (!row) {
+      $("compound-headline").innerHTML = "<span>FIT · ~2015</span><b>미계산 조합</b>";
+      $("compound-fit-metrics").innerHTML = '<div class="unavailable">선택한 모든 값이 일치하는 cached grid row가 없습니다.</div>';
+      $("compound-holdout-output").hidden = true;
+      $("compound-knob-note").textContent = "미계산 조합";
+      renderCompoundCurve(null, null, combination.product_variant);
+      renderCompoundCycles(null, combination.product_variant);
+      renderCompoundHeatmap(combination);
+      return;
+    }
+    const fit = compoundMetric(row, combination.product_variant, "fit");
+    const relative = Number(fit.relative_to_baseline);
+    $("compound-headline").innerHTML = `<span>FIT · ${esc(fit.start || "—")}~${esc(fit.end || "2015")}</span><b>기준선 ${multipleText(fit.baseline_final_wealth_multiple)} · 내 규칙 ${multipleText(fit.final_wealth_multiple)} · ${pct(relative - 1, 0)}</b>`;
+    $("compound-fit-metrics").innerHTML = `<div class="compound-metric"><span>최종 금액 / 기준선</span><b>${multipleText(relative)}</b></div><div class="compound-metric"><span>CAGR</span><b>${pct(fit.cagr)}</b></div><div class="compound-metric"><span>최대낙폭</span><b>${pct(fit.max_drawdown)}</b></div>`;
+    $("compound-knob-note").textContent = `${row.underlying || combination.product} · cached row · 요청 경로 계산 없음`;
+    if (compoundState.holdoutVisible) renderCompoundHoldout(row, combination);
+    else $("compound-holdout-output").hidden = true;
+    renderCompoundCurve(row, fit, combination.product_variant);
+    renderCompoundCycles(row, combination.product_variant);
+    renderCompoundHeatmap(combination);
+  }
+
+  function scheduleCompoundRender(resetHoldout = true) {
+    if (resetHoldout) compoundState.holdoutVisible = false;
+    if (!compoundState.frame) compoundState.frame = requestAnimationFrame(renderCompound);
+  }
+
+  function renderCompoundHoldout(row, combination) {
+    const metric = compoundMetric(row, combination.product_variant, "holdout");
+    const full = compoundMetric(row, combination.product_variant, "full");
+    const host = $("compound-holdout-output");
+    if (!metric) { host.hidden = true; return; }
+    host.hidden = false;
+    host.innerHTML = `<h3>홀드아웃 · ${esc(metric.start || "2016")}~</h3><p>기준선 ${multipleText(metric.baseline_final_wealth_multiple)} · 내 규칙 ${multipleText(metric.final_wealth_multiple)} · ${pct(Number(metric.relative_to_baseline) - 1, 0)} · CAGR ${pct(metric.cagr)} · MDD ${pct(metric.max_drawdown)}</p>${full ? `<p class="muted">전체 · 내 규칙 ${multipleText(full.final_wealth_multiple)} / 기준선 ${multipleText(full.baseline_final_wealth_multiple)} · CAGR ${pct(full.cagr)} · MDD ${pct(full.max_drawdown)}</p>` : ""}`;
+  }
+
+  function setCompoundSlider(id, values, preferred) {
+    const slider = $(id);
+    slider.min = "0";
+    slider.max = String(Math.max(values.length - 1, 0));
+    const exact = values.findIndex((value) => Number(value) === Number(preferred));
+    slider.value = String(exact >= 0 ? exact : Math.max(values.length - 1, 0));
+    slider.disabled = values.length < 2;
+  }
+
+  async function loadCompoundGrid() {
+    const entry = compoundEntry();
+    if (!entry) return;
+    const key = `${entry.basket}|${entry.product}`;
+    $("compound-knob-note").textContent = "그리드를 불러오는 중…";
+    try {
+      let payload = compoundState.cache.get(key);
+      if (!payload) {
+        const response = await fetch(`/api/research/compound/grid?basket=${encodeURIComponent(entry.basket)}&product=${encodeURIComponent(entry.product)}`);
+        if (!response.ok) throw new Error(await readError(response));
+        payload = await response.json();
+        compoundState.cache.set(key, payload);
+      }
+      compoundState.payload = payload;
+      setCompoundSlider("compound-drawdown", cachedList("drawdown_thresholds"), -.20);
+      setCompoundSlider("compound-disp60", cachedList("disp60_thresholds"), -.10);
+      compoundState.holdoutVisible = false;
+      scheduleCompoundRender(false);
+    } catch (error) {
+      compoundState.payload = null;
+      $("compound-knob-note").textContent = error.message || "그리드를 읽지 못했습니다.";
+      compoundToast(error.message || "그리드를 읽지 못했습니다.", true);
+    }
+  }
+
+  function syncCompoundProduct() {
+    const variant = $("compound-product").value;
+    const fixed = { index_1x: 1, synthetic_2x: 2, synthetic_3x: 3 }[variant];
+    if (fixed) $("compound-multiple").value = String(fixed);
+    $("compound-multiple").disabled = false;
+  }
+
+  async function revealCompoundHoldout() {
+    const combination = compoundCombination(), row = compoundRow(combination);
+    if (!row) { compoundToast("미계산 조합은 홀드아웃을 열 수 없습니다.", true); return; }
+    const button = $("compound-holdout");
+    button.disabled = true;
+    try {
+      const response = await fetch("/api/research/compound/holdout-view", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(combination),
+      });
+      if (!response.ok) throw new Error(await readError(response));
+      const payload = await response.json();
+      compoundState.holdoutVisible = true;
+      compoundState.sessionViews = payload.session_views;
+      $("compound-view-count").textContent = `홀드아웃 열람 ${number(payload.persistent_views, 0)}회 (이 세션 ${number(payload.session_views, 0)}회)`;
+      renderCompoundHoldout(row, combination);
+    } catch (error) {
+      compoundToast(error.message || "홀드아웃 열람을 기록하지 못했습니다.", true);
+    } finally { button.disabled = false; }
+  }
+
+  async function registerCompoundCandidate() {
+    const combination = compoundCombination();
+    if (!compoundRow(combination)) { compoundToast("미계산 조합은 후보로 등록할 수 없습니다.", true); return; }
+    if (combination.basket === "FOREIGN") { compoundToast("FOREIGN은 현재 포워드 테스트 바스켓 계약 밖입니다.", true); return; }
+    const entry = compoundEntry(), button = $("compound-register");
+    button.disabled = true;
+    const body = {
+      name: `복리 사다리 ${entry.underlying} ${Math.round(combination.drawdown_threshold * 100)}%/${Math.round(combination.disp60_threshold * 100)}%`,
+      reason: `compound ladder UI · ${combination.levels}분할`,
+      compound: combination,
+    };
+    try {
+      const response = await fetch("/api/research/candidates", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) throw new Error(await readError(response));
+      compoundToast("후보 등록 완료 · 포워드 테스트 레인이 자동으로 이어받습니다.");
+      await refreshResearch();
+    } catch (error) {
+      compoundToast(error.message || "후보를 등록하지 못했습니다.", true);
+    } finally { button.disabled = false; }
+  }
+
+  function compoundRunPayload() {
+    const baskets = [...document.querySelectorAll('input[name="compound-run-basket"]:checked')].map((input) => input.value);
+    return {
+      baskets, product: $("compound-run-product").value,
+      ranges: {
+        drawdown_threshold: $("compound-run-drawdowns").value.trim(),
+        disp60_threshold: $("compound-run-disp60").value.trim(),
+        levels: $("compound-run-levels").value.trim(),
+        leverage_multiple: $("compound-run-multiples").value.trim(),
+      },
+    };
+  }
+
+  function compoundCommand() {
+    const payload = compoundRunPayload();
+    const overrides = Object.values(payload.ranges).some(Boolean);
+    if (!overrides) return `.venv\\Scripts\\python.exe scripts\\research\\run_compound_backtest.py --project-root . --baskets ${payload.baskets.join(",") || "KR"}`;
+    const values = (value, fallback, integer = false) => value ? value.split(",").map((item) => integer ? Number.parseInt(item.trim(), 10) : Number(item.trim())) : fallback;
+    const grid = {
+      drawdown_threshold: values(payload.ranges.drawdown_threshold, compoundDefaults.drawdown_threshold),
+      disp60_threshold: values(payload.ranges.disp60_threshold, compoundDefaults.disp60_threshold),
+      levels: values(payload.ranges.levels, compoundDefaults.levels, true),
+      leverage_multiple: values(payload.ranges.leverage_multiple, compoundDefaults.leverage_multiple, true),
+      base_exposure: [0, 1], exit: compoundDefaults.exit, cost_enabled: [false, true],
+    };
+    const pyValue = (value) => typeof value === "string" ? `'${value}'` : typeof value === "boolean" ? (value ? "True" : "False") : String(value);
+    const pyTuple = (items) => `(${items.map(pyValue).join(",")}${items.length === 1 ? "," : ""})`;
+    const python = `{${Object.entries(grid).map(([key, items]) => `'${key}':${pyTuple(items)}`).join(",")}}`;
+    const baskets = `(${payload.baskets.map((item) => `'${item}'`).join(",")}${payload.baskets.length === 1 ? "," : ""})`;
+    return `.venv\\Scripts\\python.exe -c "from pathlib import Path; from scripts.research import run_compound_backtest as m; m.FULL_GRID=${python}; m.run(Path('.'), ${baskets}, quick=False)"`;
+  }
+
+  function updateCompoundCommand() { $("compound-command").textContent = compoundCommand(); }
+
+  async function pollCompoundRun() {
+    clearTimeout(compoundState.pollTimer);
+    try {
+      const response = await fetch("/api/research/compound/run");
+      if (!response.ok) throw new Error(await readError(response));
+      const status = await response.json();
+      $("compound-run-log").textContent = (status.progress_lines || []).join("\n") || "아직 실행 기록이 없습니다.";
+      $("compound-run-status").textContent = status.running ? `실행 중 · ${status.started_at || ""}` : status.last_error ? `실패 · ${status.last_error}` : status.last_finished_at ? `완료 · ${status.last_finished_at}` : "대기";
+      $("compound-run-start").disabled = status.running;
+      if (compoundState.wasRunning && !status.running && !status.last_error) {
+        const entry = compoundEntry();
+        if (entry) compoundState.cache.delete(`${entry.basket}|${entry.product}`);
+        await loadCompoundGrid();
+        compoundToast("계산 완료 · 새 grid를 다시 불러왔습니다.");
+      }
+      compoundState.wasRunning = status.running;
+      if (status.running) compoundState.pollTimer = setTimeout(pollCompoundRun, 2000);
+    } catch (error) {
+      $("compound-run-status").textContent = error.message || "실행 상태를 읽지 못했습니다.";
+    }
+  }
+
+  async function startCompoundRun() {
+    const button = $("compound-run-start");
+    button.disabled = true;
+    try {
+      const response = await fetch("/api/research/compound/run", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(compoundRunPayload()),
+      });
+      if (!response.ok) throw new Error(await readError(response));
+      compoundState.wasRunning = true;
+      compoundToast("계산을 시작했습니다. retained data만 사용합니다.");
+      pollCompoundRun();
+    } catch (error) {
+      compoundToast(error.message || "계산을 시작하지 못했습니다.", true);
+      button.disabled = false;
+    }
+  }
+
+  function bindCompound() {
+    ["compound-drawdown", "compound-disp60"].forEach((id) => $(id).addEventListener("input", () => scheduleCompoundRender()));
+    ["compound-levels", "compound-exit", "compound-cost", "compound-heatmap-axes"].forEach((id) => $(id).addEventListener("change", () => scheduleCompoundRender()));
+    $("compound-product").addEventListener("change", () => { syncCompoundProduct(); scheduleCompoundRender(); });
+    $("compound-multiple").addEventListener("change", () => {
+      if ($("compound-product").value !== "actual_adjusted") {
+        $("compound-product").value = ({ 1: "index_1x", 2: "synthetic_2x", 3: "synthetic_3x" })[$("compound-multiple").value];
+      }
+      scheduleCompoundRender();
+    });
+    $("compound-basket").addEventListener("change", loadCompoundGrid);
+    $("compound-holdout").addEventListener("click", revealCompoundHoldout);
+    $("compound-register").addEventListener("click", registerCompoundCandidate);
+    $("compound-run-start").addEventListener("click", startCompoundRun);
+    document.querySelectorAll("#compound-run input, #compound-run select").forEach((input) => input.addEventListener("input", updateCompoundCommand));
+    syncCompoundProduct();
+  }
+
+  async function initCompound() {
+    if (!$("compound-lab")) return;
+    bindCompound();
+    try {
+      const response = await fetch("/api/research/compound/grid");
+      if (!response.ok) throw new Error(await readError(response));
+      const catalog = await response.json();
+      compoundState.catalog = catalog.catalog || [];
+      $("compound-basket").innerHTML = compoundState.catalog.map((item) => `<option value="${esc(`${item.basket}|${item.product}`)}">${esc(item.label)}</option>`).join("");
+      const views = Number(catalog.holdout_views || 0);
+      $("compound-view-count").textContent = `홀드아웃 열람 ${number(views, 0)}회 (이 세션 0회)`;
+      if (!compoundState.catalog.length) throw new Error("미계산 조합 · compound grid가 없습니다.");
+      updateCompoundCommand();
+      await Promise.all([loadCompoundGrid(), pollCompoundRun()]);
+    } catch (error) {
+      $("compound-knob-note").textContent = error.message || "파라미터 실험을 시작하지 못했습니다.";
+    }
+  }
+
   async function boot() {
     bindExperiment();
+    initCompound();
     let forward = null;
     try {
       const [researchResponse, forwardResponse] = await Promise.all([fetch("/api/research"), fetch("/api/research/forward")]);

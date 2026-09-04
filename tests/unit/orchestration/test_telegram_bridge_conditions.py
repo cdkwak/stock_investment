@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from datetime import date, datetime
 from pathlib import Path
 from typing import Iterator
@@ -52,8 +53,14 @@ def test_close_brief_appends_condition_hits_and_never_blocks_on_failure(monkeypa
         bridge, "watchlist_condition_summary",
         lambda **kwargs: "📌 관심종목 (09/02 마감 기준)\nSK하이닉스 1,693,000 ▲1.1% · 고점 -30%↓\n설명용 · 신호 아님",
     )
+    monkeypatch.setattr(
+        bridge, "changes_block",
+        lambda *_args: "🔔 오늘 달라진 것 (09/02)\n규칙 0 · 조건 1/0\n켜짐 · SK하이닉스 RSI14 30 이하",
+    )
+    monkeypatch.setattr(bridge, "_changes_payload", lambda: {"as_of": "2026-09-02"})
     bridge.generate_send_and_persist_market_report(Client(), 1, "close")
     assert sent[-1].startswith("마감 요약 본문\n📌 관심종목 (09/02 마감 기준)")
+    assert "켜짐 · SK하이닉스 RSI14 30 이하" in sent[-1]
     assert sent[-1].splitlines()[-2:] == [
         "출처: 거래소·Reuters", bridge.BRIEF_DISCLAIMER,
     ]
@@ -62,6 +69,7 @@ def test_close_brief_appends_condition_hits_and_never_blocks_on_failure(monkeypa
         raise RuntimeError("no retained data")
 
     monkeypatch.setattr(bridge, "watchlist_condition_summary", lambda **kwargs: boom())
+    monkeypatch.setattr(bridge, "changes_block", lambda *_args: "")
     bridge.generate_send_and_persist_market_report(Client(), 1, "close")
     assert sent[-1] == bridge.normalize_brief(generated)
 
@@ -332,3 +340,60 @@ def test_conditions_send_failure_is_not_persisted(monkeypatch) -> None:
 
     with pytest.raises(bridge.BridgeError, match="mock send failure"):
         bridge.generate_send_and_persist_market_report(Client(), 42, "conditions")
+
+
+def test_changes_report_deduplicates_state_file_after_first_send(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    state = tmp_path / "condition_state.json"
+    payload = {
+        "as_of": "2026-09-04",
+        "condition_entries": [{
+            "condition_id": "rsi30", "symbol": "000660",
+            "name": "RSI14 30 이하", "display": "SK하이닉스 RSI14 30 이하",
+        }],
+        "condition_exits": [],
+    }
+    monkeypatch.setattr(bridge, "CONDITION_STATE_FILE", state)
+    monkeypatch.setattr(bridge, "_changes_payload", lambda: payload)
+
+    class Client:
+        def __init__(self):
+            self.messages = []
+
+        def send(self, chat_id, text):
+            self.messages.append((chat_id, text))
+
+    client = Client()
+    assert bridge.run_market_report(client, 42, "changes") == 0
+    assert bridge.run_market_report(client, 42, "changes") == 0
+
+    assert client.messages == [(42, "🔔 조건 켜짐: SK하이닉스 RSI14 30 이하")]
+    assert json.loads(state.read_text(encoding="utf-8")) == {
+        "schema_version": 1,
+        "as_of": "2026-09-04",
+        "entries": ["rsi30|000660"],
+        "exits": [],
+    }
+
+
+def test_changes_report_keeps_state_and_sends_nothing_when_payload_is_unavailable(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    state = tmp_path / "condition_state.json"
+    original = {
+        "schema_version": 1, "as_of": "2026-09-04",
+        "entries": ["rsi30|000660"], "exits": [],
+    }
+    state.write_text(json.dumps(original), encoding="utf-8")
+    monkeypatch.setattr(bridge, "CONDITION_STATE_FILE", state)
+    monkeypatch.setattr(bridge, "_changes_payload", lambda: {
+        "as_of": None, "condition_entries": [], "condition_exits": [],
+    })
+
+    class Client:
+        def send(self, chat_id, text):
+            pytest.fail("an unavailable changes payload must not send Telegram")
+
+    assert bridge.run_market_report(Client(), 42, "changes") == 1
+    assert json.loads(state.read_text(encoding="utf-8")) == original

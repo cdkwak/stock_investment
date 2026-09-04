@@ -1,3 +1,8 @@
+"""Safe Telegram bridge for local agents.
+
+The condition-flip report is intended for 16:12 KST on weekdays, after the
+existing 16:10 close brief. Scheduler creation remains coordinator-owned.
+"""
 from __future__ import annotations
 
 import argparse
@@ -36,6 +41,7 @@ SAME_DAY_REFRESH_LANES = (
 SAME_DAY_REFRESH_MAX_PROVIDER_CALLS = 12  # 2 equity calls + up to 3 Korean ETFs (KR_ETF lane uses one ticker-list call plus one per symbol)
 INTAKE_ROOT = REPOSITORY / ".tmp" / "agents" / "telegram-bridge"
 BRIEFS_ROOT = REPOSITORY / "artifacts" / "local_user" / "briefs"
+CONDITION_STATE_FILE = REPOSITORY / "artifacts" / "local_user" / "condition_state.json"
 INTAKE_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -166,7 +172,7 @@ Markdown 링크, 기사 제목은 쓰지 않는다. 마지막 줄은 반드시 �
 브리프에 프로젝트 상태나 대시보드 상태를 넣지 않는다.
 저장소의 긴 Status 문서를 다시 읽거나 오래된 숫자를 현재값처럼 쓰지 않는다.
 """
-REPORT_KINDS = (*REPORT_PROMPTS, "conditions")
+REPORT_KINDS = (*REPORT_PROMPTS, "conditions", "changes")
 
 _MARKDOWN_LINK_RE = re.compile(r"\[([^\]\n]+)\]\([^\)\n]+\)")
 _INDEX_LINE_RE = re.compile(
@@ -793,6 +799,130 @@ def watchlist_condition_summary(
     return "\n".join(lines)
 
 
+def _changes_payload() -> Mapping[str, object]:
+    """Load the same retained-data projection used by the Home strip."""
+    source_root = REPOSITORY / "src"
+    if str(source_root) not in sys.path:
+        sys.path.insert(0, str(source_root))
+    from stock_web.api.changes import build_changes
+
+    payload = build_changes(REPOSITORY, public_mode=False)
+    return payload if isinstance(payload, Mapping) else {}
+
+
+def changes_block(payload: Mapping[str, object] | None = None, limit: int = 5) -> str:
+    """Compact local-only change block for the 16:10 close brief."""
+    data = payload if payload is not None else _changes_payload()
+    counts = data.get("counts") if isinstance(data.get("counts"), Mapping) else {}
+    as_of = str(data.get("as_of") or "")
+    if not as_of:
+        return ""
+    try:
+        label = date.fromisoformat(as_of[:10]).strftime("%m/%d")
+    except ValueError:
+        label = as_of[:10]
+    entries = data.get("condition_entries")
+    entry_rows = [item for item in entries if isinstance(item, Mapping)] if isinstance(entries, list) else []
+    lines = [
+        f"🔔 오늘 달라진 것 ({label})",
+        (
+            f"규칙 {int(counts.get('rule_changes') or 0)} · "
+            f"조건 {int(counts.get('condition_entries') or 0)}/{int(counts.get('condition_exits') or 0)}"
+        ),
+        (
+            f"52주 신고가 {int(counts.get('new_highs_52w') or 0)} · "
+            f"신저가 {int(counts.get('new_lows_52w') or 0)} · "
+            f"거래량 {int(counts.get('volume_spikes') or 0)}"
+        ),
+    ]
+    lines.extend(
+        f"켜짐 · {str(item.get('display') or '').strip()}"
+        for item in entry_rows[:limit]
+        if str(item.get("display") or "").strip()
+    )
+    return "\n".join(lines)
+
+
+def _condition_state_key(item: Mapping[str, object]) -> str:
+    condition_id = str(item.get("condition_id") or "").strip()
+    symbol = str(item.get("symbol") or "").strip().upper()
+    return f"{condition_id}|{symbol}" if condition_id and symbol else ""
+
+
+def _condition_state() -> Mapping[str, object]:
+    try:
+        payload = json.loads(CONDITION_STATE_FILE.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, Mapping) else {}
+
+
+def _write_condition_state(payload: Mapping[str, object]) -> None:
+    CONDITION_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", newline="\n",
+            prefix=f".{CONDITION_STATE_FILE.name}.", suffix=".tmp",
+            dir=CONDITION_STATE_FILE.parent, delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+            json.dump(payload, stream, ensure_ascii=False, indent=2)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, CONDITION_STATE_FILE)
+    except (OSError, UnicodeError, TypeError, ValueError) as exc:
+        raise BridgeError("Condition alert state could not be saved") from exc
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def send_condition_change_alert(
+    client: TelegramClient, chat_id: int, payload: Mapping[str, object] | None = None,
+) -> bool:
+    """Send one message for newly observed condition-entry keys, then checkpoint."""
+    data = payload if payload is not None else _changes_payload()
+    entries = data.get("condition_entries")
+    exits = data.get("condition_exits")
+    as_of = data.get("as_of")
+    try:
+        date.fromisoformat(str(as_of))
+    except (TypeError, ValueError):
+        raise BridgeError("Condition change data is unavailable") from None
+    if not isinstance(entries, list) or not isinstance(exits, list):
+        raise BridgeError("Condition change data is unavailable")
+    entry_rows = [item for item in entries if isinstance(item, Mapping)] if isinstance(entries, list) else []
+    exit_rows = [item for item in exits if isinstance(item, Mapping)] if isinstance(exits, list) else []
+    prior = _condition_state()
+    prior_entries = {
+        str(item) for item in prior.get("entries", [])
+    } if isinstance(prior.get("entries"), list) else set()
+    current_entry_keys = sorted(filter(None, (_condition_state_key(item) for item in entry_rows)))
+    current_exit_keys = sorted(filter(None, (_condition_state_key(item) for item in exit_rows)))
+    new_rows = [
+        item for item in entry_rows
+        if _condition_state_key(item) and _condition_state_key(item) not in prior_entries
+    ]
+    if new_rows:
+        displays = [
+            str(item.get("display") or "").strip()
+            or f"{str(item.get('symbol') or '').strip()} {str(item.get('name') or '').strip()}".strip()
+            for item in new_rows
+        ]
+        shown = displays[:5]
+        suffix = f" · 외 {len(displays) - len(shown)}건" if len(displays) > len(shown) else ""
+        client.send(chat_id, f"🔔 조건 켜짐: {' · '.join(shown)}{suffix}")
+    _write_condition_state({
+        "schema_version": 1,
+        "as_of": as_of,
+        "entries": current_entry_keys,
+        "exits": current_exit_keys,
+    })
+    return bool(new_rows)
+
+
 def _basis_date_from_summary(summary: str, reference_date: date) -> str | None:
     match = re.search(r"^📌 관심종목 \((\d{2})/(\d{2})", summary, re.MULTILINE)
     if match is None:
@@ -811,6 +941,13 @@ def _basis_date_from_summary(summary: str, reference_date: date) -> str | None:
 def generate_send_and_persist_market_report(
     client: TelegramClient, chat_id: int, report_kind: str,
 ) -> Path | None:
+    if report_kind == "changes":
+        try:
+            sent = send_condition_change_alert(client, chat_id)
+        except Exception:
+            raise BridgeError("Condition change alert failed") from None
+        print(f"telegram_bridge: report changes sent={'true' if sent else 'false'}")
+        return None
     if report_kind == "conditions":
         try:
             report = watchlist_condition_summary()
@@ -886,6 +1023,36 @@ def generate_send_and_persist_market_report(
                 f"{type(exc).__name__}: {exc}",
                 file=sys.stderr,
             )
+        try:
+            change_payload = _changes_payload()
+            change_summary = changes_block(change_payload)
+            if change_summary:
+                if basis_date is None:
+                    basis_date = str(change_payload.get("as_of") or "") or None
+                report_lines = report.rstrip().splitlines()
+                footer_index = next(
+                    (
+                        index for index, line in enumerate(report_lines)
+                        if line.strip().startswith("출처:")
+                    ),
+                    len(report_lines),
+                )
+                if footer_index == len(report_lines):
+                    footer_index = next(
+                        (
+                            index for index, line in enumerate(report_lines)
+                            if line.strip() == BRIEF_DISCLAIMER
+                        ),
+                        len(report_lines),
+                    )
+                report_lines.insert(footer_index, change_summary)
+                report = "\n".join(report_lines)
+        except Exception as exc:  # change projection must never block the close brief
+            print(
+                "telegram_bridge: warning: changes block failed: "
+                f"{type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
     report = normalize_brief(report)
     send_error: BridgeError | None = None
     try:
@@ -932,10 +1099,11 @@ def run_market_report(client: TelegramClient, chat_id: int, report_kind: str) ->
     try:
         generate_send_and_persist_market_report(client, chat_id, report_kind)
     except BridgeError as exc:
-        try:
-            client.send(chat_id, f"⚠️ 예약 시장 브리핑 실패: {exc}")
-        except BridgeError:
-            pass
+        if report_kind != "changes":
+            try:
+                client.send(chat_id, f"⚠️ 예약 시장 브리핑 실패: {exc}")
+            except BridgeError:
+                pass
         print(f"telegram_bridge: {exc}", file=sys.stderr)
         return 1
     return 0
@@ -1023,7 +1191,7 @@ def command_reply(text: str) -> str | None:
             "/status - 현재 프로젝트 상태\n"
             "/queue - 요청 큐 요약\n"
             "/request <내용> - Agent가 읽고 신규 요청 검토·등록\n"
-            "/brief morning|close|conditions - 시장 브리핑 즉시 생성\n"
+            "/brief morning|close|conditions|changes - 시장 브리핑 즉시 생성\n"
             "/help - 도움말\n\n"
             "코드 실행·파일 변경·큐 변경 명령은 현재 허용하지 않습니다."
         )
@@ -1086,9 +1254,9 @@ def handle_updates(
             elif command.split("@", 1)[0].lower() == "/brief":
                 report_kind = remainder.strip().lower()
                 if report_kind not in REPORT_KINDS:
-                    reply = "사용법: /brief morning, close 또는 conditions"
+                    reply = "사용법: /brief morning, close, conditions 또는 changes"
                 else:
-                    if report_kind != "conditions":
+                    if report_kind not in {"conditions", "changes"}:
                         client.send(allowed_chat_id, "📰 최신 자료를 확인해 브리핑을 작성 중입니다…")
                     generate_send_and_persist_market_report(
                         client, allowed_chat_id, report_kind,

@@ -9,10 +9,12 @@ from __future__ import annotations
 from collections import defaultdict, deque
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+import importlib
 import json
 import math
 import os
 from pathlib import Path
+import re
 import threading
 import time
 from typing import Mapping, Sequence
@@ -29,6 +31,7 @@ EMPTY_MESSAGE = (
 LEADERBOARD_RELATIVE = Path("artifacts/research/rule_leaderboard/latest.json")
 CANDIDATES_RELATIVE = Path("config/research/rule_candidates.json")
 FORWARD_RELATIVE = Path("data/local/research/forward_test/signals.jsonl")
+COMPOUND_RELATIVE = Path("artifacts/research/compound_ladder")
 
 _RESEARCH_CACHE: dict[str, tuple[tuple[object, ...], dict[str, object]]] = {}
 _FORWARD_CACHE: dict[str, tuple[tuple[object, ...], dict[str, object]]] = {}
@@ -37,6 +40,20 @@ _EXPERIMENT_TIMES: dict[str, deque[float]] = defaultdict(deque)
 _EXPERIMENT_COUNT = 0
 _REGENERATION_LOCK = threading.Lock()
 _REGENERATION_WAIT_SECONDS = 60.0
+_COMPOUND_STATE_LOCK = threading.RLock()
+_COMPOUND_SESSION_VIEWS: dict[tuple[str, str], int] = defaultdict(int)
+_COMPOUND_RUN_STATE: dict[str, dict[str, object]] = {}
+_COMPOUND_TOKEN = re.compile(r"^[a-zA-Z0-9_]+$")
+_COMPOUND_BASKETS = ("KR", "US_TECH", "SEMIS", "FOREIGN")
+_COMPOUND_DEFAULT_GRID: dict[str, tuple[object, ...]] = {
+    "drawdown_threshold": (-0.10, -0.15, -0.20, -0.25, -0.30, -0.35),
+    "disp60_threshold": (-0.05, -0.10, -0.15),
+    "levels": (1, 2, 3, 4),
+    "leverage_multiple": (1, 2, 3),
+    "base_exposure": (0.0, 1.0),
+    "exit": ("a", "b60", "b120", "c", "d"),
+    "cost_enabled": (False, True),
+}
 EXPERIMENT_CAUTION = (
     "홀드아웃 성적을 보고 임계값을 고치면 과적합입니다 — "
     "후보 등록 시 시도 횟수에 기록됩니다"
@@ -73,6 +90,14 @@ class ResearchInputError(ValueError):
 
 class ExperimentRateLimitError(ResearchInputError):
     """Raised after ten retained-data evaluations in one client minute."""
+
+
+class CompoundGridNotFound(ResearchInputError):
+    """Raised when the requested precomputed compound-ladder grid is absent."""
+
+
+class CompoundRunConflict(ResearchInputError):
+    """Raised when a retained-data compound-ladder run already owns the lock."""
 
 
 def _query_values(params: object, name: str) -> list[str]:
@@ -226,6 +251,8 @@ def _reset_experiment_session() -> None:
     with _EXPERIMENT_LOCK:
         _EXPERIMENT_TIMES.clear()
         _EXPERIMENT_COUNT = 0
+    with _COMPOUND_STATE_LOCK:
+        _COMPOUND_SESSION_VIEWS.clear()
 
 
 def _file_signature(path: Path) -> tuple[object, ...]:
@@ -422,7 +449,10 @@ def build_research_payload(project_root: Path) -> dict[str, object]:
 
     config = _read_json(candidates_path)
     raw_history = config.get("history") if isinstance(config, dict) else []
-    history = [dict(item) for item in raw_history if isinstance(item, dict)] \
+    history = [
+        dict(item) for item in raw_history
+        if isinstance(item, dict) and item.get("id") != "compound_ladder_holdout"
+    ] \
         if isinstance(raw_history, list) else []
     history.sort(key=lambda item: str(item.get("date") or ""), reverse=True)
 
@@ -558,6 +588,8 @@ def register_experiment_candidate(
 
     if not isinstance(body, Mapping):
         raise ResearchInputError("후보 등록 내용을 JSON 객체로 보내 주세요.")
+    if "compound" in body:
+        body = build_compound_candidate_registration(body)
     name = str(body.get("name") or "").strip()
     reason = str(body.get("reason") or "").strip()
     side = str(body.get("side") or "")
@@ -570,11 +602,23 @@ def register_experiment_candidate(
         raise ResearchInputError("후보 등록 이유를 입력해 주세요.")
     if len(reason) > 500:
         raise ResearchInputError("후보 등록 이유는 500자 이하여야 합니다.")
+    metadata = body.get("metadata")
+    if isinstance(metadata, Mapping) and metadata.get("source") == "compound_ladder_ui":
+        allowed = {"exit", "multiple", "cost", "source"}
+        clean_metadata = {str(key): metadata[key] for key in metadata if key in allowed}
+        suffix = json.dumps(
+            clean_metadata, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        )
+        reason = f"{reason} · {suffix}"
+        if len(reason) > 500:
+            raise ResearchInputError("후보 메타데이터를 포함한 등록 이유는 500자 이하여야 합니다.")
     if side not in _EXPERIMENT_SIDES:
         raise ResearchInputError("측은 낙폭 또는 과열이어야 합니다.")
     if basket not in _EXPERIMENT_BASKETS:
         raise ResearchInputError("바스켓을 KR, US_TECH, SEMIS, POOLED 중에서 선택해 주세요.")
-    definition = _registered_definition(side, body.get("definition"))
+    definition = _registered_definition(
+        side, body.get("_registry_definition", body.get("definition")),
+    )
 
     from stock_data.research.rule_candidates import (
         RuleCandidateError,
@@ -622,6 +666,427 @@ def register_experiment_candidate(
     return {
         "status": "ready", "candidate_id": candidate_id,
         "rules_version": new_version, "previous_rules_version": previous_version,
+    }
+
+
+def _compound_catalog(project_root: Path) -> list[dict[str, str]]:
+    output = Path(project_root).resolve() / COMPOUND_RELATIVE
+    summary = _read_json(output / "summary.json") or {}
+    raw_paths = summary.get("grid_artifacts")
+    paths: list[Path] = []
+    if isinstance(raw_paths, list):
+        for value in raw_paths:
+            if not isinstance(value, str):
+                continue
+            path = Path(project_root).resolve() / value
+            if (
+                path.parent == output and path.name.startswith("grid_")
+                and path.suffix == ".json" and path.is_file()
+            ):
+                paths.append(path)
+    paths.extend(path for path in output.glob("grid_*.json") if path not in paths)
+    labels = {
+        "kospi": "KOSPI", "kospi200": "KOSPI200", "kospi200_it": "KOSPI200 IT",
+        "nasdaq100": "NASDAQ100", "sox": "SOX", "nikkei225": "NIKKEI225",
+        "taiex": "TAIEX", "euro_stoxx50": "EURO STOXX50",
+        "hang_seng": "HANG SENG", "dax": "DAX",
+    }
+    prefixes = tuple(sorted(
+        ((basket.lower(), basket) for basket in _COMPOUND_BASKETS),
+        key=lambda item: len(item[0]), reverse=True,
+    ))
+    catalog: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for path in sorted(paths):
+        stem = path.stem.removeprefix("grid_")
+        match = next(
+            ((slug, basket) for slug, basket in prefixes if stem.startswith(slug + "_")),
+            None,
+        )
+        if match is None:
+            continue
+        basket_slug, basket = match
+        product = stem[len(basket_slug) + 1:]
+        key = (basket, product)
+        if not product or key in seen:
+            continue
+        seen.add(key)
+        underlying = labels.get(product, product.replace("_", " ").upper())
+        catalog.append({
+            "basket": basket,
+            "product": product,
+            "underlying": underlying,
+            "label": f"{basket} · {underlying}",
+        })
+    basket_order = {basket: index for index, basket in enumerate(_COMPOUND_BASKETS)}
+    return sorted(catalog, key=lambda item: (basket_order[item["basket"]], item["product"]))
+
+
+def _compound_summary(project_root: Path) -> dict[str, object]:
+    summary = _read_json(Path(project_root).resolve() / COMPOUND_RELATIVE / "summary.json")
+    if not summary:
+        return {}
+    return {
+        key: summary.get(key)
+        for key in ("schema_version", "experiment", "fit_window", "holdout_window", "quick")
+    }
+
+
+def build_compound_grid_payload(
+    project_root: Path, *, basket: str = "", product: str = "",
+) -> dict[str, object]:
+    """Return one precomputed grid or the cache catalog; never run a backtest."""
+
+    catalog = _compound_catalog(project_root)
+    if not basket and not product:
+        registry = _read_json(Path(project_root).resolve() / CANDIDATES_RELATIVE) or {}
+        history = registry.get("history") if isinstance(registry.get("history"), list) else []
+        holdout_views = sum(
+            1 for item in history
+            if isinstance(item, dict) and item.get("id") == "compound_ladder_holdout"
+        )
+        return {
+            "catalog": catalog, "summary": _compound_summary(project_root),
+            "holdout_views": holdout_views,
+        }
+    clean_basket = basket.strip().upper()
+    clean_product = product.strip().lower()
+    if (
+        clean_basket not in _COMPOUND_BASKETS
+        or not _COMPOUND_TOKEN.fullmatch(clean_product)
+        or not any(
+            item["basket"] == clean_basket and item["product"] == clean_product
+            for item in catalog
+        )
+    ):
+        raise CompoundGridNotFound("미계산 조합 · 선택한 바스켓/상품 그리드가 없습니다.")
+    path = Path(project_root).resolve() / COMPOUND_RELATIVE / (
+        f"grid_{clean_basket.lower()}_{clean_product}.json"
+    )
+    try:
+        rows = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise CompoundGridNotFound("미계산 조합 · 그리드 파일을 읽을 수 없습니다.") from error
+    if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+        raise CompoundGridNotFound("미계산 조합 · 그리드 행 형식이 올바르지 않습니다.")
+    strategy = [row for row in rows if row.get("row_kind") == "strategy"]
+    cached_values = {
+        "drawdown_thresholds": sorted({row.get("drawdown_threshold") for row in strategy if _finite(row.get("drawdown_threshold")) is not None}),
+        "disp60_thresholds": sorted({row.get("disp60_threshold") for row in strategy if _finite(row.get("disp60_threshold")) is not None}),
+        "levels": sorted({row.get("levels") for row in strategy if isinstance(row.get("levels"), int)}),
+        "leverage_multiples": sorted({row.get("leverage_multiple") for row in strategy if isinstance(row.get("leverage_multiple"), int)}),
+        "exits": sorted({str(row.get("exit")) for row in strategy if row.get("exit") is not None}),
+        "cost_enabled": sorted({bool(row.get("cost_enabled")) for row in strategy}),
+    }
+    baseline = next((row for row in rows if row.get("row_kind") == "baseline"), None)
+    return {
+        "basket": clean_basket,
+        "product": clean_product,
+        "summary": _compound_summary(project_root),
+        "cached_values": cached_values,
+        "baseline": baseline,
+        "rows": strategy,
+    }
+
+
+def _compound_combination(value: object) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        raise ResearchInputError("조합을 JSON 객체로 보내 주세요.")
+    basket = str(value.get("basket") or "").strip().upper()
+    product = str(value.get("product") or "").strip().lower()
+    exit_variant = str(value.get("exit") or "")
+    if basket not in _COMPOUND_BASKETS or not _COMPOUND_TOKEN.fullmatch(product):
+        raise ResearchInputError("바스켓/상품 조합이 올바르지 않습니다.")
+    if exit_variant not in {"a", "b60", "b120", "c", "d"}:
+        raise ResearchInputError("출구 방식이 올바르지 않습니다.")
+    product_variant = str(value.get("product_variant") or "synthetic_2x")
+    if product_variant not in {"index_1x", "synthetic_2x", "synthetic_3x", "actual_adjusted"}:
+        raise ResearchInputError("상품 방식이 올바르지 않습니다.")
+    try:
+        levels = int(value.get("levels"))
+        multiple = int(value.get("leverage_multiple"))
+    except (TypeError, ValueError) as error:
+        raise ResearchInputError("분할 수와 배율을 숫자로 보내 주세요.") from error
+    drawdown = _finite(value.get("drawdown_threshold"))
+    disp60 = _finite(value.get("disp60_threshold"))
+    if drawdown is None or disp60 is None or levels not in {1, 2, 3, 4} or multiple not in {1, 2, 3}:
+        raise ResearchInputError("임계값·분할 수·배율 조합이 올바르지 않습니다.")
+    return {
+        "basket": basket, "product": product,
+        "drawdown_threshold": drawdown, "disp60_threshold": disp60,
+        "levels": levels, "leverage_multiple": multiple,
+        "exit": exit_variant, "cost_enabled": bool(value.get("cost_enabled")),
+        "product_variant": product_variant,
+    }
+
+
+def build_compound_candidate_registration(body: Mapping[str, object]) -> dict[str, object]:
+    """Adapt compound knobs to the existing two-signal forward-test contract."""
+
+    combination = _compound_combination(body.get("compound"))
+    if combination["basket"] == "FOREIGN":
+        raise ResearchInputError("FOREIGN은 현재 포워드 테스트 바스켓 계약 밖입니다.")
+    indicators = [
+        {
+            "key": "drawdown252", "op": "<=",
+            "threshold": combination["drawdown_threshold"],
+        },
+        {
+            "key": "disp60", "op": "<=",
+            "threshold": combination["disp60_threshold"],
+        },
+    ]
+    return {
+        "name": body.get("name"), "reason": body.get("reason"),
+        "side": "drawdown", "basket": combination["basket"],
+        "definition": {
+            "type": "ladder", "indicators": indicators,
+            "levels": combination["levels"],
+        },
+        # The forward lane counts conditions, while the compound experiment's
+        # levels knob counts position splits. Preserve both meanings explicitly.
+        "_registry_definition": {
+            "type": "ladder", "indicators": indicators, "levels": 2,
+        },
+        "metadata": {
+            "exit": combination["exit"],
+            "multiple": combination["leverage_multiple"],
+            "cost": combination["cost_enabled"],
+            "source": "compound_ladder_ui",
+        },
+    }
+
+
+def record_compound_holdout_view(
+    project_root: Path, body: object, *, client_key: str,
+) -> dict[str, object]:
+    """Count one deliberate hold-out reveal in the versioned candidate history."""
+
+    combination = _compound_combination(body)
+    grid = build_compound_grid_payload(
+        project_root,
+        basket=str(combination["basket"]), product=str(combination["product"]),
+    )
+    matched = next((
+        row for row in grid["rows"]
+        if row.get("base_exposure") == 1.0
+        and row.get("drawdown_threshold") == combination["drawdown_threshold"]
+        and row.get("disp60_threshold") == combination["disp60_threshold"]
+        and row.get("levels") == combination["levels"]
+        and row.get("leverage_multiple") == combination["leverage_multiple"]
+        and row.get("exit") == combination["exit"]
+        and row.get("cost_enabled") is combination["cost_enabled"]
+    ), None)
+    if matched is None or (
+        combination["product_variant"] == "actual_adjusted"
+        and not isinstance(matched.get("actual_product_basis"), dict)
+    ):
+        raise CompoundGridNotFound("미계산 조합 · 홀드아웃을 열 수 없습니다.")
+    viewed_at = datetime.now(timezone.utc).isoformat()
+    from stock_data.research import rule_candidates
+
+    reason = json.dumps(
+        {"combination": combination, "viewed_at": viewed_at},
+        ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    )
+    try:
+        with rule_candidates._REGISTRY_LOCK:
+            registry = rule_candidates.load_candidates(Path(project_root))
+            rule_candidates._record(
+                registry, action="edit", candidate_id="compound_ladder_holdout",
+                reason=reason, on=viewed_at[:10],
+            )
+            registry = rule_candidates._write_registry(Path(project_root), registry)
+    except rule_candidates.RuleCandidateError as error:
+        raise ResearchInputError(str(error)) from error
+    persistent_views = sum(
+        1 for item in registry["history"]
+        if item.get("id") == "compound_ladder_holdout"
+    )
+    key = (str(Path(project_root).resolve()), client_key)
+    with _COMPOUND_STATE_LOCK:
+        _COMPOUND_SESSION_VIEWS[key] += 1
+        session_views = _COMPOUND_SESSION_VIEWS[key]
+    _RESEARCH_CACHE.pop(str(Path(project_root).resolve()), None)
+    return {
+        "combination": combination, "viewed_at": viewed_at,
+        "persistent_views": persistent_views, "session_views": session_views,
+        "attempt_count": registry["attempt_count"],
+    }
+
+
+def _range_values(
+    value: object, *, name: str, integers: bool, minimum: float, maximum: float,
+) -> tuple[object, ...] | None:
+    if value is None or value == "":
+        return None
+    raw = value if isinstance(value, (list, tuple)) else str(value).split(",")
+    output: list[object] = []
+    for item in raw:
+        try:
+            number = int(str(item).strip()) if integers else float(str(item).strip())
+        except ValueError as error:
+            raise ResearchInputError(f"{name} 범위는 쉼표로 구분한 숫자여야 합니다.") from error
+        if not minimum <= float(number) <= maximum:
+            raise ResearchInputError(f"{name} 범위가 허용 범위를 벗어났습니다.")
+        if number not in output:
+            output.append(number)
+    if not output:
+        raise ResearchInputError(f"{name} 범위를 하나 이상 입력해 주세요.")
+    return tuple(output)
+
+
+def normalise_compound_run(body: object) -> dict[str, object]:
+    if not isinstance(body, Mapping):
+        raise ResearchInputError("계산 조건을 JSON 객체로 보내 주세요.")
+    raw_baskets = body.get("baskets")
+    if not isinstance(raw_baskets, list):
+        raise ResearchInputError("바스켓을 하나 이상 선택해 주세요.")
+    baskets = tuple(dict.fromkeys(str(value).strip().upper() for value in raw_baskets if str(value).strip()))
+    if not baskets or set(baskets).difference(_COMPOUND_BASKETS):
+        raise ResearchInputError("바스켓은 KR, US_TECH, SEMIS, FOREIGN 중에서 선택해 주세요.")
+    product = str(body.get("product") or "synthetic_2x")
+    if product not in {"index_1x", "synthetic_2x", "synthetic_3x", "actual_adjusted"}:
+        raise ResearchInputError("상품 선택이 올바르지 않습니다.")
+    ranges = body.get("ranges") if isinstance(body.get("ranges"), Mapping) else body
+    grid = dict(_COMPOUND_DEFAULT_GRID)
+    specs = (
+        ("drawdown_threshold", "낙폭 임계값", False, -0.90, -0.01),
+        ("disp60_threshold", "이격도 임계값", False, -0.90, 0.50),
+        ("levels", "분할 수", True, 1, 4),
+        ("leverage_multiple", "배율", True, 1, 3),
+    )
+    for key, label, integers, minimum, maximum in specs:
+        parsed = _range_values(
+            ranges.get(key), name=label, integers=integers,
+            minimum=minimum, maximum=maximum,
+        )
+        if parsed is not None:
+            grid[key] = parsed
+    return {"baskets": baskets, "product": product, "grid": grid}
+
+
+def _compound_command(spec: Mapping[str, object]) -> str:
+    baskets = tuple(spec["baskets"])
+    grid = dict(spec["grid"])
+    if grid == _COMPOUND_DEFAULT_GRID:
+        return (
+            ".venv\\Scripts\\python.exe scripts\\research\\run_compound_backtest.py "
+            f"--project-root . --baskets {','.join(baskets)}"
+        )
+    code = (
+        "from pathlib import Path; "
+        "from scripts.research import run_compound_backtest as m; "
+        f"m.FULL_GRID={grid!r}; m.run(Path('.'), {baskets!r}, quick=False)"
+    )
+    return f'.venv\\Scripts\\python.exe -c "{code}"'
+
+
+def _append_compound_log(path: Path, message: str) -> None:
+    stamp = datetime.now(timezone.utc).isoformat()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8", newline="\n") as handle:
+        handle.write(f"{stamp} {message}\n")
+
+
+def _run_compound_engine(
+    project_root: Path, baskets: tuple[str, ...], grid: dict[str, tuple[object, ...]],
+) -> None:
+    """Invoke the retained-data runner without allowing its report-doc side effect."""
+
+    runner = importlib.import_module("scripts.research.run_compound_backtest")
+    previous_grid = runner.FULL_GRID
+    previous_write_text = runner._write_text
+    result_doc = (
+        Path(project_root).resolve() / "docs/research/RESULTS_20260905_compound_ladder.md"
+    )
+
+    def scoped_write_text(path: Path, content: str) -> None:
+        if Path(path).resolve() == result_doc:
+            return
+        previous_write_text(path, content)
+
+    try:
+        runner.FULL_GRID = grid
+        runner._write_text = scoped_write_text
+        runner.run(Path(project_root), baskets, quick=False)
+    finally:
+        runner.FULL_GRID = previous_grid
+        runner._write_text = previous_write_text
+
+
+def start_compound_run(project_root: Path, body: object) -> dict[str, object]:
+    spec = normalise_compound_run(body)
+    root = Path(project_root).resolve()
+    output = root / COMPOUND_RELATIVE
+    lock_path = output / "run.lock"
+    log_path = output / "run.log"
+    output.mkdir(parents=True, exist_ok=True)
+    started_at = datetime.now(timezone.utc).isoformat()
+    with _COMPOUND_STATE_LOCK:
+        state = _COMPOUND_RUN_STATE.get(str(root), {})
+        if state.get("running") or lock_path.exists():
+            raise CompoundRunConflict("이미 계산이 실행 중입니다.")
+        try:
+            descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError as error:
+            raise CompoundRunConflict("이미 계산이 실행 중입니다.") from error
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump({"pid": os.getpid(), "started_at": started_at}, handle)
+        state = {
+            "running": True, "started_at": started_at,
+            "last_finished_at": state.get("last_finished_at"), "last_error": None,
+            "command": _compound_command(spec),
+        }
+        _COMPOUND_RUN_STATE[str(root)] = state
+
+    def worker() -> None:
+        error_text: str | None = None
+        _append_compound_log(log_path, f"START baskets={','.join(spec['baskets'])} product={spec['product']}")
+        try:
+            _append_compound_log(log_path, "retained 데이터 로드 및 grid 계산 시작")
+            _run_compound_engine(root, tuple(spec["baskets"]), dict(spec["grid"]))
+            _append_compound_log(log_path, "DONE grid/summary 원자적 갱신 완료")
+        except Exception as error:  # status endpoint exposes the bounded message
+            error_text = f"{type(error).__name__}: {error}"
+            _append_compound_log(log_path, f"ERROR {error_text}")
+        finally:
+            finished_at = datetime.now(timezone.utc).isoformat()
+            with _COMPOUND_STATE_LOCK:
+                current = _COMPOUND_RUN_STATE.setdefault(str(root), {})
+                current.update({
+                    "running": False, "last_finished_at": finished_at,
+                    "last_error": error_text,
+                })
+            try:
+                lock_path.unlink()
+            except FileNotFoundError:
+                pass
+
+    threading.Thread(
+        target=worker, name="compound-ladder-retained-run", daemon=True,
+    ).start()
+    return {"running": True, "started_at": started_at, "command": state["command"]}
+
+
+def build_compound_run_status(project_root: Path) -> dict[str, object]:
+    root = Path(project_root).resolve()
+    output = root / COMPOUND_RELATIVE
+    lock_path = output / "run.lock"
+    log_path = output / "run.log"
+    with _COMPOUND_STATE_LOCK:
+        state = dict(_COMPOUND_RUN_STATE.get(str(root), {}))
+    try:
+        progress = log_path.read_text(encoding="utf-8").splitlines()[-20:]
+    except (OSError, UnicodeError):
+        progress = []
+    return {
+        "running": bool(state.get("running") or lock_path.exists()),
+        "started_at": state.get("started_at"),
+        "progress_lines": progress,
+        "last_finished_at": state.get("last_finished_at"),
+        "last_error": state.get("last_error"),
+        "command": state.get("command"),
     }
 
 

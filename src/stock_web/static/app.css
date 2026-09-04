@@ -197,6 +197,21 @@ a { color: inherit; text-decoration: none; }
 .strip { padding: 8px 14px; display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 14px; font-size: 13px; white-space: normal; overflow: visible; }
 .strip .ml { margin-left: auto; color: var(--muted); }
 .strip a { text-decoration: underline; text-underline-offset: 2px; }
+.changes-strip { padding: 12px 14px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 9px 14px; font-size: 13px; }
+.changes-heading { display: flex; align-items: baseline; gap: 8px; white-space: nowrap; }
+.changes-chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.change-chip { border: 1px solid var(--line); border-radius: 999px; background: #fff; color: var(--ink); cursor: pointer; font: inherit; font-size: 12px; padding: 5px 10px; }
+.change-chip:hover, .change-chip[aria-expanded="true"] { border-color: var(--amber); background: #fff8ec; }
+.change-chip.zero { color: var(--muted); background: #faf9f7; }
+.changes-link { color: var(--muted); white-space: nowrap; text-decoration: underline; text-underline-offset: 2px; }
+.change-detail { grid-column: 1 / -1; border-top: 1px solid var(--grid); padding-top: 8px; }
+.change-detail[hidden] { display: none; }
+.change-detail ul { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0; padding: 0; list-style: none; }
+.change-detail li { color: var(--muted); }
+.change-detail li b { color: var(--ink); }
+.change-direction { display: inline-block; min-width: 30px; margin-right: 5px; font-size: 11px; font-weight: 600; }
+.change-direction.on { color: var(--red); }
+.change-direction.off { color: var(--blue); }
 .summary-group { display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: 7px; }
 .summary-separator { color: var(--line); }
 #summary-strip { display: none; }
@@ -445,6 +460,10 @@ a { color: inherit; text-decoration: none; }
   .derivatives-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 599px) {
+  .changes-strip { grid-template-columns: 1fr; align-items: start; }
+  .changes-heading { white-space: normal; }
+  .changes-chips { width: 100%; }
+  .changes-link { justify-self: start; }
   .watch-investor-mobile { display: block; }
   /* narrow tiles: let the 장중 note drop under the headline instead of colliding with the change % */
   .tile .headline-value { flex-wrap: wrap; row-gap: 0; }

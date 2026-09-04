@@ -458,3 +458,263 @@ def test_research_template_declares_every_id_the_script_binds() -> None:
     used = set(re.findall(r'\$\("([a-zA-Z0-9_-]+)"\)', script))
     present = set(re.findall(r'id="([a-zA-Z0-9_-]+)"', template))
     assert used - present == set(), sorted(used - present)
+
+
+def _compound_row(*, drawdown: float = -.2) -> dict[str, object]:
+    metric = {
+        "start": "2000-01-03", "end": "2015-12-31", "observations": 100,
+        "final_wealth_multiple": 4.1, "baseline_final_wealth_multiple": 3.2,
+        "relative_to_baseline": 1.28125, "cagr": .09, "max_drawdown": -.24,
+        "trades": 4, "turnover": 2.0, "transaction_cost": .002,
+        "period": "fit", "final_wealth_edge": .9,
+    }
+    return {
+        "row_kind": "strategy", "basket": "KR", "underlying": "KOSPI",
+        "drawdown_threshold": drawdown, "disp60_threshold": -.1,
+        "levels": 2, "leverage_multiple": 2, "base_exposure": 1.0,
+        "exit": "a", "cost_enabled": True, "product_variant": "synthetic",
+        "fit": metric,
+        "holdout": {**metric, "start": "2016-01-04", "end": "2026-09-04", "period": "holdout"},
+        "full": {**metric, "period": "full"}, "actual_product_basis": None,
+        "curve_tags": ["current_rule"],
+        "equity_curve_weekly": [
+            {"date": "2000-01-07", "wealth": 1.0, "weight": 0.0},
+            {"date": "2015-12-25", "wealth": 4.1, "weight": 1.0},
+        ],
+        "cycles": [{
+            "episode": 1, "entry_date": "2008-10-01", "max_level_reached": 2,
+            "signal_end_date": "2009-01-02", "exit_date": "2009-01-05",
+            "contribution_to_wealth": .2, "baseline_contribution": .1,
+        }],
+    }
+
+
+def _write_compound_fixture(root: Path) -> None:
+    output = root / research_page.COMPOUND_RELATIVE
+    output.mkdir(parents=True, exist_ok=True)
+    baseline = {
+        "row_kind": "baseline", "basket": "KR", "underlying": "KOSPI",
+        "fit": {"final_wealth_multiple": 3.2},
+        "equity_curve_weekly": [
+            {"date": "2000-01-07", "wealth": 1.0, "weight": 1.0},
+            {"date": "2015-12-25", "wealth": 3.2, "weight": 1.0},
+        ],
+        "curve_tags": ["baseline"], "cycles": [],
+    }
+    (output / "grid_kr_kospi.json").write_text(
+        json.dumps([_compound_row(), baseline], ensure_ascii=False), encoding="utf-8",
+    )
+    (output / "summary.json").write_text(json.dumps({
+        "schema_version": 1, "experiment": "compound-ladder/v2", "quick": False,
+        "fit_window": {"end": "2015-12-31"},
+        "holdout_window": {"start": "2016-01-01"},
+        "grid_artifacts": ["artifacts/research/compound_ladder/grid_kr_kospi.json"],
+    }), encoding="utf-8")
+
+
+def _compound_combination(**overrides: object) -> dict[str, object]:
+    return {
+        "basket": "KR", "product": "kospi", "product_variant": "synthetic_2x",
+        "drawdown_threshold": -.2, "disp60_threshold": -.1,
+        "levels": 2, "leverage_multiple": 2, "exit": "a", "cost_enabled": True,
+        **overrides,
+    }
+
+
+def test_compound_grid_endpoint_returns_fixture_rows_and_missing_is_korean_404(
+    tmp_path: Path,
+) -> None:
+    _write_compound_fixture(tmp_path)
+    client = ASGITestClient(create_app(tmp_path))
+
+    catalog = client.get("/api/research/compound/grid", client_host="127.0.0.1")
+    response = client.get(
+        "/api/research/compound/grid?basket=KR&product=kospi",
+        client_host="127.0.0.1",
+    )
+    missing = client.get(
+        "/api/research/compound/grid?basket=KR&product=missing",
+        client_host="127.0.0.1",
+    )
+    missing_row = client.post(
+        "/api/research/compound/holdout-view",
+        json=_compound_combination(drawdown_threshold=-.25),
+        client_host="127.0.0.1",
+    )
+
+    assert catalog.status_code == response.status_code == 200
+    assert catalog.json()["catalog"][0]["label"] == "KR · KOSPI"
+    assert response.json()["rows"] == [_compound_row()]
+    assert response.json()["baseline"]["row_kind"] == "baseline"
+    assert response.json()["cached_values"]["drawdown_thresholds"] == [-.2]
+    assert missing.status_code == 404
+    assert "미계산 조합" in missing.json()["error"]
+    assert missing_row.status_code == 404
+    assert "미계산 조합" in missing_row.json()["error"]
+
+
+def test_compound_holdout_view_counter_increments_session_and_persists(
+    tmp_path: Path,
+) -> None:
+    _write_research_fixture(tmp_path)
+    _write_compound_fixture(tmp_path)
+    client = ASGITestClient(create_app(tmp_path))
+
+    first = client.post(
+        "/api/research/compound/holdout-view", json=_compound_combination(),
+        client_host="100.85.10.20",
+    )
+    second = client.post(
+        "/api/research/compound/holdout-view", json=_compound_combination(),
+        client_host="100.85.10.20",
+    )
+
+    assert first.status_code == second.status_code == 200
+    assert first.json()["persistent_views"] == first.json()["session_views"] == 1
+    assert second.json()["persistent_views"] == second.json()["session_views"] == 2
+    registry = json.loads(
+        (tmp_path / research_page.CANDIDATES_RELATIVE).read_text(encoding="utf-8")
+    )
+    assert registry["attempt_count"] == 9
+    event = registry["history"][-1]
+    recorded = json.loads(event["reason"])
+    assert recorded["combination"]["levels"] == 2
+    assert recorded["viewed_at"] == second.json()["viewed_at"]
+
+
+def test_compound_registration_builds_forward_definition_and_metadata() -> None:
+    payload = research_page.build_compound_candidate_registration({
+        "name": "내 조합", "reason": "fit 고원",
+        "compound": _compound_combination(
+            drawdown_threshold=-.25, disp60_threshold=-.15, levels=4,
+            leverage_multiple=3, exit="c", cost_enabled=False,
+        ),
+    })
+
+    assert payload["definition"] == {
+        "type": "ladder",
+        "indicators": [
+            {"key": "drawdown252", "op": "<=", "threshold": -.25},
+            {"key": "disp60", "op": "<=", "threshold": -.15},
+        ],
+        "levels": 4,
+    }
+    assert payload["metadata"] == {
+        "exit": "c", "multiple": 3, "cost": False,
+        "source": "compound_ladder_ui",
+    }
+    assert payload["_registry_definition"]["levels"] == 2
+
+
+def test_compound_registration_posts_through_existing_candidate_endpoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_research_fixture(tmp_path)
+    monkeypatch.setattr(rule_leaderboard, "run_rule_leaderboard", lambda _root: None)
+    client = ASGITestClient(create_app(tmp_path))
+
+    response = client.post(
+        "/api/research/candidates",
+        json={
+            "name": "복리 사다리 후보", "reason": "fit 고원",
+            "compound": _compound_combination(levels=4, exit="d"),
+        },
+        client_host="127.0.0.1",
+    )
+
+    assert response.status_code == 200
+    registry = json.loads(
+        (tmp_path / research_page.CANDIDATES_RELATIVE).read_text(encoding="utf-8")
+    )
+    candidate = registry["candidates"][-1]
+    assert candidate["definition"]["indicators"] == [
+        {"key": "drawdown252", "op": "<=", "threshold": -.2},
+        {"key": "disp60", "op": "<=", "threshold": -.1},
+    ]
+    assert candidate["definition"]["levels"] == 2
+    assert '"exit":"d"' in candidate["reason"]
+    assert '"source":"compound_ladder_ui"' in candidate["reason"]
+
+
+def test_compound_run_is_single_background_job_and_reports_log(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started = threading.Event()
+    release = threading.Event()
+
+    def fake_engine(
+        _root: Path, baskets: tuple[str, ...], grid: dict[str, tuple[object, ...]],
+    ) -> None:
+        assert baskets == ("KR",)
+        assert grid["levels"] == (2, 4)
+        started.set()
+        assert release.wait(2)
+
+    monkeypatch.setattr(research_page, "_run_compound_engine", fake_engine)
+    client = ASGITestClient(create_app(tmp_path))
+    body = {
+        "baskets": ["KR"], "product": "synthetic_2x",
+        "ranges": {"levels": "2,4"},
+    }
+    try:
+        first = client.post(
+            "/api/research/compound/run", json=body, client_host="127.0.0.1",
+        )
+        assert started.wait(2)
+        second = client.post(
+            "/api/research/compound/run", json=body, client_host="127.0.0.1",
+        )
+        status = client.get("/api/research/compound/run", client_host="127.0.0.1")
+        assert first.status_code == 202
+        assert second.status_code == 409
+        assert status.json()["running"] is True
+        assert any("START" in line for line in status.json()["progress_lines"])
+    finally:
+        release.set()
+        for _ in range(100):
+            if not research_page.build_compound_run_status(tmp_path)["running"]:
+                break
+            threading.Event().wait(.01)
+    assert research_page.build_compound_run_status(tmp_path)["last_error"] is None
+
+
+def test_compound_panel_and_all_routes_are_hidden_in_guest_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_research_fixture(tmp_path)
+    _write_compound_fixture(tmp_path)
+    monkeypatch.setenv("STOCK_WEB_PUBLIC_MODE", "1")
+    client = ASGITestClient(create_app(tmp_path))
+
+    page = client.get("/research", client_host="127.0.0.1")
+    grid = client.get("/api/research/compound/grid", client_host="127.0.0.1")
+    holdout = client.post(
+        "/api/research/compound/holdout-view", json=_compound_combination(),
+        client_host="127.0.0.1",
+    )
+    run = client.post(
+        "/api/research/compound/run", json={"baskets": ["KR"]},
+        client_host="127.0.0.1",
+    )
+
+    assert page.status_code == 200 and 'id="compound-lab"' not in page.text
+    assert grid.status_code == holdout.status_code == run.status_code == 404
+
+
+def test_compound_panel_static_contract_uses_cached_frame_render_and_existing_chart() -> None:
+    web = Path(__file__).parents[3] / "src/stock_web"
+    template = (web / "templates/research.html").read_text(encoding="utf-8")
+    script = (web / "static/research.js").read_text(encoding="utf-8")
+    style = (web / "static/research.css").read_text(encoding="utf-8")
+
+    assert "파라미터 실험" in template
+    assert "적합 구간(~2015)은 자유롭게 탐색" in template
+    assert "홀드아웃 열람 0회 (이 세션 0회)" in template
+    assert "명령줄로 돌리기" in template
+    assert "cache: new Map()" in script
+    assert "requestAnimationFrame(renderCompound)" in script
+    assert "window.SIChart.renderLineChart" in script
+    assert "setTimeout(pollCompoundRun, 2000)" in script
+    assert 'fetch("/api/research/candidates"' in script
+    assert ".compound-lab-grid { display: grid; grid-template-columns:" in style
+    assert ".compound-lab-grid { grid-template-columns: 1fr; }" in style
