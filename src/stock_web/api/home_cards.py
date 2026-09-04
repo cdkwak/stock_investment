@@ -14,9 +14,29 @@ from stock_web.api.fmt import KST
 
 
 _NO_SCHEDULE_SOURCE = "일정 출처 없음 · 브리핑의 오늘 밤 항목만 표시"
+_CREDIT_LAG_NOTE = "KOFIA 신용잔고는 2거래일 뒤 발표"
+_LENDING_LAG_NOTE = "공공데이터포털 대차잔고는 1거래일 뒤 발표"
 _EVENT_LINE = re.compile(
     r"^\s*(?:[-*·]\s*)?(?P<time>(?:[01]\d|2[0-3]):[0-5]\d)\s+(?P<text>\S.*)\s*$"
 )
+
+
+def build_credit_balance_metadata(project_root: Path) -> dict[str, str] | None:
+    """Return the retained credit-balance basis date and publication lag."""
+    frame = dsx.load(
+        project_root,
+        "data/normalized/kr_credit_balance_daily",
+        columns=["date"],
+    )
+    if frame is None or frame.empty or "date" not in frame:
+        return None
+    dates = pd.to_datetime(frame["date"], errors="coerce").dropna()
+    if dates.empty:
+        return None
+    return {
+        "as_of": dates.max().date().isoformat(),
+        "lag_note": _CREDIT_LAG_NOTE,
+    }
 
 
 def build_lending(project_root: Path) -> dict[str, object] | None:
@@ -49,13 +69,18 @@ def build_lending(project_root: Path) -> dict[str, object] | None:
         previous = float(values.iloc[-sessions - 1])
         return (float(values.iloc[-1]) / previous - 1.0) * 100.0 if previous else None
 
-    return {
+    result: dict[str, object] = {
         "balance_amount": float(values.iloc[-1]),
         "d1_pct": change(1),
         "d5_pct": change(5),
         "trend_20d": [float(value) for value in values.iloc[-20:]],
         "as_of": work["date"].iloc[-1].date().isoformat(),
+        "lag_note": _LENDING_LAG_NOTE,
     }
+    credit = build_credit_balance_metadata(project_root)
+    if credit is not None:
+        result["credit"] = credit
+    return result
 
 
 def _front_matter(text: str) -> tuple[dict[str, str], list[str]]:
@@ -395,4 +420,7 @@ def build_watchlist(project_root: Path) -> dict[str, object]:
         return {"reason": "관심종목 또는 보유 여부를 읽을 수 없습니다."}
 
 
-__all__ = ["account_extras", "build_lending", "build_schedule", "build_watchlist"]
+__all__ = [
+    "account_extras", "build_credit_balance_metadata", "build_lending",
+    "build_schedule", "build_watchlist",
+]

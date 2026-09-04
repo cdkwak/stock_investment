@@ -118,6 +118,8 @@ a { color: inherit; text-decoration: none; }
 .bal { grid-template-columns: 3fr 4fr 2fr 2fr 2fr 3fr; align-items: center; }
 .balance-table { margin-top: 7px; }
 .balance-table .spark svg { display: block; width: 100%; height: 18px; }
+.balance-value, .balance-as-of, .flow-as-of { white-space: nowrap; }
+.balance-as-of, .flow-as-of { font-size: 9px; font-weight: 400; }
 
 /* account */
 .acct-total { display: flex; align-items: baseline; gap: 10px; }

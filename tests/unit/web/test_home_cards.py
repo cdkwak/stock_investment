@@ -40,7 +40,7 @@ def _write_mock_account(path: Path, *, currency: str, symbol: str) -> None:
     }), encoding="utf-8")
 
 
-def test_lending_projects_session_changes_and_last_twenty_values() -> None:
+def test_credit_and_lending_include_basis_dates_and_lag_notes() -> None:
     root = new_temp_root()
     values = [float(index * 100) for index in range(1, 26)]
     _write_parquet(
@@ -52,16 +52,28 @@ def test_lending_projects_session_changes_and_last_twenty_values() -> None:
             "balance_shares": range(25), "balance_amount": values,
         }),
     )
+    _write_parquet(
+        root,
+        "data/normalized/kr_credit_balance_daily/year=2026/data.parquet",
+        pd.DataFrame({
+            "date": ["2026-08-22", "2026-08-23"],
+            "credit_financing_total": [33.2e12, 33.4e12],
+        }),
+    )
 
     result = home_cards.build_lending(root)
 
-    assert result == {
-        "balance_amount": 2500.0,
-        "d1_pct": pytest.approx((2500 / 2400 - 1) * 100),
-        "d5_pct": pytest.approx((2500 / 2000 - 1) * 100),
-        "trend_20d": values[-20:],
-        "as_of": "2026-08-25",
+    assert result is not None
+    assert result["as_of"] == "2026-08-25"
+    assert result["lag_note"] == "공공데이터포털 대차잔고는 1거래일 뒤 발표"
+    assert result["credit"] == {
+        "as_of": "2026-08-23",
+        "lag_note": "KOFIA 신용잔고는 2거래일 뒤 발표",
     }
+    assert result["balance_amount"] == 2500.0
+    assert result["d1_pct"] == pytest.approx((2500 / 2400 - 1) * 100)
+    assert result["d5_pct"] == pytest.approx((2500 / 2000 - 1) * 100)
+    assert result["trend_20d"] == values[-20:]
     assert home_cards.build_lending(new_temp_root()) is None
 
 

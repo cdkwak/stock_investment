@@ -232,20 +232,37 @@
   }
 
   // ---- chart ----------------------------------------------------------------
-  const homeIndicatorDefaults = { ma5: true, ma20: true, ma60: true, ma120: true, bollinger: false, rsi14: false, volume: true };
+  const homeIndicatorDefaults = { ma5: true, ma20: true, ma60: true, ma120: true, bollinger: false, rsi14: { enabled: false, placement: "panel" }, volume: true };
   const homeIndicatorColors = { ma5: "#4a3aa7", ma20: "#2a78d6", ma60: "#eb6834", ma120: "#1baf7a", bollinger: "#a8621a", rsi14: "#8b4c9e", volume: "#8a847b" };
-  const homeIndicatorLabels = { ma5: "MA5", ma20: "MA20", ma60: "MA60", ma120: "MA120", bollinger: "Bollinger(20,2)", rsi14: "RSI14 · 아래", volume: "거래량" };
+  const homeIndicatorLabels = { ma5: "MA5", ma20: "MA20", ma60: "MA60", ma120: "MA120", bollinger: "Bollinger(20,2)", rsi14: "RSI14", volume: "거래량" };
   let homeIndicatorState = loadHomeIndicatorState();
-  let chart, candleSeries, volSeries, rsiSeries, chartResizeObserver, chartResizeTimer, loadedChart = null, maSeries = {}, bollingerSeries = {}, rsiGuides = [];
+  let chart, candleSeries, volSeries, rsiPanelSeries, rsiOverlaySeries, chartResizeObserver, chartResizeTimer, loadedChart = null, maSeries = {}, bollingerSeries = {}, rsiPanelGuides = [], rsiOverlayGuides = [];
+
+  function defaultHomeIndicatorState() {
+    return { ...homeIndicatorDefaults, rsi14: { ...homeIndicatorDefaults.rsi14 } };
+  }
+  function homeIndicatorEnabled(key) {
+    const state = homeIndicatorState[key];
+    return key === "rsi14" ? Boolean(state && state.enabled) : Boolean(state);
+  }
+  function homeRsiPlacement() {
+    const state = homeIndicatorState.rsi14;
+    return state && state.placement === "overlay" ? "overlay" : "panel";
+  }
 
   function loadHomeIndicatorState() {
-    if (typeof localStorage === "undefined") return { ...homeIndicatorDefaults };
+    if (typeof localStorage === "undefined") return defaultHomeIndicatorState();
     try {
       const saved = JSON.parse(localStorage.getItem("home.indicators"));
-      if (Array.isArray(saved)) return Object.fromEntries(Object.keys(homeIndicatorDefaults).map((key) => [key, saved.includes(key)]));
-      if (saved && typeof saved === "object") return Object.fromEntries(Object.entries(homeIndicatorDefaults).map(([key, fallback]) => [key, typeof saved[key] === "boolean" ? saved[key] : fallback]));
+      if (Array.isArray(saved)) return Object.fromEntries(Object.keys(homeIndicatorDefaults).map((key) => [key, key === "rsi14" ? { enabled: saved.includes(key), placement: "panel" } : saved.includes(key)]));
+      if (saved && typeof saved === "object") return Object.fromEntries(Object.entries(homeIndicatorDefaults).map(([key, fallback]) => {
+        if (key !== "rsi14") return [key, typeof saved[key] === "boolean" ? saved[key] : fallback];
+        if (typeof saved[key] === "boolean") return [key, { enabled: saved[key], placement: "panel" }];
+        const state = saved[key];
+        return [key, state && typeof state === "object" ? { enabled: Boolean(state.enabled), placement: state.placement === "overlay" ? "overlay" : "panel" } : { ...fallback }];
+      }));
     } catch (_error) { /* keep defaults */ }
-    return { ...homeIndicatorDefaults };
+    return defaultHomeIndicatorState();
   }
   function saveHomeIndicatorState() {
     try { localStorage.setItem("home.indicators", JSON.stringify(homeIndicatorState)); } catch (_error) { /* optional preference */ }
@@ -253,22 +270,40 @@
   function syncHomeIndicatorMenu() {
     document.querySelectorAll("#indicator-menu [data-indicator]").forEach((row) => {
       const input = row.querySelector('input[type="checkbox"]');
-      if (input) input.checked = Boolean(homeIndicatorState[row.dataset.indicator]);
+      if (!input) return;
+      input.checked = row.dataset.indicator === "rsi14"
+        ? homeIndicatorEnabled("rsi14") && homeRsiPlacement() === row.dataset.placement
+        : homeIndicatorEnabled(row.dataset.indicator);
     });
   }
-  function changeHomeIndicator(key, enabled) {
+  function changeHomeIndicator(key, enabled, placement) {
     if (!(key in homeIndicatorState)) return;
-    homeIndicatorState[key] = Boolean(enabled);
+    if (key === "rsi14") {
+      if (enabled) homeIndicatorState.rsi14 = { enabled: true, placement: placement === "overlay" ? "overlay" : "panel" };
+      else if (homeRsiPlacement() === placement) homeIndicatorState.rsi14 = { enabled: false, placement: homeRsiPlacement() };
+    } else homeIndicatorState[key] = Boolean(enabled);
     saveHomeIndicatorState(); syncHomeIndicatorMenu(); renderChart();
+  }
+  function prepareHomeIndicatorMenu(menu) {
+    const panelRow = menu.querySelector('[data-indicator="rsi14"]');
+    if (!panelRow || menu.querySelector('[data-indicator="rsi14"][data-placement="overlay"]')) return;
+    panelRow.dataset.placement = "panel";
+    panelRow.innerHTML = '<span><input type="checkbox"> RSI14 · 아래</span>';
+    const overlayRow = document.createElement("label");
+    overlayRow.dataset.indicator = "rsi14";
+    overlayRow.dataset.placement = "overlay";
+    overlayRow.innerHTML = '<span><input type="checkbox"> RSI14 · 위(겹침)</span>';
+    panelRow.insertAdjacentElement("afterend", overlayRow);
   }
   function wireHomeIndicatorPicker() {
     const picker = $("home-indicator-picker"), button = $("indicator-picker-button"), menu = $("indicator-menu");
     if (!picker || !button || !menu) return;
+    prepareHomeIndicatorMenu(menu);
     syncHomeIndicatorMenu();
     button.addEventListener("click", () => { menu.hidden = !menu.hidden; button.setAttribute("aria-expanded", String(!menu.hidden)); });
     menu.querySelectorAll("[data-indicator]").forEach((row) => {
       const input = row.querySelector('input[type="checkbox"]');
-      if (input) input.addEventListener("change", () => changeHomeIndicator(row.dataset.indicator, input.checked));
+      if (input) input.addEventListener("change", () => changeHomeIndicator(row.dataset.indicator, input.checked, row.dataset.placement));
     });
     document.addEventListener("click", (event) => {
       if (!picker.contains(event.target)) { menu.hidden = true; button.setAttribute("aria-expanded", "false"); }
@@ -336,8 +371,10 @@
     bollingerSeries.middle = chart.addLineSeries({ color: "rgba(168,98,26,.65)", lineWidth: 1, priceLineVisible: false, lastValueVisible: false, priceFormat: { type: "custom", formatter: priceFormatter } });
     bollingerSeries.upper = chart.addLineSeries({ color: homeIndicatorColors.bollinger, lineStyle: 2, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, priceFormat: { type: "custom", formatter: priceFormatter } });
     bollingerSeries.lower = chart.addLineSeries({ color: homeIndicatorColors.bollinger, lineStyle: 2, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, priceFormat: { type: "custom", formatter: priceFormatter } });
-    rsiSeries = chart.addLineSeries({ color: homeIndicatorColors.rsi14, lineWidth: 2, priceScaleId: "rsi", priceLineVisible: false, lastValueVisible: true, priceFormat: { type: "custom", formatter: (value) => Number(value).toFixed(0) } });
-    rsiGuides = [30, 70].map((guide) => chart.addLineSeries({ color: "rgba(138,132,123,.6)", lineStyle: 2, lineWidth: 1, priceScaleId: "rsi", priceLineVisible: false, lastValueVisible: false, priceFormat: { type: "custom", formatter: (value) => Number(value).toFixed(0) } }));
+    rsiPanelSeries = chart.addLineSeries({ color: homeIndicatorColors.rsi14, lineWidth: 2, priceScaleId: "rsi-panel", priceLineVisible: false, lastValueVisible: true, priceFormat: { type: "custom", formatter: (value) => Number(value).toFixed(0) } });
+    rsiPanelGuides = [30, 70].map(() => chart.addLineSeries({ color: "rgba(138,132,123,.6)", lineStyle: 2, lineWidth: 1, priceScaleId: "rsi-panel", priceLineVisible: false, lastValueVisible: false, priceFormat: { type: "custom", formatter: (value) => Number(value).toFixed(0) } }));
+    rsiOverlaySeries = chart.addLineSeries({ color: homeIndicatorColors.rsi14, lineWidth: 2, priceScaleId: "rsi", priceLineVisible: false, lastValueVisible: true, priceFormat: { type: "custom", formatter: (value) => Number(value).toFixed(0) } });
+    rsiOverlayGuides = [30, 70].map(() => chart.addLineSeries({ color: "#a8621a", lineStyle: 2, lineWidth: 1, priceScaleId: "rsi", priceLineVisible: false, lastValueVisible: false, priceFormat: { type: "custom", formatter: (value) => Number(value).toFixed(0) } }));
     if (window.ResizeObserver) {
       chartResizeObserver = new ResizeObserver(() => {
         clearTimeout(chartResizeTimer);
@@ -352,7 +389,7 @@
     const stats = $("chart-stats"), legend = $("chart-legend");
     if (!sec || !sec.candles || !sec.candles.length) {
       if (chart) {
-        candleSeries.setData([]); volSeries.setData([]); Object.values(maSeries).forEach((series) => series.setData([])); Object.values(bollingerSeries).forEach((series) => series.setData([])); rsiSeries.setData([]); rsiGuides.forEach((series) => series.setData([]));
+        candleSeries.setData([]); volSeries.setData([]); Object.values(maSeries).forEach((series) => series.setData([])); Object.values(bollingerSeries).forEach((series) => series.setData([])); rsiPanelSeries.setData([]); rsiOverlaySeries.setData([]); [...rsiPanelGuides, ...rsiOverlayGuides].forEach((series) => series.setData([]));
       } else $("chart").innerHTML = unavailable(sec && sec.reason);
       stats.innerHTML = ""; legend.innerHTML = ""; return;
     }
@@ -361,21 +398,26 @@
     const candles = aggregateCandles(sec.candles, currentInterval());
     candleSeries.setData(candles.map((c) => ({ time: c.t, open: c.o, high: c.h, low: c.l, close: c.c })));
     volSeries.setData(candles.map((c) => ({ time: c.t, value: c.v ?? 0, color: c.c >= c.o ? "rgba(192,57,43,.45)" : "rgba(43,98,192,.45)" })));
-    volSeries.applyOptions({ visible: homeIndicatorState.volume });
-    chart.priceScale("vol").applyOptions({ scaleMargins: homeIndicatorState.rsi14 ? { top: 0.62, bottom: 0.27 } : { top: 0.82, bottom: 0 } });
+    volSeries.applyOptions({ visible: homeIndicatorEnabled("volume") });
+    const rsiEnabled = homeIndicatorEnabled("rsi14"), rsiPlacement = homeRsiPlacement();
+    const rsiInPanel = rsiEnabled && rsiPlacement === "panel";
+    chart.priceScale("vol").applyOptions({ scaleMargins: rsiInPanel ? { top: 0.62, bottom: 0.27 } : { top: 0.82, bottom: 0 } });
     for (const key of Object.keys(maSeries)) {
       maSeries[key].setData(movingAverage(candles, Number(key.slice(2))));
-      maSeries[key].applyOptions({ visible: homeIndicatorState[key] });
+      maSeries[key].applyOptions({ visible: homeIndicatorEnabled(key) });
     }
     const bands = bollinger(candles);
-    Object.keys(bollingerSeries).forEach((key) => { bollingerSeries[key].setData(bands[key]); bollingerSeries[key].applyOptions({ visible: homeIndicatorState.bollinger }); });
+    Object.keys(bollingerSeries).forEach((key) => { bollingerSeries[key].setData(bands[key]); bollingerSeries[key].applyOptions({ visible: homeIndicatorEnabled("bollinger") }); });
     const rsiValues = SIIndicators.rsiWilder(candles.map((candle) => Number(candle.c)), 14);
     const rsiData = candles.map((candle, index) => rsiValues[index] === null ? null : { time: candle.t, value: rsiValues[index] }).filter(Boolean);
-    rsiSeries.setData(rsiData); rsiSeries.applyOptions({ visible: homeIndicatorState.rsi14 });
+    rsiPanelSeries.setData(rsiData); rsiPanelSeries.applyOptions({ visible: rsiInPanel });
+    rsiOverlaySeries.setData(rsiData); rsiOverlaySeries.applyOptions({ visible: rsiEnabled && rsiPlacement === "overlay" });
     const rsiEnds = rsiData.length ? [rsiData[0], rsiData[rsiData.length - 1]] : [];
-    rsiGuides.forEach((series, index) => { series.setData(rsiEnds.map((point) => ({ time: point.time, value: index ? 70 : 30 }))); series.applyOptions({ visible: homeIndicatorState.rsi14 }); });
-    chart.priceScale("right").applyOptions({ scaleMargins: homeIndicatorState.rsi14 ? { top: 0.04, bottom: 0.27 } : { top: 0.04, bottom: 0.04 } });
-    chart.priceScale("rsi").applyOptions({ scaleMargins: { top: 0.78, bottom: 0.02 } });
+    rsiPanelGuides.forEach((series, index) => { series.setData(rsiEnds.map((point) => ({ time: point.time, value: index ? 70 : 30 }))); series.applyOptions({ visible: rsiInPanel }); });
+    rsiOverlayGuides.forEach((series, index) => { series.setData(rsiEnds.map((point) => ({ time: point.time, value: index ? 70 : 30 }))); series.applyOptions({ visible: rsiEnabled && rsiPlacement === "overlay" }); });
+    chart.priceScale("right").applyOptions({ scaleMargins: rsiInPanel ? { top: 0.04, bottom: 0.27 } : { top: 0.04, bottom: 0.04 } });
+    chart.priceScale("rsi-panel").applyOptions({ scaleMargins: { top: 0.78, bottom: 0.02 }, visible: false });
+    chart.priceScale("rsi").applyOptions({ scaleMargins: { top: 0.15, bottom: 0.25 }, visible: false });
     chart.timeScale().fitContent();
     requestAnimationFrame(() => { if (chart) chart.timeScale().fitContent(); });
     const s = sec.stats || {};
@@ -386,9 +428,11 @@
       ${s.per !== undefined ? `<span class="badge">PER <b class="num">${fmt(s.per)}</b>${s.per_note ? " " + esc(s.per_note) : ""}</span>` : ""}
       ${s.pbr !== undefined ? `<span class="badge">PBR <b class="num">${fmt(s.pbr)}</b></span>` : ""}
       <span class="badge dashed">선행 PER · PBR — 소스 검증 전</span>`;
-    const active = Object.keys(homeIndicatorState).filter((key) => homeIndicatorState[key]);
-    legend.innerHTML = `<span><i style="background:#1f1d1a"></i>${esc(sec.symbol_name || sec.symbol)}</span>` + active.map((key) => `<span class="home-indicator-label"><i style="background:${homeIndicatorColors[key]}"></i>${esc(homeIndicatorLabels[key])}<button type="button" data-remove-home-indicator="${key}" aria-label="${esc(homeIndicatorLabels[key])} 제거">×</button></span>`).join("") + `<span class="muted">기준일 ${esc(sec.as_of || "")}</span>`;
-    legend.querySelectorAll("[data-remove-home-indicator]").forEach((button) => button.addEventListener("click", () => changeHomeIndicator(button.dataset.removeHomeIndicator, false)));
+    const active = Object.keys(homeIndicatorState).filter(homeIndicatorEnabled);
+    const latestRsi = rsiData.length ? rsiData[rsiData.length - 1].value : null;
+    const indicatorLabel = (key) => key === "rsi14" ? `RSI14 · ${rsiPlacement === "overlay" ? "위" : "아래"}${latestRsi === null ? "" : ` ${fmt(latestRsi, 0)}`}` : homeIndicatorLabels[key];
+    legend.innerHTML = `<span><i style="background:#1f1d1a"></i>${esc(sec.symbol_name || sec.symbol)}</span>` + active.map((key) => `<span class="home-indicator-label"><i style="background:${homeIndicatorColors[key]}"></i>${esc(indicatorLabel(key))}<button type="button" data-remove-home-indicator="${key}" aria-label="${esc(homeIndicatorLabels[key])} 제거">×</button></span>`).join("") + `<span class="muted">기준일 ${esc(sec.as_of || "")}</span>`;
+    legend.querySelectorAll("[data-remove-home-indicator]").forEach((button) => button.addEventListener("click", () => changeHomeIndicator(button.dataset.removeHomeIndicator, false, button.dataset.removeHomeIndicator === "rsi14" ? rsiPlacement : undefined)));
   }
 
   // ---- watchlist --------------------------------------------------------------
@@ -488,21 +532,38 @@
 
   // ---- bottom cards ----------------------------------------------------------
   const signed = (v) => (v === null || v === undefined) ? '<span class="muted">—</span>' : `<span class="${cls(v)}">${v > 0 ? "+" : ""}${fmt(v, 0)}</span>`;
-  function renderFlows(sec) {
+  function shortBasisDate(value) {
+    const text = String(value || "");
+    const iso = text.match(/\d{4}-(\d{2}-\d{2})/);
+    if (iso) return iso[1];
+    const short = text.match(/(?:^|\D)(\d{2}-\d{2})(?:\D|$)/);
+    return short ? short[1] : "";
+  }
+  function renderFlows(sec, krCloseAsOf) {
     const host = $("flows");
     if (!sec) { host.innerHTML = unavailable("보존 데이터 없음"); return; }
     const rows = Array.isArray(sec.rows) ? sec.rows : [];
-    const balances = (Array.isArray(sec.balances) ? sec.balances : []).filter((row) => row.name !== "대차잔고").map((row) => ({ ...row }));
+    const creditMeta = sec.credit || sec.credit_balance || (sec.lending && sec.lending.credit) || {};
+    const balances = (Array.isArray(sec.balances) ? sec.balances : []).filter((row) => row.name !== "대차잔고").map((row) => String(row.name || "").includes("신용") ? { ...creditMeta, ...row, as_of: row.as_of || creditMeta.as_of, lag_note: row.lag_note || creditMeta.lag_note } : { ...row });
     if (sec.lending) {
-      const lending = { name: "대차잔고", value: sec.lending.balance_amount === null || sec.lending.balance_amount === undefined ? "—" : `${formatCompactKorean(sec.lending.balance_amount)}원`, d1_pct: sec.lending.d1_pct, d5_pct: sec.lending.d5_pct, d20_pct: null, spark: sec.lending.trend_20d || [], as_of: sec.lending.as_of };
+      const lending = { name: "대차잔고", value: sec.lending.balance_amount === null || sec.lending.balance_amount === undefined ? "—" : `${formatCompactKorean(sec.lending.balance_amount)}원`, d1_pct: sec.lending.d1_pct, d5_pct: sec.lending.d5_pct, d20_pct: null, spark: sec.lending.trend_20d || [], as_of: sec.lending.as_of, lag_note: sec.lending.lag_note };
       const creditIndex = balances.findIndex((row) => String(row.name || "").includes("신용"));
       balances.splice(creditIndex >= 0 ? creditIndex + 1 : balances.length, 0, lending);
     }
     if (!rows.length && !balances.length) { host.innerHTML = unavailable(sec.reason || "보존 데이터 없음"); return; }
-    host.innerHTML = (rows.length ? `<div class="table"><div class="tr th flow"><div>순매수 (억원)</div><div class="r">오늘</div><div class="r">5일</div><div class="r">20일</div></div>` +
+    const flowAsOf = shortBasisDate(sec.as_of), closeAsOf = shortBasisDate(krCloseAsOf);
+    const flowBasis = flowAsOf && closeAsOf && flowAsOf !== closeAsOf ? `<small class="flow-as-of muted">${esc(flowAsOf)} 기준</small>` : "";
+    host.innerHTML = (rows.length ? `<div class="table"><div class="tr th flow"><div>순매수 (억원) ${flowBasis}</div><div class="r">오늘</div><div class="r">5일</div><div class="r">20일</div></div>` +
       rows.map((r) => `<div class="tr flow"><div class="muted">${esc(r.name)}</div><div class="r num">${signed(r.today)}</div><div class="r num">${signed(r.d5)}</div><div class="r num">${signed(r.d20)}</div></div>`).join("") + `</div>` : "") +
       (balances.length ? `<div class="table balance-table"><div class="tr th bal"><div>잔고</div><div>현재 · 1년 위치</div><div class="r">1일</div><div class="r">5일</div><div class="r">20일</div><div>20일 추세</div></div>` +
-        balances.map((b) => `<div class="tr bal" title="${b.as_of ? `기준 ${esc(b.as_of)}` : ""}"><div class="muted">${esc(b.name)}</div><div class="num">${esc(b.value ?? "—")} <small class="${b.hot ? "up" : "muted"}">${esc(b.position || "")}</small></div><div class="r num ${cls(b.d1_pct)}">${pct(b.d1_pct)}</div><div class="r num ${cls(b.d5_pct)}">${pct(b.d5_pct)}</div><div class="r num ${cls(b.d20_pct)}">${pct(b.d20_pct)}</div><div>${sparkline(b.spark || [], 70, 18)}</div></div>`).join("") + `</div>` : "");
+        balances.map((b) => {
+          const embeddedBasis = String(b.value ?? "").match(/\((\d{2}-\d{2})\)\s*$/);
+          const basis = shortBasisDate(b.as_of) || (embeddedBasis ? embeddedBasis[1] : "");
+          const value = String(b.value ?? "—").replace(/\s*\(\d{2}-\d{2}\)\s*$/, "");
+          const lagNote = b.lag_note || (String(b.name || "").includes("신용") ? "KOFIA 신용잔고는 2거래일 뒤 발표" : String(b.name || "").includes("대차") ? "공공데이터포털 대차잔고는 1거래일 뒤 발표" : "");
+          const tooltip = [basis ? `${basis} 기준` : "", lagNote].filter(Boolean).join(" · ");
+          return `<div class="tr bal" title="${esc(tooltip)}"><div class="muted">${esc(b.name)}</div><div class="num"><span class="balance-value">${esc(value)}${basis ? ` <small class="balance-as-of muted">· ${esc(basis)} 기준</small>` : ""}</span> <small class="${b.hot ? "up" : "muted"}">${esc(b.position || "")}</small></div><div class="r num ${cls(b.d1_pct)}">${pct(b.d1_pct)}</div><div class="r num ${cls(b.d5_pct)}">${pct(b.d5_pct)}</div><div class="r num ${cls(b.d20_pct)}">${pct(b.d20_pct)}</div><div>${sparkline(b.spark || [], 70, 18)}</div></div>`;
+        }).join("") + `</div>` : "");
   }
   function renderDerivatives(sec) {
     const host = $("derivatives");
@@ -612,7 +673,7 @@
       $("chart-symbol").value = initial;
       loadChart(initial, currentRange());
     } else renderChart(null);
-    renderWatchlist(s.watchlist); renderAccount(s.account); renderFlows(s.flows); renderDerivatives(s.derivatives);
+    renderWatchlist(s.watchlist); renderAccount(s.account); renderFlows(s.flows, payload.as_of || payload.as_of_label); renderDerivatives(s.derivatives);
     renderSchedule(s.schedule); renderBrief(s.schedule, s.brief); renderScanner(s.scanner); renderSummaryStrip(s);
   }
   function enforcePublicUi(root = document) {
