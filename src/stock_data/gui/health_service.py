@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from stock_data.orchestration.daily_operations import DATASET_UNIVERSE
@@ -44,6 +44,7 @@ class HealthDatasetRow:
     predictive_consumer_reason: str = "UNKNOWN"
     display_status: str = "UNSET"
     display_reason: str = ""
+    pending_until: str | None = None
 
 
 @dataclass(frozen=True)
@@ -233,6 +234,9 @@ class DailyHealthArtifactService:
         if universe is None:
             raise ValueError(f"health dataset is outside the typed universe: {dataset}")
         runtime_coverage = cls._optional_text(value.get("runtime_coverage"))
+        pending_until = cls._pending_time_or_none(value.get("pending_until"))
+        if pending_until is not None and freshness == "STALE":
+            freshness = "CURRENT"
         display_status, display_reason = classify_health_display(
             universe,
             latest=None if latest == "N/A" else latest,
@@ -241,6 +245,10 @@ class DailyHealthArtifactService:
             runtime_coverage=runtime_coverage,
             last_run=value.get("last_run"),
         )
+        display_status_value = display_status.value
+        if pending_until is not None and display_status_value == "LATE":
+            display_status_value = "CURRENT"
+            display_reason = f"수집 예정 시각 전 ({pending_until})"
         artifact_blocker = value.get("blocker")
         blocker = (
             artifact_blocker.strip()
@@ -271,8 +279,9 @@ class DailyHealthArtifactService:
             research_consumer_reason=universe.research_consumer_reason.value,
             predictive_consumer_eligibility=universe.predictive_consumer_eligibility.value,
             predictive_consumer_reason=universe.predictive_consumer_reason.value,
-            display_status=display_status.value,
+            display_status=display_status_value,
             display_reason=display_reason,
+            pending_until=pending_until,
         )
 
     @staticmethod
@@ -339,6 +348,20 @@ class DailyHealthArtifactService:
     @staticmethod
     def _optional_text(value: object) -> str:
         return value.strip() if isinstance(value, str) and value.strip() else "UNKNOWN"
+
+    @staticmethod
+    def _pending_time_or_none(value: object) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("pending_until must be an HH:MM time or null")
+        try:
+            parsed = datetime.strptime(value, "%H:%M")
+        except ValueError as error:
+            raise ValueError("pending_until must be an HH:MM time or null") from error
+        if parsed.strftime("%H:%M") != value:
+            raise ValueError("pending_until must be a canonical HH:MM time")
+        return value
 
     @classmethod
     def _enum(cls, value: object, allowed: set[str]) -> str:

@@ -104,6 +104,27 @@ def test_data_page_prefers_stable_latest_health_pointer(tmp_path: Path) -> None:
     assert row["latest"] == "2026-09-02"
 
 
+def test_data_page_labels_pending_current_row_with_due_time(tmp_path: Path) -> None:
+    root = tmp_path / "artifacts/daily_health"
+    root.mkdir(parents=True)
+    (root / "universe_data_v2_latest.json").write_text(json.dumps({"datasets": [{
+        "dataset": "kr_index_daily", "latest": "2026-09-03",
+        "expected": "2026-09-04", "freshness": "CURRENT",
+        "due_at": "2026-09-04T20:45:00+09:00", "pending_until": "20:45",
+    }]}), encoding="utf-8")
+
+    context = build_data_page_context(tmp_path, "ALL")
+    row = next(
+        row for group in context["health_groups"] for row in group["rows"]
+        if row["dataset"] == "kr_index_daily"
+    )
+
+    assert row["freshness"] == {
+        "raw": "CURRENT", "label": "대기 20:45", "class": "current",
+    }
+    assert context["health_summary"]["display_current"] >= 1
+
+
 def test_old_scheduler_failure_is_separated_from_recent_receipts(tmp_path: Path) -> None:
     root = tmp_path / "artifacts/scheduler_logs"
     root.mkdir(parents=True)
@@ -151,6 +172,7 @@ def test_data_template_links_scoped_mobile_css_and_old_receipt_toggle() -> None:
     assert 'href="/static/data.css?v={{ static_version }}"' in template
     assert "이전 영수증 보기" in template
     assert "정상: 최신 ≥ 예상" in template
+    assert "대기: 수집 예정 시각 전" in template
     assert "수동/보존 {{ health_summary.display_preserved }}" in template
     assert "{% if show_result_code %}<th>결과 코드</th>{% endif %}" in template
     assert "overflow-x: auto" in css

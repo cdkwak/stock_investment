@@ -259,7 +259,7 @@ def test_universe_health_can_recompute_expected_dates_at_execution_time():
     assert kr_index["freshness"] == "CURRENT"
 
 
-def test_universe_health_treats_one_session_as_expected_lag_before_daily_task():
+def test_universe_health_treats_one_session_as_pending_until_daily_task_grace():
     rows = [{
         "dataset_id": dataset_id,
         "actual_latest": "2026-08-25" if dataset_id == "global_index_price_daily" else None,
@@ -272,7 +272,7 @@ def test_universe_health_treats_one_session_as_expected_lag_before_daily_task():
         "datasets": rows,
     })
     after = MODULE.reconcile_universe({
-        "run_id": "post-occurrence", "as_of": "2026-08-27T06:21:00+09:00",
+        "run_id": "post-occurrence", "as_of": "2026-08-27T06:36:00+09:00",
         "datasets": rows,
     })
 
@@ -283,8 +283,12 @@ def test_universe_health_treats_one_session_as_expected_lag_before_daily_task():
         row for row in after["datasets"] if row["dataset"] == "global_index_price_daily"
     )
     assert before_row["expected"] == "2026-08-26"
-    assert before_row["freshness"] == "EXPECTED_LAG"
+    assert before_row["freshness"] == "CURRENT"
+    assert before_row["display_status"] == "CURRENT"
+    assert before_row["pending_until"] == "06:35"
+    assert before_row["due_at"] == "2026-08-27T06:35:00+09:00"
     assert after_row["freshness"] == "STALE"
+    assert after_row["pending_until"] is None
 
 
 def test_kr_post_close_outputs_wait_for_2030_occurrence_before_stale(
@@ -328,7 +332,7 @@ def test_kr_post_close_outputs_wait_for_2030_occurrence_before_stale(
     }, project_root=tmp_path)
     after = MODULE.reconcile_universe({
         "run_id": "post-kospi200-occurrence",
-        "as_of": "2026-09-02T20:31:00+09:00",
+        "as_of": "2026-09-02T21:00:00+09:00",
         "datasets": rows,
     }, project_root=tmp_path)
 
@@ -349,9 +353,11 @@ def test_kr_post_close_outputs_wait_for_2030_occurrence_before_stale(
         dataset: (row["latest"], row["freshness"])
         for dataset, row in before_rows.items()
     } == {
-        dataset: (actual, "EXPECTED_LAG")
+        dataset: (actual, "CURRENT")
         for dataset, (actual, _expected) in cases.items()
     }
+    assert all(row["display_status"] == "CURRENT" for row in before_rows.values())
+    assert all(row["pending_until"] == "20:45" for row in before_rows.values())
     assert {
         dataset: row["freshness"] for dataset, row in after_rows.items()
     } == {dataset: "STALE" for dataset in cases}
@@ -399,7 +405,8 @@ def test_universe_health_prefers_contract_validated_runtime_coverage(tmp_path, m
     assert blocked_probe["freshness"] == "UNKNOWN"
     assert regressed["latest"] == "2026-08-18"
     assert regressed["expected"] == "2026-08-19"
-    assert regressed["freshness"] == "STALE"
+    assert regressed["freshness"] == "CURRENT"
+    assert regressed["pending_until"] == "20:45"
     assert result["runtime_coverage_validated_count"] == 2
     assert result["runtime_coverage_failure_count"] == 1
 
@@ -435,7 +442,7 @@ def test_scheduled_manual_publication_observation_is_preserved_when_validated(
     assert bok["display_status"] == "PRESERVED"
 
 
-def test_vix_health_waits_for_the_next_morning_lane_after_evening_release() -> None:
+def test_vix_health_is_pending_until_2300_kst_after_evening_release() -> None:
     rows = [{
         "dataset_id": dataset_id,
         "actual_latest": "2026-09-01" if dataset_id == "fred_vix_daily" else None,
@@ -450,9 +457,11 @@ def test_vix_health_waits_for_the_next_morning_lane_after_evening_release() -> N
     })
     vix = next(row for row in result["datasets"] if row["dataset"] == "fred_vix_daily")
 
-    assert vix["expected"] == "2026-09-01"
-    assert vix["freshness"] == "EXPECTED_LAG"
+    assert vix["expected"] == "2026-09-02"
+    assert vix["freshness"] == "CURRENT"
     assert vix["display_status"] == "CURRENT"
+    assert vix["due_at"] == "2026-09-03T23:00:00+09:00"
+    assert vix["pending_until"] == "23:00"
 
 
 def test_runtime_coverage_latest_year_reader_supports_nested_market_partitions(

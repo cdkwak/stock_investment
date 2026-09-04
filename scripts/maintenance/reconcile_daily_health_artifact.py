@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
-from datetime import datetime, time, timezone
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sys
-from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "src") not in sys.path:
@@ -14,7 +13,6 @@ if str(ROOT / "src") not in sys.path:
 
 from stock_data.orchestration.daily_operations import DATASET_OPERATIONS, DATASET_UNIVERSE
 from stock_data.orchestration.dataset_universe import classify_health_display
-from stock_data.orchestration.exchange_calendar import ExchangeMarket, ExchangeTradingCalendar
 from stock_data.orchestration.expected_latest import resolve_expected_latest
 from stock_data.orchestration.runtime_coverage import validated_runtime_coverage
 
@@ -32,48 +30,6 @@ def _freshness(row: dict[str, object]) -> str:
     if actual == expected:
         return "CURRENT"
     return "STALE" if actual < expected else "UNKNOWN"
-
-
-_PRE_DAILY_OCCURRENCE_KST = {
-    "fred_treasury_yield_daily": (time(6, 0), ExchangeMarket.US),
-    "us_treasury_spread_daily": (time(6, 0), ExchangeMarket.US),
-    "global_etf_price_daily": (time(6, 10), ExchangeMarket.US),
-    "global_index_price_daily": (time(6, 20), ExchangeMarket.US),
-    "kr_index_constituent_daily": (time(20, 30), ExchangeMarket.KR),
-    "kr_kospi200_constituent_price_daily": (time(20, 30), ExchangeMarket.KR),
-    "kr_kospi200_breadth_daily": (time(20, 30), ExchangeMarket.KR),
-    "kr_credit_balance_daily": (time(20, 30), ExchangeMarket.KR),
-    "kr_kospi200_futures_daily": (time(20, 30), ExchangeMarket.KR),
-    "kr_kospi200_futures_nearest_listed_daily": (time(20, 30), ExchangeMarket.KR),
-    "kr_kospi200_futures_provider_bridge_daily": (time(20, 30), ExchangeMarket.KR),
-    "kr_kospi200_option_pcr_daily": (time(20, 30), ExchangeMarket.KR),
-    "kr_kospi200_option_walls_daily": (time(20, 30), ExchangeMarket.KR),
-    "kr_kospi200_options_daily": (time(20, 30), ExchangeMarket.KR),
-    "kr_kospi200_options_provider_bridge_daily": (time(20, 30), ExchangeMarket.KR),
-    "kr_market_liquidity_daily": (time(20, 30), ExchangeMarket.KR),
-    "kr_short_selling_balance_daily": (time(20, 30), ExchangeMarket.KR),
-    "kr_short_selling_investor_daily": (time(20, 30), ExchangeMarket.KR),
-    "kr_treasury_yield_daily": (time(20, 30), ExchangeMarket.KR),
-}
-
-
-def _awaiting_scheduled_occurrence(
-    dataset_id: str, *, actual: object, expected: object, as_of: datetime,
-) -> bool:
-    schedule = _PRE_DAILY_OCCURRENCE_KST.get(dataset_id)
-    if schedule is None:
-        return False
-    cutoff, market = schedule
-    local = as_of.astimezone(ZoneInfo("Asia/Seoul"))
-    if local.time() >= cutoff or not isinstance(actual, str) or not isinstance(expected, str):
-        return False
-    try:
-        actual_date = datetime.fromisoformat(actual).date()
-        expected_date = datetime.fromisoformat(expected).date()
-        calendar = ExchangeTradingCalendar(market)
-        return calendar.next_trading_day(actual_date) == expected_date
-    except ValueError:
-        return False
 
 
 def reconcile(
@@ -228,10 +184,6 @@ def reconcile_universe(
             else resolved.freshness.value if resolved is not None
             else _freshness({"actual_latest": actual, "expected_latest": expected})
         )
-        if freshness_value == "STALE" and _awaiting_scheduled_occurrence(
-            dataset_id, actual=actual, expected=expected, as_of=as_of,
-        ):
-            freshness_value = "EXPECTED_LAG"
         runtime_coverage = (
             "VALIDATED" if dataset_id in runtime_latest
             else f"FAILED:{runtime_failures[dataset_id]}" if dataset_id in runtime_failures
@@ -245,6 +197,11 @@ def reconcile_universe(
             runtime_coverage=runtime_coverage,
             last_run=core.get("last_run"),
         )
+        pending_until = resolved.pending_until if resolved is not None else None
+        display_status_value = display_status.value
+        if pending_until is not None and display_status_value == "LATE":
+            display_status_value = "CURRENT"
+            display_reason = f"수집 예정 시각 전 ({pending_until})"
         row = {
             "dataset": dataset_id,
             "role": spec.data_role.value,
@@ -252,8 +209,10 @@ def reconcile_universe(
             "latest": actual,
             "expected": expected,
             "freshness": freshness_value,
-            "display_status": display_status.value,
+            "display_status": display_status_value,
             "display_reason": display_reason,
+            "due_at": resolved.due_at.isoformat() if resolved is not None and resolved.due_at else None,
+            "pending_until": pending_until,
             "finality": finality or "UNKNOWN",
             "operational": spec.operational_status.value,
             "pit": spec.predictive_pit_status.value,

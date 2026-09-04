@@ -97,6 +97,8 @@ class ExpectedLatestResult:
     expected_lag_policy: ExpectedLagPolicy
     calendar_source: str
     calendar_version: str
+    due_at: datetime | None = None
+    pending_until: str | None = None
 
 
 KR_DAILY_LANES = frozenset({
@@ -114,7 +116,7 @@ US_DAILY_LANES = frozenset({
 _FRED_H15 = frozenset({"fred_treasury_yield_daily", "us_treasury_spread_daily"})
 _FRED_H10 = frozenset({"fred_usd_fx_daily"})
 _FRED_VIX = frozenset({"fred_vix_daily"})
-_FRED_DAILY_RUN_KST = time(6, 0)
+_KST = ZoneInfo("Asia/Seoul")
 _XKRX_MANUAL_DATASETS = frozenset({
     "kr_equity_foreign_ownership_daily", "kr_equity_fundamental_daily",
     "kr_equity_program_trading_daily", "kr_equity_sector_classification",
@@ -339,12 +341,6 @@ def _bok_fx_target(as_of: datetime) -> date:
     return candidate
 
 
-def _latest_daily_run(as_of: datetime, run_time: time, zone: str) -> datetime:
-    local = as_of.astimezone(ZoneInfo(zone))
-    run_day = local.date() if local.time() >= run_time else local.date() - timedelta(days=1)
-    return _at(run_day, run_time, zone)
-
-
 def _provider_target(
     policy: ExpectedLatestPolicy, calendar: ExchangeTradingCalendar, as_of: datetime,
 ) -> tuple[date, ProviderAvailability]:
@@ -359,15 +355,9 @@ def _provider_target(
         return calendar.previous_trading_day(release), ProviderAvailability.AVAILABLE
     if policy.provider_availability_policy is ProviderAvailabilityPolicy.FRED_VIX_NEXT_BUSINESS_DAY_0840_CT:
         available = []
-        # Health is evaluated against the latest 06:00 KST FRED occurrence.
-        # VIXCLS publishes at about 08:40 CT, well after that run, so a value
-        # that appeared later the same KST day is due at the next occurrence.
-        evaluation_time = _latest_daily_run(
-            as_of, _FRED_DAILY_RUN_KST, "Asia/Seoul",
-        )
         for observation in sessions:
             release = calendar.next_trading_day(observation)
-            if _at(release, time(8, 40), "America/Chicago") <= evaluation_time:
+            if _at(release, time(8, 40), "America/Chicago") <= as_of:
                 available.append(observation)
         return available[-1], ProviderAvailability.AVAILABLE
     if policy.provider_availability_policy is ProviderAvailabilityPolicy.YAHOO_FUTURES_NEXT_BUSINESS_DAY_0800_ET:
@@ -442,6 +432,98 @@ def _provider_target(
     raise ValueError(f"unsupported availability policy: {policy.provider_availability_policy}")
 
 
+def _trading_day_after(
+    calendar: ExchangeTradingCalendar, day: date, count: int = 1,
+) -> date:
+    result = day
+    for _ in range(count):
+        result = calendar.next_trading_day(result)
+    return result
+
+
+def _due_at(
+    *, dataset: str, lane: str, policy: ExpectedLatestPolicy, target: date,
+    calendar: ExchangeTradingCalendar | None,
+) -> datetime | None:
+    availability = policy.provider_availability_policy
+    if availability in {
+        ProviderAvailabilityPolicy.MANUAL_OBSERVATION,
+        ProviderAvailabilityPolicy.NOT_APPLICABLE,
+    }:
+        if dataset == "kr_market_liquidity_daily" and lane == "LIQUIDITY_CREDIT_DAILY":
+            return datetime.combine(target, time(20, 45), _KST)
+        return None
+    if availability is ProviderAvailabilityPolicy.BOK_ECOS_FX_DAILY_1600_KST:
+        return datetime.combine(target, time(20, 45), _KST)
+    if calendar is None:
+        return None
+    if availability in {
+        ProviderAvailabilityPolicy.FRED_H15_NEXT_BUSINESS_DAY_1615_ET,
+        ProviderAvailabilityPolicy.FRED_H10_WEEKLY_1615_ET,
+    }:
+        release = calendar.next_trading_day(target)
+        return datetime.combine(release + timedelta(days=1), time(6, 35), _KST)
+    if availability is ProviderAvailabilityPolicy.FRED_VIX_NEXT_BUSINESS_DAY_0840_CT:
+        release = calendar.next_trading_day(target)
+        return datetime.combine(release, time(23, 0), _KST)
+    if availability is ProviderAvailabilityPolicy.MARKET_SESSION_COMPLETE:
+        return datetime.combine(target + timedelta(days=1), time(6, 35), _KST)
+    if availability is ProviderAvailabilityPolicy.YAHOO_FUTURES_NEXT_BUSINESS_DAY_0800_ET:
+        release = calendar.next_trading_day(target)
+        return datetime.combine(release, time(22, 25), _KST)
+    if availability in {
+        ProviderAvailabilityPolicy.DATA_GO_KR_D_PLUS_1_1300,
+        ProviderAvailabilityPolicy.CANONICAL_EQUITY_ACCEPTED_D_PLUS_1_1300,
+    }:
+        due_time = time(14, 25) if lane in {"CANONICAL_EQUITY_DAILY", "LENDING_DAILY"} else time(20, 45)
+        return datetime.combine(calendar.next_trading_day(target), due_time, _KST)
+    if availability in {
+        ProviderAvailabilityPolicy.KRX_POST_CLOSE_1830,
+        ProviderAvailabilityPolicy.KRX_POST_CLOSE_2030,
+        ProviderAvailabilityPolicy.KRX_SHORT_INVESTOR_SAME_DAY_1810,
+    }:
+        return datetime.combine(target, time(20, 45), _KST)
+    if availability in {
+        ProviderAvailabilityPolicy.KRX_NEXT_TRADING_DAY_0910,
+        ProviderAvailabilityPolicy.KRX_SHORT_TRADING_T_PLUS_1,
+    }:
+        return datetime.combine(calendar.next_trading_day(target), time(9, 25), _KST)
+    if availability in {
+        ProviderAvailabilityPolicy.KRX_SHORT_BALANCE_T_PLUS_2_1810,
+        ProviderAvailabilityPolicy.KOFIA_T_PLUS_2_2030,
+    }:
+        return datetime.combine(_trading_day_after(calendar, target, 2), time(20, 45), _KST)
+    if availability is ProviderAvailabilityPolicy.KRX_COMPLETED_SUCCESSOR_SESSION:
+        return datetime.combine(calendar.next_trading_day(target), time(20, 45), _KST)
+    return None
+
+
+def _previous_expected_observation(
+    policy: ExpectedLatestPolicy, calendar: ExchangeTradingCalendar, target: date,
+) -> date:
+    if policy.provider_availability_policy is ProviderAvailabilityPolicy.FRED_H10_WEEKLY_1615_ET:
+        target_week = target.isocalendar()[:2]
+        previous = calendar.previous_trading_day(target)
+        while previous.isocalendar()[:2] == target_week:
+            previous = calendar.previous_trading_day(previous)
+        return previous
+    return calendar.previous_trading_day(target)
+
+
+def _pending_until(
+    *, retained_latest: date | None, target: date, due_at: datetime | None,
+    as_of: datetime, previous_target: date,
+) -> str | None:
+    if (
+        retained_latest is not None
+        and previous_target <= retained_latest < target
+        and due_at is not None
+        and as_of < due_at
+    ):
+        return due_at.astimezone(_KST).strftime("%H:%M")
+    return None
+
+
 def resolve_expected_latest(
     *, dataset: str, lane: str, retained_latest: date | None, as_of: datetime,
     availability: ProviderAvailability | None = None,
@@ -456,10 +538,22 @@ def resolve_expected_latest(
         is ProviderAvailabilityPolicy.BOK_ECOS_FX_DAILY_1600_KST
     ):
         target = _bok_fx_target(as_of)
+        due_at = _due_at(
+            dataset=dataset, lane=lane, policy=policy, target=target, calendar=None,
+        )
+        pending_until = _pending_until(
+            retained_latest=retained_latest,
+            target=target,
+            due_at=due_at,
+            as_of=as_of,
+            previous_target=_previous_weekday(target),
+        )
         effective_availability = availability or ProviderAvailability.AVAILABLE
         if retained_latest is None:
             freshness = ExpectedFreshness.UNKNOWN
         elif retained_latest >= target:
+            freshness = ExpectedFreshness.CURRENT
+        elif pending_until is not None:
             freshness = ExpectedFreshness.CURRENT
         elif retained_latest >= _previous_weekday(target):
             # The 16:00 clock is operational, not a verified publication SLA.
@@ -476,12 +570,15 @@ def resolve_expected_latest(
             freshness=freshness,
             availability=effective_availability,
             finality=policy.finality_policy,
-            collection_required=(retained_latest is None or retained_latest < target),
+            collection_required=(retained_latest is None or retained_latest < target)
+            and pending_until is None,
             observation_calendar=policy.observation_calendar,
             provider_availability_policy=policy.provider_availability_policy,
             expected_lag_policy=policy.expected_lag_policy,
             calendar_source="project-weekday-operating-rule",
             calendar_version="1",
+            due_at=due_at,
+            pending_until=pending_until,
         )
     if policy.exchange_market is None:
         unavailable = (
@@ -503,6 +600,17 @@ def resolve_expected_latest(
     calendar = ExchangeTradingCalendar(policy.exchange_market)
     market_date = calendar.latest_completed_session(as_of)
     provider_target, derived_availability = _provider_target(policy, calendar, as_of)
+    due_at = _due_at(
+        dataset=dataset, lane=lane, policy=policy, target=provider_target,
+        calendar=calendar,
+    )
+    pending_until = _pending_until(
+        retained_latest=retained_latest,
+        target=provider_target,
+        due_at=due_at,
+        as_of=as_of,
+        previous_target=_previous_expected_observation(policy, calendar, provider_target),
+    )
     effective_availability = availability or derived_availability
     if retained_latest is None:
         freshness = ExpectedFreshness.UNKNOWN
@@ -510,6 +618,8 @@ def resolve_expected_latest(
         freshness = ExpectedFreshness.CURRENT
     elif retained_latest >= provider_target:
         freshness = ExpectedFreshness.EXPECTED_LAG
+    elif pending_until is not None:
+        freshness = ExpectedFreshness.CURRENT
     else:
         freshness = ExpectedFreshness.STALE
     return ExpectedLatestResult(
@@ -522,12 +632,15 @@ def resolve_expected_latest(
         availability=effective_availability,
         finality=policy.finality_policy,
         collection_required=(retained_latest is None or retained_latest < provider_target)
-        and effective_availability is ProviderAvailability.AVAILABLE,
+        and effective_availability is ProviderAvailability.AVAILABLE
+        and pending_until is None,
         observation_calendar=policy.observation_calendar,
         provider_availability_policy=policy.provider_availability_policy,
         expected_lag_policy=policy.expected_lag_policy,
         calendar_source=calendar.provenance.source_package,
         calendar_version=calendar.provenance.source_version,
+        due_at=due_at,
+        pending_until=pending_until,
     )
 
 

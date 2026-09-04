@@ -110,6 +110,9 @@ def _health_row(row: object) -> dict[str, object]:
     freshness_label, freshness_class = FRESHNESS.get(
         freshness_raw, (freshness_raw, "unknown"),
     )
+    pending_until = getattr(row, "pending_until", None)
+    if freshness_raw == "CURRENT" and pending_until:
+        freshness_label = f"대기 {pending_until}"
     cadence = str(getattr(row, "cadence"))
     role = str(getattr(row, "role"))
     dataset = str(getattr(row, "dataset"))

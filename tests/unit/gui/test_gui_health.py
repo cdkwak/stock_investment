@@ -275,6 +275,25 @@ def test_health_ignores_one_unregistered_artifact_row_and_reports_warning(tmp_pa
     assert next(row for row in view.rows if row.dataset == "kr_index_daily").display_status == "CURRENT"
 
 
+def test_health_adapter_keeps_pending_gap_current(tmp_path):
+    pending = _row(
+        "kr_index_daily", "CURRENT", latest="2026-09-03", expected="2026-09-04",
+    )
+    pending["pending_until"] = "20:45"
+    pending["due_at"] = "2026-09-04T20:45:00+09:00"
+    _write_health(tmp_path, [pending])
+
+    row = next(
+        item for item in DailyHealthArtifactService(tmp_path).load().rows
+        if item.dataset == "kr_index_daily"
+    )
+
+    assert row.freshness == "CURRENT"
+    assert row.display_status == "CURRENT"
+    assert row.pending_until == "20:45"
+    assert row.display_reason == "수집 예정 시각 전 (20:45)"
+
+
 def test_health_failure_requires_an_enabled_lane_and_failed_last_run(tmp_path):
     enabled = _row("kr_index_daily", "CURRENT", latest="2026-09-02", expected="2026-09-02")
     enabled["last_run"] = {"status": "FAILED"}
@@ -460,9 +479,8 @@ def test_current_retained_health_artifact_managed_automation_regression():
     assert summary["managed_stale"] == managed_counts["STALE"]
     assert summary["managed_unknown"] == managed_counts["UNKNOWN"]
     assert summary["managed_not_applicable"] == managed_counts["NOT_APPLICABLE"]
-    assert summary["managed_acceptable"] == (
-        managed_counts["CURRENT"] + managed_counts["EXPECTED_LAG"]
-        + managed_counts["NOT_APPLICABLE"]
+    assert summary["managed_acceptable"] == sum(
+        row.display_status not in {"LATE", "FAILED"} for row in managed
     )
     assert sum(managed_counts.values()) == summary["managed_total"]
 

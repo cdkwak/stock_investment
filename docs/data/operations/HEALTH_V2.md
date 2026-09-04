@@ -8,7 +8,7 @@ Health V2는 보존 데이터의 존재와 자동화 장애를 분리해 표시�
 
 | 상태 | 기준 |
 |---|---|
-| `CURRENT` / 정상 | `latest >= expected`. 원본이 `EXPECTED_LAG`여도 두 날짜가 같으면 정상이다. |
+| `CURRENT` / 정상 | `latest >= expected`, 또는 최신 기대 관측값의 수집 예정 시각 전이다. 예정 시각 전 행은 `pending_until`과 함께 `대기 HH:MM`으로 표시하고 정상에 집계한다. |
 | `LATE` / 지연 | 스케줄러 lane과 자동화가 활성화되어 있고 `latest < expected`이다. |
 | `FAILED` / 실패 | 마지막 실행이 실패했다. |
 | `PRESERVED` / 수동·보존 | lane이 없거나 자동화 대상이 아니며, 최신 보존일은 정보로만 표시한다. |
@@ -20,10 +20,17 @@ Health V2는 보존 데이터의 존재와 자동화 장애를 분리해 표시�
 자료로 별도 고지한다.
 
 FRED `VIXCLS`는 다음 미국 영업일 약 08:40 CT에 공개된다. 06:00 KST FRED lane보다
-뒤에 공개된 값은 같은 날 늦은 것이 아니며 다음 06:00 KST 실행부터 기대값이 된다.
+뒤에 공개된 값은 다음 미국 영업일 23:00 KST까지 대기 상태다.
 `kr_etf_master`는 가격이 이미 최신인 실행에서도 원천 ticker list를 한 번만 Landing에
 보존한 뒤 `source_date`를 갱신한다. `kr_corp_code_map`은 `modify_date` 최대값,
 `kr_fundamentals_quarterly`는 `period_end` 최대값을 참고 기준일로 사용한다.
+
+일별 자동화 행은 timezone-aware `due_at`을 함께 기록한다. KRX 20:30 묶음은
+20:45 KST, 다음 거래일 09:10/14:10 묶음은 각각 09:25/14:25 KST, 글로벌
+06:10/06:20 및 FRED 일별 묶음은 06:35 KST를 기준으로 한다. BOK·Toss와
+그 밖의 고정 lane은 실행 시각에 15분을 더한다. 최신값이 기대값보다 하루 이상
+밀렸다면 새 관측값의 예정 시각 전이라도 이미 기한이 지난 이전 누락을 숨기지 않는다.
+수동 자료는 `due_at`과 `pending_until`을 기록하지 않으며 기존 분류를 유지한다.
 
 ## 호환성과 경고
 
