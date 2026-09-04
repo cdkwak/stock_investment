@@ -1,6 +1,7 @@
 """Provider-free data projections for the local Market page."""
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
 
@@ -32,7 +33,7 @@ FLOW_RANGE_SESSIONS = {"20D": 20, "60D": 60, "1Y": 252, "ALL": None}
 HISTORY_RANGES = {"1Y", "3Y", "5Y", "ALL"}
 MARKET_RANGE_KEYS = {*FLOW_RANGE_SESSIONS, *HISTORY_RANGES}
 _MARKET_CACHE_TTL_SECONDS = 60.0
-_MARKET_CACHE: dict[tuple[str, str], tuple[float, dict[str, object]]] = {}
+_MARKET_CACHE: dict[tuple[str, str, bool], tuple[float, dict[str, object]]] = {}
 
 _WARNING_TRANSLATIONS = {
     "Raw provider observation; no Normalized/PIT-safe claim":
@@ -326,7 +327,7 @@ def _market_derivative_metrics(service: object, project_root: Path) -> dict[str,
 
 
 def build_derivatives(
-    project_root: Path, *, range_key: str = "1Y",
+    project_root: Path, *, range_key: str = "1Y", public_mode: bool | None = None,
 ) -> dict[str, object]:
     history_range = _history_range(range_key)
     try:
@@ -334,8 +335,9 @@ def build_derivatives(
 
         service = DashboardService(project_root)
         metrics = _market_derivative_metrics(service, project_root)
-    except (KeyError, OSError, PermissionError, RuntimeError, TypeError, ValueError) as error:
-        return _unavailable(f"파생 표시 상태를 읽을 수 없습니다: {error}")
+    except (KeyError, OSError, PermissionError, RuntimeError, TypeError, ValueError):
+        service = None
+        metrics = {}
 
     basis = _metric_view(metrics.get("KOSPI200_BASIS"), pattern="{:+,.2f}")
     if basis["status"] == "VALUE":
@@ -363,7 +365,7 @@ def build_derivatives(
         "oi": _metric_view(metrics.get("OI_PCR"), pattern="{:.2f}"),
     }
     try:
-        pcr = service.query.read(
+        pcr = pd.DataFrame() if service is None else service.query.read(
             "derived/kr_kospi200_option_pcr_daily",
             columns=["date", "volume_pcr", "open_interest_pcr", "observation_status"],
         ).sort_values("date")
@@ -435,15 +437,49 @@ def build_derivatives(
         except (KeyError, OSError, PermissionError, TypeError, ValueError):
             ls = _unavailable("LS 선물 외국인 순계약 보존 행을 읽을 수 없습니다.")
 
+    if public_mode is None:
+        public_mode = os.environ.get("STOCK_WEB_PUBLIC_MODE") == "1"
+    cboe_pcr = None
+    if not public_mode:
+        try:
+            from stock_web.api.home_data import _CBOE_PCR_LABELS, _latest_cboe_pcr_rows
+
+            cboe_rows = _latest_cboe_pcr_rows(project_root)
+            cboe_pcr = {
+                "status": "VALUE" if cboe_rows else "UNAVAILABLE",
+                "reason": None if cboe_rows else "보존된 Cboe 일별 통계가 없습니다.",
+                "scope_label": "Cboe 거래소 합계 · 지수 · ETP · 개별주 · VIX",
+                "rows": [{
+                    "date": _date(row.get("date")),
+                    "scope": str(row.get("scope")),
+                    "label": _CBOE_PCR_LABELS.get(str(row.get("scope")), str(row.get("scope"))),
+                    "call_volume": _nan_to_none(row.get("call_volume")),
+                    "put_volume": _nan_to_none(row.get("put_volume")),
+                    "volume_pcr": _nan_to_none(row.get("volume_pcr")),
+                    "call_oi": _nan_to_none(row.get("call_oi")),
+                    "put_oi": _nan_to_none(row.get("put_oi")),
+                    "oi_pcr": _nan_to_none(row.get("oi_pcr")),
+                } for row in cboe_rows],
+                "personal_only": True,
+                "redistribution": "FORBIDDEN",
+            }
+        except (KeyError, OSError, PermissionError, RuntimeError, TypeError, ValueError):
+            cboe_pcr = _unavailable("Cboe 일별 통계를 읽을 수 없습니다.")
     parts = [basis, *pcr_views.values(), wall, ls]
-    return {
-        "status": "VALUE" if any(part.get("status") == "VALUE" for part in parts) else "UNAVAILABLE",
-        "reason": None if any(part.get("status") == "VALUE" for part in parts) else "표시 가능한 KOSPI200 파생 상세가 없습니다.",
+    available = any(part.get("status") == "VALUE" for part in parts) or (
+        cboe_pcr is not None and cboe_pcr.get("status") == "VALUE"
+    )
+    result = {
+        "status": "VALUE" if available else "UNAVAILABLE",
+        "reason": None if available else "표시 가능한 파생 상세가 없습니다.",
         "basis": basis,
         "pcr": pcr_views,
         "wall": wall,
         "ls_flow": ls,
     }
+    if cboe_pcr is not None:
+        result["cboe_pcr"] = cboe_pcr
+    return result
 
 
 def _flow_market(
@@ -623,14 +659,16 @@ def build_valuation(
 
 
 def build_market_page_payload(
-    project_root: Path, *, flows_range: str = "60D",
+    project_root: Path, *, flows_range: str = "60D", public_mode: bool | None = None,
 ) -> dict[str, object]:
     """Build one cached, range-bounded Market payload."""
     root = Path(project_root).resolve()
     request_range = flows_range if flows_range in MARKET_RANGE_KEYS else "60D"
     normalized_flow_range = request_range if request_range in FLOW_RANGE_SESSIONS else "60D"
     history_range = _history_range(request_range)
-    cache_key = (str(root), request_range)
+    if public_mode is None:
+        public_mode = os.environ.get("STOCK_WEB_PUBLIC_MODE") == "1"
+    cache_key = (str(root), request_range, public_mode)
     cached = _MARKET_CACHE.get(cache_key)
     if cached is not None and time.monotonic() - cached[0] < _MARKET_CACHE_TTL_SECONDS:
         return cached[1]
@@ -648,7 +686,10 @@ def build_market_page_payload(
         "explanations": METRIC_EXPLANATIONS,
         "chart_symbols": build_chart_symbols(root),
         "sections": {
-            "derivatives": safely(lambda: build_derivatives(root, range_key=history_range), "파생 상세"),
+            "derivatives": safely(
+                lambda: build_derivatives(root, range_key=history_range, public_mode=public_mode),
+                "파생 상세",
+            ),
             "flows": safely(
                 lambda: build_flows_and_balances(
                     root, range_key=normalized_flow_range,

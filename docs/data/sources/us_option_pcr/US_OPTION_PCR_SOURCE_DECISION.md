@@ -1,12 +1,41 @@
 # U.S. Option Put/Call Source Decision
 
-Status: `UNSUPPORTED / ENTITLEMENT_AND_FINALITY_NOT_CLOSED / NUMERIC_USE_FORBIDDEN`
+Status: `CBOE_PERSONAL_DISPLAY_SUPPORTED / REDISTRIBUTION_AND_PREDICTIVE_USE_FORBIDDEN`
 
 Decision date: `2026-08-26 KST`
 
 Evidence check date: `2026-08-26 KST`
 
-This is a documentation-only decision. It does not accept website visibility as
+Personal-use supersession check: `2026-09-05 KST`
+
+## 2026-09-05 personal-display supersession
+
+The current user instruction supersedes this decision's 2026-08-26
+`UNSUPPORTED` result only for a once-daily, personal, non-commercial local
+display of Cboe's venue-scoped daily statistics. The Cboe website terms checked
+2026-09-05 allow viewing/downloading one copy of website materials for personal
+non-commercial use and contain no explicit automated-access clause. This route
+therefore permits at most one fetch per observation date, lossless sha256-bound
+Landing retention, contract-valid local Normalized promotion, and display in
+private mode. Guest/public display, redistribution, remote publication,
+Backtest/ML input, and every predictive/PIT claim remain forbidden.
+
+The display identity is exactly `Cboe 거래소 합계 · 지수 · ETP · 개별주 · VIX`;
+it is never called the whole U.S. market. Every ratio is computed as put divided
+by call and is null when the call count is zero. Volume and OI ratios remain
+separate. No retained archive evidence identified a stable machine endpoint.
+The provider consequently defaults to the following Historical Options Data
+CSV placeholder, which the coordinator must verify with one curl before passing
+the live lane's explicit `--endpoint-verified` gate:
+
+`https://www.cboe.com/us/options/market_statistics/historical_data/?download=csv&date={date}`
+
+An identified page XHR or stable `cdn.cboe.com/data/us/options/market_statistics/daily/`
+CSV/JSON route should replace that placeholder without changing the contract.
+The rest of this document remains the 2026-08-26 historical decision and does
+not override this narrow personal-display exception.
+
+The following is the superseded 2026-08-26 documentation-only decision. It did not accept website visibility as
 an API or data licence, buy or activate a product, call a provider, retain a
 sample value, or grant collection, display, derived-display, redistribution, or
 predictive permission.

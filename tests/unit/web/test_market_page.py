@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 import math
 from pathlib import Path
 from types import SimpleNamespace
@@ -264,7 +265,9 @@ def test_market_payload_bounds_all_default_series_and_all_returns_longer(
         count = 400 if range_key == "ALL" else 252
         return [{"t": f"2026-{index // 28 + 1:02d}-{index % 28 + 1:02d}", "v": index} for index in range(count)]
 
-    def fake_derivatives(_root: Path, *, range_key: str) -> dict[str, object]:
+    def fake_derivatives(
+        _root: Path, *, range_key: str, public_mode: bool = False,
+    ) -> dict[str, object]:
         points = history_points(range_key)
         return {
             "status": "VALUE", "basis": {"status": "VALUE", "series": points},
@@ -504,3 +507,28 @@ def test_derivatives_payload_uses_near_wall_columns(monkeypatch: pytest.MonkeyPa
 
 def test_unknown_ascii_warning_uses_generic_korean_note() -> None:
     assert _localized_warning("Unrecognized provider warning") == "원시 관측값 · 정규화·검증 상태를 확인할 수 없습니다"
+
+
+def test_market_derivatives_expose_cboe_scope_table_only_in_private_mode() -> None:
+    root = new_temp_root()
+    path = root / "data/normalized/cboe_daily_pcr_daily/year=2026/data.parquet"
+    path.parent.mkdir(parents=True)
+    pd.DataFrame({
+        "date": [date(2026, 9, 4)] * 5,
+        "scope": ["TOTAL", "INDEX", "ETP", "EQUITY", "VIX"],
+        "call_volume": [100, 80, 60, 40, 20],
+        "put_volume": [120, 72, 66, 52, 30],
+        "volume_pcr": [1.2, 0.9, 1.1, 1.3, 1.5],
+        "call_oi": [200, 160, 120, 80, 40],
+        "put_oi": [220, 144, 132, 104, 60],
+        "oi_pcr": [1.1, 0.9, 1.1, 1.3, 1.5],
+    }).to_parquet(path, index=False)
+
+    private = build_derivatives(root, public_mode=False)
+    public = build_derivatives(root, public_mode=True)
+
+    assert private["cboe_pcr"]["scope_label"] == "Cboe 거래소 합계 · 지수 · ETP · 개별주 · VIX"
+    assert [row["label"] for row in private["cboe_pcr"]["rows"]] == [
+        "Cboe 거래소 합계", "지수", "ETP", "개별주", "VIX",
+    ]
+    assert "cboe_pcr" not in public

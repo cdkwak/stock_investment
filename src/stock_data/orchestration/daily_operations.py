@@ -1532,6 +1532,7 @@ PROVIDER_AUTH_METADATA: Mapping[str, ProviderAuthMetadata] = MappingProxyType({
         auth_health_supported=True,
     ),
     "yahoo": ProviderAuthMetadata("yahoo", AuthType.NOT_APPLICABLE, ()),
+    "cboe_public": ProviderAuthMetadata("cboe_public", AuthType.NOT_APPLICABLE, ()),
 })
 
 
@@ -1599,6 +1600,14 @@ DAILY_LANE_READINESS = (
         "confirmed one-call validation, atomic append, prior-valid preservation, and API-zero dry run",
         "descriptive direct-display health adapter; never an official bar or close", True, None,
         "run only in the bounded overnight window and preserve the last accepted observation outside it"),
+    LaneReadiness("CBOE_DAILY_PCR", LaneReadinessStatus.READY,
+        "Cboe Daily Market Statistics public daily file", "daily at 06:30 KST",
+        "as-retrieved venue-scoped completed-date values; predictive finality blocked",
+        "one public CSV/JSON request after coordinator endpoint verification",
+        "immutable sha256 Landing plus date-keyed Normalized and last receipt",
+        "confirmed one-call ceiling, date idempotency, strict scope/count validation, and API-zero dry run",
+        "personal local display only; guest/public and redistribution forbidden", True, None,
+        "run daily after 06:30 KST only after one coordinator curl verifies the configured machine URL"),
     LaneReadiness("GLOBAL_COMMODITY_DAILY", LaneReadinessStatus.READY,
         "Yahoo chart", "global futures completed daily", "next US business day after 08:00 ET",
         "global_current_refresh yahoo_dashboard_futures prepare/promote", "run checkpoint plus promotion journal",
@@ -1997,6 +2006,33 @@ CORE_DATASET_SPECS = REPRESENTATIVE_DATASET_SPECS + (
         validation_policy="one-call identity, USD, positive-finite price, timestamp, Landing, and atomic append validation",
         dashboard_required=True,
     ),
+    DatasetOperationSpec(
+        dataset_id="cboe_daily_pcr_daily",
+        economic_variable="Cboe venue-scoped option product-group put/call ratios",
+        cadence=Cadence.GLOBAL_DAILY,
+        tier=DatasetTier.TIER_3_DELAYED,
+        primary_source="Cboe Daily Market Statistics public daily file",
+        contract_id="cboe_daily_pcr_daily",
+        contract_version=1,
+        operational_status=OperationalStatus.MANUAL_READY,
+        freshness_policy=FreshnessPolicy(
+            "cboe_daily_pcr_0630_kst", "Asia/Seoul",
+            "latest Cboe observation date due once daily at 06:30 KST",
+            FinalityPolicy(
+                FinalityEvidence.AS_RETRIEVED, "Asia/Seoul",
+                provider_available_rule="five required Cboe product-group rows in one response",
+                provider_final_rule="as-retrieved descriptive display only; predictive finality blocked",
+                collection_window="one request per date at or after 06:30 KST",
+            ),
+        ),
+        pipeline_dependencies=(),
+        idempotency_status=IdempotencyStatus.CONFIRMED,
+        pit_status=PitStatus.NON_PREDICTIVE,
+        automation_enabled=False,
+        provider_auth_id="cboe_public",
+        validation_policy="personal-only, one-call, Landing sha256, exact date/scope, non-negative counts, put/call ratios, atomic promotion",
+        dashboard_required=True,
+    ),
     _registered_manual_spec(
         "kr_etf_master", "Current Korean ETF identities", "KRX/pykrx",
         1, provider_auth_id="pykrx_login", status=OperationalStatus.AUTO_READY,
@@ -2208,7 +2244,7 @@ def build_daily_universe_gap_status(
             plan_status=status,
             pre_network_noop=noop,
         ))
-    if len(rows) != 70:
+    if len(rows) != 71:
         raise RuntimeError("daily-grain universe count differs from the typed registry")
     return tuple(rows)
 

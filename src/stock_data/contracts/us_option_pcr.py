@@ -7,6 +7,31 @@ _CONTRACT_ONLY_STATUS = "contract_only_no_entitlement"
 _UTC_TIMESTAMP = "timestamp[us, UTC]"
 
 
+CBOE_DAILY_PCR_DAILY = DatasetContract(
+    name="cboe_daily_pcr_daily", version=1,
+    status="active_personal_display_only",
+    description=(
+        "Once-daily Cboe venue-scoped option product-group put/call counts and "
+        "ratios for personal non-commercial local display only; never a U.S.-wide total."
+    ),
+    source="cboe_daily_market_statistics_public", layer="normalized",
+    storage_format="parquet", frequency="daily", timezone="America/New_York",
+    primary_key=("date", "scope"), sort_key=("date", "scope"),
+    partition_by=("year",), columns=(
+        ColumnContract("date", "date32", False),
+        ColumnContract("scope", "string", False),
+        ColumnContract("call_volume", "int64", False, "contracts"),
+        ColumnContract("put_volume", "int64", False, "contracts"),
+        ColumnContract("volume_pcr", "float64", True, "ratio"),
+        ColumnContract("call_oi", "int64", True, "contracts"),
+        ColumnContract("put_oi", "int64", True, "contracts"),
+        ColumnContract("oi_pcr", "float64", True, "ratio"),
+        ColumnContract("provider", "string", False),
+        ColumnContract("retrieved_at", _UTC_TIMESTAMP, False),
+    ),
+)
+
+
 @dataclass(frozen=True)
 class CboePutCallScopePolicy:
     scope_id: str
@@ -230,6 +255,7 @@ US_OPTION_PCR_CONTRACTS = (
 
 
 __all__ = [
+    "CBOE_DAILY_PCR_DAILY",
     "CBOE_DAILY_OPTION_PCR_OBSERVATION",
     "CBOE_PUT_CALL_SCOPE_POLICIES",
     "CboePutCallScopePolicy",

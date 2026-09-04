@@ -308,6 +308,24 @@ def test_derivatives_translate_provider_warning_and_hide_us_missing_values(
     assert [row[1] for row in result["groups"][1]["rows"]] == ["미표시", "미표시"]
 
 
+def test_home_derivatives_show_retained_cboe_pcr_only_in_private_mode() -> None:
+    root = new_temp_root()
+    _write_parquet(
+        root, "data/normalized/cboe_daily_pcr_daily/year=2026/data.parquet",
+        pd.DataFrame({
+            "date": [date(2026, 9, 4)] * 2,
+            "scope": ["TOTAL", "INDEX"],
+            "volume_pcr": [1.25, 0.95],
+        }),
+    )
+
+    private_rows = home_data.build_derivatives(root, public_mode=False)["groups"][1]["rows"]
+    public_rows = home_data.build_derivatives(root, public_mode=True)["groups"][1]["rows"]
+
+    assert ["Cboe 거래량 PCR (거래소 합계)", "1.25 · 지수 0.95 · 09-04"] in private_rows
+    assert all("Cboe" not in row[0] for row in public_rows)
+
+
 def test_korean_treasury_tile_falls_back_to_newer_toss_curve() -> None:
     root = new_temp_root()
     _write_parquet(

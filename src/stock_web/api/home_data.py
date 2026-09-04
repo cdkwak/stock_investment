@@ -886,7 +886,30 @@ def build_account(project_root: Path) -> dict[str, object]:
     })
 
 
-def build_derivatives(project_root: Path) -> dict[str, object]:
+_CBOE_PCR_LABELS = {
+    "TOTAL": "Cboe 거래소 합계", "INDEX": "지수", "ETP": "ETP",
+    "EQUITY": "개별주", "VIX": "VIX", "SPX_SPXW": "SPX + SPXW",
+}
+
+
+def _latest_cboe_pcr_rows(project_root: Path) -> list[dict[str, object]]:
+    frame = dsx.load(project_root, "data/normalized/cboe_daily_pcr_daily")
+    if frame is None or frame.empty or not {"date", "scope", "volume_pcr"} <= set(frame.columns):
+        return []
+    working = frame.copy()
+    working["date"] = pd.to_datetime(working["date"], errors="coerce")
+    working = working.dropna(subset=["date"])
+    if working.empty:
+        return []
+    latest = working.loc[working["date"].eq(working["date"].max())].copy()
+    order = {scope: index for index, scope in enumerate(_CBOE_PCR_LABELS)}
+    latest["_order"] = latest["scope"].astype(str).map(order).fillna(len(order))
+    return latest.sort_values("_order").drop(columns="_order").to_dict(orient="records")
+
+
+def build_derivatives(
+    project_root: Path, *, public_mode: bool | None = None,
+) -> dict[str, object]:
     from stock_data.gui.health_service import DailyHealthArtifactService
     from stock_data.gui.services import DashboardService
     from stock_data.gui.us_option_pcr_adapter import current_us_option_pcr_scope_views
@@ -921,11 +944,30 @@ def build_derivatives(project_root: Path) -> dict[str, object]:
     from stock_web.api.home_cards import build_vix_term_structure_rows
 
     vix_rows = build_vix_term_structure_rows(project_root)
-    try:
-        cboe_views = current_us_option_pcr_scope_views()
-        cboe_reason = cboe_views[0].reason if cboe_views else None
-    except Exception:
-        cboe_reason = None
+    if public_mode is None:
+        public_mode = os.environ.get("STOCK_WEB_PUBLIC_MODE") == "1"
+    us_rows = list(vix_rows)
+    if not public_mode:
+        try:
+            cboe = {str(row["scope"]): row for row in _latest_cboe_pcr_rows(project_root)}
+            total = cboe.get("TOTAL")
+            index = cboe.get("INDEX")
+            if total is not None and index is not None:
+                as_of = pd.Timestamp(total["date"]).strftime("%m-%d")
+                total_pcr = total.get("volume_pcr")
+                index_pcr = index.get("volume_pcr")
+                total_text = "미표시" if pd.isna(total_pcr) else f"{float(total_pcr):.2f}"
+                index_text = "미표시" if pd.isna(index_pcr) else f"{float(index_pcr):.2f}"
+                us_rows.append([
+                    "Cboe 거래량 PCR (거래소 합계)",
+                    f"{total_text} · 지수 {index_text} · {as_of}",
+                ])
+            else:
+                cboe_views = current_us_option_pcr_scope_views()
+                reason = cboe_views[0].reason if cboe_views else None
+                us_rows.append(["Cboe 거래량 PCR (거래소 합계)", unavailable(reason, us_row=True)])
+        except Exception:
+            us_rows.append(["Cboe 거래량 PCR (거래소 합계)", "미표시"])
     return {"groups": [
         {"title": "한국 · KOSPI200", "rows": [
             ["선물 Basis", display("KOSPI200_BASIS", "{:+.2f}")],
@@ -933,10 +975,7 @@ def build_derivatives(project_root: Path) -> dict[str, object]:
             ["미결제약정 PCR", display("OI_PCR", "{:.3f}")],
             ["LS 선물 외국인 순계약", display("LS_FUTURES_FOREIGN_NET", "{:+,.0f}")],
         ]},
-        {"title": "미국", "rows": [
-            *vix_rows,
-            ["CBOE PCR", unavailable(cboe_reason, us_row=True)],
-        ]},
+        {"title": "미국", "rows": us_rows},
     ]}
 
 
@@ -1127,7 +1166,8 @@ def _build_home_payload_uncached(
             "시장 국면 근거를 읽을 수 없습니다.",
         )
     sections["derivatives"] = _safe_home_section(
-        lambda: build_derivatives(project_root), "파생 지표를 읽을 수 없습니다.",
+        lambda: build_derivatives(project_root, public_mode=public_mode),
+        "파생 지표를 읽을 수 없습니다.",
     )
     sections["health"] = build_health(project_root)
     sections["schedule"] = _safe_home_section(

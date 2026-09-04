@@ -1,5 +1,6 @@
 from stock_data.contracts.registry import CONTRACTS
 from stock_data.contracts.us_option_pcr import (
+    CBOE_DAILY_PCR_DAILY,
     CBOE_DAILY_OPTION_PCR_OBSERVATION,
     CBOE_PUT_CALL_SCOPE_POLICIES,
     DASHBOARD_US_OPTION_PCR_DAILY,
@@ -7,6 +8,20 @@ from stock_data.contracts.us_option_pcr import (
     US_OPTION_PCR_CONTRACTS,
     US_UNDERLYING_OPTION_PCR_DAILY,
 )
+
+
+def test_personal_cboe_daily_contract_is_registered_with_exact_put_call_fields() -> None:
+    contract = CBOE_DAILY_PCR_DAILY
+    assert CONTRACTS[contract.name] is contract
+    assert contract.status == "active_personal_display_only"
+    assert contract.primary_key == ("date", "scope")
+    assert contract.column_names == (
+        "date", "scope", "call_volume", "put_volume", "volume_pcr",
+        "call_oi", "put_oi", "oi_pcr", "provider", "retrieved_at",
+    )
+    columns = {column.name: column for column in contract.columns}
+    assert columns["volume_pcr"].nullable is True
+    assert columns["oi_pcr"].nullable is True
 
 
 def test_cboe_daily_scope_contract_is_license_blocked_and_unregistered() -> None:
