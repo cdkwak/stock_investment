@@ -334,7 +334,17 @@ def _load_price_frame(project_root: Path, identities: Mapping[str, Mapping[str, 
     symbols = set(identities)
     if not symbols:
         return pd.DataFrame(columns=["date", "series_id", "basket", "symbol", "close", "volume"])
-    kr = {symbol for symbol in symbols if symbol.isdigit() and len(symbol) == 6}
+    # KRX codes are six characters and may contain letters (ETFs like 0015B0); use the
+    # identity market first and fall back to the code shape.
+    def _is_kr(symbol: str) -> bool:
+        market = str(identities.get(symbol, {}).get("market") or "").upper()
+        if market in {"KRX", "KOSPI", "KOSDAQ", "KR"}:
+            return True
+        if market in {"US", "US ETF", "US 주식", "NASDAQ", "NYSE", "AMEX"}:
+            return False
+        return len(symbol) == 6 and symbol.isalnum() and any(ch.isdigit() for ch in symbol)
+
+    kr = {symbol for symbol in symbols if _is_kr(symbol)}
     us = symbols - kr
     sources = [
         ("KR", _read_paths(
@@ -355,10 +365,11 @@ def _load_price_frame(project_root: Path, identities: Mapping[str, Mapping[str, 
         )),
     ]
     frames: list[pd.DataFrame] = []
-    for basket, frame in sources:
+    for index, (basket, frame) in enumerate(sources):
         if not frame.empty:
             tagged = frame.copy()
             tagged["basket"] = basket
+            tagged["source"] = f"{basket}:{index}"
             frames.append(tagged)
     if not frames:
         return pd.DataFrame(columns=["date", "series_id", "basket", "symbol", "close", "volume"])
@@ -373,7 +384,10 @@ def _load_price_frame(project_root: Path, identities: Mapping[str, Mapping[str, 
         ["symbol", "date"], keep="last",
     )
     price["series_id"] = price["symbol"]
-    return price[["date", "series_id", "basket", "symbol", "close", "volume"]].reset_index(drop=True)
+    columns = ["date", "series_id", "basket", "symbol", "close", "volume"]
+    if "source" in price.columns:
+        columns.append("source")
+    return price[columns].reset_index(drop=True)
 
 
 def _condition_metrics(row: Mapping[str, object]) -> dict[str, object]:
@@ -441,6 +455,10 @@ def _changes_from_frame(
     if source.empty:
         return _empty_payload()
     signals = compute_signals(source)
+    if "source" not in signals.columns and "source" in source.columns:
+        # compute_signals keeps only the contract columns; restore the dataset tag.
+        source_by_series = source.drop_duplicates("series_id").set_index("series_id")["source"]
+        signals["source"] = signals["series_id"].map(source_by_series)
     grouped = signals.groupby("series_id", sort=False)
     signals["ma20"] = grouped["close"].transform(lambda values: values.rolling(20, min_periods=20).mean())
     signals["ma20_pct"] = (signals["close"] / signals["ma20"] - 1.0) * 100.0
@@ -454,18 +472,22 @@ def _changes_from_frame(
     new_low_rows: list[dict[str, str]] = []
     spikes: list[dict[str, object]] = []
     latest_dates: list[pd.Timestamp] = []
+    # Session pairs are taken per source dataset: KRX equities finalise D+1 while KRX
+    # ETFs and US series carry the latest session, so pairing per basket would drop
+    # every equity on the day the ETF dataset is one session ahead.
+    pair_key = "source" if "source" in signals.columns else "basket"
     session_pairs: dict[str, tuple[pd.Timestamp, pd.Timestamp]] = {}
-    for basket, basket_frame in signals.groupby("basket", sort=False):
-        dates = sorted(pd.Timestamp(value) for value in basket_frame["date"].dropna().unique())
+    for key, key_frame in signals.groupby(pair_key, sort=False):
+        dates = sorted(pd.Timestamp(value) for value in key_frame["date"].dropna().unique())
         if len(dates) >= 2:
-            session_pairs[str(basket)] = (dates[-2], dates[-1])
+            session_pairs[str(key)] = (dates[-2], dates[-1])
     for series_id, group in signals.groupby("series_id", sort=True):
         if len(group) < 2:
             continue
         previous = group.iloc[-2].to_dict()
         current = group.iloc[-1].to_dict()
         basket = str(current.get("basket") or "")
-        expected = session_pairs.get(basket)
+        expected = session_pairs.get(str(current.get(pair_key) or basket))
         if expected is None or (
             pd.Timestamp(previous["date"]) != expected[0]
             or pd.Timestamp(current["date"]) != expected[1]
