@@ -49,22 +49,22 @@ GLOBAL_INDEX_REGISTRY = MappingProxyType({
     "VIX9D": {
         "source_ticker": "^VIX9D", "instrument_type": "INDEX",
         "expected_currency": None, "accepted_yahoo_exchanges": ("WCB", "CBOE"),
-        "require_exchange_identity": True,
+        "require_exchange_identity": True, "ohlc_fill_from_close": True,
     },
     "VIX3M": {
         "source_ticker": "^VIX3M", "instrument_type": "INDEX",
         "expected_currency": None, "accepted_yahoo_exchanges": ("WCB", "CBOE"),
-        "require_exchange_identity": True,
+        "require_exchange_identity": True, "ohlc_fill_from_close": True,
     },
     "VIX6M": {
         "source_ticker": "^VIX6M", "instrument_type": "INDEX",
         "expected_currency": None, "accepted_yahoo_exchanges": ("WCB", "CBOE"),
-        "require_exchange_identity": True,
+        "require_exchange_identity": True, "ohlc_fill_from_close": True,
     },
     "SKEW": {
         "source_ticker": "^SKEW", "instrument_type": "INDEX",
         "expected_currency": None, "accepted_yahoo_exchanges": ("WCB", "CBOE"),
-        "require_exchange_identity": True,
+        "require_exchange_identity": True, "ohlc_fill_from_close": True,
     },
 })
 GLOBAL_INDEX_DAILY_SYMBOLS = tuple(GLOBAL_INDEX_REGISTRY)

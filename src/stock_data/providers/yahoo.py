@@ -467,6 +467,18 @@ def fetch_global_index(
     )
     for column in ("open","high","low","close","volume"):
         frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    if spec.get("ohlc_fill_from_close"):
+        # CBOE volatility indices (^VIX9D, ^VIX3M, ^VIX6M, ^SKEW) are published as a single
+        # daily value; Yahoo leaves open/high/low null on many rows. Treat the close as the
+        # day's level and drop rows without a close as provider gaps instead of failing.
+        missing_close = frame["close"].isna()
+        if missing_close.any():
+            provider_gap_dates = tuple(sorted(set(provider_gap_dates) | set(frame.loc[missing_close, "date"])))
+            frame = frame.loc[~missing_close].copy()
+        for column in ("open", "high", "low"):
+            frame[column] = frame[column].fillna(frame["close"])
+        frame["high"] = frame[["high", "close"]].max(axis=1)
+        frame["low"] = frame[["low", "close"]].min(axis=1)
     numeric = frame[["open","high","low","close"]]
     if numeric.isna().any().any() or not np.isfinite(numeric.to_numpy()).all():
         raise RuntimeError("Yahoo OHLC contains missing or infinite values")
