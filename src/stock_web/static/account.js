@@ -504,7 +504,7 @@
         <label class="field symbol-code-field"><span>종목코드·티커</span><input class="manual-code-input" data-field="ticker" value="${esc(position.ticker || "")}" placeholder="코드 입력 시 종목명 확인"><small class="symbol-resolve-hint" role="status" aria-live="polite" hidden></small></label>
         <label class="field"><span>수량</span><input data-field="quantity" type="number" min="0" step="any" value="${esc(position.quantity ?? "")}"></label>
         <label class="field"><span>평균단가</span><input data-field="average_cost" type="number" min="0" step="any" value="${esc(position.average_cost ?? "")}"></label>
-        <label class="field"><span>수동 현재가</span><input data-field="manual_price" type="number" min="0" step="any" value="${esc(position.manual_price ?? "")}" placeholder="선택"></label>
+        <label class="field"><span>수동 현재가</span><input data-field="manual_price" type="number" min="0" step="any" value="${esc(position.manual_price ?? "")}" placeholder="미국 종목만" title="한국 종목은 최신 종가를 자동으로 씁니다"></label>
         <button type="button" class="text-button remove-holding">삭제</button>
         ${position.included === false ? `<div class="holding-warning">평가 불가 · ${esc(position.note || "가격 없음")}</div>` : ""}
       </div>`).join("") || `<div class="unavailable">종목이 없습니다. 현금만 있는 계좌도 저장할 수 있습니다.</div>`}</div>

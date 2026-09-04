@@ -112,13 +112,24 @@
   z-index: 30;
 }
 
+/* The resolve hint floats under the code input so it never changes the row height
+   (it used to push the code column down and misalign 수량/평균단가/현재가). */
+.symbol-code-field { position: relative; }
 .symbol-resolve-hint {
   display: block;
-  min-height: 1.35em;
-  margin-top: 3px;
-  font-size: 10px;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  margin-top: 2px;
+  font-size: 11px;
   line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+.holding-row { align-items: end; padding-bottom: 18px; }
+.holding-row .remove-holding { align-self: end; padding-bottom: 6px; }
 
 .symbol-resolve-hint[hidden] { display: none; }
 
