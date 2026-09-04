@@ -1,15 +1,61 @@
 {
   "schema_version": 1,
-  "attempt_count": 8,
+  "attempt_count": 9,
   "history": [
-    {"date": "2026-09-04", "action": "add", "id": "kr_dd_ladder_2", "reason": "phase-2 survivors"},
-    {"date": "2026-09-04", "action": "add", "id": "kr_dd_ladder_3", "reason": "phase-2 KR three-indicator comparison"},
-    {"date": "2026-09-04", "action": "add", "id": "kr_overheat_ladder_3", "reason": "phase-2 overheat comparison; experimental monotonicity"},
-    {"date": "2026-09-04", "action": "add", "id": "us_tech_overheat_ladder_2", "reason": "phase-2 US technology overheat survivors"},
-    {"date": "2026-09-04", "action": "add", "id": "kr_vol_target_15", "reason": "phase-2 15 percent volatility-target comparison"},
-    {"date": "2026-09-04", "action": "add", "id": "us_tech_vol_target_15", "reason": "phase-2 15 percent volatility-target comparison"},
-    {"date": "2026-09-04", "action": "add", "id": "kr_dd_hybrid_vol15", "reason": "combine KR drawdown ladder with causal volatility targeting"},
-    {"date": "2026-09-04", "action": "add", "id": "us_tech_overheat_hybrid_vol15", "reason": "combine US technology overheat ladder with causal volatility targeting"}
+    {
+      "date": "2026-09-04",
+      "action": "add",
+      "id": "kr_dd_ladder_2",
+      "reason": "phase-2 survivors"
+    },
+    {
+      "date": "2026-09-04",
+      "action": "add",
+      "id": "kr_dd_ladder_3",
+      "reason": "phase-2 KR three-indicator comparison"
+    },
+    {
+      "date": "2026-09-04",
+      "action": "add",
+      "id": "kr_overheat_ladder_3",
+      "reason": "phase-2 overheat comparison; experimental monotonicity"
+    },
+    {
+      "date": "2026-09-04",
+      "action": "add",
+      "id": "us_tech_overheat_ladder_2",
+      "reason": "phase-2 US technology overheat survivors"
+    },
+    {
+      "date": "2026-09-04",
+      "action": "add",
+      "id": "kr_vol_target_15",
+      "reason": "phase-2 15 percent volatility-target comparison"
+    },
+    {
+      "date": "2026-09-04",
+      "action": "add",
+      "id": "us_tech_vol_target_15",
+      "reason": "phase-2 15 percent volatility-target comparison"
+    },
+    {
+      "date": "2026-09-04",
+      "action": "add",
+      "id": "kr_dd_hybrid_vol15",
+      "reason": "combine KR drawdown ladder with causal volatility targeting"
+    },
+    {
+      "date": "2026-09-04",
+      "action": "add",
+      "id": "us_tech_overheat_hybrid_vol15",
+      "reason": "combine US technology overheat ladder with causal volatility targeting"
+    },
+    {
+      "date": "2026-09-04",
+      "action": "edit",
+      "id": "compound_ladder_holdout",
+      "reason": "{\"kind\":\"crisis_overlay\",\"selection\":{\"asset\":\"tlt\",\"episode\":\"KR_1997-09-27\",\"mode\":\"asset\",\"preset\":\"tlt\"},\"viewed_at\":\"2026-09-04T18:58:59.395577+00:00\"}"
+    }
   ],
   "candidates": [
     {
@@ -18,7 +64,22 @@
       "side": "drawdown",
       "basket": "KR",
       "status": "active",
-      "definition": {"type": "ladder", "indicators": [{"key": "drawdown252", "op": "<=", "threshold": -0.20}, {"key": "disp60", "op": "<=", "threshold": -0.10}], "levels": 2},
+      "definition": {
+        "type": "ladder",
+        "indicators": [
+          {
+            "key": "drawdown252",
+            "op": "<=",
+            "threshold": -0.2
+          },
+          {
+            "key": "disp60",
+            "op": "<=",
+            "threshold": -0.1
+          }
+        ],
+        "levels": 2
+      },
       "added_on": "2026-09-04",
       "reason": "phase-2 survivors, hold-out n≥15"
     },
@@ -28,7 +89,27 @@
       "side": "drawdown",
       "basket": "KR",
       "status": "active",
-      "definition": {"type": "ladder", "indicators": [{"key": "drawdown252", "op": "<=", "threshold": -0.30}, {"key": "disp60", "op": "<=", "threshold": -0.10}, {"key": "rsi14", "op": "<=", "threshold": 30.0}], "levels": 3},
+      "definition": {
+        "type": "ladder",
+        "indicators": [
+          {
+            "key": "drawdown252",
+            "op": "<=",
+            "threshold": -0.3
+          },
+          {
+            "key": "disp60",
+            "op": "<=",
+            "threshold": -0.1
+          },
+          {
+            "key": "rsi14",
+            "op": "<=",
+            "threshold": 30.0
+          }
+        ],
+        "levels": 3
+      },
       "added_on": "2026-09-04",
       "reason": "phase-2 three-condition comparison retained for direct evaluation"
     },
@@ -38,7 +119,27 @@
       "side": "overheat",
       "basket": "KR",
       "status": "experimental",
-      "definition": {"type": "ladder", "indicators": [{"key": "disp60", "op": ">=", "threshold": 0.10}, {"key": "rsi14", "op": ">=", "threshold": 70.0}, {"key": "volidx_pct", "op": "<=", "threshold": 0.20}], "levels": 3},
+      "definition": {
+        "type": "ladder",
+        "indicators": [
+          {
+            "key": "disp60",
+            "op": ">=",
+            "threshold": 0.1
+          },
+          {
+            "key": "rsi14",
+            "op": ">=",
+            "threshold": 70.0
+          },
+          {
+            "key": "volidx_pct",
+            "op": "<=",
+            "threshold": 0.2
+          }
+        ],
+        "levels": 3
+      },
       "added_on": "2026-09-04",
       "reason": "phase-2 survivors; monotonicity failed so experimental"
     },
@@ -48,7 +149,22 @@
       "side": "overheat",
       "basket": "US_TECH",
       "status": "active",
-      "definition": {"type": "ladder", "indicators": [{"key": "disp60", "op": ">=", "threshold": 0.10}, {"key": "volidx_pct", "op": "<=", "threshold": 0.20}], "levels": 2},
+      "definition": {
+        "type": "ladder",
+        "indicators": [
+          {
+            "key": "disp60",
+            "op": ">=",
+            "threshold": 0.1
+          },
+          {
+            "key": "volidx_pct",
+            "op": "<=",
+            "threshold": 0.2
+          }
+        ],
+        "levels": 2
+      },
       "added_on": "2026-09-04",
       "reason": "phase-2 US technology survivors"
     },
@@ -58,7 +174,11 @@
       "side": "hybrid",
       "basket": "KR",
       "status": "active",
-      "definition": {"type": "vol_target", "target_vol": 0.15, "window": 20},
+      "definition": {
+        "type": "vol_target",
+        "target_vol": 0.15,
+        "window": 20
+      },
       "added_on": "2026-09-04",
       "reason": "phase-2 causal 20-session volatility targeting"
     },
@@ -68,7 +188,11 @@
       "side": "hybrid",
       "basket": "US_TECH",
       "status": "active",
-      "definition": {"type": "vol_target", "target_vol": 0.15, "window": 20},
+      "definition": {
+        "type": "vol_target",
+        "target_vol": 0.15,
+        "window": 20
+      },
       "added_on": "2026-09-04",
       "reason": "phase-2 causal 20-session volatility targeting"
     },
@@ -78,7 +202,29 @@
       "side": "hybrid",
       "basket": "KR",
       "status": "experimental",
-      "definition": {"type": "hybrid", "ladder": {"side": "drawdown", "indicators": [{"key": "drawdown252", "op": "<=", "threshold": -0.20}, {"key": "disp60", "op": "<=", "threshold": -0.10}], "levels": 2}, "vol_target": {"target_vol": 0.15, "window": 20}},
+      "definition": {
+        "type": "hybrid",
+        "ladder": {
+          "side": "drawdown",
+          "indicators": [
+            {
+              "key": "drawdown252",
+              "op": "<=",
+              "threshold": -0.2
+            },
+            {
+              "key": "disp60",
+              "op": "<=",
+              "threshold": -0.1
+            }
+          ],
+          "levels": 2
+        },
+        "vol_target": {
+          "target_vol": 0.15,
+          "window": 20
+        }
+      },
       "added_on": "2026-09-04",
       "reason": "phase-2 drawdown ladder combined with volatility targeting"
     },
@@ -88,7 +234,29 @@
       "side": "hybrid",
       "basket": "US_TECH",
       "status": "experimental",
-      "definition": {"type": "hybrid", "ladder": {"side": "overheat", "indicators": [{"key": "disp60", "op": ">=", "threshold": 0.10}, {"key": "volidx_pct", "op": "<=", "threshold": 0.20}], "levels": 2}, "vol_target": {"target_vol": 0.15, "window": 20}},
+      "definition": {
+        "type": "hybrid",
+        "ladder": {
+          "side": "overheat",
+          "indicators": [
+            {
+              "key": "disp60",
+              "op": ">=",
+              "threshold": 0.1
+            },
+            {
+              "key": "volidx_pct",
+              "op": "<=",
+              "threshold": 0.2
+            }
+          ],
+          "levels": 2
+        },
+        "vol_target": {
+          "target_vol": 0.15,
+          "window": 20
+        }
+      },
       "added_on": "2026-09-04",
       "reason": "phase-2 overheat ladder combined with volatility targeting"
     }
