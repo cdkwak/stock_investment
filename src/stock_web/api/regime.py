@@ -375,14 +375,14 @@ def build_regime(project_root: Path, account: dict[str, object]) -> dict[str, ob
             "title": "한국장",
             "temperature": temperature_label(kr_rsi, kr_distance),
             "hot": temperature_label(kr_rsi, kr_distance) == "과열",
-            "subtitle": f"신호 {kr_axes}/3 · 실적 축 없음",
+            "subtitle": f"자료 {kr_axes}/3 · 실적 축 없음",
             "evidence": kr_evidence,
         },
         {
             "title": "미국장",
             "temperature": temperature_label(us_rsi, us_distance),
             "hot": temperature_label(us_rsi, us_distance) == "과열",
-            "subtitle": f"신호 {us_axes}/3 · 밸류·실적 축 없음",
+            "subtitle": f"자료 {us_axes}/3 · 밸류·실적 축 없음",
             "evidence": us_evidence,
         },
         {
@@ -393,7 +393,7 @@ def build_regime(project_root: Path, account: dict[str, object]) -> dict[str, ob
             "hot": global_risk_temperature(
                 spread_level, spread_change, yield_change_bp, wti_change,
             ) == "과열",
-            "subtitle": f"신호 {1 if global_available >= 3 else 0}/3 · 매크로 축",
+            "subtitle": f"자료 {1 if global_available >= 3 else 0}/3 · 매크로 축",
             "evidence": global_evidence,
         },
     ]

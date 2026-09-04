@@ -896,6 +896,10 @@ def build_derivatives(project_root: Path) -> dict[str, object]:
         if us_row:
             return "미표시"
         text = str(reason or "보존 데이터 없음").strip()
+        pending = re.search(r"최근 검증 장마감 (\d{4})-(\d{2})-(\d{2}).*?완료 거래일 (\d{4})-(\d{2})-(\d{2}) 데이터는 아직 없", text)
+        if pending:
+            recovery = "20:30 자동 복구" if "20:30" in text else "수동 검증 대기"
+            return f"{pending.group(5)}-{pending.group(6)} 자료 대기 · 최근 {pending.group(2)}-{pending.group(3)} · {recovery}"
         if text.isascii() and any(character.isalpha() for character in text):
             return "출처 검증 전 · 미표시"
         if text.isascii() and len(text) > 40:
