@@ -82,6 +82,31 @@ def test_global_index_registry_includes_vix_term_structure_identities() -> None:
     )
 
 
+def test_global_index_registry_includes_five_foreign_equity_indices() -> None:
+    expected = {
+        "NIKKEI225": ("^N225", "JPY", ("OSA",), "Asia/Tokyo", "XTKS"),
+        "TAIEX": ("^TWII", "TWD", ("TAI",), "Asia/Taipei", "XTAI"),
+        "EURO_STOXX50": (
+            "^STOXX50E", "EUR", ("ZRH",), "Europe/Zurich", "XETR",
+        ),
+        "HANG_SENG": ("^HSI", "HKD", ("HKG",), "Asia/Hong_Kong", "XHKG"),
+        "DAX": ("^GDAXI", "EUR", ("GER",), "Europe/Berlin", "XETR"),
+    }
+
+    assert len(GLOBAL_INDEX_REGISTRY) == 15
+    assert len(GLOBAL_INDEX_SYMBOLS_BY_PROVIDER["yahoo_chart_api"]) == 11
+    assert set(expected) <= set(GLOBAL_INDEX_DAILY_SYMBOLS)
+    for symbol, identity in expected.items():
+        spec = GLOBAL_INDEX_REGISTRY[symbol]
+        assert (
+            spec["source_ticker"], spec["expected_currency"],
+            spec["accepted_yahoo_exchanges"], spec["timezone"],
+            spec["exchange_calendar"],
+        ) == identity
+        assert spec["instrument_type"] == "INDEX"
+        assert spec["provider"] == "yahoo_chart_api"
+
+
 def test_yahoo_current_30m_registry_has_four_new_exact_identities() -> None:
     assert {
         series_id: {

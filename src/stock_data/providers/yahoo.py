@@ -446,6 +446,8 @@ def fetch_global_index(
     item = results[0]
     meta = item.get("meta") or {}
     exchange = str(meta.get("exchangeName") or meta.get("fullExchangeName") or "")
+    currency = str(meta.get("currency") or "")
+    expected_currency = spec.get("expected_currency")
     accepted_exchanges = tuple(spec.get("accepted_yahoo_exchanges") or ())
     require_exchange = bool(spec.get("require_exchange_identity"))
     if (
@@ -453,6 +455,10 @@ def fetch_global_index(
         or str(meta.get("instrumentType", "")).upper()
         != str(spec["instrument_type"])
         or str(meta.get("dataGranularity")) != "1d"
+        or (
+            expected_currency is not None
+            and currency != str(expected_currency)
+        )
         or (require_exchange and not exchange)
         or (accepted_exchanges and exchange and exchange not in accepted_exchanges)
     ):
@@ -464,8 +470,9 @@ def fetch_global_index(
     values = quote_rows[0]
     if any(len(values.get(column) or []) != len(timestamps) for column in ("open","high","low","close","volume")):
         raise RuntimeError("Yahoo timestamp and value array lengths differ")
+    exchange_timezone = ZoneInfo(str(spec.get("timezone") or NY.key))
     frame = pd.DataFrame({
-        "date": pd.to_datetime(timestamps, unit="s", utc=True).tz_convert(NY).date,
+        "date": pd.to_datetime(timestamps, unit="s", utc=True).tz_convert(exchange_timezone).date,
         "symbol": symbol, "source_ticker": ticker,
         **{column: values[column] for column in ("open","high","low","close","volume")},
     })

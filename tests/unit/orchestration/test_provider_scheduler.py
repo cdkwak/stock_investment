@@ -103,6 +103,10 @@ def test_global_index_dry_run_lists_vix_term_symbols_without_network(tmp_path: P
     assert {
         item["provider"] for item in result["registered_indices"][:-4]
     } == {"yahoo_chart_api"}
+    assert {
+        item["symbol"] for item in result["registered_indices"]
+        if item["provider"] == "yahoo_chart_api"
+    } >= {"NIKKEI225", "TAIEX", "EURO_STOXX50", "HANG_SENG", "DAX"}
 
 
 def test_global_equity_dry_run_lists_only_skhy_without_network(tmp_path: Path) -> None:
@@ -178,7 +182,7 @@ def test_global_refresh_phase_accounting_separates_yahoo_and_cboe_indices() -> N
     yahoo_limit, yahoo_contract, yahoo_symbols = refresh.PHASES["yahoo"]
     cboe_limit, cboe_contract, cboe_symbols = refresh.PHASES["cboe_index"]
 
-    assert yahoo_limit == 6 == len(yahoo_symbols)
+    assert yahoo_limit == 11 == len(yahoo_symbols)
     assert cboe_limit == 4 == len(cboe_symbols)
     assert cboe_symbols == ("VIX9D", "VIX3M", "VIX6M", "SKEW")
     assert set(yahoo_symbols).isdisjoint(cboe_symbols)
@@ -269,6 +273,21 @@ def test_cboe_endpoint_accepts_last_file_row_one_us_session_before_plan() -> Non
     )
     assert not refresh._cboe_response_covers_endpoint_window(
         observed_end=date(2026, 9, 1), planned_end=date(2026, 9, 3),
+    )
+
+
+def test_strict_endpoint_uses_registered_exchange_holiday_calendar() -> None:
+    assert refresh._response_covers_endpoint_window(
+        policy=refresh.EndpointWindowPolicy.STRICT_EXCHANGE,
+        observed_start=date(2026, 2, 1), observed_end=date(2026, 2, 11),
+        planned_start=date(2026, 2, 1), planned_end=date(2026, 2, 17),
+        exchange_calendar="XTAI",
+    )
+    assert not refresh._response_covers_endpoint_window(
+        policy=refresh.EndpointWindowPolicy.STRICT_EXCHANGE,
+        observed_start=date(2026, 2, 1), observed_end=date(2026, 2, 11),
+        planned_start=date(2026, 2, 1), planned_end=date(2026, 2, 17),
+        exchange_calendar="XNYS",
     )
 
 
@@ -1195,13 +1214,16 @@ def test_global_index_phase_bad_new_symbol_does_not_block_other_landing_promotio
 
     assert result["status"] == "DEGRADED_SYMBOL_FAILURES_PRESERVED"
     assert set(result["promoted_symbols"]) == {
-        "DOLLAR_INDEX", "DOW_JONES", "VIX9D", "VIX3M", "VIX6M", "SKEW",
+        "DOLLAR_INDEX", "DOW_JONES", "NIKKEI225", "TAIEX", "EURO_STOXX50",
+        "HANG_SENG", "DAX", "VIX9D", "VIX3M", "VIX6M", "SKEW",
     }
     assert set(result["failed_symbols"]) == {"SOX"}
     assert set(stored["symbol"]) == {
-        *tickers, "DOW_JONES", "DOLLAR_INDEX", "VIX9D", "VIX3M", "VIX6M", "SKEW",
+        *tickers, "DOW_JONES", "DOLLAR_INDEX", "NIKKEI225", "TAIEX",
+        "EURO_STOXX50", "HANG_SENG", "DAX", "VIX9D", "VIX3M", "VIX6M",
+        "SKEW",
     }
-    assert len(list((tmp_path / "captures").rglob("call.json"))) == 3
+    assert len(list((tmp_path / "captures").rglob("call.json"))) == 8
     assert module.fetch_global_index is original_fetch
     assert {
         prepared_phases[symbol]
@@ -1217,6 +1239,11 @@ def test_global_index_phase_bad_new_symbol_does_not_block_other_landing_promotio
     assert sorted(promoted) == sorted([
         (tmp_path / "data/state/global_current_refresh/dollar_index-run/checkpoint.json", "approved"),
         (tmp_path / "data/state/global_current_refresh/dow_jones-run/checkpoint.json", "approved"),
+        (tmp_path / "data/state/global_current_refresh/nikkei225-run/checkpoint.json", "approved"),
+        (tmp_path / "data/state/global_current_refresh/taiex-run/checkpoint.json", "approved"),
+        (tmp_path / "data/state/global_current_refresh/euro_stoxx50-run/checkpoint.json", "approved"),
+        (tmp_path / "data/state/global_current_refresh/hang_seng-run/checkpoint.json", "approved"),
+        (tmp_path / "data/state/global_current_refresh/dax-run/checkpoint.json", "approved"),
         (tmp_path / "data/state/global_current_refresh/vix9d-run/checkpoint.json", "approved"),
         (tmp_path / "data/state/global_current_refresh/vix3m-run/checkpoint.json", "approved"),
         (tmp_path / "data/state/global_current_refresh/vix6m-run/checkpoint.json", "approved"),

@@ -1,6 +1,7 @@
 from datetime import date, datetime, timezone
 import hashlib
 import json
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import pytest
@@ -55,6 +56,78 @@ def test_yahoo_registered_index_arrays_are_identity_validated_and_normalized(
     frame=fetch_global_index(symbol,date(2026,8,1),date(2026,8,7),session=YahooSession)
     assert len(frame)==1 and frame.symbol.item()==symbol
     assert frame.source_ticker.item() == ticker
+
+
+@pytest.mark.parametrize(
+    ("symbol", "ticker", "currency", "exchange", "exchange_timezone"),
+    (
+        ("NIKKEI225", "^N225", "JPY", "OSA", "Asia/Tokyo"),
+        ("TAIEX", "^TWII", "TWD", "TAI", "Asia/Taipei"),
+        ("EURO_STOXX50", "^STOXX50E", "EUR", "ZRH", "Europe/Zurich"),
+        ("HANG_SENG", "^HSI", "HKD", "HKG", "Asia/Hong_Kong"),
+        ("DAX", "^GDAXI", "EUR", "GER", "Europe/Berlin"),
+    ),
+)
+def test_yahoo_foreign_index_identity_accepts_exact_currency_exchange_and_date(
+    symbol: str, ticker: str, currency: str, exchange: str,
+    exchange_timezone: str,
+) -> None:
+    timestamp = int(
+        datetime(2026, 9, 3, tzinfo=ZoneInfo(exchange_timezone)).timestamp()
+    )
+
+    class ForeignIndexSession:
+        @staticmethod
+        def get(url, *args, **kwargs):
+            assert url.rsplit("/", 1)[-1].replace("%5E", "^") == ticker
+            return Response({"chart": {"error": None, "result": [{
+                "meta": {
+                    "symbol": ticker, "instrumentType": "INDEX",
+                    "dataGranularity": "1d", "currency": currency,
+                    "exchangeName": exchange,
+                },
+                "timestamp": [timestamp],
+                "indicators": {"quote": [{
+                    "open": [100.0], "high": [110.0], "low": [90.0],
+                    "close": [105.0], "volume": [1000],
+                }]},
+            }]}})
+
+    frame = fetch_global_index(
+        symbol, date(2026, 9, 1), date(2026, 9, 3),
+        session=ForeignIndexSession,
+    )
+
+    assert frame.loc[0, "date"] == "2026-09-03"
+    assert frame.loc[0, "symbol"] == symbol
+    assert frame.loc[0, "source_ticker"] == ticker
+
+
+@pytest.mark.parametrize("field", ("currency", "exchangeName"))
+def test_yahoo_foreign_index_rejects_wrong_identity_field(field: str) -> None:
+    class WrongIdentitySession:
+        @staticmethod
+        def get(*args, **kwargs):
+            meta = {
+                "symbol": "^N225", "instrumentType": "INDEX",
+                "dataGranularity": "1d", "currency": "JPY",
+                "exchangeName": "OSA",
+            }
+            meta[field] = "WRONG"
+            return Response({"chart": {"error": None, "result": [{
+                "meta": meta,
+                "timestamp": [1786032000],
+                "indicators": {"quote": [{
+                    "open": [100.0], "high": [110.0], "low": [90.0],
+                    "close": [105.0], "volume": [1000],
+                }]},
+            }]}})
+
+    with pytest.raises(RuntimeError, match="identity or granularity"):
+        fetch_global_index(
+            "NIKKEI225", date(2026, 8, 1), date(2026, 8, 7),
+            session=WrongIdentitySession,
+        )
 
 
 class BadYahoo(YahooSession):

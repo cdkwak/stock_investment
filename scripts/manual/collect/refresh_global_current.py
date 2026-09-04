@@ -20,6 +20,7 @@ import sys
 import tempfile
 from uuid import uuid4
 
+import exchange_calendars as xcals
 import pandas as pd
 import requests
 from urllib.parse import quote
@@ -127,12 +128,46 @@ def _move_us_sessions(anchor: date, count: int) -> date:
     return result
 
 
+def _exchange_calendar_name(phase: str, item: str) -> str:
+    if phase == "yahoo":
+        return str(GLOBAL_INDEX_REGISTRY[item].get("exchange_calendar") or "XNYS")
+    return "XNYS"
+
+
+def _calendar_sessions_in_range(
+    calendar_name: str, start: date, end: date,
+) -> tuple[date, ...]:
+    calendar = xcals.get_calendar(calendar_name)
+    lower = max(pd.Timestamp(start), calendar.first_session)
+    upper = min(pd.Timestamp(end), calendar.last_session)
+    if upper < lower:
+        return ()
+    return tuple(
+        stamp.date() for stamp in calendar.sessions_in_range(lower, upper)
+    )
+
+
+def _latest_calendar_session(calendar_name: str, endpoint: date) -> date:
+    sessions = _calendar_sessions_in_range(
+        calendar_name, endpoint - timedelta(days=14), endpoint,
+    )
+    if not sessions:
+        raise RefreshError(
+            f"no {calendar_name} exchange session found near planned endpoint"
+        )
+    return sessions[-1]
+
+
 def _response_covers_endpoint_window(
     *, policy: EndpointWindowPolicy, observed_start: date, observed_end: date,
-    planned_start: date, planned_end: date,
+    planned_start: date, planned_end: date, exchange_calendar: str | None = None,
 ) -> bool:
     if policy is EndpointWindowPolicy.STRICT_EXCHANGE:
-        return observed_start >= planned_start and observed_end == planned_end
+        expected_end = (
+            _latest_calendar_session(exchange_calendar, planned_end)
+            if exchange_calendar is not None else planned_end
+        )
+        return observed_start >= planned_start and observed_end == expected_end
     if policy is EndpointWindowPolicy.PROVIDER_NATIVE:
         return (
             observed_start <= _move_us_sessions(
@@ -1180,14 +1215,13 @@ def prepare_phase(
         start is not None or phase == "cboe_index"
     ):
         requested_start = start or end
-        expected_dates = {
-            value.isoformat() for value in ExchangeTradingCalendar(
-                ExchangeMarket.US
-            ).sessions_in_range(requested_start, end)
-        }
         fully_retained = all(
             not (rows := existing.loc[existing["symbol"].eq(item), "date"]).empty
-            and expected_dates <= set(rows.astype(str))
+            and {
+                value.isoformat() for value in _calendar_sessions_in_range(
+                    _exchange_calendar_name(phase, item), requested_start, end,
+                )
+            } <= set(rows.astype(str))
             for item in items
         )
         if fully_retained:
@@ -1292,6 +1326,10 @@ def prepare_phase(
                     _endpoint_window_policy(phase, item)
                     if phase in YAHOO_PHASES else None
                 )
+                exchange_calendar = (
+                    _exchange_calendar_name(phase, item)
+                    if phase in YAHOO_PHASES else None
+                )
                 covers_window = (
                     _cboe_response_covers_endpoint_window(
                         observed_end=observed_end, planned_end=end,
@@ -1303,6 +1341,7 @@ def prepare_phase(
                         observed_end=observed_end,
                         planned_start=planned_start,
                         planned_end=end,
+                        exchange_calendar=exchange_calendar,
                     )
                     if coverage_policy is not None
                     else observed_start >= planned_start and observed_end == end
@@ -1324,6 +1363,7 @@ def prepare_phase(
                         "coverage_first": observed_start.isoformat(),
                         "coverage_last": observed_end.isoformat(),
                         "coverage_policy": coverage_policy.value,
+                        "exchange_calendar": exchange_calendar,
                     })
                 elif phase == "cboe_index":
                     coverage_entry.update({
@@ -1349,9 +1389,18 @@ def prepare_phase(
                     if _endpoint_window_policy(phase, item) is EndpointWindowPolicy.STRICT_EXCHANGE
                 } if phase in YAHOO_PHASES else set()
                 strict_endpoints = incoming.loc[incoming.symbol.isin(strict_symbols)].groupby("symbol")["date"].max()
+                expected_strict_endpoints = {
+                    item: _latest_calendar_session(
+                        _exchange_calendar_name(phase, item), end,
+                    ).isoformat()
+                    for item in strict_symbols
+                }
                 if (set(incoming.symbol) != expected_symbols
                         or set(strict_endpoints.index) != strict_symbols
-                        or strict_endpoints.ne(end.isoformat()).any()):
+                        or any(
+                            strict_endpoints[item] != expected
+                            for item, expected in expected_strict_endpoints.items()
+                        )):
                     raise RefreshError("registered provider did not reach the accepted completed-session window")
                 if phase == "yahoo_dashboard_futures":
                     endpoint = incoming.loc[incoming["date"].eq(end.isoformat())]
