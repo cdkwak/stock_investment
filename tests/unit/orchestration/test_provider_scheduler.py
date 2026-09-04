@@ -85,6 +85,22 @@ def test_kr_index_dry_run_lists_kospi200_it_ticker(tmp_path: Path) -> None:
     }
 
 
+def test_global_index_dry_run_lists_vix_term_symbols_without_network(tmp_path: Path) -> None:
+    result = run_lane(
+        tmp_path, "GLOBAL_INDEX_DAILY", as_of=AS_OF, dry_run=True,
+    )
+
+    assert result["status"] == "DRY_RUN_PASS"
+    assert result["api_calls"] == 0
+    assert result["dependency_refresh_ids"] == ["us_vix_term_structure_daily"]
+    assert result["registered_indices"][-4:] == [
+        {"symbol": "VIX9D", "ticker": "^VIX9D"},
+        {"symbol": "VIX3M", "ticker": "^VIX3M"},
+        {"symbol": "VIX6M", "ticker": "^VIX6M"},
+        {"symbol": "SKEW", "ticker": "^SKEW"},
+    ]
+
+
 def test_fundamentals_weekly_dry_run_reports_count_budget_and_gate(
     tmp_path: Path,
 ) -> None:
@@ -714,10 +730,7 @@ def test_current_registry_enables_registered_global_indices(tmp_path: Path) -> N
 def _write_yahoo_index_landing(
     tmp_path: Path, *, rows: list[dict[str, object]], symbol: str = "SP500",
 ) -> Path:
-    ticker = {
-        "SP500": "^GSPC", "NASDAQ_COMPOSITE": "^IXIC", "NASDAQ100": "^NDX",
-        "SOX": "^SOX", "DOW_JONES": "^DJI", "DOLLAR_INDEX": "DX-Y.NYB",
-    }[symbol]
+    ticker = scheduler._GLOBAL_INDEX_TICKERS[symbol]
     timestamps = [int(pd.Timestamp(row["date"], tz="America/New_York").timestamp()) for row in rows]
     body = json.dumps({
         "chart": {"error": None, "result": [{
@@ -937,7 +950,7 @@ def test_global_index_phase_bad_new_symbol_does_not_block_other_landing_promotio
             raise RuntimeError("Yahoo index identity or granularity differs")
         return pd.DataFrame([{
             "date": end.isoformat(), "symbol": symbol,
-            "source_ticker": {"DOW_JONES": "^DJI", "DOLLAR_INDEX": "DX-Y.NYB"}.get(symbol, "^DJI"),
+            "source_ticker": scheduler._GLOBAL_INDEX_TICKERS[symbol],
             "open": 104.0, "high": 106.0, "low": 103.0, "close": 105.0,
             "volume": 11,
         }], columns=scheduler.GLOBAL_INDEX_PRICE_DAILY.column_names)
@@ -969,7 +982,7 @@ def test_global_index_phase_bad_new_symbol_does_not_block_other_landing_promotio
     def promote_phase(project_root, checkpoint_path, *, approval_digest):
         nonlocal stored
         symbol = checkpoint_path.parent.name.removesuffix("-run").upper()
-        if symbol in {"DOW_JONES", "DOLLAR_INDEX"}:
+        if symbol != "SOX":
             stored = pd.concat([stored, candidates[symbol]], ignore_index=True)
         promoted.append((checkpoint_path, approval_digest))
         return {"status": "PROMOTED"}
@@ -985,14 +998,22 @@ def test_global_index_phase_bad_new_symbol_does_not_block_other_landing_promotio
     )
 
     assert result["status"] == "DEGRADED_SYMBOL_FAILURES_PRESERVED"
-    assert set(result["promoted_symbols"]) == {"DOLLAR_INDEX", "DOW_JONES"}
+    assert set(result["promoted_symbols"]) == {
+        "DOLLAR_INDEX", "DOW_JONES", "VIX9D", "VIX3M", "VIX6M", "SKEW",
+    }
     assert set(result["failed_symbols"]) == {"SOX"}
-    assert set(stored["symbol"]) == {*tickers, "DOW_JONES", "DOLLAR_INDEX"}
-    assert len(list((tmp_path / "captures").rglob("call.json"))) == 3
+    assert set(stored["symbol"]) == {
+        *tickers, "DOW_JONES", "DOLLAR_INDEX", "VIX9D", "VIX3M", "VIX6M", "SKEW",
+    }
+    assert len(list((tmp_path / "captures").rglob("call.json"))) == 7
     assert module.fetch_global_index is original_fetch
     assert sorted(promoted) == sorted([
         (tmp_path / "data/state/global_current_refresh/dollar_index-run/checkpoint.json", "approved"),
         (tmp_path / "data/state/global_current_refresh/dow_jones-run/checkpoint.json", "approved"),
+        (tmp_path / "data/state/global_current_refresh/vix9d-run/checkpoint.json", "approved"),
+        (tmp_path / "data/state/global_current_refresh/vix3m-run/checkpoint.json", "approved"),
+        (tmp_path / "data/state/global_current_refresh/vix6m-run/checkpoint.json", "approved"),
+        (tmp_path / "data/state/global_current_refresh/skew-run/checkpoint.json", "approved"),
     ])
 
 

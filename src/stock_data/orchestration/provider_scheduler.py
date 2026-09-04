@@ -81,6 +81,7 @@ from stock_data.contracts.kr_short_selling import (
 )
 from stock_data.contracts.global_market import (
     GLOBAL_COMMODITY_FUTURES_DAILY, GLOBAL_INDEX_PRICE_DAILY,
+    GLOBAL_INDEX_REGISTRY,
 )
 from stock_data.validation.kospi200_index_daily import validate_kospi200_index_daily
 from stock_data.validation.global_market import (
@@ -262,10 +263,11 @@ LANE_SCHEDULES = MappingProxyType({
     "GLOBAL_INDEX_DAILY": LaneSchedule(
         lane="GLOBAL_INDEX_DAILY", cadence_group="GLOBAL_DAILY_FINAL",
         market=ExchangeMarket.US, phases=("global_indices",),
-        dataset_ids=("global_index_price_daily",),
+        dataset_ids=("global_index_price_daily", "us_vix_term_structure_daily"),
         accepted_source=(
             "Yahoo chart API: registered SP500, NASDAQ_COMPOSITE, NASDAQ100, SOX, "
-            "and DOW_JONES"
+            "DOW_JONES, DOLLAR_INDEX, VIX9D, VIX3M, VIX6M, and SKEW; derived "
+            "term structure also uses retained FRED VIXCLS"
         ),
     ),
     "GLOBAL_ETF_DAILY": LaneSchedule(
@@ -850,12 +852,8 @@ def _run_etf_phase(project_root: Path, phase: str, target: object) -> dict[str, 
 
 
 _GLOBAL_INDEX_TICKERS = MappingProxyType({
-    "SP500": "^GSPC",
-    "NASDAQ_COMPOSITE": "^IXIC",
-    "NASDAQ100": "^NDX",
-    "SOX": "^SOX",
-    "DOW_JONES": "^DJI",
-    "DOLLAR_INDEX": "DX-Y.NYB",  # ICE dollar index; provider_native endpoint window (see global_market.py)
+    symbol: str(spec["source_ticker"])
+    for symbol, spec in GLOBAL_INDEX_REGISTRY.items()
 })
 _GLOBAL_ETF_SYMBOLS = GLOBAL_ETF_DAILY_SYMBOLS
 _GLOBAL_FUTURES_SYMBOLS = (
@@ -891,10 +889,16 @@ def _replay_global_index_landing(
         item = results[0]
         meta = item["meta"]
         ticker = _GLOBAL_INDEX_TICKERS[symbol]
+        spec = GLOBAL_INDEX_REGISTRY[symbol]
+        exchange = str(meta.get("exchangeName") or meta.get("fullExchangeName") or "")
+        accepted_exchanges = tuple(spec.get("accepted_yahoo_exchanges") or ())
         if (
             meta.get("symbol") != ticker
-            or str(meta.get("instrumentType", "")).upper() != "INDEX"
+            or str(meta.get("instrumentType", "")).upper()
+            != str(spec["instrument_type"])
             or meta.get("dataGranularity") != "1d"
+            or (bool(spec.get("require_exchange_identity")) and not exchange)
+            or (accepted_exchanges and exchange and exchange not in accepted_exchanges)
         ):
             raise ValueError
         timestamps = item["timestamp"]
@@ -1242,7 +1246,11 @@ def run_lane(
         if spec.automation_enabled
     }
     enabled = core_enabled | universe_enabled
-    direct = set(config.dataset_ids) - {"us_treasury_spread_daily"}
+    dependency_refresh_ids = {
+        "FRED_DAILY": ("us_treasury_spread_daily",),
+        "GLOBAL_INDEX_DAILY": ("us_vix_term_structure_daily",),
+    }.get(lane, ())
+    direct = set(config.dataset_ids).difference(dependency_refresh_ids)
     if not direct <= enabled:
         raise ProviderSchedulerError(f"lane has disabled direct datasets: {sorted(direct-enabled)}")
     started_at = as_of or datetime.now(timezone.utc)
@@ -1318,7 +1326,7 @@ def run_lane(
         "calendar": asdict(calendar.provenance),
         "accepted_source": config.accepted_source,
         "automation_dataset_ids": sorted(direct),
-        "dependency_refresh_ids": ["us_treasury_spread_daily"] if lane == "FRED_DAILY" else [],
+        "dependency_refresh_ids": list(dependency_refresh_ids),
         "retry_count": 0,
         "dry_run": dry_run,
     }
@@ -1327,6 +1335,11 @@ def run_lane(
             {"symbol": symbol, "ticker": ticker}
             for symbol, ticker in KR_INDEX_TICKERS.items()
         ] + [{"symbol": "KOSPI200", "ticker": "1028"}]
+    if lane == "GLOBAL_INDEX_DAILY":
+        base["registered_indices"] = [
+            {"symbol": symbol, "ticker": ticker}
+            for symbol, ticker in _GLOBAL_INDEX_TICKERS.items()
+        ]
     if lane == "KR_FUNDAMENTALS_WEEKLY":
         plan = plan_weekly_fundamentals_refresh(
             root, market_date=market_target,

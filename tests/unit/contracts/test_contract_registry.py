@@ -5,6 +5,10 @@ from stock_data.contracts.global_etf import (
     GLOBAL_ETF_REGISTRY,
     global_etf_leverage_multiple,
 )
+from stock_data.contracts.global_market import (
+    GLOBAL_INDEX_DAILY_SYMBOLS,
+    GLOBAL_INDEX_REGISTRY,
+)
 from stock_data.contracts.kr_etf import infer_kr_etf_leverage_multiple
 from stock_data.providers.yahoo import GLOBAL_MARKET_60M_REGISTRY
 
@@ -50,6 +54,44 @@ def test_global_daily_contracts_keep_symbol_identity_and_futures_semantics() -> 
     )
     assert {"source_ticker", "asset", "ohlc_status"} <= set(futures.column_names)
     assert "dollar-index continuous futures" in futures.description
+
+
+def test_global_index_registry_includes_vix_term_structure_identities() -> None:
+    assert GLOBAL_INDEX_DAILY_SYMBOLS[-4:] == ("VIX9D", "VIX3M", "VIX6M", "SKEW")
+    assert {
+        symbol: {
+            "source_ticker": spec["source_ticker"],
+            "instrument_type": spec["instrument_type"],
+            "expected_currency": spec["expected_currency"],
+            "accepted_yahoo_exchanges": spec["accepted_yahoo_exchanges"],
+        }
+        for symbol, spec in GLOBAL_INDEX_REGISTRY.items()
+        if symbol in {"VIX9D", "VIX3M", "VIX6M", "SKEW"}
+    } == {
+        "VIX9D": {
+            "source_ticker": "^VIX9D", "instrument_type": "INDEX",
+            "expected_currency": None, "accepted_yahoo_exchanges": ("WCB", "CBOE"),
+        },
+        "VIX3M": {
+            "source_ticker": "^VIX3M", "instrument_type": "INDEX",
+            "expected_currency": None, "accepted_yahoo_exchanges": ("WCB", "CBOE"),
+        },
+        "VIX6M": {
+            "source_ticker": "^VIX6M", "instrument_type": "INDEX",
+            "expected_currency": None, "accepted_yahoo_exchanges": ("WCB", "CBOE"),
+        },
+        "SKEW": {
+            "source_ticker": "^SKEW", "instrument_type": "INDEX",
+            "expected_currency": None, "accepted_yahoo_exchanges": ("WCB", "CBOE"),
+        },
+    }
+    derived = CONTRACTS["us_vix_term_structure_daily"]
+    assert derived.layer == "derived"
+    assert derived.primary_key == ("date",)
+    assert derived.column_names == (
+        "date", "vix", "vix9d", "vix3m", "vix6m", "skew",
+        "ratio_1m_3m", "ratio_9d_1m", "regime", "pct_rank_252",
+    )
 
 
 def test_yahoo_current_30m_registry_has_four_new_exact_identities() -> None:

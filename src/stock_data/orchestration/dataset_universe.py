@@ -30,7 +30,7 @@ CONTRACTS = {
 DATASET_SYMBOL_REGISTRY: Mapping[str, tuple[str, ...]] = MappingProxyType({
     "global_index_price_daily": (
         "SP500", "NASDAQ_COMPOSITE", "NASDAQ100", "SOX", "DOW_JONES",
-        "DOLLAR_INDEX",
+        "DOLLAR_INDEX", "VIX9D", "VIX3M", "VIX6M", "SKEW",
     ),
     "global_etf_price_daily": GLOBAL_ETF_DAILY_SYMBOLS,
     "global_commodity_futures_daily": (
@@ -472,6 +472,7 @@ _CLASSIFICATION_IDS = {
     """.split()),
     DatasetRefreshClass.DERIVED_DEPENDENCY: frozenset("""
         kr_equity_canonical_universe_daily kr_market_breadth_daily us_treasury_spread_daily
+        us_vix_term_structure_daily
         kr_market_investor_net_purchase_bridge_daily kr_kospi200_futures_provider_bridge_daily
         kr_kospi200_options_provider_bridge_daily kr_kospi200_futures_nearest_listed_daily
         kr_kospi200_option_pcr_daily kr_kospi200_option_walls_daily
@@ -618,6 +619,7 @@ _UPSTREAM = {
     "kr_kospi200_constituent_price_daily": ("kr_index_constituent_daily", "kr_equity_price_daily"),
     "kr_kospi200_breadth_daily": ("kr_kospi200_constituent_price_daily", "kr_equity_price_daily"),
     "us_treasury_spread_daily": ("fred_treasury_yield_daily",),
+    "us_vix_term_structure_daily": ("fred_vix_daily", "global_index_price_daily"),
     "kr_market_investor_net_purchase_bridge_daily": ("kr_market_investor_net_purchase_daily", "kr_market_investor_trading_daily"),
     "kr_kospi200_futures_provider_bridge_daily": ("krx_legacy_kospi200_futures_daily", "kr_kospi200_futures_daily"),
     "kr_kospi200_options_provider_bridge_daily": ("krx_legacy_kospi200_options_daily", "kr_kospi200_options_daily"),
@@ -649,7 +651,9 @@ _LANE_GROUPS = {
         "kr_index_constituent_daily", "kr_kospi200_constituent_price_daily",
         "kr_kospi200_breadth_daily",
     }),
-    "GLOBAL_INDEX_DAILY": frozenset({"global_index_price_daily"}),
+    "GLOBAL_INDEX_DAILY": frozenset({
+        "global_index_price_daily", "us_vix_term_structure_daily",
+    }),
     "FRED_DAILY": frozenset({"fred_treasury_yield_daily", "fred_usd_fx_daily", "fred_vix_daily", "us_treasury_spread_daily"}),
     "GLOBAL_ETF_DAILY": frozenset({"global_etf_price_daily"}),
     "KR_ETF_PRICE_DAILY": frozenset({"kr_etf_master", "kr_etf_price_daily"}),
@@ -786,7 +790,7 @@ kr_etf_price_daily
 kr_index_fundamental_daily kr_kospi200_constituent_price_daily
 kr_kospi200_futures_provider_bridge_daily kr_kospi200_options_provider_bridge_daily
 kr_market_liquidity_daily kr_short_selling_investor_daily
-kr_stock_lending_participant_daily us_treasury_spread_daily
+kr_stock_lending_participant_daily us_treasury_spread_daily us_vix_term_structure_daily
 """.split())
 
 
@@ -827,6 +831,7 @@ _NON_PREDICTIVE = frozenset("""
 
 _DERIVED_IDS = frozenset({
     "kr_market_breadth_daily", "us_treasury_spread_daily",
+    "us_vix_term_structure_daily",
     "kr_kospi200_futures_nearest_listed_daily", "kr_kospi200_option_pcr_daily",
     "kr_kospi200_option_walls_daily",
     "kr_kospi200_breadth_daily",
@@ -898,7 +903,8 @@ _READY_WITH_LIMITS_IDS = frozenset({
     "kr_equity_investor_flow_daily",
     "fred_treasury_yield_daily", "fred_usd_fx_daily", "fred_vix_daily",
     "bok_ecos_usd_krw_daily",
-    "us_treasury_spread_daily", "kr_treasury_yield_daily",
+    "us_treasury_spread_daily", "us_vix_term_structure_daily",
+    "kr_treasury_yield_daily",
     "bok_ecos_kr_treasury_yield_source_observation",
     "kr_market_investor_net_purchase_bridge_daily",
     "kr_market_investor_trading_daily",
@@ -1167,7 +1173,7 @@ def _predictive_status(dataset_id: str, operation: object | None) -> PredictiveP
 _AUTO_ENABLED_IDS: frozenset[str] = frozenset({
     "fred_treasury_yield_daily", "fred_usd_fx_daily", "fred_vix_daily",
     "bok_ecos_usd_krw_daily",
-    "us_treasury_spread_daily",
+    "us_treasury_spread_daily", "us_vix_term_structure_daily",
     "kr_stock_lending_daily", "kr_stock_lending_market_daily",
     "kr_stock_lending_participant_daily",
     "kr_vkospi_daily",

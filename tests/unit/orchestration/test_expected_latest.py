@@ -52,6 +52,22 @@ def test_fred_vix_advances_at_the_first_daily_run_after_0840_ct_release() -> Non
     assert at_next_run.collection_required
 
 
+def test_vix_term_structure_uses_its_fred_vix_dependency_policy() -> None:
+    result = resolve_expected_latest(
+        dataset="us_vix_term_structure_daily", lane="GLOBAL_INDEX_DAILY",
+        retained_latest=date(2026, 8, 24),
+        as_of=datetime(2026, 8, 26, 21, 0, tzinfo=timezone.utc),
+    )
+
+    assert result is not None
+    assert result.expected_available_observation == date(2026, 8, 25)
+    assert result.provider_availability_policy is (
+        ProviderAvailabilityPolicy.FRED_VIX_NEXT_BUSINESS_DAY_0840_CT
+    )
+    assert result.expected_lag_policy is ExpectedLagPolicy.NEXT_PROVIDER_BUSINESS_DAY
+    assert result.freshness is ExpectedFreshness.STALE
+
+
 def test_h15_target_advances_only_after_official_release_clock() -> None:
     after = datetime(2026, 8, 18, 20, 16, tzinfo=timezone.utc)
     result = resolve_expected_latest(

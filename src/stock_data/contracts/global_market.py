@@ -20,6 +20,56 @@ GLOBAL_INDEX_ENDPOINT_WINDOW_OVERRIDES = MappingProxyType({
 })
 
 
+GLOBAL_INDEX_REGISTRY = MappingProxyType({
+    "SP500": {
+        "source_ticker": "^GSPC", "instrument_type": "INDEX",
+        "expected_currency": None, "accepted_yahoo_exchanges": (),
+    },
+    "NASDAQ_COMPOSITE": {
+        "source_ticker": "^IXIC", "instrument_type": "INDEX",
+        "expected_currency": None, "accepted_yahoo_exchanges": (),
+    },
+    "NASDAQ100": {
+        "source_ticker": "^NDX", "instrument_type": "INDEX",
+        "expected_currency": None, "accepted_yahoo_exchanges": (),
+    },
+    "SOX": {
+        "source_ticker": "^SOX", "instrument_type": "INDEX",
+        "expected_currency": None,
+        "accepted_yahoo_exchanges": ("NIM", "NGM", "NMS", "NASDAQ"),
+    },
+    "DOW_JONES": {
+        "source_ticker": "^DJI", "instrument_type": "INDEX",
+        "expected_currency": None, "accepted_yahoo_exchanges": (),
+    },
+    "DOLLAR_INDEX": {
+        "source_ticker": "DX-Y.NYB", "instrument_type": "INDEX",
+        "expected_currency": None, "accepted_yahoo_exchanges": ("NYB", "ICE"),
+    },
+    "VIX9D": {
+        "source_ticker": "^VIX9D", "instrument_type": "INDEX",
+        "expected_currency": None, "accepted_yahoo_exchanges": ("WCB", "CBOE"),
+        "require_exchange_identity": True,
+    },
+    "VIX3M": {
+        "source_ticker": "^VIX3M", "instrument_type": "INDEX",
+        "expected_currency": None, "accepted_yahoo_exchanges": ("WCB", "CBOE"),
+        "require_exchange_identity": True,
+    },
+    "VIX6M": {
+        "source_ticker": "^VIX6M", "instrument_type": "INDEX",
+        "expected_currency": None, "accepted_yahoo_exchanges": ("WCB", "CBOE"),
+        "require_exchange_identity": True,
+    },
+    "SKEW": {
+        "source_ticker": "^SKEW", "instrument_type": "INDEX",
+        "expected_currency": None, "accepted_yahoo_exchanges": ("WCB", "CBOE"),
+        "require_exchange_identity": True,
+    },
+})
+GLOBAL_INDEX_DAILY_SYMBOLS = tuple(GLOBAL_INDEX_REGISTRY)
+
+
 def global_index_endpoint_window(symbol: str) -> EndpointWindowPolicy:
     return GLOBAL_INDEX_ENDPOINT_WINDOW_OVERRIDES.get(
         symbol, EndpointWindowPolicy.STRICT_EXCHANGE,
@@ -146,5 +196,29 @@ US_TREASURY_SPREAD_DAILY = DatasetContract(
         ColumnContract("date", "date32", False),
         ColumnContract("spread_10y_2y", "float64", True),
         ColumnContract("spread_30y_2y", "float64", True),
+    ),
+)
+
+
+US_VIX_TERM_STRUCTURE_DAILY = DatasetContract(
+    name="us_vix_term_structure_daily", version=1, status="active",
+    description=(
+        "VIX 기간구조: 1개월/3개월 비율 < 1 = 콘탱고(평온), > 1 = "
+        "백워데이션(공포). FRED VIXCLS와 Yahoo Cboe 기간 지수를 날짜별로 "
+        "결합한 재현 가능한 파생 데이터셋."
+    ),
+    source="fred_vix_daily+global_index_price_daily", layer="derived",
+    storage_format="parquet", frequency="daily", timezone=None,
+    primary_key=("date",), sort_key=("date",), partition_by=("year",), columns=(
+        ColumnContract("date", "date32", False),
+        ColumnContract("vix", "float64", True, "index_points"),
+        ColumnContract("vix9d", "float64", True, "index_points"),
+        ColumnContract("vix3m", "float64", True, "index_points"),
+        ColumnContract("vix6m", "float64", True, "index_points"),
+        ColumnContract("skew", "float64", True, "index_points"),
+        ColumnContract("ratio_1m_3m", "float64", True, "ratio"),
+        ColumnContract("ratio_9d_1m", "float64", True, "ratio"),
+        ColumnContract("regime", "string", True),
+        ColumnContract("pct_rank_252", "float64", True, "fraction"),
     ),
 )

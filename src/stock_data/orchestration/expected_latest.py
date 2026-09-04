@@ -115,7 +115,7 @@ US_DAILY_LANES = frozenset({
 
 _FRED_H15 = frozenset({"fred_treasury_yield_daily", "us_treasury_spread_daily"})
 _FRED_H10 = frozenset({"fred_usd_fx_daily"})
-_FRED_VIX = frozenset({"fred_vix_daily"})
+_FRED_VIX = frozenset({"fred_vix_daily", "us_vix_term_structure_daily"})
 _FRED_DAILY_RUN_KST = time(6, 0)
 _KST = ZoneInfo("Asia/Seoul")
 _XKRX_MANUAL_DATASETS = frozenset({

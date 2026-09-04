@@ -18,7 +18,7 @@ Yahoo supplies capture-first, locally persisted market-price observations:
 
 | Scope | Project series | Meaning |
 |---|---|---|
-| Global indices | retained S&P 500, Nasdaq Composite, Nasdaq-100; registered-not-collected SOX and Dow Jones | Completed provider daily bars |
+| Global indices | retained S&P 500, Nasdaq Composite, Nasdaq-100, SOX, and Dow Jones; registered dollar index plus VIX9D/VIX3M/VIX6M/SKEW | Completed provider daily bars; VIX term symbols are Cboe index levels, not futures |
 | ETF | retained SOXX; registered-not-collected EWY | Completed provider daily ETF bars |
 | Continuous futures daily | retained `NQ=F`, `GC=F`, `CL=F`; registered-not-collected `ES=F`, `YM=F`, `DX=F` | Descriptive continuous-futures OHLC; not an individual contract |
 | Finalized delayed 60m | `KRW=X`, `ZT=F`, `ZN=F`, `ZB=F` | Provider-finalized 60-minute price observations |
@@ -35,6 +35,10 @@ web page during GUI rendering.
   daily USD/KRW series.
 - SOXX is not SOX. NQ is not replaced by NDX, and missing Yahoo values are not
   filled from KB or another provider.
+- `^VIX9D`, `^VIX3M`, `^VIX6M`, and `^SKEW` are registered as Yahoo `INDEX`
+  observations with accepted exchange codes `WCB`/`CBOE`; currency is not an
+  applicable index identity field. The checked `VX=F` futures route returned
+  HTTP 404 on 2026-09-04 and must not be substituted for these indices.
 - Daily rows whose complete price tuple is null are omitted as provider gaps and
   their dates are retained in `provider_gap_dates`; an all-gap response fails closed.
 - A partially null ETF, index, or continuous-futures price bar always fails closed.
@@ -62,6 +66,40 @@ redistribution rights or make the endpoint an official API.
 All network work must use bounded calls, timeouts, immutable Landing captures,
 contract validation, and atomic promotion. A completed-date replay should take
 the API-0 path when the retained checkpoint already proves completion.
+
+## VIX term-structure onboarding and refresh
+
+Use the scheduler dry-run to inspect the ten-symbol daily index registry without
+calling Yahoo. The live `06:20 GLOBAL_INDEX_DAILY` lane makes four additional
+symbol-isolated calls for these indices:
+
+```powershell
+$env:PYTHONIOENCODING='utf-8'
+.venv\Scripts\python.exe scripts\maintenance\run_provider_scheduler.py --project-root . --lane GLOBAL_INDEX_DAILY --dry-run
+```
+
+For the initial bounded five-year Landing-only collection, replace
+`<LAST_US_SESSION>` with the last completed U.S. session:
+
+```powershell
+$env:PYTHONIOENCODING='utf-8'
+.venv\Scripts\python.exe scripts\manual\collect\refresh_global_current.py --project-root . --phase yahoo --symbols VIX9D VIX3M VIX6M SKEW --start 2021-09-01 --end <LAST_US_SESSION> --confirm-live-landing-only
+```
+
+Review the emitted checkpoint and digest, then promote the exact candidate with
+zero network calls:
+
+```powershell
+.venv\Scripts\python.exe scripts\manual\collect\refresh_global_current.py --project-root . --promote-checkpoint data\state\global_current_refresh\<RUN_ID>\checkpoint.json --confirm-offline-promotion --approval-digest <APPROVAL_DIGEST>
+```
+
+The promotion stages and atomically refreshes `us_vix_term_structure_daily` when
+all four term symbols are present. A provider-free standalone rebuild is also
+available after both normalized inputs are current:
+
+```powershell
+.venv\Scripts\python.exe -m stock_data.derived.vix_term_structure --project-root .
+```
 
 ## Per-symbol option volume P/C research pilot
 

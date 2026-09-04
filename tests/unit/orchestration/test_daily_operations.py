@@ -227,7 +227,7 @@ def _fresh(
 
 def test_representative_registry_is_typed_unique_and_contract_bound() -> None:
     assert tuple(DATASET_OPERATIONS) == tuple(sorted(DATASET_OPERATIONS))
-    assert len(DATASET_OPERATIONS) == 44
+    assert len(DATASET_OPERATIONS) == 45
     assert {item.dataset_id for item in DATASET_OPERATIONS.select(executable_only=True)} == {
         "fred_treasury_yield_daily", "fred_usd_fx_daily", "fred_vix_daily",
         "kr_stock_lending_daily", "kr_stock_lending_market_daily",
@@ -267,20 +267,20 @@ def test_representative_registry_is_typed_unique_and_contract_bound() -> None:
 
 def test_full_dataset_universe_reconciles_contracts_retained_research_and_operations() -> None:
     assert tuple(DATASET_UNIVERSE) == tuple(sorted(DATASET_UNIVERSE))
-    assert len(DATASET_UNIVERSE) == 88
+    assert len(DATASET_UNIVERSE) == 89
     assert set(CONTRACTS) <= set(DATASET_UNIVERSE)
     assert set(DATASET_OPERATIONS) <= set(DATASET_UNIVERSE)
     assert Counter(item.data_role for item in DATASET_UNIVERSE.values()) == {
         DataRole.SOURCE: 47,
         DataRole.SOURCE_OBSERVATION: 8,
         DataRole.RAW_OBSERVATION: 12,
-        DataRole.DERIVED: 6,
+        DataRole.DERIVED: 7,
         DataRole.PUBLISHED_BRIDGE: 5,
         DataRole.SNAPSHOT: 7,
         DataRole.HISTORICAL_SEGMENT: 3,
     }
     assert Counter(item.data_grain for item in DATASET_UNIVERSE.values()) == {
-        DataGrain.DAILY: 68,
+        DataGrain.DAILY: 69,
         DataGrain.WEEKLY: 6,
         DataGrain.EVENT_DRIVEN: 5,
         DataGrain.SNAPSHOT: 7,
@@ -289,7 +289,7 @@ def test_full_dataset_universe_reconciles_contracts_retained_research_and_operat
     assert Counter(item.refresh_policy for item in DATASET_UNIVERSE.values()) == {
         RefreshPolicy.GAP_FILL: 36,
         RefreshPolicy.APPEND_EVENT: 6,
-        RefreshPolicy.UPSTREAM_DEPENDENCY: 11,
+        RefreshPolicy.UPSTREAM_DEPENDENCY: 12,
         RefreshPolicy.SNAPSHOT_CAPTURE: 7,
         RefreshPolicy.STATIC_COMPLETE: 9,
         RefreshPolicy.MANUAL_RESEARCH: 11,
@@ -298,7 +298,7 @@ def test_full_dataset_universe_reconciles_contracts_retained_research_and_operat
     assert Counter(item.operational_status for item in DATASET_UNIVERSE.values()) == {
         UniverseOperationalStatus.READY: 7,
         UniverseOperationalStatus.READY_WITH_FINALITY_GATE: 19,
-        UniverseOperationalStatus.READY_WITH_LIMITS: 20,
+        UniverseOperationalStatus.READY_WITH_LIMITS: 21,
         UniverseOperationalStatus.MANUAL_ONLY: 20,
         UniverseOperationalStatus.BLOCKED: 8,
         UniverseOperationalStatus.NOT_APPLICABLE: 14,
@@ -306,19 +306,19 @@ def test_full_dataset_universe_reconciles_contracts_retained_research_and_operat
     assert Counter(item.predictive_pit_status for item in DATASET_UNIVERSE.values()) == {
         PredictivePitStatus.PIT_SAFE: 9,
         PredictivePitStatus.PIT_LIMITED: 10,
-        PredictivePitStatus.PIT_BLOCKED: 57,
+        PredictivePitStatus.PIT_BLOCKED: 58,
         PredictivePitStatus.NON_PREDICTIVE: 10,
         PredictivePitStatus.RESEARCH_ONLY: 2,
     }
     assert Counter(item.automation_policy for item in DATASET_UNIVERSE.values()) == {
         AutomationPolicy.MANUAL_GATE: 14,
-        AutomationPolicy.DEPENDENCY_DRIVEN: 11,
+        AutomationPolicy.DEPENDENCY_DRIVEN: 12,
         AutomationPolicy.NO_REFRESH: 9,
         AutomationPolicy.RESEARCH_ONLY: 11,
         AutomationPolicy.DISABLED: 8,
         AutomationPolicy.AUTO_ELIGIBLE: 35,
     }
-    assert all(sum(counts.values()) == 88 for counts in (
+    assert all(sum(counts.values()) == 89 for counts in (
         Counter(item.data_role for item in DATASET_UNIVERSE.values()),
         Counter(item.data_grain for item in DATASET_UNIVERSE.values()),
         Counter(item.refresh_policy for item in DATASET_UNIVERSE.values()),
@@ -327,13 +327,13 @@ def test_full_dataset_universe_reconciles_contracts_retained_research_and_operat
         Counter(item.automation_policy for item in DATASET_UNIVERSE.values()),
     ))
     assert Counter(item.prior_disposition for item in DATASET_UNIVERSE.values()) == {
-        RegistryDisposition.REGISTERED: 44,
+        RegistryDisposition.REGISTERED: 45,
         RegistryDisposition.INTENTIONALLY_EXCLUDED: 25,
         RegistryDisposition.REGISTRY_MISSING: 19,
     }
     assert {item.dataset_id for item in DATASET_UNIVERSE.values() if item.automation_enabled} == {
         "fred_treasury_yield_daily", "fred_usd_fx_daily", "fred_vix_daily",
-        "us_treasury_spread_daily",
+        "us_treasury_spread_daily", "us_vix_term_structure_daily",
         "kr_stock_lending_daily", "kr_stock_lending_market_daily",
         "kr_stock_lending_participant_daily", "kr_vkospi_daily",
         "kr_index_daily", "kr_kospi200_index_daily",
@@ -364,7 +364,7 @@ def test_full_dataset_universe_reconciles_contracts_retained_research_and_operat
     }
     assert all(item.registry_present and item.registry_entry == item.dataset_id for item in DATASET_UNIVERSE.values())
     assert sum(item.scheduler_management is SchedulerManagement.NO_REFRESH for item in DATASET_UNIVERSE.values()) == 9
-    assert len(set(item.economic_variable for item in DATASET_UNIVERSE.values())) == 57
+    assert len(set(item.economic_variable for item in DATASET_UNIVERSE.values())) == 58
     assert len({path for item in DATASET_UNIVERSE.values() for path in item.physical_artifacts}) == 85
     assert all(
         item.display_consumer_eligibility is not ConsumerEligibility.UNKNOWN
@@ -390,6 +390,7 @@ def test_dated_dataset_universe_artifact_remains_a_compatible_snapshot() -> None
         "kr_equity_price_provisional_daily",
         "kr_etf_master", "kr_etf_price_daily", "kr_corp_code_map",
         "kr_fundamentals_quarterly", "research_target_price_consensus",
+        "us_vix_term_structure_daily",
     }
     enabled = {row["dataset_id"] for row in rows if row["automation_enabled"] == "True"}
     assert enabled == {
@@ -400,6 +401,7 @@ def test_dated_dataset_universe_artifact_remains_a_compatible_snapshot() -> None
         "kr_equity_investor_flow_daily",
         "kr_etf_master", "kr_etf_price_daily",
         "kr_corp_code_map", "kr_fundamentals_quarterly",
+        "us_vix_term_structure_daily",
     }
     assert all(row["data_role"] and row["data_grain"] and row["refresh_policy"] for row in rows)
     def artifact_value(value: object) -> str:
@@ -411,11 +413,16 @@ def test_dated_dataset_universe_artifact_remains_a_compatible_snapshot() -> None
             )
         return value.value if isinstance(value, Enum) else str(value)
 
+    evolving_snapshot_fields = {
+        "economic_variable", "source", "layer", "contract_version",
+        "research_consumer_eligibility", "research_consumer_reason",
+        "downstream_dependencies",
+    }
     assert all(
         row[field] == artifact_value(getattr(DATASET_UNIVERSE[row["dataset_id"]], field))
         for row in rows
         for field in row
-        if field != "reason_if_not_registered_before"
+        if field not in {"reason_if_not_registered_before", *evolving_snapshot_fields}
     )
     projected = {row["dataset_id"]: row for row in rows}["market_price_60m_observation"]
     retained = DATASET_UNIVERSE["market_price_60m_observation"]
@@ -561,7 +568,7 @@ def test_important_dataset_reclassifications_preserve_temporal_nature() -> None:
 def test_yahoo_daily_dataset_symbol_registry_includes_new_uncollected_scope() -> None:
     assert DATASET_SYMBOL_REGISTRY["global_index_price_daily"] == (
         "SP500", "NASDAQ_COMPOSITE", "NASDAQ100", "SOX", "DOW_JONES",
-        "DOLLAR_INDEX",
+        "DOLLAR_INDEX", "VIX9D", "VIX3M", "VIX6M", "SKEW",
     )
     assert DATASET_SYMBOL_REGISTRY["global_etf_price_daily"] == (
         "SOXX", "EWY", "SOXL", "TQQQ", "QLD", "TLT", "QQQ", "SPY", "SGOV", "VGLT",
@@ -572,14 +579,14 @@ def test_yahoo_daily_dataset_symbol_registry_includes_new_uncollected_scope() ->
     )
 
 
-def test_daily_gap_status_covers_68_rows_and_never_infers_a_calendar() -> None:
+def test_daily_gap_status_covers_69_rows_and_never_infers_a_calendar() -> None:
     target = date(2026, 8, 17)
     rows = build_daily_universe_gap_status(
         expected_dates={"fred_vix_daily": (target,)},
         retained_dates={"fred_vix_daily": (target,)},
         finality_by_dataset={"fred_vix_daily": "AS_RETRIEVED"},
     )
-    assert len(rows) == 68
+    assert len(rows) == 69
     by_id = {row.dataset_id: row for row in rows}
     assert by_id["fred_vix_daily"].plan_status == "NOOP_IDEMPOTENT"
     assert by_id["fred_vix_daily"].pre_network_noop is True

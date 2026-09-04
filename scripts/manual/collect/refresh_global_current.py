@@ -32,11 +32,16 @@ from stock_data.contracts.global_market import (  # noqa: E402
     EndpointWindowPolicy,
     FRED_TREASURY_YIELD_DAILY, FRED_USD_FX_DAILY, FRED_VIX_DAILY,
     GLOBAL_COMMODITY_FUTURES_DAILY, GLOBAL_INDEX_PRICE_DAILY,
-    US_TREASURY_SPREAD_DAILY, global_index_endpoint_window,
+    US_TREASURY_SPREAD_DAILY, US_VIX_TERM_STRUCTURE_DAILY,
+    global_index_endpoint_window,
 )
 from stock_data.contracts.global_etf import GLOBAL_ETF_PRICE_DAILY  # noqa: E402
 from stock_data.derived.treasury_spread import (  # noqa: E402
     calculate_treasury_spreads, validate_treasury_spreads,
+)
+from stock_data.derived.vix_term_structure import (  # noqa: E402
+    INDEX_SYMBOLS as VIX_TERM_INDEX_SYMBOLS,
+    calculate_vix_term_structure, validate_vix_term_structure,
 )
 from stock_data.providers.fred import fetch_series  # noqa: E402
 from stock_data.providers.fred import URL as FRED_URL  # noqa: E402
@@ -183,6 +188,7 @@ def _files_manifest(root: Path) -> dict[str, object]:
         FRED_USD_FX_DAILY.name: ("year",),
         FRED_VIX_DAILY.name: ("year",),
         US_TREASURY_SPREAD_DAILY.name: ("year",),
+        US_VIX_TERM_STRUCTURE_DAILY.name: ("year",),
     }.get(root.name)
     if partition_keys is None:
         raise RefreshError(f"unknown dataset topology: {root.name}")
@@ -786,6 +792,44 @@ def _build_spread_candidate(yields: pd.DataFrame, root: Path) -> dict[str, objec
     return {"rows": validation.rows, "coverage_start": validation.coverage_start, "coverage_end": validation.coverage_end}
 
 
+def _build_vix_term_structure_candidate(
+    project_root: Path, indices: pd.DataFrame, root: Path,
+) -> dict[str, object]:
+    vix = read_dataset(
+        project_root / "data/normalized" / FRED_VIX_DAILY.name,
+        FRED_VIX_DAILY,
+        validate_fred,
+    )
+    result = calculate_vix_term_structure(vix, indices)
+    validation = validate_vix_term_structure(vix, indices, result)
+    expected = result.copy()
+    expected["date"] = pd.to_datetime(expected["date"]).dt.date
+
+    def validator(frame: pd.DataFrame) -> None:
+        if tuple(frame.columns) != tuple(US_VIX_TERM_STRUCTURE_DAILY.column_names) or frame.empty:
+            raise RefreshError("VIX term-structure candidate schema is empty or differs")
+        restored = frame.copy()
+        restored["date"] = pd.to_datetime(restored["date"], errors="raise").dt.date
+        dates = set(pd.to_datetime(frame["date"]).dt.date)
+        selected = expected.loc[expected["date"].isin(dates)].reset_index(drop=True)
+        try:
+            pd.testing.assert_frame_equal(
+                restored.reset_index(drop=True), selected,
+                check_dtype=False, check_exact=False, rtol=1e-12, atol=1e-12,
+            )
+        except AssertionError as error:
+            raise RefreshError("VIX term-structure candidate differs after read-back") from error
+
+    write_dataset_atomic(result, root, US_VIX_TERM_STRUCTURE_DAILY, validator)
+    return {
+        "rows": validation.rows,
+        "coverage_start": validation.coverage_start,
+        "coverage_end": validation.coverage_end,
+        "complete_curve_rows": validation.complete_curve_rows,
+        "pct_rank_rows": validation.pct_rank_rows,
+    }
+
+
 def _parse_retained_fred_capture(call_path: Path, item: str) -> pd.DataFrame:
     record = json.loads(call_path.read_text(encoding="utf-8"))
     body = call_path.with_name("response.body")
@@ -1247,6 +1291,43 @@ def prepare_phase(
                     "candidate_spread_state": spread_state.relative_to(project_root).as_posix(),
                     "candidate_spread_state_fingerprint": _file_fingerprint(spread_state),
                 }
+            if (
+                phase == "yahoo"
+                and set(VIX_TERM_INDEX_SYMBOLS) <= set(candidate["symbol"].astype(str))
+                and any(item in VIX_TERM_INDEX_SYMBOLS for item in items)
+                and (project_root / "data/normalized" / FRED_VIX_DAILY.name).is_dir()
+            ):
+                term_root = candidate_root.parent / US_VIX_TERM_STRUCTURE_DAILY.name
+                term_state = candidate_root.parent / f"{US_VIX_TERM_STRUCTURE_DAILY.name}.state.json"
+                term_validation = _build_vix_term_structure_candidate(
+                    project_root, candidate, term_root,
+                )
+                _atomic_json(term_state, {
+                    "dataset": US_VIX_TERM_STRUCTURE_DAILY.name,
+                    "status": "artifact_complete_provenance_limited",
+                    "source_datasets": [
+                        FRED_VIX_DAILY.name, GLOBAL_INDEX_PRICE_DAILY.name,
+                    ],
+                    "fred_vix_source_manifest": _files_manifest(
+                        project_root / "data/normalized" / FRED_VIX_DAILY.name
+                    ),
+                    "global_index_source_manifest": _files_manifest(candidate_root),
+                    "output_manifest": _files_manifest(term_root),
+                    "validation": term_validation,
+                    "run_id": run_id,
+                })
+                extra = {**extra,
+                    "pre_vix_term_structure": _dataset_manifest(
+                        project_root / "data/derived" / US_VIX_TERM_STRUCTURE_DAILY.name
+                    ),
+                    "pre_vix_term_structure_state": _file_fingerprint(
+                        project_root / "data/state" / f"{US_VIX_TERM_STRUCTURE_DAILY.name}.json"
+                    ),
+                    "candidate_vix_term_structure": term_validation,
+                    "candidate_vix_term_structure_manifest": _files_manifest(term_root),
+                    "candidate_vix_term_structure_state": term_state.relative_to(project_root).as_posix(),
+                    "candidate_vix_term_structure_state_fingerprint": _file_fingerprint(term_state),
+                }
             candidate_manifest = _files_manifest(candidate_root)
             operational_state = candidate_root.parent / f"{contract.name}.state.json"
             state_payload = {
@@ -1471,6 +1552,10 @@ def _approval_digest(checkpoint: dict[str, object]) -> str:
         "pre_spread", "pre_spread_state", "candidate_spread",
         "candidate_spread_manifest", "candidate_spread_state",
         "candidate_spread_state_fingerprint",
+        "pre_vix_term_structure", "pre_vix_term_structure_state",
+        "candidate_vix_term_structure", "candidate_vix_term_structure_manifest",
+        "candidate_vix_term_structure_state",
+        "candidate_vix_term_structure_state_fingerprint",
         "pre_fallback_circuit", "fallback_decision",
         "candidate_fallback_circuit",
         "candidate_fallback_circuit_fingerprint",
@@ -1553,6 +1638,18 @@ def _promote_locked(project_root: Path, checkpoint_path: Path, approval_digest: 
         if checkpoint.get("candidate_spread_state") != candidate_spread_state.relative_to(project_root).as_posix():
             raise RefreshError("checkpoint spread-state topology differs")
         replacements += [(candidate_spread, spread), (candidate_spread_state, spread_state)]
+    term = term_state = candidate_term = candidate_term_state = None
+    if "candidate_vix_term_structure_state" in checkpoint:
+        term = project_root / "data/derived" / US_VIX_TERM_STRUCTURE_DAILY.name
+        term_state = project_root / "data/state" / f"{US_VIX_TERM_STRUCTURE_DAILY.name}.json"
+        candidate_term = candidate_parent / US_VIX_TERM_STRUCTURE_DAILY.name
+        candidate_term_state = candidate_parent / f"{US_VIX_TERM_STRUCTURE_DAILY.name}.state.json"
+        if (
+            checkpoint.get("candidate_vix_term_structure_state")
+            != candidate_term_state.relative_to(project_root).as_posix()
+        ):
+            raise RefreshError("checkpoint VIX term-structure state topology differs")
+        replacements += [(candidate_term, term), (candidate_term_state, term_state)]
     for source, target in replacements:
         _assert_plain_path(project_root, source, must_exist=False)
         _assert_plain_path(project_root, target, must_exist=False)
@@ -1591,6 +1688,15 @@ def _promote_locked(project_root: Path, checkpoint_path: Path, approval_digest: 
             or _file_fingerprint(spread_state) != checkpoint["pre_spread_state"]
             or _file_fingerprint(candidate_spread_state) != checkpoint["candidate_spread_state_fingerprint"]):
         raise RefreshError("locked Treasury spread CAS/input differs")
+    if candidate_term is not None and (
+            _dataset_manifest(term) != checkpoint["pre_vix_term_structure"]
+            or _files_manifest(candidate_term)
+            != checkpoint["candidate_vix_term_structure_manifest"]
+            or _file_fingerprint(term_state)
+            != checkpoint["pre_vix_term_structure_state"]
+            or _file_fingerprint(candidate_term_state)
+            != checkpoint["candidate_vix_term_structure_state_fingerprint"]):
+        raise RefreshError("locked VIX term-structure CAS/input differs")
     promoted = dict(checkpoint)
     promoted.update({"status": "PROMOTED", "normalized_mutation": True,
                      "post_dataset": checkpoint["candidate_dataset"],

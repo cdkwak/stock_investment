@@ -14,7 +14,12 @@ from stock_data.contracts.global_etf import (
     GLOBAL_ETF_PRICE_DAILY,
     GLOBAL_ETF_REGISTRY,
 )
-from stock_data.contracts.global_market import GLOBAL_COMMODITY_FUTURES_DAILY, GLOBAL_INDEX_PRICE_DAILY
+from stock_data.contracts.global_market import (
+    GLOBAL_COMMODITY_FUTURES_DAILY,
+    GLOBAL_INDEX_DAILY_SYMBOLS,
+    GLOBAL_INDEX_PRICE_DAILY,
+    GLOBAL_INDEX_REGISTRY,
+)
 from stock_data.contracts.market_60m import MARKET_PRICE_60M_OBSERVATION
 from stock_data.storage.contract_parquet import read_dataset, write_dataset_atomic
 from stock_data.validation.global_market import validate_global_commodity_futures, validate_global_etf, validate_global_index
@@ -22,13 +27,10 @@ from stock_data.validation.market_60m import validate_market_price_60m
 from stock_data.providers.public_http_capture import capture_public_response
 
 
+# Backwards-compatible provider alias; contracts/global_market.py is authoritative.
 CONFIG = {
-    "SP500": "^GSPC",
-    "NASDAQ_COMPOSITE": "^IXIC",
-    "NASDAQ100": "^NDX",
-    "SOX": "^SOX",
-    "DOW_JONES": "^DJI",
-    "DOLLAR_INDEX": "DX-Y.NYB",
+    symbol: str(spec["source_ticker"])
+    for symbol, spec in GLOBAL_INDEX_REGISTRY.items()
 }
 # Backwards-compatible provider alias; contracts/global_etf.py is authoritative.
 ETF_REGISTRY = GLOBAL_ETF_REGISTRY
@@ -40,7 +42,6 @@ COMMODITY_CONFIG = {
     "SP500_FUTURES": ("ES=F", "S&P 500 E-mini vendor-continuous future"),
     "DOW_FUTURES": ("YM=F", "Dow E-mini vendor-continuous future"),
 }
-GLOBAL_INDEX_DAILY_SYMBOLS = tuple(CONFIG)
 GLOBAL_FUTURES_DAILY_SYMBOLS = (
     "NASDAQ100_FUTURES", "GOLD", "WTI_CRUDE_OIL",
     "SP500_FUTURES", "DOW_FUTURES",
@@ -412,7 +413,8 @@ def fetch_global_index(
     symbol: str, start: date, end: date, *, session=requests,
     capture_root: Path | None = None,
 ) -> pd.DataFrame:
-    ticker = CONFIG[symbol]
+    spec = GLOBAL_INDEX_REGISTRY[symbol]
+    ticker = str(spec["source_ticker"])
     params = {"period1": _epoch(start), "period2": _epoch(end + timedelta(days=1)),
               "interval": "1d", "events": "history", "includeAdjustedClose": "false"}
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{quote(ticker, safe='')}"
@@ -435,10 +437,16 @@ def fetch_global_index(
         raise RuntimeError("Yahoo chart result is missing")
     item = results[0]
     meta = item.get("meta") or {}
+    exchange = str(meta.get("exchangeName") or meta.get("fullExchangeName") or "")
+    accepted_exchanges = tuple(spec.get("accepted_yahoo_exchanges") or ())
+    require_exchange = bool(spec.get("require_exchange_identity"))
     if (
         str(meta.get("symbol")) != ticker
-        or str(meta.get("instrumentType", "")).upper() != "INDEX"
+        or str(meta.get("instrumentType", "")).upper()
+        != str(spec["instrument_type"])
         or str(meta.get("dataGranularity")) != "1d"
+        or (require_exchange and not exchange)
+        or (accepted_exchanges and exchange and exchange not in accepted_exchanges)
     ):
         raise RuntimeError("Yahoo index identity or granularity differs")
     timestamps = item.get("timestamp") or []

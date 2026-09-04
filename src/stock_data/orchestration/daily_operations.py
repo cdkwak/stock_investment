@@ -1939,6 +1939,14 @@ CORE_DATASET_SPECS = REPRESENTATIVE_DATASET_SPECS + (
     _registered_manual_spec("us_treasury_spread_daily", "Derived U.S. Treasury term spreads", "FRED yields",
         1, provider_auth_id="fred_public", cadence=Cadence.GLOBAL_DAILY,
         dependencies=("fred_treasury_yield_daily",), idempotency=IdempotencyStatus.CONFIRMED),
+    _registered_manual_spec(
+        "us_vix_term_structure_daily",
+        "VIX 기간구조: 1개월/3개월 비율 < 1 = 콘탱고(평온), > 1 = 백워데이션(공포)",
+        "FRED VIXCLS plus Yahoo Cboe volatility indices",
+        1, provider_auth_id="yahoo", cadence=Cadence.GLOBAL_DAILY,
+        dependencies=("fred_vix_daily", "global_index_price_daily"),
+        idempotency=IdempotencyStatus.CONFIRMED,
+    ),
     _registered_manual_spec("global_etf_price_daily", "Registered global ETF OHLCV", "Yahoo chart API",
         1, provider_auth_id="yahoo", status=OperationalStatus.AUTO_READY,
         cadence=Cadence.GLOBAL_DAILY, idempotency=IdempotencyStatus.CONFIRMED,
@@ -2154,7 +2162,7 @@ def build_daily_universe_gap_status(
             plan_status=status,
             pre_network_noop=noop,
         ))
-    if len(rows) != 68:
+    if len(rows) != 69:
         raise RuntimeError("daily-grain universe count differs from the typed registry")
     return tuple(rows)
 
