@@ -388,8 +388,29 @@
       catch (error) { $("manual-status").textContent = `저장 실패 · ${error.message}`; }
     });
     $("save-net-worth").addEventListener("click", async () => {
-      try { await postJson("/api/net-worth", { as_of_date: $("net-worth-date").value, assets: collectNetWorthRows("asset"), liabilities: collectNetWorthRows("liability") }, "net-worth-status"); }
-      catch (error) { $("net-worth-status").textContent = `저장 실패 · ${error.message}`; }
+      try {
+        await postJson("/api/net-worth", { as_of_date: $("net-worth-date").value, assets: collectNetWorthRows("asset"), liabilities: collectNetWorthRows("liability") }, "net-worth-status");
+        $("save-net-worth").classList.remove("attention");
+      } catch (error) {
+        const relayed = /로컬 접속|403/.test(String(error.message));
+        $("net-worth-status").textContent = relayed
+          ? "저장 실패 · 폰(테일스케일)에서는 저장할 수 없습니다 · PC 브라우저(127.0.0.1:8787)에서 같은 내용을 저장하세요"
+          : `저장 실패 · ${error.message}`;
+      }
+    });
+    // Rows added or edited in the 순자산 form are NOT persisted until 새 스냅샷 저장 is pressed —
+    // say so, loudly, the moment anything changes.
+    const markNetWorthDirty = () => {
+      $("net-worth-status").textContent = "저장 안 됨 · 아래 '새 스냅샷 저장'을 눌러야 순자산에 반영됩니다";
+      $("save-net-worth").classList.add("attention");
+    };
+    ["asset-form-rows", "liability-form-rows"].forEach((id) => {
+      $(id).addEventListener("input", markNetWorthDirty);
+      $(id).addEventListener("change", markNetWorthDirty);
+    });
+    ["add-asset", "add-liability"].forEach((id) => $(id).addEventListener("click", () => setTimeout(markNetWorthDirty, 0)));
+    document.addEventListener("click", (event) => {
+      if (event.target instanceof HTMLElement && event.target.classList.contains("remove-net-worth-row")) setTimeout(markNetWorthDirty, 0);
     });
     $("save-cash-flow").addEventListener("click", async () => {
       try {
