@@ -56,6 +56,12 @@
       "symbol": "TLT",
       "name": "TLT",
       "security_type": "ETF"
+    },
+    {
+      "market": "US 주식",
+      "symbol": "SKHY",
+      "name": "SK하이닉스(ADR)",
+      "security_type": "ADR"
     }
   ]
 }

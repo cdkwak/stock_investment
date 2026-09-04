@@ -195,6 +195,13 @@ def _public_watchlist(project_root: Path) -> tuple[dict[str, object], tuple[Equi
         symbol = str(item.get("symbol") or "").strip().upper()
         name = str(item.get("name") or "").strip()
         security_type = str(item.get("security_type") or "").strip()
+        if market == "US 주식":
+            registered = global_equity_identity(symbol)
+            if registered is None or (market, symbol) in seen:
+                raise StocksInputError("공개 관심종목 항목을 검증할 수 없습니다.")
+            seen.add((market, symbol))
+            identities.append(_global_equity_object(registered))
+            continue
         if (
             market not in {"KOSPI", "KOSDAQ", "US ETF"}
             or not symbol or not name or security_type not in {"ETF", "보통주"}

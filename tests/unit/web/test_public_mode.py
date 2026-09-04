@@ -27,6 +27,7 @@ EXPECTED_PUBLIC_WATCHLIST = [
     ("SPY", "SPY"),
     ("SOXX", "SOXX"),
     ("TLT", "TLT"),
+    ("SK하이닉스(ADR)", "SKHY"),
 ]
 
 
