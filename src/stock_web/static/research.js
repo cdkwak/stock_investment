@@ -409,6 +409,234 @@
     syncExperimentControls();
   }
 
+  const crisisState = { payload: null, revealed: false, preset: "tlt" };
+  const crisisPalette = ["#315f8a", "#8a6a2f", "#4d7c59", "#76558a", "#2b7a78", "#9a5b45", "#5d6d7e", "#8f7b52", "#41729f", "#6f8f72", "#695b8f", "#3c7f86", "#936b55", "#58718a"];
+
+  function crisisMode() {
+    return (document.querySelector('input[name="crisis-mode"]:checked') || {}).value || "asset";
+  }
+
+  function crisisMedian(paths) {
+    if (!paths.length) return [];
+    return paths[0].map((_value, index) => {
+      const values = paths.map((path) => path[index]).filter(finite).map(Number);
+      if (!values.length) return null;
+      values.sort((a, b) => a - b);
+      const middle = Math.floor(values.length / 2);
+      return values.length % 2 ? values[middle] : (values[middle - 1] + values[middle]) / 2;
+    });
+  }
+
+  function crisisPath(values, x, y, step = false) {
+    let open = false;
+    let prior = null;
+    return (values || []).map((value, index) => {
+      if (!finite(value)) { open = false; prior = null; return ""; }
+      const command = open ? "L" : "M";
+      const segment = step && open
+        ? `L${x(index).toFixed(2)} ${y(Number(prior)).toFixed(2)} L${x(index).toFixed(2)} ${y(Number(value)).toFixed(2)}`
+        : `${command}${x(index).toFixed(2)} ${y(Number(value)).toFixed(2)}`;
+      open = true;
+      prior = value;
+      return segment;
+    }).filter(Boolean).join(" ");
+  }
+
+  function crisisLineSet() {
+    const payload = crisisState.payload || {};
+    const episodes = payload.episodes || [];
+    const visible = episodes.filter((episode) => crisisState.revealed || !episode.is_holdout);
+    const hidden = episodes.filter((episode) => !crisisState.revealed && episode.is_holdout).map((episode) => `${episode.label} · 숨김`);
+    const specs = [];
+    if (crisisState.preset === "ladder") {
+      const item = (((payload.ladder || {}).KR || {}).KOSPI) || {};
+      const signalDates = item.signal_dates || {};
+      const cycles = Object.keys(signalDates);
+      const shown = cycles.filter((cycle) => crisisState.revealed || String(signalDates[cycle]) < "2016-01-01");
+      const gated = cycles.filter((cycle) => !crisisState.revealed && String(signalDates[cycle]) >= "2016-01-01");
+      const paths = shown.map((cycle) => item[cycle]).filter(Array.isArray);
+      const worst = shown.reduce((winner, cycle) => {
+        const values = (item[cycle] || []).slice(60).filter(finite).map(Number);
+        const score = values.length ? Math.min(...values) : Infinity;
+        return !winner || score < winner.score ? { cycle, score } : winner;
+      }, null);
+      shown.forEach((cycle, index) => specs.push({
+        label: cycle === (worst || {}).cycle ? `WORST · ${cycle}` : cycle,
+        values: item[cycle] || [], dates: (item.dates || {})[cycle] || [],
+        color: cycle === (worst || {}).cycle ? "#b3342b" : crisisPalette[index % crisisPalette.length],
+        width: cycle === (worst || {}).cycle ? 3 : 1.15,
+      }));
+      shown.forEach((cycle, index) => specs.push({
+        label: `${cycle} · LEVEL`, values: (item.levels || {})[cycle] || [],
+        dates: (item.dates || {})[cycle] || [], color: crisisPalette[index % crisisPalette.length],
+        width: .85, dash: "2 3", axis: "right", unit: "단계", step: true,
+      }));
+      if (paths.length) specs.push({ label: "중앙 경로", values: crisisMedian(paths), dates: [], color: "#171612", width: 3.2 });
+      return { specs, hidden: gated.map((cycle) => `${cycle} · 숨김`), rightAxis: true, rightDomain: [0, 2], rightUnit: "단계", title: "KOSPI 낙폭 사다리" };
+    }
+    if (crisisState.preset === "equity-yield") {
+      visible.forEach((episode, index) => {
+        const color = crisisPalette[index % crisisPalette.length];
+        specs.push({ label: `${episode.label} · 주식`, values: ((payload.series || {})[episode.id] || {}).equity_reference || [], dates: (payload.dates || {})[episode.id] || [], color, width: 1.35 });
+        specs.push({ label: `${episode.label} · 10Y`, values: (payload.yields || {})[episode.id] || [], dates: (payload.dates || {})[episode.id] || [], color, width: 1.1, dash: "5 3", axis: "right", unit: "%" });
+      });
+      return { specs, hidden, rightAxis: true, title: "주식 100 기준 / 10년 금리(우축)" };
+    }
+    if (crisisMode() === "episode") {
+      const episode = episodes.find((item) => item.id === $("crisis-episode").value) || episodes[0];
+      if (!episode || (episode.is_holdout && !crisisState.revealed)) {
+        return { specs, hidden: episode ? [`${episode.label} · 숨김`] : hidden, rightAxis: false, title: "한 위기 × 여러 자산" };
+      }
+      (payload.assets || []).forEach((asset, index) => {
+        const equity = asset.id === "equity_reference";
+        specs.push({
+          label: asset.label, values: ((payload.series || {})[episode.id] || {})[asset.id] || [],
+          dates: (payload.dates || {})[episode.id] || [],
+          color: equity ? "#171612" : crisisPalette[index % crisisPalette.length], width: equity ? 3.2 : 1.15,
+        });
+      });
+      return { specs, hidden, rightAxis: false, title: `${episode.label} · 여러 자산` };
+    }
+    const assetId = $("crisis-asset").value;
+    const asset = (payload.assets || []).find((item) => item.id === assetId) || {};
+    const candidates = visible.map((episode) => ({
+      episode, path: (((payload.series || {})[episode.id] || {})[assetId]) || [],
+      mark: ((((payload.signal_values || {})[episode.id]) || {})[assetId]),
+    })).filter((item) => item.path.some(finite));
+    const worst = candidates.filter((item) => finite(item.mark)).reduce((winner, item) => !winner || Number(item.mark) < Number(winner.mark) ? item : winner, null);
+    candidates.forEach((item, index) => {
+      const isWorst = worst && item.episode.id === worst.episode.id;
+      specs.push({
+        label: isWorst ? `WORST@T ${Number(item.mark).toFixed(1)} · ${item.episode.label}` : item.episode.label,
+        values: item.path, dates: (payload.dates || {})[item.episode.id] || [],
+        color: isWorst ? "#b3342b" : crisisPalette[index % crisisPalette.length], width: isWorst ? 3 : 1.15,
+      });
+    });
+    if (candidates.length) specs.push({ label: "중앙 경로", values: crisisMedian(candidates.map((item) => item.path)), dates: [], color: "#171612", width: 3.2 });
+    return { specs, hidden, rightAxis: false, title: asset.label || assetId };
+  }
+
+  function renderCrisisChart(lineSet) {
+    const host = $("crisis-chart"), legend = $("crisis-legend");
+    const specs = lineSet.specs.filter((spec) => (spec.values || []).some(finite));
+    legend.innerHTML = specs.map((spec) => `<div class="crisis-legend-row" style="color:${esc(spec.color)}"><span class="crisis-legend-swatch"></span><span>${esc(spec.label)}</span></div>`).join("")
+      + lineSet.hidden.map((label) => `<div class="crisis-legend-row hidden"><span class="crisis-legend-swatch"></span><span>${esc(label)}</span></div>`).join("");
+    if (!specs.length) {
+      host.innerHTML = '<div class="unavailable">표시할 경로가 없습니다. 홀드아웃 위기는 먼저 열람 기록을 남겨야 합니다.</div>';
+      return;
+    }
+    const width = 1000, height = 390, left = 58, right = lineSet.rightAxis ? 64 : 22, top = 24, bottom = 38;
+    const plotW = width - left - right, plotH = height - top - bottom;
+    const start = Number((crisisState.payload || {}).offset_start ?? -60);
+    const end = Number((crisisState.payload || {}).offset_end ?? 250);
+    const xOffset = (offset) => left + (offset - start) / (end - start) * plotW;
+    const xIndex = (index) => xOffset(start + index);
+    const primaryValues = specs.filter((spec) => spec.axis !== "right").flatMap((spec) => spec.values.filter(finite).map(Number));
+    const rightValues = specs.filter((spec) => spec.axis === "right").flatMap((spec) => spec.values.filter(finite).map(Number));
+    primaryValues.push(100);
+    const pMin = Math.min(...primaryValues), pMax = Math.max(...primaryValues), pPad = (pMax - pMin) * .07 || 2;
+    const yMin = pMin - pPad, yMax = pMax + pPad;
+    const y = (value) => top + (yMax - value) / (yMax - yMin) * plotH;
+    const rMin0 = lineSet.rightDomain ? Number(lineSet.rightDomain[0]) : (rightValues.length ? Math.min(...rightValues) : 0);
+    const rMax0 = lineSet.rightDomain ? Number(lineSet.rightDomain[1]) : (rightValues.length ? Math.max(...rightValues) : 1);
+    const rPad = lineSet.rightDomain ? 0 : ((rMax0 - rMin0) * .07 || .2), rMin = rMin0 - rPad, rMax = rMax0 + rPad;
+    const ry = (value) => top + (rMax - value) / (rMax - rMin) * plotH;
+    const yTicks = Array.from({ length: 5 }, (_, index) => yMin + (yMax - yMin) * index / 4);
+    const rTicks = Array.from({ length: 5 }, (_, index) => rMin + (rMax - rMin) * index / 4);
+    const xTicks = [-60, 0, 20, 60, 120, 250];
+    host.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${esc(lineSet.title)} 위기 신호 정렬 차트"><title>${esc(lineSet.title)} · x=0 첫 level-2 신호</title>
+      <rect class="crisis-check-band" x="${xOffset(19)}" y="${top}" width="${Math.max(2, xOffset(21) - xOffset(19))}" height="${plotH}"></rect>
+      <rect class="crisis-check-band" x="${xOffset(59)}" y="${top}" width="${Math.max(2, xOffset(61) - xOffset(59))}" height="${plotH}"></rect>
+      ${yTicks.map((value) => `<line class="crisis-grid" x1="${left}" x2="${width - right}" y1="${y(value)}" y2="${y(value)}"></line><text class="crisis-axis-label" x="${left - 7}" y="${y(value) + 3}" text-anchor="end">${value.toFixed(0)}</text>`).join("")}
+      <line class="crisis-base-line" x1="${left}" x2="${width - right}" y1="${y(100)}" y2="${y(100)}"></line>
+      <line class="crisis-signal-line" x1="${xOffset(0)}" x2="${xOffset(0)}" y1="${top}" y2="${height - bottom}"></line>
+      <line class="crisis-axis" x1="${left}" x2="${left}" y1="${top}" y2="${height - bottom}"></line><line class="crisis-axis" x1="${left}" x2="${width - right}" y1="${height - bottom}" y2="${height - bottom}"></line>
+      ${xTicks.map((value) => `<text class="crisis-axis-label" x="${xOffset(value)}" y="${height - 12}" text-anchor="middle">${value > 0 ? "+" : ""}${value}</text>`).join("")}
+      <text class="crisis-axis-label" x="${xOffset(20)}" y="${top + 11}" text-anchor="middle">+20</text><text class="crisis-axis-label" x="${xOffset(60)}" y="${top + 11}" text-anchor="middle">+60</text>
+      ${lineSet.rightAxis ? `<line class="crisis-axis" x1="${width - right}" x2="${width - right}" y1="${top}" y2="${height - bottom}"></line>${rTicks.map((value) => `<text class="crisis-axis-label" x="${width - right + 7}" y="${ry(value) + 3}" text-anchor="start">${value.toFixed(lineSet.rightDomain ? 1 : 1)}${esc(lineSet.rightUnit || "%")}</text>`).join("")}` : ""}
+      ${specs.map((spec) => `<path class="crisis-series-line" d="${crisisPath(spec.values, xIndex, spec.axis === "right" ? ry : y, spec.step)}" style="stroke:${esc(spec.color)};stroke-width:${Number(spec.width || 1.2)};${spec.dash ? `stroke-dasharray:${esc(spec.dash)};` : ""}"></path>`).join("")}
+      <line class="crisis-hover-line" x1="${left}" x2="${left}" y1="${top}" y2="${height - bottom}" visibility="hidden"></line><rect class="crisis-hitbox" x="${left}" y="${top}" width="${plotW}" height="${plotH}"></rect>
+    </svg><div class="crisis-tooltip" hidden></div>`;
+    const svg = host.querySelector("svg"), hitbox = svg.querySelector(".crisis-hitbox"), hover = svg.querySelector(".crisis-hover-line"), tooltip = host.querySelector(".crisis-tooltip");
+    hitbox.addEventListener("pointermove", (event) => {
+      const rect = svg.getBoundingClientRect();
+      const svgX = (event.clientX - rect.left) / rect.width * width;
+      const offset = Math.max(start, Math.min(end, Math.round(start + (svgX - left) / plotW * (end - start))));
+      const index = offset - start, px = xOffset(offset);
+      const rows = specs.map((spec) => ({ spec, value: spec.values[index], date: (spec.dates || [])[index] })).filter((row) => finite(row.value));
+      hover.setAttribute("x1", px); hover.setAttribute("x2", px); hover.setAttribute("visibility", "visible");
+      tooltip.innerHTML = `<b>${offset > 0 ? "+" : ""}${offset} 세션</b>${rows.map((row) => `<span class="crisis-tooltip-row" style="color:${esc(row.spec.color)}"><i class="crisis-tooltip-dot"></i><span>${esc(row.spec.label)} <em>${esc(row.date || "중앙")}</em></span><strong>${Number(row.value).toFixed(2)}${row.spec.unit || ""}</strong></span>`).join("")}`;
+      tooltip.hidden = false;
+      tooltip.style.left = `${Math.min(Math.max(8, event.clientX - rect.left + 12), Math.max(8, host.clientWidth - 370))}px`;
+      tooltip.style.top = `${Math.min(Math.max(8, event.clientY - rect.top + 12), Math.max(8, host.clientHeight - 180))}px`;
+    });
+    hitbox.addEventListener("pointerleave", () => { hover.setAttribute("visibility", "hidden"); tooltip.hidden = true; });
+  }
+
+  function renderCrisis() {
+    if (!crisisState.payload) return;
+    const mode = crisisMode();
+    $("crisis-asset-field").hidden = mode !== "asset" || crisisState.preset === "ladder";
+    $("crisis-episode-field").hidden = mode !== "episode" || crisisState.preset === "ladder" || crisisState.preset === "equity-yield";
+    document.querySelectorAll("[data-crisis-preset]").forEach((button) => button.classList.toggle("active", button.dataset.crisisPreset === crisisState.preset));
+    const lineSet = crisisLineSet();
+    $("crisis-status").textContent = `${lineSet.title} · −60~+250 세션 · 신호일=100`;
+    renderCrisisChart(lineSet);
+  }
+
+  function setCrisisPreset(name) {
+    crisisState.preset = name;
+    const assetMode = document.querySelector('input[name="crisis-mode"][value="asset"]');
+    if (assetMode) assetMode.checked = true;
+    if (name === "tlt") $("crisis-asset").value = "tlt";
+    if (name === "reit") $("crisis-asset").value = "reit_vnq";
+    if (name === "equity-yield") $("crisis-asset").value = "equity_reference";
+    renderCrisis();
+  }
+
+  async function revealCrisisHoldout() {
+    const button = $("crisis-holdout");
+    button.disabled = true;
+    try {
+      const response = await fetch("/api/research/compound/holdout-view", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "crisis_overlay", mode: crisisMode(), asset: $("crisis-asset").value, episode: $("crisis-episode").value, preset: crisisState.preset }),
+      });
+      if (!response.ok) throw new Error(await readError(response));
+      const payload = await response.json();
+      crisisState.revealed = true;
+      $("crisis-view-count").textContent = `홀드아웃 열람 ${number(payload.persistent_views, 0)}회 (이 세션 ${number(payload.session_views, 0)}회)`;
+      button.textContent = "홀드아웃 표시 중";
+      renderCrisis();
+    } catch (error) {
+      button.disabled = false;
+      $("crisis-status").textContent = error.message || "홀드아웃 열람을 기록하지 못했습니다.";
+    }
+  }
+
+  async function initCrisisOverlay() {
+    if (!$("crisis-overlay")) return;
+    $("crisis-command").textContent = "python scripts/research/run_crisis_overlay.py --project-root .";
+    document.querySelectorAll('[name="crisis-mode"]').forEach((input) => input.addEventListener("change", () => { crisisState.preset = ""; renderCrisis(); }));
+    $("crisis-asset").addEventListener("change", () => { crisisState.preset = ""; renderCrisis(); });
+    $("crisis-episode").addEventListener("change", () => { crisisState.preset = ""; renderCrisis(); });
+    document.querySelectorAll("[data-crisis-preset]").forEach((button) => button.addEventListener("click", () => setCrisisPreset(button.dataset.crisisPreset)));
+    $("crisis-holdout").addEventListener("click", revealCrisisHoldout);
+    try {
+      const response = await fetch("/api/research/crisis-overlay");
+      if (!response.ok) throw new Error(await readError(response));
+      crisisState.payload = await response.json();
+      $("crisis-asset").innerHTML = (crisisState.payload.assets || []).map((asset) => `<option value="${esc(asset.id)}">${esc(asset.label)}</option>`).join("");
+      $("crisis-episode").innerHTML = (crisisState.payload.episodes || []).map((episode) => `<option value="${esc(episode.id)}">${esc(episode.label)}${episode.is_holdout ? " · 홀드아웃" : ""}</option>`).join("");
+      $("crisis-view-count").textContent = `홀드아웃 열람 ${number(crisisState.payload.holdout_views || 0, 0)}회 (이 세션 0회)`;
+      if ((crisisState.payload.assets || []).some((asset) => asset.id === "tlt")) $("crisis-asset").value = "tlt";
+      setCrisisPreset("tlt");
+    } catch (error) {
+      $("crisis-status").textContent = error.message || "미계산";
+      $("crisis-chart").innerHTML = `<div class="unavailable">${emptyMarkup(error.message || "미계산")}</div>`;
+    }
+  }
+
   const compoundState = {
     catalog: [], cache: new Map(), payload: null, frame: 0,
     holdoutVisible: false, sessionViews: 0, pollTimer: 0, wasRunning: false,
@@ -800,6 +1028,7 @@
   async function boot() {
     bindExperiment();
     initCompound();
+    initCrisisOverlay();
     let forward = null;
     try {
       const [researchResponse, forwardResponse] = await Promise.all([fetch("/api/research"), fetch("/api/research/forward")]);

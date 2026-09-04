@@ -31,3 +31,27 @@ grid와 summary를 원자적으로 갱신한다. 공급자 API와 주문 경로�
 
 공개/게스트 모드에서는 패널을 렌더링하지 않으며 `/api/research/compound/*`
 전체가 존재하지 않는 것처럼 HTTP 404를 반환한다.
+
+## 위기 정렬 겹쳐보기
+
+`위기 정렬 겹쳐보기`는 첫 2단계 신호일을 `x=0`으로 맞춘 −60~+250 시장
+세션을 표시한다. 자산 경로는 신호일을 100으로 다시 기준화하지만,
+`WORST@T` 선택에는 핵심 실탄 표와 같은 보유시작 기준 valuation 값을 쓴다.
+따라서 T/+20/+60 체크포인트는 `core_ammunition`의 as-of 및 duration/cash
+계산과 일치한다. `주식 vs 10년 금리`는 주식 100 기준선을 왼쪽 축, 원시
+`dgs10` 금리 수준(%p)을 오른쪽 축에 놓는다.
+`낙폭 사다리` 프리셋은 같은 KOSPI 사이클의 100 기준 가격과 관측 LEVEL
+(0/1/2) 계단 경로를 함께 표시한다.
+
+요청 경로는 `artifacts/research/crisis_overlay/overlay.json`만 읽으며 계산하지
+않는다. 산출물이 없으면 `미계산`과 아래 명령을 표시한다.
+
+```powershell
+python scripts/research/run_crisis_overlay.py --project-root .
+```
+
+생성기는 retained Parquet만 읽고 결과를 원자적으로 교체한다. 2016-01-01 이후
+신호와 사다리 사이클은 기본적으로 숨긴다. `홀드아웃 위기 보기`는 기존
+`POST /api/research/compound/holdout-view`에 `kind=crisis_overlay`를 보내 동일한
+시도 이력과 세션 카운터를 증가시킨 뒤 공개한다. 공개/게스트 모드에서는 패널과
+`GET /api/research/crisis-overlay`가 모두 HTTP 404로 숨겨진다.

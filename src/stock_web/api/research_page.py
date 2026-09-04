@@ -32,6 +32,7 @@ LEADERBOARD_RELATIVE = Path("artifacts/research/rule_leaderboard/latest.json")
 CANDIDATES_RELATIVE = Path("config/research/rule_candidates.json")
 FORWARD_RELATIVE = Path("data/local/research/forward_test/signals.jsonl")
 COMPOUND_RELATIVE = Path("artifacts/research/compound_ladder")
+CRISIS_OVERLAY_RELATIVE = Path("artifacts/research/crisis_overlay/overlay.json")
 
 _RESEARCH_CACHE: dict[str, tuple[tuple[object, ...], dict[str, object]]] = {}
 _FORWARD_CACHE: dict[str, tuple[tuple[object, ...], dict[str, object]]] = {}
@@ -98,6 +99,10 @@ class CompoundGridNotFound(ResearchInputError):
 
 class CompoundRunConflict(ResearchInputError):
     """Raised when a retained-data compound-ladder run already owns the lock."""
+
+
+class CrisisOverlayNotFound(ResearchInputError):
+    """Raised when the precomputed crisis overlay artifact is absent or invalid."""
 
 
 def _query_values(params: object, name: str) -> list[str]:
@@ -732,6 +737,30 @@ def _compound_summary(project_root: Path) -> dict[str, object]:
     }
 
 
+def _persistent_holdout_views(project_root: Path) -> int:
+    registry = _read_json(Path(project_root).resolve() / CANDIDATES_RELATIVE) or {}
+    history = registry.get("history") if isinstance(registry.get("history"), list) else []
+    return sum(
+        1 for item in history
+        if isinstance(item, dict) and item.get("id") == "compound_ladder_holdout"
+    )
+
+
+def build_crisis_overlay_payload(project_root: Path) -> dict[str, object]:
+    """Return only the precomputed retained-data overlay artifact."""
+
+    path = Path(project_root).resolve() / CRISIS_OVERLAY_RELATIVE
+    payload = _read_json(path)
+    required = {"generated_at", "episodes", "assets", "series", "yields", "ladder"}
+    if not payload or required.difference(payload):
+        raise CrisisOverlayNotFound(
+            "미계산 · python scripts/research/run_crisis_overlay.py --project-root ."
+        )
+    output = deepcopy(payload)
+    output["holdout_views"] = _persistent_holdout_views(project_root)
+    return output
+
+
 def build_compound_grid_payload(
     project_root: Path, *, basket: str = "", product: str = "",
 ) -> dict[str, object]:
@@ -739,15 +768,9 @@ def build_compound_grid_payload(
 
     catalog = _compound_catalog(project_root)
     if not basket and not product:
-        registry = _read_json(Path(project_root).resolve() / CANDIDATES_RELATIVE) or {}
-        history = registry.get("history") if isinstance(registry.get("history"), list) else []
-        holdout_views = sum(
-            1 for item in history
-            if isinstance(item, dict) and item.get("id") == "compound_ladder_holdout"
-        )
         return {
             "catalog": catalog, "summary": _compound_summary(project_root),
-            "holdout_views": holdout_views,
+            "holdout_views": _persistent_holdout_views(project_root),
         }
     clean_basket = basket.strip().upper()
     clean_product = product.strip().lower()
@@ -862,31 +885,43 @@ def record_compound_holdout_view(
 ) -> dict[str, object]:
     """Count one deliberate hold-out reveal in the versioned candidate history."""
 
-    combination = _compound_combination(body)
-    grid = build_compound_grid_payload(
-        project_root,
-        basket=str(combination["basket"]), product=str(combination["product"]),
-    )
-    matched = next((
-        row for row in grid["rows"]
-        if row.get("base_exposure") == 1.0
-        and row.get("drawdown_threshold") == combination["drawdown_threshold"]
-        and row.get("disp60_threshold") == combination["disp60_threshold"]
-        and row.get("levels") == combination["levels"]
-        and row.get("leverage_multiple") == combination["leverage_multiple"]
-        and row.get("exit") == combination["exit"]
-        and row.get("cost_enabled") is combination["cost_enabled"]
-    ), None)
-    if matched is None or (
-        combination["product_variant"] == "actual_adjusted"
-        and not isinstance(matched.get("actual_product_basis"), dict)
-    ):
-        raise CompoundGridNotFound("미계산 조합 · 홀드아웃을 열 수 없습니다.")
+    if isinstance(body, Mapping) and body.get("kind") == "crisis_overlay":
+        build_crisis_overlay_payload(project_root)
+        selection = {
+            key: str(body[key])[:100]
+            for key in ("mode", "asset", "episode", "preset")
+            if body.get(key) is not None
+        }
+        event: dict[str, object] = {"kind": "crisis_overlay", "selection": selection}
+        combination: dict[str, object] | None = None
+    else:
+        combination = _compound_combination(body)
+        grid = build_compound_grid_payload(
+            project_root,
+            basket=str(combination["basket"]), product=str(combination["product"]),
+        )
+        matched = next((
+            row for row in grid["rows"]
+            if row.get("base_exposure") == 1.0
+            and row.get("drawdown_threshold") == combination["drawdown_threshold"]
+            and row.get("disp60_threshold") == combination["disp60_threshold"]
+            and row.get("levels") == combination["levels"]
+            and row.get("leverage_multiple") == combination["leverage_multiple"]
+            and row.get("exit") == combination["exit"]
+            and row.get("cost_enabled") is combination["cost_enabled"]
+        ), None)
+        if matched is None or (
+            combination["product_variant"] == "actual_adjusted"
+            and not isinstance(matched.get("actual_product_basis"), dict)
+        ):
+            raise CompoundGridNotFound("미계산 조합 · 홀드아웃을 열 수 없습니다.")
+        event = {"combination": combination}
     viewed_at = datetime.now(timezone.utc).isoformat()
     from stock_data.research import rule_candidates
 
+    event["viewed_at"] = viewed_at
     reason = json.dumps(
-        {"combination": combination, "viewed_at": viewed_at},
+        event,
         ensure_ascii=False, sort_keys=True, separators=(",", ":"),
     )
     try:
@@ -909,7 +944,8 @@ def record_compound_holdout_view(
         session_views = _COMPOUND_SESSION_VIEWS[key]
     _RESEARCH_CACHE.pop(str(Path(project_root).resolve()), None)
     return {
-        "combination": combination, "viewed_at": viewed_at,
+        "combination": combination, "kind": event.get("kind", "compound_ladder"),
+        "viewed_at": viewed_at,
         "persistent_views": persistent_views, "session_views": session_views,
         "attempt_count": registry["attempt_count"],
     }

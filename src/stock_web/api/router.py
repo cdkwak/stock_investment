@@ -55,6 +55,7 @@ def _guest_mode_blocked(method: str, path: str) -> bool:
         or path.startswith("/api/trade-journal")
         or path.startswith("/api/manual/")
         or path.startswith("/api/research/compound")
+        or path.startswith("/api/research/crisis-overlay")
     )
 
 
@@ -564,6 +565,19 @@ def build_router(project_root: Path, *, public_mode: bool = False) -> APIRouter:
                 product=str(request.query_params.get("product") or ""),
             )
         except CompoundGridNotFound as error:
+            return json_response({"error": str(error)}, status_code=404)
+        return json_response(payload)
+
+    @router.get("/research/crisis-overlay")
+    def research_crisis_overlay() -> Response:
+        from stock_web.api.research_page import (
+            CrisisOverlayNotFound,
+            build_crisis_overlay_payload,
+        )
+
+        try:
+            payload = build_crisis_overlay_payload(project_root)
+        except CrisisOverlayNotFound as error:
             return json_response({"error": str(error)}, status_code=404)
         return json_response(payload)
 

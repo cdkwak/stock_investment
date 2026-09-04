@@ -57,6 +57,31 @@
   </details>
 
   {% if not public_mode %}
+  <section class="card crisis-overlay-card" id="crisis-overlay" aria-labelledby="crisis-overlay-title">
+    <div class="card-head research-section-head crisis-overlay-head">
+      <div><span class="section-index">00·AXIS</span><b id="crisis-overlay-title">위기 정렬 겹쳐보기</b></div>
+      <div class="crisis-holdout-actions"><button type="button" id="crisis-holdout">홀드아웃 위기 보기</button><span id="crisis-view-count">홀드아웃 열람 0회</span></div>
+    </div>
+    <p class="crisis-intro">각 위기의 첫 2단계 신호를 <b>x = 0</b>에 맞추고, 자산 경로는 그날을 <b>100</b>으로 다시 표시합니다. WORST@T는 핵심 실탄 표의 기존 보유시작 기준값으로 판정합니다.</p>
+    <div class="crisis-presets" aria-label="위기 겹쳐보기 프리셋">
+      <button type="button" data-crisis-preset="equity-yield">주식 vs 10년 금리</button>
+      <button type="button" data-crisis-preset="tlt">TLT 위기별</button>
+      <button type="button" data-crisis-preset="reit">리츠 위기별</button>
+      <button type="button" data-crisis-preset="ladder">낙폭 사다리: KOSPI 5개 사이클</button>
+    </div>
+    <div class="crisis-controls">
+      <fieldset><legend>보기</legend><label><input type="radio" name="crisis-mode" value="asset" checked> 한 자산 × 여러 위기</label><label><input type="radio" name="crisis-mode" value="episode"> 한 위기 × 여러 자산</label></fieldset>
+      <label id="crisis-asset-field"><span>자산</span><select id="crisis-asset" aria-label="겹쳐볼 자산"></select></label>
+      <label id="crisis-episode-field" hidden><span>위기</span><select id="crisis-episode" aria-label="겹쳐볼 위기"></select></label>
+      <span class="crisis-status" id="crisis-status" role="status">overlay를 불러오는 중…</span>
+    </div>
+    <div class="crisis-chart-shell">
+      <div id="crisis-chart" class="crisis-chart" aria-live="polite"></div>
+      <div id="crisis-legend" class="crisis-legend" aria-label="차트 범례"></div>
+    </div>
+    <div class="crisis-command"><span>미계산이면 저장소 루트에서 실행</span><code id="crisis-command">python scripts/research/run_crisis_overlay.py --project-root .</code></div>
+  </section>
+
   <section class="card compound-lab-card" id="compound-lab" aria-labelledby="compound-lab-title">
     <div class="card-head research-section-head compound-lab-head">
       <div><span class="section-index">00·LAB</span><b id="compound-lab-title">파라미터 실험</b></div>

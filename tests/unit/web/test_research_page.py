@@ -512,6 +512,46 @@ def _write_compound_fixture(root: Path) -> None:
     }), encoding="utf-8")
 
 
+def _write_crisis_overlay_fixture(root: Path) -> dict[str, object]:
+    payload = {
+        "generated_at": "2026-09-05T00:00:00+00:00",
+        "offset_start": -60, "offset_end": 250,
+        "episodes": [{
+            "id": "KR_2008-01-22", "market": "KR", "cycle": "2008–09 금융위기",
+            "label": "2008 · KR", "type": "recession-type",
+            "signal_date": "2008-01-22", "is_holdout": False,
+        }],
+        "assets": [{"id": "equity_reference", "label": "주식 기준"}],
+        "series": {"KR_2008-01-22": {"equity_reference": [100.0, 101.0]}},
+        "signal_values": {"KR_2008-01-22": {"equity_reference": 80.0}},
+        "dates": {"KR_2008-01-22": ["2008-01-22", "2008-01-23"]},
+        "yields": {"KR_2008-01-22": [4.0, 3.9]},
+        "levels": {"KR_2008-01-22": [2, 2]},
+        "ladder": {"KR": {"KOSPI": {"median": [100.0, 101.0], "worst": "2008"}}},
+    }
+    path = root / research_page.CRISIS_OVERLAY_RELATIVE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    return payload
+
+
+def test_crisis_overlay_endpoint_returns_fixture_and_missing_is_korean_404(
+) -> None:
+    tmp_path = _root()
+    client = ASGITestClient(create_app(tmp_path))
+    missing = client.get("/api/research/crisis-overlay", client_host="127.0.0.1")
+
+    expected = _write_crisis_overlay_fixture(tmp_path)
+    response = client.get("/api/research/crisis-overlay", client_host="127.0.0.1")
+
+    assert missing.status_code == 404
+    assert "미계산" in missing.json()["error"]
+    assert response.status_code == 200
+    assert response.json()["episodes"] == expected["episodes"]
+    assert response.json()["series"] == expected["series"]
+    assert response.json()["holdout_views"] == 0
+
+
 def _compound_combination(**overrides: object) -> dict[str, object]:
     return {
         "basket": "KR", "product": "kospi", "product_variant": "synthetic_2x",
@@ -522,8 +562,8 @@ def _compound_combination(**overrides: object) -> dict[str, object]:
 
 
 def test_compound_grid_endpoint_returns_fixture_rows_and_missing_is_korean_404(
-    tmp_path: Path,
 ) -> None:
+    tmp_path = _root()
     _write_compound_fixture(tmp_path)
     client = ASGITestClient(create_app(tmp_path))
 
@@ -554,8 +594,8 @@ def test_compound_grid_endpoint_returns_fixture_rows_and_missing_is_korean_404(
 
 
 def test_compound_holdout_view_counter_increments_session_and_persists(
-    tmp_path: Path,
 ) -> None:
+    tmp_path = _root()
     _write_research_fixture(tmp_path)
     _write_compound_fixture(tmp_path)
     client = ASGITestClient(create_app(tmp_path))
@@ -580,6 +620,32 @@ def test_compound_holdout_view_counter_increments_session_and_persists(
     recorded = json.loads(event["reason"])
     assert recorded["combination"]["levels"] == 2
     assert recorded["viewed_at"] == second.json()["viewed_at"]
+
+
+def test_crisis_overlay_holdout_view_uses_same_counter(
+) -> None:
+    tmp_path = _root()
+    _write_research_fixture(tmp_path)
+    _write_crisis_overlay_fixture(tmp_path)
+    client = ASGITestClient(create_app(tmp_path))
+    body = {"kind": "crisis_overlay", "mode": "asset", "asset": "tlt"}
+
+    first = client.post(
+        "/api/research/compound/holdout-view", json=body, client_host="100.85.10.20",
+    )
+    second = client.post(
+        "/api/research/compound/holdout-view", json=body, client_host="100.85.10.20",
+    )
+
+    assert first.status_code == second.status_code == 200
+    assert first.json()["persistent_views"] == first.json()["session_views"] == 1
+    assert second.json()["persistent_views"] == second.json()["session_views"] == 2
+    registry = json.loads(
+        (tmp_path / research_page.CANDIDATES_RELATIVE).read_text(encoding="utf-8")
+    )
+    event = json.loads(registry["history"][-1]["reason"])
+    assert event["kind"] == "crisis_overlay"
+    assert event["selection"] == {"asset": "tlt", "mode": "asset"}
 
 
 def test_compound_registration_builds_forward_definition_and_metadata() -> None:
@@ -607,8 +673,9 @@ def test_compound_registration_builds_forward_definition_and_metadata() -> None:
 
 
 def test_compound_registration_posts_through_existing_candidate_endpoint(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    tmp_path = _root()
     _write_research_fixture(tmp_path)
     monkeypatch.setattr(rule_leaderboard, "run_rule_leaderboard", lambda _root: None)
     client = ASGITestClient(create_app(tmp_path))
@@ -637,8 +704,9 @@ def test_compound_registration_posts_through_existing_candidate_endpoint(
 
 
 def test_compound_run_is_single_background_job_and_reports_log(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    tmp_path = _root()
     started = threading.Event()
     release = threading.Event()
 
@@ -679,15 +747,18 @@ def test_compound_run_is_single_background_job_and_reports_log(
 
 
 def test_compound_panel_and_all_routes_are_hidden_in_guest_mode(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    tmp_path = _root()
     _write_research_fixture(tmp_path)
     _write_compound_fixture(tmp_path)
+    _write_crisis_overlay_fixture(tmp_path)
     monkeypatch.setenv("STOCK_WEB_PUBLIC_MODE", "1")
     client = ASGITestClient(create_app(tmp_path))
 
     page = client.get("/research", client_host="127.0.0.1")
     grid = client.get("/api/research/compound/grid", client_host="127.0.0.1")
+    overlay = client.get("/api/research/crisis-overlay", client_host="127.0.0.1")
     holdout = client.post(
         "/api/research/compound/holdout-view", json=_compound_combination(),
         client_host="127.0.0.1",
@@ -698,7 +769,8 @@ def test_compound_panel_and_all_routes_are_hidden_in_guest_mode(
     )
 
     assert page.status_code == 200 and 'id="compound-lab"' not in page.text
-    assert grid.status_code == holdout.status_code == run.status_code == 404
+    assert 'id="crisis-overlay"' not in page.text
+    assert grid.status_code == overlay.status_code == holdout.status_code == run.status_code == 404
 
 
 def test_compound_panel_static_contract_uses_cached_frame_render_and_existing_chart() -> None:
@@ -718,3 +790,21 @@ def test_compound_panel_static_contract_uses_cached_frame_render_and_existing_ch
     assert 'fetch("/api/research/candidates"' in script
     assert ".compound-lab-grid { display: grid; grid-template-columns:" in style
     assert ".compound-lab-grid { grid-template-columns: 1fr; }" in style
+
+
+def test_crisis_overlay_panel_declares_alignment_presets_and_holdout_gate() -> None:
+    web = Path(__file__).parents[3] / "src/stock_web"
+    template = (web / "templates/research.html").read_text(encoding="utf-8")
+    script = (web / "static/research.js").read_text(encoding="utf-8")
+    style = (web / "static/research.css").read_text(encoding="utf-8")
+
+    assert 'id="crisis-overlay"' in template
+    assert "한 자산 × 여러 위기" in template and "한 위기 × 여러 자산" in template
+    for label in ("주식 vs 10년 금리", "TLT 위기별", "리츠 위기별", "낙폭 사다리: KOSPI 5개 사이클"):
+        assert label in template
+    assert "python scripts/research/run_crisis_overlay.py --project-root ." in template
+    assert 'fetch("/api/research/crisis-overlay")' in script
+    assert 'kind: "crisis_overlay"' in script
+    assert "signal_values" in script and "crisis-signal-line" in script
+    assert "crisis-check-band" in script and "row.date || \"중앙\"" in script
+    assert ".crisis-chart-shell" in style and ".crisis-tooltip" in style
