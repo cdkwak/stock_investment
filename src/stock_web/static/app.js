@@ -619,7 +619,7 @@
     const chip = $("health-chip");
     const text = !h || h.reason
       ? (h && h.reason ? `데이터 갱신 상태 미확인 · ${h.reason}` : "데이터 갱신 상태 미확인")
-      : `데이터 갱신: 정상 ${h.current ?? 0} · 지연 ${h.lag ?? 0} · 실패 ${h.fail ?? 0} ▸`;
+      : `데이터 갱신: ${(h.labels && h.labels.current) || "정시"} ${h.current ?? 0} · ${(h.labels && h.labels.late) || "지연"} ${h.lag ?? 0} · ${(h.labels && h.labels.failed) || "실패"} ${h.fail ?? 0} ▸`;
     chip.textContent = text;
     chip.title = text;
   }
