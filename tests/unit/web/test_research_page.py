@@ -820,6 +820,9 @@ def test_compound_panel_static_contract_uses_cached_frame_render_and_existing_ch
     assert "renderCompoundExitCompare(combination)" in script
     assert "출구 5개 나란히" in script
     assert "1배 그냥 보유 (기준선)" in script
+    assert "홀드아웃(2016~)에서는 뒤집힘" in script
+    assert "신호 ${esc(episode.signal_date)}" in script
+    assert "고원 판정 (적합 구간)" in template
     assert "이 조합의 고원 판정은 아직 계산 안 됨" in script
     assert "row.exit === combination.exit && row.cost_enabled === combination.cost_enabled" in script
     assert "item.holdout_relative_to_baseline" in script

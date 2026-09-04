@@ -681,7 +681,7 @@
       if (!response.ok) throw new Error(await readError(response));
       crisisState.payload = await response.json();
       $("crisis-asset").innerHTML = (crisisState.payload.assets || []).map((asset) => `<option value="${esc(asset.id)}">${esc(asset.label)}</option>`).join("");
-      $("crisis-episode").innerHTML = (crisisState.payload.episodes || []).map((episode) => `<option value="${esc(episode.id)}">${esc(episode.label)}${episode.is_holdout ? " · 홀드아웃" : ""}</option>`).join("");
+      $("crisis-episode").innerHTML = (crisisState.payload.episodes || []).map((episode) => `<option value="${esc(episode.id)}">${esc(episode.label)}${episode.signal_date ? ` · 신호 ${esc(episode.signal_date)}` : ""}${episode.is_holdout ? " · 홀드아웃" : ""}</option>`).join("");
       updateHoldoutCounters({ persistent_views: crisisState.payload.holdout_views || 0 });
       if ((crisisState.payload.assets || []).some((asset) => asset.id === "tlt")) $("crisis-asset").value = "tlt";
       setCrisisPreset("tlt");
@@ -924,7 +924,10 @@
         : "<td>미계산</td><td>—</td>";
       return `<tr class="${current ? "current" : ""}"><td>${esc(compoundExitLabels[exit] || exit)}${current ? ' <span class="muted">(선택)</span>' : ""}</td>${cell(fit)}${showHoldout ? cell(holdout) : ""}</tr>`;
     }).join("");
-    host.innerHTML = `<div class="compound-subhead"><b>출구 5개 나란히 · 최종배수와 최대낙폭을 같은 줄에</b><span class="muted">같은 신호·배율·비용, 출구만 다름 · MDD = 계좌 고점 대비 반납폭(원금 손실 아님)${showHoldout ? "" : " · 홀드아웃 열은 '홀드아웃 보기' 뒤에"}</span></div><div class="research-table-wrap"><table class="research-table compound-exit-table"><thead><tr><th>출구</th><th>FIT 최종/기준선</th><th>FIT MDD</th>${showHoldout ? "<th>홀드아웃 최종/기준선</th><th>홀드아웃 MDD</th>" : ""}</tr></thead><tbody>${rows}</tbody></table></div>`;
+    const windowNote = showHoldout
+      ? "FIT 열은 적합 구간(~2015), 홀드아웃 열은 2016~ · 결과 문서의 'a가 전 지수 MDD 최저'는 홀드아웃 기준"
+      : "지금 보이는 순위는 적합 구간(~2015) 기준이며 홀드아웃(2016~)에서는 뒤집힘 — 결과 문서의 'a가 전 지수 MDD 최저'는 홀드아웃 기준";
+    host.innerHTML = `<p class="muted compound-exit-window">${esc(windowNote)}</p><div class="compound-subhead"><b>출구 5개 나란히 · 최종배수와 최대낙폭을 같은 줄에</b><span class="muted">같은 신호·배율·비용, 출구만 다름 · MDD = 계좌 고점 대비 반납폭(원금 손실 아님)${showHoldout ? "" : " · 홀드아웃 열은 '홀드아웃 보기' 뒤에"}</span></div><div class="research-table-wrap"><table class="research-table compound-exit-table"><thead><tr><th>출구</th><th>FIT 최종/기준선</th><th>FIT MDD</th>${showHoldout ? "<th>홀드아웃 최종/기준선</th><th>홀드아웃 MDD</th>" : ""}</tr></thead><tbody>${rows}</tbody></table></div>`;
   }
 
   function renderCompoundHoldout(row, combination) {
