@@ -214,7 +214,10 @@ def _latest_finality_observation_reader(
                 or len(key) != 8
                 or not key.isdigit()
                 or not isinstance(value, dict)
-                or value.get("status") not in {"STABLE", "PROVISIONAL"}
+                # REVISED = a same-day observation awaiting its confirming pass
+                # (e.g. KOFIA credit balance published with a lag); it is a valid
+                # in-flight entry, not corruption.
+                or value.get("status") not in {"STABLE", "PROVISIONAL", "REVISED"}
                 or not isinstance(value.get("observations"), list)
                 or not value["observations"]
             ):

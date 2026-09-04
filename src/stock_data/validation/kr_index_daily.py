@@ -30,8 +30,12 @@ def validate_kr_index_daily(dataframe: pd.DataFrame) -> None:
         raise DatasetValidationError("source must be pykrx")
     if not dataframe["market"].isin({"KOSPI", "KOSDAQ"}).all():
         raise DatasetValidationError("market must be KOSPI or KOSDAQ")
-    expected_symbols = dataframe["market"].map({"KOSPI": "KOSPI", "KOSDAQ": "KOSDAQ"})
-    if not dataframe["symbol"].astype(str).eq(expected_symbols.astype(str)).all():
+    allowed_symbols = {"KOSPI": {"KOSPI", "KOSPI200_IT"}, "KOSDAQ": {"KOSDAQ"}}
+    consistent = [
+        str(symbol) in allowed_symbols[str(market)]
+        for symbol, market in zip(dataframe["symbol"], dataframe["market"])
+    ]
+    if not all(consistent):
         raise DatasetValidationError("symbol and market are inconsistent")
     if dataframe.duplicated(list(KR_INDEX_DAILY.primary_key)).any():
         raise DatasetValidationError("date+symbol contains duplicates")
