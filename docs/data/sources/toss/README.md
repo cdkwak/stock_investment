@@ -3,8 +3,9 @@
 ## Status
 
 - Project status: `ACTIVE` for selected read-only market paths.
-- Accepted scopes: KOSPI/KOSDAQ candles, investor trading, and allowlisted
-  program/short/credit/lending observations.
+- Accepted scopes: KOSPI/KOSDAQ candles, investor trading, allowlisted
+  program/short/credit/lending observations, and the explicit U.S. watchlist
+  quote lane below.
 - Toss account holdings support now has a separate identifier-free, read-only
   contract and offline-tested atomic snapshot path. Its first external run is
   governed by [the account snapshot operation](../../operations/TOSS_ACCOUNT_SNAPSHOT_READONLY.md).
@@ -58,9 +59,33 @@ Available diagnostics:
 - Daily refresh: `scripts/manual/collect/refresh_toss_market_investor_daily.py`
 - Historical probe/backfill: `scripts/manual/research/` and `scripts/manual/backfill/`
 
+## U.S. watchlist quote lane
+
+- Lane: `TOSSINVEST_US_QUOTES_30M`; provider route: one
+  `GET /api/v1/prices?symbols=...` request for at most 200 symbols.
+- Explicit requested order: `SKHY,SOXL,SOXX,TQQQ,QQQ,EWY,SGOV,VGLT` after
+  filtering against the Yahoo ETF/equity identity registries. Partial non-empty
+  responses fail closed; an empty result is valid-empty and preserves prior data.
+- The cadence group is `GLOBAL_30M`, the closest existing group used by the
+  Yahoo intraday/current lane (`PT30M`). Eligibility is `[17:00,06:00)` KST,
+  spanning U.S. pre-market, regular trading, and part of after-hours.
+- `session_hint` is independently derived in `America/New_York` as
+  `pre_market`, `regular`, `after_hours`, or `closed`; it is descriptive and is
+  not an official session/finality claim.
+- A run makes exactly one `STOCK_PRICE` call. A 429 or any supplied
+  `retry_after_seconds` returns `SKIPPED_RATE_LIMIT`; there is no retry.
+- Landing is retained before Normalized append. The latest display artifact is
+  `artifacts/intraday/tossinvest_us_quotes_latest.json`; sampled rows append to
+  `data/normalized/tossinvest_us_quote_30m/`. These are as-retrieved quotes, not
+  bars or official closes.
+- `/api/v1/stocks/all` is forbidden in this lane. Public/guest display paths do
+  not construct the client or invoke this scheduler-only operation.
+
 ## Boundaries
 
 - Only paths in `READ_ONLY_MARKET_PATHS` are approved.
+- The U.S. quote lane never calls account, holdings, balance, or order routes
+  and never persists account data or authorization material.
 - Account support allowlists only `GET /api/v1/accounts` and
   `GET /api/v1/holdings` under its separate operation and contract.
 - No order, correction, cancellation, transfer, or withdrawal examples.

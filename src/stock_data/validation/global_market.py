@@ -53,6 +53,45 @@ def validate_global_etf(dataframe: pd.DataFrame) -> None:
         raise ValueError("invalid global ETF volume")
 
 
+def validate_global_equity(dataframe: pd.DataFrame) -> None:
+    required = [
+        "date", "symbol", "source_ticker", "open", "high", "low", "close",
+        "adjusted_close", "volume", "currency", "exchange", "provider",
+        "retrieved_at", "adjustment_status",
+    ]
+    if list(dataframe.columns) != required or dataframe.empty:
+        raise ValueError("global equity schema invalid or empty")
+    if dataframe.duplicated(["date", "symbol"]).any():
+        raise ValueError("duplicate global equity key")
+    identity = dataframe[[
+        "date", "symbol", "source_ticker", "currency", "exchange", "provider",
+        "retrieved_at", "adjustment_status",
+    ]]
+    if identity.isna().any().any():
+        raise ValueError("global equity identity/provenance is null")
+    if not dataframe["provider"].eq("yahoo_chart_api").all():
+        raise ValueError("global equity provider differs")
+    if not dataframe["adjustment_status"].eq(
+        "SOURCE_ADJUSTED_CLOSE_RETAINED_SEPARATELY"
+    ).all():
+        raise ValueError("global equity adjustment semantics differ")
+    timestamps = pd.to_datetime(dataframe["retrieved_at"], errors="coerce", utc=True)
+    if timestamps.isna().any():
+        raise ValueError("global equity retrieval timestamp is invalid")
+    numeric = dataframe[["open", "high", "low", "close", "adjusted_close", "volume"]].apply(
+        pd.to_numeric, errors="coerce"
+    )
+    prices = numeric[["open", "high", "low", "close", "adjusted_close"]]
+    if prices.isna().any().any() or not np.isfinite(prices.to_numpy()).all():
+        raise ValueError("invalid global equity price")
+    if ((numeric.high < numeric.low)
+            | ~numeric.open.between(numeric.low, numeric.high)
+            | ~numeric.close.between(numeric.low, numeric.high)).any():
+        raise ValueError("invalid global equity OHLC")
+    if (numeric.volume.dropna() < 0).any():
+        raise ValueError("invalid global equity volume")
+
+
 def validate_global_commodity_futures(dataframe: pd.DataFrame) -> None:
     required = ["date", "symbol", "source_ticker", "asset", "open", "high", "low", "close", "volume", "ohlc_status"]
     if list(dataframe.columns) != required or dataframe.empty:

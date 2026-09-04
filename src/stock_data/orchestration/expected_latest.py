@@ -110,7 +110,8 @@ KR_DAILY_LANES = frozenset({
     "KR_ETF_PRICE_DAILY", "KR_EQUITY_PROVISIONAL_DAILY",
 })
 US_DAILY_LANES = frozenset({
-    "GLOBAL_INDEX_DAILY", "GLOBAL_ETF_DAILY", "GLOBAL_COMMODITY_DAILY",
+    "GLOBAL_INDEX_DAILY", "GLOBAL_ETF_DAILY", "GLOBAL_EQUITY_DAILY",
+    "GLOBAL_COMMODITY_DAILY",
 })
 
 _FRED_H15 = frozenset({"fred_treasury_yield_daily", "us_treasury_spread_daily"})

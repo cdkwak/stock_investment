@@ -14,6 +14,10 @@ from stock_data.contracts.global_etf import (
     GLOBAL_ETF_PRICE_DAILY,
     GLOBAL_ETF_REGISTRY,
 )
+from stock_data.contracts.global_equity import (
+    GLOBAL_EQUITY_PRICE_DAILY,
+    GLOBAL_EQUITY_REGISTRY,
+)
 from stock_data.contracts.global_market import (
     GLOBAL_COMMODITY_FUTURES_DAILY,
     GLOBAL_INDEX_DAILY_SYMBOLS,
@@ -22,7 +26,10 @@ from stock_data.contracts.global_market import (
 )
 from stock_data.contracts.market_60m import MARKET_PRICE_60M_OBSERVATION
 from stock_data.storage.contract_parquet import read_dataset, write_dataset_atomic
-from stock_data.validation.global_market import validate_global_commodity_futures, validate_global_etf, validate_global_index
+from stock_data.validation.global_market import (
+    validate_global_commodity_futures, validate_global_equity,
+    validate_global_etf, validate_global_index,
+)
 from stock_data.validation.market_60m import validate_market_price_60m
 from stock_data.providers.public_http_capture import capture_public_response
 
@@ -34,6 +41,7 @@ CONFIG = {
 }
 # Backwards-compatible provider alias; contracts/global_etf.py is authoritative.
 ETF_REGISTRY = GLOBAL_ETF_REGISTRY
+EQUITY_REGISTRY = GLOBAL_EQUITY_REGISTRY
 COMMODITY_CONFIG = {
     "GOLD": ("GC=F", "Gold"), "SILVER": ("SI=F", "Silver"),
     "COPPER": ("HG=F", "Copper"), "WTI_CRUDE_OIL": ("CL=F", "WTI Crude Oil"),
@@ -490,14 +498,14 @@ def fetch_global_index(
     return frame
 
 
-def fetch_global_etf(
-    symbol: str, start: date, end: date, *, session=requests,
+def _fetch_global_registered_security(
+    symbol: str, start: date, end: date, *, registry, contract, validator,
+    label: str, operation: str, session=requests,
     capture_root: Path | None = None, retrieved_at: datetime | None = None,
 ) -> pd.DataFrame:
-    """Fetch one explicitly registered ETF without an ETF-specific branch."""
-    if symbol not in ETF_REGISTRY:
-        raise ValueError(f"unregistered global ETF: {symbol}")
-    spec = ETF_REGISTRY[symbol]
+    if symbol not in registry:
+        raise ValueError(f"unregistered global {label}: {symbol}")
+    spec = registry[symbol]
     ticker = str(spec["source_ticker"])
     params = {"period1": _epoch(start), "period2": _epoch(end + timedelta(days=1)),
               "interval": "1d", "events": "history", "includeAdjustedClose": "true"}
@@ -507,41 +515,45 @@ def fetch_global_etf(
     receipt = None
     if capture_root is not None:
         receipt = capture_public_response(
-            root=capture_root, provider="yahoo", operation="etf_chart_daily",
+            root=capture_root, provider="yahoo", operation=operation,
             request_url=url, request_parameters={"symbol": symbol, **params}, response=response,
         )
     response.raise_for_status()
     payload = response.json()
     chart = payload.get("chart")
     if not isinstance(chart, dict) or chart.get("error") is not None:
-        raise RuntimeError("Yahoo ETF chart response contains an error")
+        raise RuntimeError(f"Yahoo {label} chart response contains an error")
     results = chart.get("result")
     if not isinstance(results, list) or len(results) != 1:
-        raise RuntimeError("Yahoo ETF chart result is missing")
+        raise RuntimeError(f"Yahoo {label} chart result is missing")
     item = results[0]
     meta = item.get("meta") or {}
-    if str(meta.get("symbol")) != ticker or str(meta.get("instrumentType", "")).upper() != "ETF":
-        raise RuntimeError("Yahoo ETF identity/instrument type differs")
+    if (
+        str(meta.get("symbol")) != ticker
+        or str(meta.get("instrumentType", "")).upper()
+        != str(spec["instrument_type"]).upper()
+    ):
+        raise RuntimeError(f"Yahoo {label} identity/instrument type differs")
     if str(meta.get("dataGranularity")) != "1d":
-        raise RuntimeError("Yahoo ETF response is not daily")
+        raise RuntimeError(f"Yahoo {label} response is not daily")
     currency = str(meta.get("currency") or "")
     exchange = str(meta.get("exchangeName") or meta.get("fullExchangeName") or "")
     expected_currency = str(spec.get("expected_currency") or "USD")
     accepted_exchanges = tuple(spec.get("accepted_yahoo_exchanges") or ())
     if currency != expected_currency or not exchange:
-        raise RuntimeError("Yahoo ETF currency/exchange identity differs")
+        raise RuntimeError(f"Yahoo {label} currency/exchange identity differs")
     if accepted_exchanges and exchange not in accepted_exchanges:
-        raise RuntimeError("Yahoo ETF exchange identity differs")
+        raise RuntimeError(f"Yahoo {label} exchange identity differs")
     timestamps = item.get("timestamp") or []
     quote_rows = ((item.get("indicators") or {}).get("quote") or [])
     adjusted_rows = ((item.get("indicators") or {}).get("adjclose") or [])
     if not timestamps or len(quote_rows) != 1 or len(adjusted_rows) != 1:
-        raise RuntimeError("Yahoo returned incomplete ETF data")
+        raise RuntimeError(f"Yahoo returned incomplete {label} data")
     values, adjusted = quote_rows[0], adjusted_rows[0].get("adjclose") or []
     if (any(len(values.get(column) or []) != len(timestamps)
             for column in ("open", "high", "low", "close", "volume"))
             or len(adjusted) != len(timestamps)):
-        raise RuntimeError("Yahoo ETF timestamp/value lengths differ")
+        raise RuntimeError(f"Yahoo {label} timestamp/value lengths differ")
     observed_at = retrieved_at
     if observed_at is None and receipt is not None:
         observed_at = datetime.fromisoformat(receipt.captured_at_utc.replace("Z", "+00:00"))
@@ -560,16 +572,42 @@ def fetch_global_etf(
     })
     frame["date"] = pd.to_datetime(frame["date"]).dt.strftime("%Y-%m-%d")
     frame, provider_gap_dates = _drop_daily_provider_gaps(
-        frame, ("open", "high", "low", "close", "adjusted_close"), "ETF",
+        frame, ("open", "high", "low", "close", "adjusted_close"), label.upper(),
     )
     frame["retrieved_at"] = pd.to_datetime(frame["retrieved_at"], utc=True)
     for column in ("open", "high", "low", "close", "adjusted_close", "volume"):
         frame[column] = pd.to_numeric(frame[column], errors="coerce")
     frame["volume"] = frame["volume"].astype("Int64")
-    frame = frame[list(GLOBAL_ETF_PRICE_DAILY.column_names)]
-    validate_global_etf(frame)
+    frame = frame[list(contract.column_names)]
+    validator(frame)
     frame.attrs["provider_gap_dates"] = provider_gap_dates
     return frame
+
+
+def fetch_global_etf(
+    symbol: str, start: date, end: date, *, session=requests,
+    capture_root: Path | None = None, retrieved_at: datetime | None = None,
+) -> pd.DataFrame:
+    """Fetch one explicitly registered ETF."""
+    return _fetch_global_registered_security(
+        symbol, start, end, session=session, capture_root=capture_root,
+        retrieved_at=retrieved_at, registry=ETF_REGISTRY,
+        contract=GLOBAL_ETF_PRICE_DAILY, validator=validate_global_etf,
+        label="ETF", operation="etf_chart_daily",
+    )
+
+
+def fetch_global_equity(
+    symbol: str, start: date, end: date, *, session=requests,
+    capture_root: Path | None = None, retrieved_at: datetime | None = None,
+) -> pd.DataFrame:
+    """Fetch one explicitly registered U.S. equity or depositary receipt."""
+    return _fetch_global_registered_security(
+        symbol, start, end, session=session, capture_root=capture_root,
+        retrieved_at=retrieved_at, registry=EQUITY_REGISTRY,
+        contract=GLOBAL_EQUITY_PRICE_DAILY, validator=validate_global_equity,
+        label="equity", operation="equity_chart_daily",
+    )
 
 
 def fetch_commodity_future(

@@ -70,6 +70,11 @@ from stock_data.contracts.global_etf import (
     GLOBAL_ETF_DAILY_SYMBOLS,
     GLOBAL_ETF_PRICE_DAILY,
 )
+from stock_data.contracts.global_equity import (
+    GLOBAL_EQUITY_DAILY_SYMBOLS,
+    GLOBAL_EQUITY_PRICE_DAILY,
+    GLOBAL_EQUITY_REGISTRY,
+)
 from stock_data.contracts.data_v1 import (
     KR_STOCK_LENDING_DAILY,
     KR_STOCK_LENDING_MARKET_DAILY,
@@ -85,7 +90,8 @@ from stock_data.contracts.global_market import (
 )
 from stock_data.validation.kospi200_index_daily import validate_kospi200_index_daily
 from stock_data.validation.global_market import (
-    validate_global_commodity_futures, validate_global_etf, validate_global_index,
+    validate_global_commodity_futures, validate_global_equity,
+    validate_global_etf, validate_global_index,
 )
 from stock_data.validation.data_v1 import validate_data_v1
 from stock_data.validation.kr_etf import validate_kr_etf_master
@@ -276,6 +282,12 @@ LANE_SCHEDULES = MappingProxyType({
         market=ExchangeMarket.US, phases=("global_etfs",),
         dataset_ids=("global_etf_price_daily",),
         accepted_source="Yahoo chart API: contract-registered ETFs",
+    ),
+    "GLOBAL_EQUITY_DAILY": LaneSchedule(
+        lane="GLOBAL_EQUITY_DAILY", cadence_group="GLOBAL_DAILY_FINAL",
+        market=ExchangeMarket.US, phases=("global_equities",),
+        dataset_ids=("global_equity_price_daily",),
+        accepted_source="Yahoo chart API: contract-registered U.S. equities and ADRs",
     ),
     "GLOBAL_COMMODITY_DAILY": LaneSchedule(
         lane="GLOBAL_COMMODITY_DAILY", cadence_group="GLOBAL_DAILY_FINAL",
@@ -852,6 +864,16 @@ def _run_etf_phase(project_root: Path, phase: str, target: object) -> dict[str, 
     )
 
 
+def _run_equity_phase(project_root: Path, phase: str, target: object) -> dict[str, object]:
+    if phase != "global_equities" or not isinstance(target, date):
+        raise ProviderSchedulerError("invalid global equity scheduler phase")
+    return _run_registered_yahoo_phase(
+        project_root, phase="yahoo_equity", target=target,
+        symbols=_GLOBAL_EQUITY_SYMBOLS, contract=GLOBAL_EQUITY_PRICE_DAILY,
+        validator=validate_global_equity,
+    )
+
+
 _GLOBAL_INDEX_TICKERS = MappingProxyType({
     symbol: str(spec["source_ticker"])
     for symbol, spec in GLOBAL_INDEX_REGISTRY.items()
@@ -861,6 +883,7 @@ _GLOBAL_INDEX_PROVIDERS = MappingProxyType({
     for symbol, spec in GLOBAL_INDEX_REGISTRY.items()
 })
 _GLOBAL_ETF_SYMBOLS = GLOBAL_ETF_DAILY_SYMBOLS
+_GLOBAL_EQUITY_SYMBOLS = GLOBAL_EQUITY_DAILY_SYMBOLS
 _GLOBAL_FUTURES_SYMBOLS = (
     "NASDAQ100_FUTURES", "GOLD", "WTI_CRUDE_OIL",
     "SP500_FUTURES", "DOW_FUTURES", "DOLLAR_INDEX_FUTURES",
@@ -1029,7 +1052,10 @@ def _run_registered_yahoo_phase(
 ) -> dict[str, object]:
     """Advance registered symbols independently through the same CAS path."""
     production = project_root / "data/normalized" / str(contract.name)
-    existing = read_dataset(production, contract, validator)
+    try:
+        existing = read_dataset(production, contract, validator)
+    except FileNotFoundError:
+        existing = pd.DataFrame(columns=contract.column_names)
     present = set(existing["symbol"].astype(str))
     unknown = present.difference(symbols)
     if unknown:
@@ -1080,7 +1106,9 @@ def _run_registered_yahoo_phase(
             })
             continue
 
-        prepare_start = retained if symbol_phase == "yahoo_etf" else None
+        prepare_start = (
+            retained if symbol_phase in {"yahoo_etf", "yahoo_equity"} else None
+        )
         if retained is None and symbol_phase != "cboe_index":
             prepare_start = target - timedelta(days=365)
         try:
@@ -1276,7 +1304,7 @@ def run_lane(
     if (
         lane not in {
             "KR_FUNDAMENTALS_WEEKLY", "RESEARCH_FORWARD_TEST_DAILY",
-            "KR_EQUITY_INVESTOR_FLOW_DAILY",
+            "KR_EQUITY_INVESTOR_FLOW_DAILY", "GLOBAL_EQUITY_DAILY",
         }
         and (readiness is None or not readiness.scheduler_eligible)
     ):
@@ -1289,6 +1317,10 @@ def run_lane(
         if spec.automation_enabled
     }
     enabled = core_enabled | universe_enabled
+    # The equity contract is intentionally scoped to this scheduler module until
+    # the coordinator updates the central health/operations universe.
+    if lane == "GLOBAL_EQUITY_DAILY":
+        enabled.add("global_equity_price_daily")
     dependency_refresh_ids = {
         "FRED_DAILY": ("us_treasury_spread_daily",),
         "GLOBAL_INDEX_DAILY": ("us_vix_term_structure_daily",),
@@ -1332,6 +1364,7 @@ def run_lane(
         "toss_kr_treasury": "kr_treasury_yield_daily",
         "global_indices": "global_index_price_daily",
         "global_etfs": "global_etf_price_daily",
+        "global_equities": "global_equity_price_daily",
         "dashboard_futures": "global_commodity_futures_daily",
         "research_forward_test": "research_forward_test_signals",
     }
@@ -1387,6 +1420,18 @@ def run_lane(
             }
             for symbol, ticker in _GLOBAL_INDEX_TICKERS.items()
         ]
+    if lane == "GLOBAL_EQUITY_DAILY":
+        base["registered_equities"] = [
+            {
+                "symbol": symbol,
+                "ticker": str(GLOBAL_EQUITY_REGISTRY[symbol]["source_ticker"]),
+                "instrument_type": str(
+                    GLOBAL_EQUITY_REGISTRY[symbol]["instrument_type"]
+                ),
+                "exchange": str(GLOBAL_EQUITY_REGISTRY[symbol]["official_exchange"]),
+            }
+            for symbol in _GLOBAL_EQUITY_SYMBOLS
+        ]
     if lane == "KR_FUNDAMENTALS_WEEKLY":
         plan = plan_weekly_fundamentals_refresh(
             root, market_date=market_target,
@@ -1438,6 +1483,7 @@ def run_lane(
             "TOSS_KR_TREASURY_DAILY": _run_toss_kr_treasury_phase,
             "GLOBAL_INDEX_DAILY": _run_global_index_phase,
             "GLOBAL_ETF_DAILY": _run_etf_phase,
+            "GLOBAL_EQUITY_DAILY": _run_equity_phase,
             "GLOBAL_COMMODITY_DAILY": _run_futures_phase,
             "RESEARCH_FORWARD_TEST_DAILY": _run_research_forward_test_phase,
         }[lane]

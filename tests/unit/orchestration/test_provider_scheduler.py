@@ -105,6 +105,75 @@ def test_global_index_dry_run_lists_vix_term_symbols_without_network(tmp_path: P
     } == {"yahoo_chart_api"}
 
 
+def test_global_equity_dry_run_lists_only_skhy_without_network(tmp_path: Path) -> None:
+    result = run_lane(
+        tmp_path, "GLOBAL_EQUITY_DAILY", as_of=AS_OF, dry_run=True,
+    )
+    assert result["status"] == "DRY_RUN_PASS"
+    assert result["api_calls"] == 0
+    assert result["cadence_group"] == "GLOBAL_DAILY_FINAL"
+    assert result["phase_targets"] == {"global_equities": "2026-08-18"}
+    assert result["automation_dataset_ids"] == ["global_equity_price_daily"]
+    assert result["registered_equities"] == [{
+        "symbol": "SKHY", "ticker": "SKHY",
+        "instrument_type": "EQUITY", "exchange": "NASDAQ",
+    }]
+
+
+def test_global_equity_refresh_phase_is_one_symbol_one_call_contract() -> None:
+    limit, contract, symbols = refresh.PHASES["yahoo_equity"]
+    assert limit == 1
+    assert symbols == ("SKHY",)
+    assert contract is scheduler.GLOBAL_EQUITY_PRICE_DAILY
+
+
+def test_global_equity_retained_target_replay_is_api_zero(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    target = date(2026, 9, 3)
+    production = tmp_path / "data/normalized/global_equity_price_daily"
+    retained = pd.DataFrame([{
+        "date": target.isoformat(),
+        "symbol": "SKHY",
+        "source_ticker": "SKHY",
+        "open": 160.0,
+        "high": 165.0,
+        "low": 159.0,
+        "close": 164.0,
+        "adjusted_close": 164.0,
+        "volume": 1000,
+        "currency": "USD",
+        "exchange": "NMS",
+        "provider": "yahoo_chart_api",
+        "retrieved_at": "2026-09-04T06:00:00Z",
+        "adjustment_status": "SOURCE_ADJUSTED_CLOSE_RETAINED_SEPARATELY",
+    }])
+    retained["volume"] = retained["volume"].astype("Int64")
+    write_dataset_atomic(
+        retained,
+        production,
+        scheduler.GLOBAL_EQUITY_PRICE_DAILY,
+        scheduler.validate_global_equity,
+    )
+
+    monkeypatch.setattr(
+        scheduler,
+        "_load_refresh_module",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            prepare_phase=lambda *_args, **_kwargs: pytest.fail(
+                "retained-target replay must not enter the Yahoo operation"
+            ),
+            promote_phase=lambda *_args, **_kwargs: pytest.fail(
+                "retained-target replay must not enter Yahoo promotion"
+            ),
+        ),
+    )
+    result = scheduler._run_equity_phase(tmp_path, "global_equities", target)
+
+    assert result["status"] == "NOOP_IDEMPOTENT"
+    assert result["http_calls"] == 0
+
+
 def test_global_refresh_phase_accounting_separates_yahoo_and_cboe_indices() -> None:
     yahoo_limit, yahoo_contract, yahoo_symbols = refresh.PHASES["yahoo"]
     cboe_limit, cboe_contract, cboe_symbols = refresh.PHASES["cboe_index"]

@@ -5,6 +5,11 @@ from stock_data.contracts.global_etf import (
     GLOBAL_ETF_REGISTRY,
     global_etf_leverage_multiple,
 )
+from stock_data.contracts.global_equity import (
+    GLOBAL_EQUITY_DAILY_SYMBOLS,
+    GLOBAL_EQUITY_PRICE_DAILY,
+    GLOBAL_EQUITY_REGISTRY,
+)
 from stock_data.contracts.global_market import (
     GLOBAL_INDEX_DAILY_SYMBOLS,
     GLOBAL_INDEX_REGISTRY,
@@ -158,3 +163,27 @@ def test_korean_equity_investor_flow_contract_is_registered_at_symbol_date_grain
         column.dtype == "int64" and column.unit == "KRW"
         for column in contract.columns[2:7]
     )
+
+
+def test_first_global_equity_registry_entry_is_exact_skhy_adr_identity() -> None:
+    assert GLOBAL_EQUITY_DAILY_SYMBOLS == ("SKHY",)
+    assert GLOBAL_EQUITY_PRICE_DAILY.column_names == CONTRACTS[
+        "global_etf_price_daily"
+    ].column_names
+    assert GLOBAL_EQUITY_PRICE_DAILY.partition_by == ("symbol", "year")
+    assert dict(GLOBAL_EQUITY_REGISTRY["SKHY"]) == {
+        "source_ticker": "SKHY",
+        "provider": "yahoo_chart_api",
+        "instrument_type": "EQUITY",
+        "security_type": "DEPOSITARY_RECEIPT",
+        "official_name": "SK hynix Inc. ADR",
+        "korean_name": "SK하이닉스(ADR)",
+        "official_exchange": "NASDAQ",
+        "isin": "US78392B2060",
+        "underlying_kr_symbol": "000660",
+        "adr_ratio": None,
+        "expected_currency": "USD",
+        "accepted_yahoo_exchanges": ("NMS", "NGM", "NASDAQ", "NasdaqGM"),
+        "cadence": "GLOBAL_DAILY",
+        "automation_enabled": True,
+    }

@@ -6,13 +6,15 @@ import pandas as pd
 import pytest
 
 from stock_data.providers.yahoo import (
-    ETF_REGISTRY, fetch_global_etf, fetch_global_index, fetch_global_market_60m,
-    fetch_market_60m,
+    EQUITY_REGISTRY, ETF_REGISTRY, fetch_global_equity, fetch_global_etf,
+    fetch_global_index, fetch_global_market_60m, fetch_market_60m,
 )
 from stock_data.providers.yahoo_15m import fetch_market_15m
 from stock_data.providers.fred import fetch_series
 from stock_data.providers.public_http_capture import PublicHttpCaptureError
-from stock_data.validation.global_market import validate_global_etf, validate_global_index
+from stock_data.validation.global_market import (
+    validate_global_equity, validate_global_etf, validate_global_index,
+)
 
 
 class Response:
@@ -86,6 +88,55 @@ class YahooEtfSession:
                 "adjclose": [{"adjclose": [70.25]}],
             },
         }]}})
+
+
+class YahooEquitySession:
+    @staticmethod
+    def get(url, *args, **kwargs):
+        ticker = url.rsplit("/", 1)[-1]
+        return Response({"chart": {"error": None, "result": [{
+            "meta": {
+                "symbol": ticker, "instrumentType": "EQUITY",
+                "dataGranularity": "1d", "currency": "USD",
+                "exchangeName": "NMS",
+            },
+            "timestamp": [1786032000],
+            "indicators": {
+                "quote": [{
+                    "open": [163.0], "high": [165.0], "low": [162.0],
+                    "close": [164.5], "volume": [12345],
+                }],
+                "adjclose": [{"adjclose": [164.5]}],
+            },
+        }]}})
+
+
+def test_yahoo_registered_skhy_equity_identity_accepts_nms_offline() -> None:
+    assert EQUITY_REGISTRY["SKHY"]["instrument_type"] == "EQUITY"
+    frame = fetch_global_equity(
+        "SKHY", date(2026, 7, 1), date(2026, 9, 4),
+        session=YahooEquitySession,
+        retrieved_at=datetime(2026, 9, 4, 13, 0, tzinfo=timezone.utc),
+    )
+    assert frame[["symbol", "source_ticker", "currency", "exchange"]].iloc[0].tolist() == [
+        "SKHY", "SKHY", "USD", "NMS",
+    ]
+    validate_global_equity(frame)
+
+
+def test_yahoo_skhy_rejects_etf_instrument_identity() -> None:
+    class WrongInstrument(YahooEquitySession):
+        @staticmethod
+        def get(url, *args, **kwargs):
+            response = YahooEquitySession.get(url, *args, **kwargs)
+            response._payload["chart"]["result"][0]["meta"]["instrumentType"] = "ETF"
+            return response
+
+    with pytest.raises(RuntimeError, match="instrument type"):
+        fetch_global_equity(
+            "SKHY", date(2026, 7, 1), date(2026, 9, 4),
+            session=WrongInstrument,
+        )
 
 
 @pytest.mark.parametrize(

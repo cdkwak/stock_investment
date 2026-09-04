@@ -37,6 +37,7 @@ from stock_data.contracts.global_market import (  # noqa: E402
     global_index_endpoint_window,
 )
 from stock_data.contracts.global_etf import GLOBAL_ETF_PRICE_DAILY  # noqa: E402
+from stock_data.contracts.global_equity import GLOBAL_EQUITY_PRICE_DAILY  # noqa: E402
 from stock_data.derived.treasury_spread import (  # noqa: E402
     calculate_treasury_spreads, validate_treasury_spreads,
 )
@@ -51,10 +52,13 @@ from stock_data.providers.cboe_index_history import (  # noqa: E402
     fetch_cboe_index_history,
 )
 from stock_data.providers.yahoo import (  # noqa: E402
-    COMMODITY_CONFIG, CONFIG, ETF_REGISTRY, GLOBAL_ETF_DAILY_SYMBOLS,
+    COMMODITY_CONFIG, CONFIG, EQUITY_REGISTRY, ETF_REGISTRY,
+    GLOBAL_ETF_DAILY_SYMBOLS,
     GLOBAL_FUTURES_DAILY_SYMBOLS, _epoch,
-    fetch_commodity_future, fetch_global_etf, fetch_global_index,
+    fetch_commodity_future, fetch_global_equity, fetch_global_etf,
+    fetch_global_index,
 )
+from stock_data.contracts.global_equity import GLOBAL_EQUITY_DAILY_SYMBOLS  # noqa: E402
 from stock_data.orchestration.exchange_calendar import ExchangeMarket, ExchangeTradingCalendar  # noqa: E402
 from stock_data.orchestration.automatic_fallback import (  # noqa: E402
     AttemptFailure, CircuitRecord, DecisionOutcome, ExecutionKind, FailureKind,
@@ -63,8 +67,8 @@ from stock_data.orchestration.automatic_fallback import (  # noqa: E402
 from stock_data.orchestration.fred_vix_fallback import execute_vixcls_fallback  # noqa: E402
 from stock_data.storage.contract_parquet import read_dataset, write_dataset_atomic  # noqa: E402
 from stock_data.validation.global_market import (  # noqa: E402
-    validate_fred, validate_global_commodity_futures, validate_global_etf,
-    validate_global_index,
+    validate_fred, validate_global_commodity_futures, validate_global_equity,
+    validate_global_etf, validate_global_index,
 )
 
 
@@ -83,6 +87,10 @@ PHASES = {
         len(GLOBAL_ETF_DAILY_SYMBOLS), GLOBAL_ETF_PRICE_DAILY,
         GLOBAL_ETF_DAILY_SYMBOLS,
     ),
+    "yahoo_equity": (
+        len(GLOBAL_EQUITY_DAILY_SYMBOLS), GLOBAL_EQUITY_PRICE_DAILY,
+        GLOBAL_EQUITY_DAILY_SYMBOLS,
+    ),
     "yahoo_dashboard_futures": (
         len(GLOBAL_FUTURES_DAILY_SYMBOLS), GLOBAL_COMMODITY_FUTURES_DAILY,
         GLOBAL_FUTURES_DAILY_SYMBOLS,
@@ -93,7 +101,9 @@ PHASES = {
 }
 LOCK = Path("data/state/global_current_refresh.lock")
 REPARSE_POINT = 0x400
-YAHOO_PHASES = frozenset({"yahoo", "yahoo_etf", "yahoo_dashboard_futures"})
+YAHOO_PHASES = frozenset({
+    "yahoo", "yahoo_etf", "yahoo_equity", "yahoo_dashboard_futures",
+})
 SYMBOL_PHASES = YAHOO_PHASES | {"cboe_index"}
 PROVIDER_NATIVE_ENDPOINT_TOLERANCE_SESSIONS = 5
 
@@ -207,6 +217,7 @@ def _files_manifest(root: Path) -> dict[str, object]:
     partition_keys = {
         GLOBAL_INDEX_PRICE_DAILY.name: ("symbol", "year"),
         GLOBAL_ETF_PRICE_DAILY.name: ("symbol", "year"),
+        GLOBAL_EQUITY_PRICE_DAILY.name: ("symbol", "year"),
         GLOBAL_COMMODITY_FUTURES_DAILY.name: ("symbol", "year"),
         FRED_TREASURY_YIELD_DAILY.name: ("year",),
         FRED_USD_FX_DAILY.name: ("year",),
@@ -649,7 +660,7 @@ def _series_revision(
         old = existing.loc[existing.symbol.eq(item)].set_index("date")
         new = incoming.loc[incoming.symbol.eq(item)].set_index("date")
         columns = ["open", "high", "low", "close", "volume", "source_ticker"]
-        if phase == "yahoo_etf":
+        if phase in {"yahoo_etf", "yahoo_equity"}:
             columns += ["adjusted_close", "currency", "exchange", "provider", "adjustment_status"]
         elif phase == "yahoo_dashboard_futures":
             columns += ["asset", "ohlc_status"]
@@ -733,9 +744,10 @@ def _verify_captures(
                 "response_bytes": record["response_bytes"],
             })
         return records
-    expected_provider = "yahoo" if phase in {"yahoo", "yahoo_etf", "yahoo_dashboard_futures"} else "fred"
+    expected_provider = "yahoo" if phase in YAHOO_PHASES else "fred"
     expected_operation = ({
         "yahoo": "chart", "yahoo_etf": "etf_chart_daily",
+        "yahoo_equity": "equity_chart_daily",
         "yahoo_dashboard_futures": "commodity_chart_daily",
     }.get(phase)
                           or "fredgraph_csv")
@@ -797,18 +809,20 @@ def _verify_captures(
         parameters = record.get("request_parameters")
         if not isinstance(parameters, dict):
             raise RefreshError("Landing parameters are absent")
-        if phase in {"yahoo", "yahoo_etf", "yahoo_dashboard_futures"}:
+        if phase in YAHOO_PHASES:
             item = parameters.get("symbol")
             item_plan = next((entry for entry in plan if entry["item"] == item), None)
             ticker = (
                 CONFIG.get(item, "") if phase == "yahoo" else
                 str(ETF_REGISTRY.get(item, {}).get("source_ticker", "")) if phase == "yahoo_etf" else
+                str(EQUITY_REGISTRY.get(item, {}).get("source_ticker", "")) if phase == "yahoo_equity" else
                 str(COMMODITY_CONFIG.get(item, ("", ""))[0])
             )
             expected_provider = "yahoo"
             expected_operation = (
                 "chart" if phase == "yahoo" else
                 "etf_chart_daily" if phase == "yahoo_etf" else
+                "equity_chart_daily" if phase == "yahoo_equity" else
                 "commodity_chart_daily"
             )
             expected_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{quote(ticker, safe='')}"
@@ -817,7 +831,9 @@ def _verify_captures(
                 "period1": str(_epoch(date.fromisoformat(item_plan["start"]))) if item_plan else "",
                 "period2": str(_epoch(date.fromisoformat(item_plan["end"]) + timedelta(days=1))) if item_plan else "",
                 "interval": "1d", "events": "history",
-                "includeAdjustedClose": "true" if phase == "yahoo_etf" else "false",
+                "includeAdjustedClose": (
+                    "true" if phase in {"yahoo_etf", "yahoo_equity"} else "false"
+                ),
             }
         elif record.get("provider") == "fred_via_financedatareader":
             item = parameters.get("id")
@@ -1135,7 +1151,9 @@ def prepare_phase(
     production_state = project_root / "data/state" / f"{contract.name}.json"
     _assert_plain_path(
         project_root, production_root,
-        must_exist=phase not in {"yahoo_etf", "yahoo_dashboard_futures"},
+        must_exist=phase not in {
+            "yahoo_etf", "yahoo_equity", "yahoo_dashboard_futures",
+        },
     )
     _assert_plain_path(project_root, production_state, must_exist=False)
     for prospective in (state_root, landing_root, candidate_root.parent):
@@ -1144,6 +1162,7 @@ def prepare_phase(
     validator = (
         validate_global_index if phase in {"yahoo", "cboe_index"} else
         validate_global_etf if phase == "yahoo_etf" else
+        validate_global_equity if phase == "yahoo_equity" else
         validate_global_commodity_futures if phase == "yahoo_dashboard_futures" else
         validate_fred
     )
@@ -1230,6 +1249,11 @@ def prepare_phase(
                     ))
                 elif phase == "yahoo_etf":
                     frames.append(fetch_global_etf(item_plan["item"], start, end, session=budget, capture_root=landing_root))
+                elif phase == "yahoo_equity":
+                    frames.append(fetch_global_equity(
+                        item_plan["item"], start, end,
+                        session=budget, capture_root=landing_root,
+                    ))
                 elif phase == "yahoo_dashboard_futures":
                     frames.append(fetch_commodity_future(
                         item_plan["item"], start, end,
@@ -1313,6 +1337,7 @@ def prepare_phase(
                 validator = (
                     validate_global_index if phase in {"yahoo", "cboe_index"} else
                     validate_global_etf if phase == "yahoo_etf" else
+                    validate_global_equity if phase == "yahoo_equity" else
                     validate_global_commodity_futures
                 )
                 validator(incoming)
