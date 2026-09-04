@@ -22,6 +22,10 @@ from stock_data.gui.health_service import (
 )
 from stock_data.gui.main_window import DataStatusPage, IndicatorControlPanel
 from stock_data.gui.refresh_status import project_refresh_status
+from stock_data.gui.services import (
+    US_ETF_CHART_AUTHORIZED_SYMBOLS,
+    US_ETF_CHART_IDENTITIES,
+)
 from stock_data.orchestration.daily_operations import (
     AutomationPolicy, DATASET_UNIVERSE, DataGrain, UniverseOperationalStatus,
 )
@@ -32,6 +36,21 @@ def _write_health(tmp_path, rows):
     path.parent.mkdir(parents=True)
     path.write_text(json.dumps({"datasets": rows}), encoding="utf-8")
     return path
+
+
+def test_backtest_six_etfs_are_in_the_local_chart_catalog() -> None:
+    by_symbol = {identity.symbol: identity for identity in US_ETF_CHART_IDENTITIES}
+
+    assert {"VNQ", "IEF", "SHY"} <= US_ETF_CHART_AUTHORIZED_SYMBOLS
+    assert {
+        symbol: (by_symbol[symbol].name, by_symbol[symbol].listing_date)
+        for symbol in ("VNQ", "IEF", "SHY")
+    } == {
+        "VNQ": ("Vanguard Real Estate ETF", "2004-09-29"),
+        "IEF": ("iShares 7-10 Year Treasury Bond ETF", "2002-07-30"),
+        "SHY": ("iShares 1-3 Year Treasury Bond ETF", "2002-07-30"),
+    }
+    assert all(by_symbol[symbol].leverage_multiple == 1 for symbol in ("VNQ", "IEF", "SHY"))
 
 
 def _row(dataset, freshness, operational="ELIGIBLE", predictive="BLOCKED", *, latest="2026-08-13", expected="2026-08-14", runtime_coverage="NOT_PROBED"):

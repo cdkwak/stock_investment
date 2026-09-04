@@ -31,7 +31,10 @@ if str(ROOT) not in sys.path:
 
 from stock_data.contracts.global_market import (  # noqa: E402
     EndpointWindowPolicy,
-    FRED_TREASURY_YIELD_DAILY, FRED_USD_FX_DAILY, FRED_VIX_DAILY,
+    FRED_TREASURY_YIELD_DAILY, FRED_TREASURY_YIELD_EXT_DAILY,
+    FRED_TREASURY_YIELD_EXT_STARTS,
+    FRED_USD_FX_DAILY, FRED_VIX_DAILY,
+    GLOBAL_FUTURES_BACKFILL_STARTS,
     GLOBAL_COMMODITY_FUTURES_DAILY, GLOBAL_INDEX_PRICE_DAILY,
     GLOBAL_INDEX_REGISTRY, GLOBAL_INDEX_SYMBOLS_BY_PROVIDER, US_TREASURY_SPREAD_DAILY,
     US_VIX_TERM_STRUCTURE_DAILY,
@@ -97,6 +100,9 @@ PHASES = {
         GLOBAL_FUTURES_DAILY_SYMBOLS,
     ),
     "fred_yields": (3, FRED_TREASURY_YIELD_DAILY, ("DGS2", "DGS10", "DGS30")),
+    "fred_yields_ext": (
+        3, FRED_TREASURY_YIELD_EXT_DAILY, ("DGS3", "DGS5", "DTB3"),
+    ),
     "fred_fx": (2, FRED_USD_FX_DAILY, ("DEXKOUS", "DEXJPUS")),
     "fred_vix": (1, FRED_VIX_DAILY, ("VIXCLS",)),
 }
@@ -255,6 +261,7 @@ def _files_manifest(root: Path) -> dict[str, object]:
         GLOBAL_EQUITY_PRICE_DAILY.name: ("symbol", "year"),
         GLOBAL_COMMODITY_FUTURES_DAILY.name: ("symbol", "year"),
         FRED_TREASURY_YIELD_DAILY.name: ("year",),
+        FRED_TREASURY_YIELD_EXT_DAILY.name: ("year",),
         FRED_USD_FX_DAILY.name: ("year",),
         FRED_VIX_DAILY.name: ("year",),
         US_TREASURY_SPREAD_DAILY.name: ("year",),
@@ -1188,6 +1195,7 @@ def prepare_phase(
         project_root, production_root,
         must_exist=phase not in {
             "yahoo_etf", "yahoo_equity", "yahoo_dashboard_futures",
+            "fred_yields_ext",
         },
     )
     _assert_plain_path(project_root, production_state, must_exist=False)
@@ -1244,7 +1252,7 @@ def prepare_phase(
         if selected.empty:
             if phase == "cboe_index":
                 item_start = date(1900, 1, 1)
-            elif phase not in YAHOO_PHASES or start is None:
+            elif start is None:
                 raise RefreshError(f"cannot derive overlap start for {item}")
             else:
                 item_start = start
@@ -1253,8 +1261,16 @@ def prepare_phase(
                 date(1900, 1, 1) if phase == "cboe_index"
                 else start or (date.fromisoformat(str(selected.max())) - timedelta(days=10))
             )
+        if phase == "fred_yields_ext":
+            item_start = max(item_start, FRED_TREASURY_YIELD_EXT_STARTS[item])
         if item_start > end:
             raise RefreshError("explicit start is after end")
+        if (
+            phase == "yahoo_dashboard_futures"
+            and item in GLOBAL_FUTURES_BACKFILL_STARTS
+            and item_start < GLOBAL_FUTURES_BACKFILL_STARTS[item]
+        ):
+            raise RefreshError(f"explicit start predates registered history for {item}")
         plan.append({"item": item, "start": item_start.isoformat(), "end": end.isoformat()})
     vix_circuit = project_root / "data/state/automatic_fallback/fred_vix_daily_vixcls.json"
     max_http_calls = 3 if phase == "fred_vix" else limit
@@ -1419,7 +1435,10 @@ def prepare_phase(
                 if pd.to_datetime(incoming.date).max().date() > end:
                     raise RefreshError("FRED response exceeded explicit end")
                 validate_fred(incoming)
-                old_latest = _finite_latest(existing, tuple(item.lower() for item in items))
+                old_latest = (
+                    _finite_latest(existing, tuple(item.lower() for item in items))
+                    if not existing.empty else {}
+                )
                 new_latest = _finite_latest(incoming, tuple(item.lower() for item in items))
                 if any(new_latest[name] < old_latest[name] for name in old_latest):
                     raise RefreshError("FRED finite coverage regressed")

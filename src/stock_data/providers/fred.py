@@ -8,7 +8,12 @@ import pandas as pd
 import requests
 from pathlib import Path
 
-from stock_data.contracts.global_market import FRED_TREASURY_YIELD_DAILY, FRED_USD_FX_DAILY, FRED_VIX_DAILY
+from stock_data.contracts.global_market import (
+    FRED_TREASURY_YIELD_DAILY,
+    FRED_TREASURY_YIELD_EXT_DAILY,
+    FRED_USD_FX_DAILY,
+    FRED_VIX_DAILY,
+)
 from stock_data.storage.contract_parquet import read_dataset, write_dataset_atomic
 from stock_data.validation.global_market import validate_fred
 from stock_data.providers.public_http_capture import capture_public_response
@@ -66,7 +71,12 @@ def collect_fred(
     root: Path, *, start: date | None = None,
     capture_root: Path | None = None, session=requests,
 ) -> dict[str, pd.DataFrame]:
-    configs=((FRED_TREASURY_YIELD_DAILY,("DGS2","DGS10","DGS30")),(FRED_USD_FX_DAILY,("DEXKOUS","DEXJPUS")),(FRED_VIX_DAILY,("VIXCLS",)))
+    configs=(
+        (FRED_TREASURY_YIELD_DAILY, ("DGS2", "DGS10", "DGS30")),
+        (FRED_TREASURY_YIELD_EXT_DAILY, ("DGS3", "DGS5", "DTB3")),
+        (FRED_USD_FX_DAILY, ("DEXKOUS", "DEXJPUS")),
+        (FRED_VIX_DAILY, ("VIXCLS",)),
+    )
     results={}
     for contract,series in configs:
         path=root/contract.name

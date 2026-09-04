@@ -577,6 +577,7 @@ def test_yahoo_daily_dataset_symbol_registry_includes_new_uncollected_scope() ->
     )
     assert DATASET_SYMBOL_REGISTRY["global_etf_price_daily"] == (
         "SOXX", "EWY", "SOXL", "TQQQ", "QLD", "TLT", "QQQ", "SPY", "SGOV", "VGLT",
+        "VNQ", "IEF", "SHY",
     )
     assert DATASET_SYMBOL_REGISTRY["global_equity_price_daily"] == ("SKHY",)
     assert DATASET_SYMBOL_REGISTRY["tossinvest_us_quote_30m"] == (

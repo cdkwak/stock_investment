@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import pytest
 import pandas as pd
@@ -12,6 +13,7 @@ from stock_data.orchestration.daily_operations import (
     DAILY_LANE_READINESS, DailyRunLock, DailyRunLockError, LaneReadinessStatus,
 )
 from stock_data.contracts.kr_etf import KR_ETF_MASTER
+from stock_data.contracts.global_market import FRED_TREASURY_YIELD_EXT_DAILY
 from stock_data.orchestration.kr_etf_daily import normalize_master
 from stock_data.orchestration.kr_index_daily_incremental import (
     validate_registered_kr_index_daily,
@@ -21,6 +23,7 @@ from stock_data.orchestration.kr_index_daily_live import (
 )
 from stock_data.storage.contract_parquet import read_dataset, write_dataset_atomic
 from stock_data.validation.kr_etf import validate_kr_etf_master
+from stock_data.validation.global_market import validate_fred
 import stock_data.orchestration.provider_scheduler as scheduler
 import scripts.manual.collect.refresh_global_current as refresh
 from stock_data.orchestration.provider_scheduler import ProviderSchedulerError, run_lane
@@ -187,6 +190,136 @@ def test_global_refresh_phase_accounting_separates_yahoo_and_cboe_indices() -> N
     assert cboe_symbols == ("VIX9D", "VIX3M", "VIX6M", "SKEW")
     assert set(yahoo_symbols).isdisjoint(cboe_symbols)
     assert yahoo_contract is cboe_contract is scheduler.GLOBAL_INDEX_PRICE_DAILY
+
+
+def test_extended_fred_phase_is_three_series_and_promotes_initial_sibling(
+    tmp_path: Path,
+) -> None:
+    limit, contract, series = refresh.PHASES["fred_yields_ext"]
+    assert limit == 3
+    assert series == ("DGS3", "DGS5", "DTB3")
+    assert contract is FRED_TREASURY_YIELD_EXT_DAILY
+
+    class Response:
+        status_code = 200
+        headers = {"Content-Type": "text/csv"}
+
+        def __init__(self, text: str) -> None:
+            self.text = text
+            self.content = text.encode("utf-8")
+
+        @staticmethod
+        def raise_for_status() -> None:
+            return None
+
+    class Backend:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def get(self, _url, *, params, **_kwargs):
+            series_id = params["id"]
+            self.calls.append(series_id)
+            assert params["cosd"] == (
+                "1954-01-04" if series_id == "DTB3" else "1962-01-02"
+            )
+            assert params["coed"] == "2026-09-03"
+            first = "1954-01-04" if series_id == "DTB3" else "1962-01-02"
+            return Response(
+                f"DATE,{series_id}\n{first},3.0\n1962-01-03,.\n2026-09-03,4.0\n"
+            )
+
+    root = tmp_path / "project"
+    root.mkdir()
+    backend = Backend()
+    prepared = refresh.prepare_phase(
+        root, "fred_yields_ext", start=date(1954, 1, 4),
+        end=date(2026, 9, 3), session=backend,
+    )
+
+    assert backend.calls == ["DGS3", "DGS5", "DTB3"]
+    assert prepared["status"] == "CANDIDATE_REVIEW_REQUIRED"
+    assert prepared["http_calls"] == prepared["max_http_calls"] == 3
+    assert prepared["coverage"]["DTB3"]["observed_start"] == "1954-01-04"
+    assert prepared["coverage"]["DGS3"]["observed_start"] == "1962-01-02"
+    assert {item["item"]: item["start"] for item in prepared["frozen_plan"]} == {
+        "DGS3": "1962-01-02", "DGS5": "1962-01-02", "DTB3": "1954-01-04",
+    }
+    checkpoint = (
+        root / "data/state/global_current_refresh" / prepared["run_id"] / "checkpoint.json"
+    )
+    promoted = refresh.promote_phase(
+        root, checkpoint, approval_digest=prepared["approval_digest"],
+    )
+    assert promoted["status"] == "PROMOTED"
+    retained = read_dataset(
+        root / "data/normalized/fred_treasury_yield_ext_daily",
+        FRED_TREASURY_YIELD_EXT_DAILY, validate_fred,
+    )
+    assert retained.columns.tolist() == ["date", "dgs3", "dgs5", "dtb3"]
+    assert retained["dtb3"].first_valid_index() == 0
+    assert retained[["dgs3", "dgs5", "dtb3"]].isna().any().all()
+
+
+def test_gold_full_history_window_is_one_explicit_daily_request(tmp_path: Path) -> None:
+    class Response:
+        status_code = 200
+        headers = {"Content-Type": "application/json"}
+
+        def __init__(self, payload: dict) -> None:
+            self._payload = payload
+            self.content = json.dumps(payload).encode("utf-8")
+
+        def json(self):
+            return self._payload
+
+        @staticmethod
+        def raise_for_status() -> None:
+            return None
+
+    class Backend:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def get(self, _url, *, params, **_kwargs):
+            self.calls += 1
+            assert params["interval"] == "1d"
+            assert params["period1"] == int(datetime(
+                2000, 8, 30, tzinfo=ZoneInfo("America/New_York")
+            ).timestamp())
+            assert params["period2"] == int(datetime(
+                2026, 9, 4, tzinfo=ZoneInfo("America/New_York")
+            ).timestamp())
+            timestamps = [
+                int(datetime(2000, 8, 30, tzinfo=ZoneInfo("America/New_York")).timestamp()),
+                int(datetime(2026, 9, 3, tzinfo=ZoneInfo("America/New_York")).timestamp()),
+            ]
+            return Response({"chart": {"error": None, "result": [{
+                "meta": {
+                    "symbol": "GC=F", "instrumentType": "FUTURE",
+                    "dataGranularity": "1d",
+                },
+                "timestamp": timestamps,
+                "indicators": {"quote": [{
+                    "open": [275.0, 3500.0], "high": [280.0, 3550.0],
+                    "low": [270.0, 3450.0], "close": [278.0, 3525.0],
+                    "volume": [100, 200],
+                }]},
+            }]}})
+
+    root = tmp_path / "project"
+    root.mkdir()
+    backend = Backend()
+    prepared = refresh.prepare_phase(
+        root, "yahoo_dashboard_futures", symbols=("GOLD",),
+        start=date(2000, 8, 30), end=date(2026, 9, 3), session=backend,
+    )
+
+    assert backend.calls == prepared["http_calls"] == 1
+    assert prepared["frozen_plan"] == [{
+        "item": "GOLD", "start": "2000-08-30", "end": "2026-09-03",
+    }]
+    assert prepared["coverage"]["GOLD"]["coverage_first"] == "2000-08-30"
+    assert prepared["coverage"]["GOLD"]["coverage_last"] == "2026-09-03"
 
 
 def test_cboe_phase_full_history_capture_promote_and_api_zero_replay(tmp_path: Path) -> None:

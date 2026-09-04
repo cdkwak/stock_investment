@@ -223,6 +223,9 @@ def test_yahoo_skhy_rejects_etf_instrument_identity() -> None:
         ("TLT", "iShares", "iShares 20+ Year Treasury Bond ETF", 1),
         ("QQQ", "Invesco", "Invesco QQQ Trust, Series 1", 1),
         ("SPY", "State Street Global Advisors", "SPDR S&P 500 ETF Trust", 1),
+        ("VNQ", "Vanguard", "Vanguard Real Estate ETF", 1),
+        ("IEF", "iShares", "iShares 7-10 Year Treasury Bond ETF", 1),
+        ("SHY", "iShares", "iShares 1-3 Year Treasury Bond ETF", 1),
     ),
 )
 def test_watchlist_etf_registry_and_daily_identity_are_validated_offline(
@@ -702,6 +705,26 @@ class FredSession:
 def test_fred_preserves_missing_observation() -> None:
     frame=fetch_series("DGS2",session=FredSession)
     assert frame.dgs2.iloc[0]==3.0 and pd.isna(frame.dgs2.iloc[1])
+
+
+@pytest.mark.parametrize("series_id", ("DGS3", "DGS5", "DTB3"))
+def test_fred_extended_treasury_series_parse_dot_as_nullable_float(
+    series_id: str,
+) -> None:
+    class ExtendedFredSession:
+        @staticmethod
+        def get(*args, **kwargs):
+            assert kwargs["params"]["id"] == series_id
+            return Response(
+                text=f"DATE,{series_id}\n1962-01-02,3.50\n1962-01-03,.\n"
+            )
+
+    frame = fetch_series(series_id, session=ExtendedFredSession)
+
+    assert list(frame.columns) == ["date", series_id.lower()]
+    assert frame[series_id.lower()].dtype == "float64"
+    assert frame[series_id.lower()].iloc[0] == pytest.approx(3.5)
+    assert pd.isna(frame[series_id.lower()].iloc[1])
 
 
 def test_yahoo_capture_retains_exact_body_and_call_record(tmp_path) -> None:

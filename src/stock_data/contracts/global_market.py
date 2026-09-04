@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import date
 from enum import StrEnum
 from types import MappingProxyType
 
@@ -17,6 +18,20 @@ class EndpointWindowPolicy(StrEnum):
 # share the XNYS cash-calendar endpoints used to bound the request.
 GLOBAL_INDEX_ENDPOINT_WINDOW_OVERRIDES = MappingProxyType({
     "DOLLAR_INDEX": EndpointWindowPolicy.PROVIDER_NATIVE,
+})
+
+
+# Earliest contract-supported explicit daily-history windows for bounded
+# futures onboarding.  Yahoo's range=max route is deliberately not used because
+# it can silently coerce long histories to monthly granularity.
+GLOBAL_FUTURES_BACKFILL_STARTS = MappingProxyType({
+    "GOLD": date(2000, 8, 30),
+})
+
+FRED_TREASURY_YIELD_EXT_STARTS = MappingProxyType({
+    "DGS3": date(1962, 1, 2),
+    "DGS5": date(1962, 1, 2),
+    "DTB3": date(1954, 1, 4),
 })
 
 
@@ -202,6 +217,36 @@ FRED_TREASURY_YIELD_DAILY = DatasetContract(
     primary_key=("date",), sort_key=("date",), partition_by=("year",), columns=(
         ColumnContract("date", "date32", False), ColumnContract("dgs2", "float64", True),
         ColumnContract("dgs10", "float64", True), ColumnContract("dgs30", "float64", True),
+    ),
+)
+
+FRED_TREASURY_YIELD_EXT_DAILY = DatasetContract(
+    name="fred_treasury_yield_ext_daily", version=1, status="active",
+    description=(
+        "Additional observed U.S. Treasury rates from FRED: DGS3 and DGS5 "
+        "constant-maturity yields plus DTB3, the 3-month Treasury bill "
+        "secondary-market discount rate used as a cash-yield proxy. Values are "
+        "percent, and source holiday/non-observation markers remain nullable."
+    ),
+    source="fred", layer="normalized", storage_format="parquet", frequency="daily",
+    timezone=None, primary_key=("date",), sort_key=("date",), partition_by=("year",),
+    columns=(
+        ColumnContract(
+            "date", "date32", False,
+            description="FRED observation date; rows may contain holiday nulls.",
+        ),
+        ColumnContract(
+            "dgs3", "float64", True, "percent",
+            "3-year Treasury constant-maturity rate, investment basis.",
+        ),
+        ColumnContract(
+            "dgs5", "float64", True, "percent",
+            "5-year Treasury constant-maturity rate, investment basis.",
+        ),
+        ColumnContract(
+            "dtb3", "float64", True, "percent",
+            "3-month Treasury bill secondary-market rate, discount basis; cash-yield proxy.",
+        ),
     ),
 )
 

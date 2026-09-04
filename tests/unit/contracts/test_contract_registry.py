@@ -1,3 +1,5 @@
+from datetime import date
+
 from stock_data.contracts.registry import CONTRACTS
 from stock_data.contracts.market_15m import MARKET_PRICE_15M_OBSERVATION
 from stock_data.contracts.global_etf import (
@@ -11,6 +13,9 @@ from stock_data.contracts.global_equity import (
     GLOBAL_EQUITY_REGISTRY,
 )
 from stock_data.contracts.global_market import (
+    FRED_TREASURY_YIELD_EXT_DAILY,
+    FRED_TREASURY_YIELD_EXT_STARTS,
+    GLOBAL_FUTURES_BACKFILL_STARTS,
     GLOBAL_INDEX_DAILY_SYMBOLS,
     GLOBAL_INDEX_REGISTRY,
     GLOBAL_INDEX_SYMBOLS_BY_PROVIDER,
@@ -60,6 +65,29 @@ def test_global_daily_contracts_keep_symbol_identity_and_futures_semantics() -> 
     )
     assert {"source_ticker", "asset", "ohlc_status"} <= set(futures.column_names)
     assert "dollar-index continuous futures" in futures.description
+
+
+def test_fred_extended_treasury_contract_is_a_compatible_sibling() -> None:
+    contract = FRED_TREASURY_YIELD_EXT_DAILY
+
+    assert contract.name == "fred_treasury_yield_ext_daily"
+    assert contract.version == 1
+    assert contract.column_names == ("date", "dgs3", "dgs5", "dtb3")
+    assert all(column.dtype == "float64" for column in contract.columns[1:])
+    assert all(column.nullable and column.unit == "percent" for column in contract.columns[1:])
+    assert "cash-yield proxy" in contract.description
+    assert "holiday" in contract.description
+    assert "fred_treasury_yield_daily" in CONTRACTS
+    assert "fred_treasury_yield_ext_daily" not in CONTRACTS
+    assert FRED_TREASURY_YIELD_EXT_STARTS == {
+        "DGS3": date(1962, 1, 2),
+        "DGS5": date(1962, 1, 2),
+        "DTB3": date(1954, 1, 4),
+    }
+
+
+def test_gold_has_exact_contract_supported_daily_history_start() -> None:
+    assert GLOBAL_FUTURES_BACKFILL_STARTS == {"GOLD": date(2000, 8, 30)}
 
 
 def test_global_index_registry_includes_vix_term_structure_identities() -> None:
@@ -145,6 +173,7 @@ def test_yahoo_current_30m_registry_has_four_new_exact_identities() -> None:
 def test_global_etf_registry_is_contract_owned_and_exposure_explicit() -> None:
     assert GLOBAL_ETF_DAILY_SYMBOLS == (
         "SOXX", "EWY", "SOXL", "TQQQ", "QLD", "TLT", "QQQ", "SPY", "SGOV", "VGLT",
+        "VNQ", "IEF", "SHY",
     )
     assert {
         symbol: global_etf_leverage_multiple(symbol)
@@ -152,6 +181,7 @@ def test_global_etf_registry_is_contract_owned_and_exposure_explicit() -> None:
     } == {
         "SOXX": 1, "EWY": 1, "SOXL": 3, "TQQQ": 3,
         "QLD": 2, "TLT": 1, "QQQ": 1, "SPY": 1, "SGOV": 1, "VGLT": 1,
+        "VNQ": 1, "IEF": 1, "SHY": 1,
     }
     assert all(
         entry["cadence"] == "GLOBAL_DAILY"
@@ -159,6 +189,18 @@ def test_global_etf_registry_is_contract_owned_and_exposure_explicit() -> None:
         and entry["expected_currency"] == "USD"
         for entry in GLOBAL_ETF_REGISTRY.values()
     )
+    assert {
+        symbol: (
+            GLOBAL_ETF_REGISTRY[symbol]["official_fund_name"],
+            GLOBAL_ETF_REGISTRY[symbol]["official_exchange"],
+            GLOBAL_ETF_REGISTRY[symbol]["official_cusip"],
+        )
+        for symbol in ("VNQ", "IEF", "SHY")
+    } == {
+        "VNQ": ("Vanguard Real Estate ETF", "NYSE Arca", "922908553"),
+        "IEF": ("iShares 7-10 Year Treasury Bond ETF", "NASDAQ", "464287440"),
+        "SHY": ("iShares 1-3 Year Treasury Bond ETF", "NASDAQ", "464287457"),
+    }
 
 
 def test_korean_etf_contracts_and_name_only_leverage_rule_are_registered() -> None:
