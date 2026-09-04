@@ -32,7 +32,8 @@ from stock_data.contracts.global_market import (  # noqa: E402
     EndpointWindowPolicy,
     FRED_TREASURY_YIELD_DAILY, FRED_USD_FX_DAILY, FRED_VIX_DAILY,
     GLOBAL_COMMODITY_FUTURES_DAILY, GLOBAL_INDEX_PRICE_DAILY,
-    US_TREASURY_SPREAD_DAILY, US_VIX_TERM_STRUCTURE_DAILY,
+    GLOBAL_INDEX_REGISTRY, GLOBAL_INDEX_SYMBOLS_BY_PROVIDER, US_TREASURY_SPREAD_DAILY,
+    US_VIX_TERM_STRUCTURE_DAILY,
     global_index_endpoint_window,
 )
 from stock_data.contracts.global_etf import GLOBAL_ETF_PRICE_DAILY  # noqa: E402
@@ -46,9 +47,12 @@ from stock_data.derived.vix_term_structure import (  # noqa: E402
 from stock_data.providers.fred import fetch_series  # noqa: E402
 from stock_data.providers.fred import URL as FRED_URL  # noqa: E402
 from stock_data.providers.financedatareader_fred import fetch_vixcls  # noqa: E402
+from stock_data.providers.cboe_index_history import (  # noqa: E402
+    fetch_cboe_index_history,
+)
 from stock_data.providers.yahoo import (  # noqa: E402
     COMMODITY_CONFIG, CONFIG, ETF_REGISTRY, GLOBAL_ETF_DAILY_SYMBOLS,
-    GLOBAL_FUTURES_DAILY_SYMBOLS, GLOBAL_INDEX_DAILY_SYMBOLS, _epoch,
+    GLOBAL_FUTURES_DAILY_SYMBOLS, _epoch,
     fetch_commodity_future, fetch_global_etf, fetch_global_index,
 )
 from stock_data.orchestration.exchange_calendar import ExchangeMarket, ExchangeTradingCalendar  # noqa: E402
@@ -66,8 +70,14 @@ from stock_data.validation.global_market import (  # noqa: E402
 
 PHASES = {
     "yahoo": (
-        len(GLOBAL_INDEX_DAILY_SYMBOLS), GLOBAL_INDEX_PRICE_DAILY,
-        GLOBAL_INDEX_DAILY_SYMBOLS,
+        len(GLOBAL_INDEX_SYMBOLS_BY_PROVIDER["yahoo_chart_api"]),
+        GLOBAL_INDEX_PRICE_DAILY,
+        GLOBAL_INDEX_SYMBOLS_BY_PROVIDER["yahoo_chart_api"],
+    ),
+    "cboe_index": (
+        len(GLOBAL_INDEX_SYMBOLS_BY_PROVIDER["cboe_index_history_csv"]),
+        GLOBAL_INDEX_PRICE_DAILY,
+        GLOBAL_INDEX_SYMBOLS_BY_PROVIDER["cboe_index_history_csv"],
     ),
     "yahoo_etf": (
         len(GLOBAL_ETF_DAILY_SYMBOLS), GLOBAL_ETF_PRICE_DAILY,
@@ -84,6 +94,7 @@ PHASES = {
 LOCK = Path("data/state/global_current_refresh.lock")
 REPARSE_POINT = 0x400
 YAHOO_PHASES = frozenset({"yahoo", "yahoo_etf", "yahoo_dashboard_futures"})
+SYMBOL_PHASES = YAHOO_PHASES | {"cboe_index"}
 PROVIDER_NATIVE_ENDPOINT_TOLERANCE_SESSIONS = 5
 
 
@@ -129,17 +140,30 @@ def _select_phase_items(
 ) -> tuple[str, ...]:
     if symbols is None:
         return configured
-    if phase not in YAHOO_PHASES:
-        raise RefreshError("symbol selection is supported only for Yahoo phases")
+    if phase not in SYMBOL_PHASES:
+        raise RefreshError("symbol selection is supported only for symbol phases")
     selected = tuple(str(item).strip() for item in symbols)
     if not selected or any(not item for item in selected):
-        raise RefreshError("at least one non-empty Yahoo symbol is required")
+        raise RefreshError("at least one non-empty symbol is required")
     if len(selected) != len(set(selected)):
-        raise RefreshError("Yahoo symbol selection contains duplicates")
+        raise RefreshError("symbol selection contains duplicates")
     unknown = set(selected).difference(configured)
     if unknown:
-        raise RefreshError(f"Yahoo symbol selection is not registered: {sorted(unknown)}")
+        raise RefreshError(f"symbol selection is not registered: {sorted(unknown)}")
     return selected
+
+
+def _landing_root(project_root: Path, phase: str, run_id: str) -> Path:
+    if phase == "cboe_index":
+        return project_root / "data/landing/cboe_index_history" / run_id
+    return project_root / "data/landing/global_current_refresh" / run_id
+
+
+def _cboe_response_covers_endpoint_window(
+    *, observed_end: date, planned_end: date,
+) -> bool:
+    previous_session = _move_us_sessions(planned_end, -1)
+    return previous_session <= observed_end <= planned_end
 
 
 def _atomic_json(path: Path, value: object) -> None:
@@ -621,7 +645,7 @@ def _series_revision(
     existing: pd.DataFrame, incoming: pd.DataFrame, *, item: str, phase: str,
     planned_start: str | None = None, planned_end: str | None = None,
 ) -> dict[str, object]:
-    if phase in {"yahoo", "yahoo_etf", "yahoo_dashboard_futures"}:
+    if phase in SYMBOL_PHASES:
         old = existing.loc[existing.symbol.eq(item)].set_index("date")
         new = incoming.loc[incoming.symbol.eq(item)].set_index("date")
         columns = ["open", "high", "low", "close", "volume", "source_ticker"]
@@ -657,6 +681,58 @@ def _verify_captures(
     landing_root: Path, phase: str, plan: list[dict[str, str]], *,
     vix_fallback: bool = False,
 ) -> list[dict[str, object]]:
+    if phase == "cboe_index":
+        expected_names = {
+            name
+            for entry in plan
+            for name in (f"{entry['item']}.csv", f"{entry['item']}.json")
+        }
+        actual_names = {entry.name for entry in landing_root.iterdir()}
+        if actual_names != expected_names or any(not entry.is_file() for entry in landing_root.iterdir()):
+            raise RefreshError("Cboe Landing root contains unexpected topology")
+        records = []
+        for item_plan in plan:
+            item = item_plan["item"]
+            path = landing_root / f"{item}.json"
+            body = landing_root / f"{item}.csv"
+            _assert_plain_path(landing_root, path)
+            _assert_plain_path(landing_root, body)
+            record = json.loads(path.read_text(encoding="utf-8"))
+            required = {
+                "capture_version", "provider", "operation", "captured_at_utc",
+                "request_url", "request_parameters", "http_status",
+                "response_content_type", "response_body_sha256", "response_bytes",
+                "landing_body_file",
+            }
+            content = body.read_bytes()
+            if (
+                set(record) != required
+                or record["capture_version"] != 1
+                or record["provider"] != "cboe_index_history_csv"
+                or record["operation"] != "daily_history_csv"
+                or record["request_url"] != GLOBAL_INDEX_REGISTRY[item]["source_url"]
+                or record["request_parameters"] != {"symbol": item}
+                or record["landing_body_file"] != body.name
+                or int(record["http_status"]) != 200
+                or record["response_body_sha256"] != hashlib.sha256(content).hexdigest()
+                or record["response_bytes"] != len(content)
+                or not isinstance(record["response_content_type"], str)
+            ):
+                raise RefreshError("Cboe Landing record does not bind exactly to frozen plan")
+            try:
+                datetime.fromisoformat(str(record["captured_at_utc"]).replace("Z", "+00:00"))
+            except (TypeError, ValueError) as error:
+                raise RefreshError("Cboe Landing capture timestamp differs") from error
+            records.append({
+                "item": item,
+                "provider": record["provider"],
+                "path": path.relative_to(landing_root).as_posix(),
+                "body_path": body.relative_to(landing_root).as_posix(),
+                "call_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                "body_sha256": record["response_body_sha256"],
+                "response_bytes": record["response_bytes"],
+            })
+        return records
     expected_provider = "yahoo" if phase in {"yahoo", "yahoo_etf", "yahoo_dashboard_futures"} else "fred"
     expected_operation = ({
         "yahoo": "chart", "yahoo_etf": "etf_chart_daily",
@@ -767,9 +843,11 @@ def _verify_captures(
                 or record.get("operation") != expected_operation
                 or record.get("request_url") != expected_url or parameters != expected_parameters):
             raise RefreshError("Landing record does not bind exactly to frozen plan")
-        records.append({"item": item, "path": path.relative_to(landing_root).as_posix(),
+        records.append({"item": item, "provider": record["provider"],
+                        "path": path.relative_to(landing_root).as_posix(),
                         "call_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-                        "body_sha256": record["response_body_sha256"]})
+                        "body_sha256": record["response_body_sha256"],
+                        "response_bytes": record["response_bytes"]})
     expected_count = len(plan) + (2 if vix_fallback else 0)
     if (len(records) != expected_count
             or {record["item"] for record in records} != {entry["item"] for entry in plan}):
@@ -1048,10 +1126,10 @@ def prepare_phase(
         raise RefreshError("unknown phase")
     configured_limit, contract, configured_items = PHASES[phase]
     items = _select_phase_items(phase, configured_items, symbols)
-    limit = len(items) if phase in YAHOO_PHASES else configured_limit
+    limit = len(items) if phase in SYMBOL_PHASES else configured_limit
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "_" + uuid4().hex
     state_root = project_root / "data/state/global_current_refresh" / run_id
-    landing_root = project_root / "data/landing/global_current_refresh" / run_id
+    landing_root = _landing_root(project_root, phase, run_id)
     candidate_root = project_root / "data/staging/global_current_refresh" / run_id / contract.name
     production_root = project_root / "data/normalized" / contract.name
     production_state = project_root / "data/state" / f"{contract.name}.json"
@@ -1064,7 +1142,7 @@ def prepare_phase(
         _assert_plain_path(project_root, prospective, must_exist=False)
     checkpoint_path = state_root / "checkpoint.json"
     validator = (
-        validate_global_index if phase == "yahoo" else
+        validate_global_index if phase in {"yahoo", "cboe_index"} else
         validate_global_etf if phase == "yahoo_etf" else
         validate_global_commodity_futures if phase == "yahoo_dashboard_futures" else
         validate_fred
@@ -1079,7 +1157,9 @@ def prepare_phase(
     )
     if fred_noop is not None:
         return fred_noop
-    if phase in YAHOO_PHASES and not existing.empty and start is not None:
+    if phase in SYMBOL_PHASES and not existing.empty and (
+        start is not None or phase == "cboe_index"
+    ):
         requested_start = start or end
         expected_dates = {
             value.isoformat() for value in ExchangeTradingCalendar(
@@ -1096,7 +1176,7 @@ def prepare_phase(
                 "version": 2,
                 "phase": phase,
                 "status": "NOOP_IDEMPOTENT",
-                "reason": "requested ETF window is already retained",
+                "reason": "requested symbol window is already retained",
                 "requested_start": requested_start.isoformat(),
                 "requested_end": end.isoformat(),
                 "http_calls": 0,
@@ -1106,14 +1186,20 @@ def prepare_phase(
     plan = []
     for item in items:
         selected = (existing.loc[existing["symbol"].eq(item), "date"]
-                    if phase in {"yahoo", "yahoo_etf", "yahoo_dashboard_futures"}
+                    if phase in SYMBOL_PHASES
                     else existing.loc[pd.to_numeric(existing[item.lower()], errors="coerce").notna(), "date"])
         if selected.empty:
-            if phase not in YAHOO_PHASES or start is None:
+            if phase == "cboe_index":
+                item_start = date(1900, 1, 1)
+            elif phase not in YAHOO_PHASES or start is None:
                 raise RefreshError(f"cannot derive overlap start for {item}")
-            item_start = start
+            else:
+                item_start = start
         else:
-            item_start = start or (date.fromisoformat(str(selected.max())) - timedelta(days=10))
+            item_start = (
+                date(1900, 1, 1) if phase == "cboe_index"
+                else start or (date.fromisoformat(str(selected.max())) - timedelta(days=10))
+            )
         if item_start > end:
             raise RefreshError("explicit start is after end")
         plan.append({"item": item, "start": item_start.isoformat(), "end": end.isoformat()})
@@ -1138,6 +1224,10 @@ def prepare_phase(
                 start = date.fromisoformat(item_plan["start"])
                 if phase == "yahoo":
                     frames.append(fetch_global_index(item_plan["item"], start, end, session=budget, capture_root=landing_root))
+                elif phase == "cboe_index":
+                    frames.append(fetch_cboe_index_history(
+                        item_plan["item"], session=budget, capture_root=landing_root,
+                    ))
                 elif phase == "yahoo_etf":
                     frames.append(fetch_global_etf(item_plan["item"], start, end, session=budget, capture_root=landing_root))
                 elif phase == "yahoo_dashboard_futures":
@@ -1179,6 +1269,10 @@ def prepare_phase(
                     if phase in YAHOO_PHASES else None
                 )
                 covers_window = (
+                    _cboe_response_covers_endpoint_window(
+                        observed_end=observed_end, planned_end=end,
+                    )
+                    if phase == "cboe_index" else
                     _response_covers_endpoint_window(
                         policy=coverage_policy,
                         observed_start=observed_start,
@@ -1192,7 +1286,7 @@ def prepare_phase(
                 if not covers_window:
                     raise RefreshError(f"{item} response does not cover the strict planned endpoint window")
                 retained = (existing.loc[existing.symbol.eq(item), "date"]
-                            if phase in {"yahoo", "yahoo_etf", "yahoo_dashboard_futures"}
+                            if phase in SYMBOL_PHASES
                             else existing.loc[pd.to_numeric(existing[item.lower()], errors="coerce").notna(), "date"])
                 retained_latest = retained.max() if not retained.empty else None
                 if retained_latest is not None and observed_start > date.fromisoformat(str(retained_latest)):
@@ -1207,11 +1301,17 @@ def prepare_phase(
                         "coverage_last": observed_end.isoformat(),
                         "coverage_policy": coverage_policy.value,
                     })
+                elif phase == "cboe_index":
+                    coverage_entry.update({
+                        "coverage_first": observed_start.isoformat(),
+                        "coverage_last": observed_end.isoformat(),
+                        "coverage_policy": "cboe_full_history_last_row",
+                    })
                 coverage[item] = coverage_entry
-            if phase in {"yahoo", "yahoo_etf", "yahoo_dashboard_futures"}:
+            if phase in SYMBOL_PHASES:
                 incoming = pd.concat(frames, ignore_index=True).sort_values(["date", "symbol"], kind="stable").reset_index(drop=True)
                 validator = (
-                    validate_global_index if phase == "yahoo" else
+                    validate_global_index if phase in {"yahoo", "cboe_index"} else
                     validate_global_etf if phase == "yahoo_etf" else
                     validate_global_commodity_futures
                 )
@@ -1222,12 +1322,12 @@ def prepare_phase(
                 strict_symbols = {
                     item for item in items
                     if _endpoint_window_policy(phase, item) is EndpointWindowPolicy.STRICT_EXCHANGE
-                }
+                } if phase in YAHOO_PHASES else set()
                 strict_endpoints = incoming.loc[incoming.symbol.isin(strict_symbols)].groupby("symbol")["date"].max()
                 if (set(incoming.symbol) != expected_symbols
                         or set(strict_endpoints.index) != strict_symbols
                         or strict_endpoints.ne(end.isoformat()).any()):
-                    raise RefreshError("Yahoo did not reach the explicit completed session for every symbol")
+                    raise RefreshError("registered provider did not reach the accepted completed-session window")
                 if phase == "yahoo_dashboard_futures":
                     endpoint = incoming.loc[incoming["date"].eq(end.isoformat())]
                     if (
@@ -1292,7 +1392,7 @@ def prepare_phase(
                     "candidate_spread_state_fingerprint": _file_fingerprint(spread_state),
                 }
             if (
-                phase == "yahoo"
+                phase in {"yahoo", "cboe_index"}
                 and set(VIX_TERM_INDEX_SYMBOLS) <= set(candidate["symbol"].astype(str))
                 and any(item in VIX_TERM_INDEX_SYMBOLS for item in items)
                 and (project_root / "data/normalized" / FRED_VIX_DAILY.name).is_dir()
@@ -1361,10 +1461,20 @@ def prepare_phase(
             return checkpoint
         except Exception as error:
             stopped_statuses = route_statuses if phase == "fred_vix" else budget.statuses
+            stopped_captures = []
+            if landing_root.is_dir():
+                try:
+                    stopped_captures = _verify_captures(
+                        landing_root, phase, plan,
+                        vix_fallback=phase == "fred_vix" and len(stopped_statuses) == 3,
+                    )
+                except Exception:
+                    stopped_captures = []
             checkpoint.update({"status": "STOPPED", "http_calls": (
                                    len(stopped_statuses) if phase == "fred_vix" else budget.calls
                                ),
                                "http_statuses": stopped_statuses, "error_type": type(error).__name__,
+                               "landing_captures": stopped_captures,
                                "post_dataset": _dataset_manifest(production_root)})
             _atomic_json(checkpoint_path, checkpoint)
             try:
@@ -1593,10 +1703,10 @@ def _promote_locked(project_root: Path, checkpoint_path: Path, approval_digest: 
     items = tuple(entry.get("item") for entry in plan if isinstance(entry, dict))
     if len(items) != len(plan):
         raise RefreshError("checkpoint frozen plan item schema differs")
-    _select_phase_items(phase, configured_items, items if phase in YAHOO_PHASES else None)
-    if phase not in YAHOO_PHASES and items != configured_items:
+    _select_phase_items(phase, configured_items, items if phase in SYMBOL_PHASES else None)
+    if phase not in SYMBOL_PHASES and items != configured_items:
         raise RefreshError("checkpoint frozen plan differs from the registered phase")
-    limit = len(items) if phase in YAHOO_PHASES else configured_limit
+    limit = len(items) if phase in SYMBOL_PHASES else configured_limit
     fallback_decision = checkpoint.get("fallback_decision")
     expected_calls = (
         3 if phase == "fred_vix" and isinstance(fallback_decision, dict)
@@ -1664,7 +1774,7 @@ def _promote_locked(project_root: Path, checkpoint_path: Path, approval_digest: 
         return checkpoint
     if checkpoint.get("status") != "CANDIDATE_REVIEW_REQUIRED":
         raise RefreshError("checkpoint is not review-ready")
-    landing = _assert_plain_path(project_root, project_root / "data/landing/global_current_refresh" / run_id)
+    landing = _assert_plain_path(project_root, _landing_root(project_root, phase, run_id))
     for source, target in replacements:
         _assert_plain_path(project_root, source)
         _assert_plain_path(project_root, target, must_exist=False)
@@ -1716,7 +1826,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--start", type=date.fromisoformat)
     parser.add_argument(
         "--symbols", nargs="+",
-        help="Exact registered Yahoo canonical symbol ids; omitted means the full phase registry.",
+        help="Exact registered canonical symbol ids for Yahoo/Cboe symbol phases; omitted means the full phase registry.",
     )
     parser.add_argument("--confirm-live-landing-only", action="store_true")
     parser.add_argument("--promote-checkpoint", type=Path)

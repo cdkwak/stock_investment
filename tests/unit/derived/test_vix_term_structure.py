@@ -97,8 +97,8 @@ def test_offline_builder_persists_dual_source_lineage(tmp_path) -> None:
     )
     indices = compact_indices.assign(
         source_ticker=compact_indices["symbol"].map({
-            "VIX9D": "^VIX9D", "VIX3M": "^VIX3M",
-            "VIX6M": "^VIX6M", "SKEW": "^SKEW",
+            "VIX9D": "VIX9D", "VIX3M": "VIX3M",
+            "VIX6M": "VIX6M", "SKEW": "SKEW",
         }),
         open=compact_indices["close"], high=compact_indices["close"],
         low=compact_indices["close"], volume=pd.Series(

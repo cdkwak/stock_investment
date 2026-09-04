@@ -8,6 +8,7 @@ from stock_data.contracts.global_etf import (
 from stock_data.contracts.global_market import (
     GLOBAL_INDEX_DAILY_SYMBOLS,
     GLOBAL_INDEX_REGISTRY,
+    GLOBAL_INDEX_SYMBOLS_BY_PROVIDER,
 )
 from stock_data.contracts.kr_etf import infer_kr_etf_leverage_multiple
 from stock_data.providers.yahoo import GLOBAL_MARKET_60M_REGISTRY
@@ -58,33 +59,15 @@ def test_global_daily_contracts_keep_symbol_identity_and_futures_semantics() -> 
 
 def test_global_index_registry_includes_vix_term_structure_identities() -> None:
     assert GLOBAL_INDEX_DAILY_SYMBOLS[-4:] == ("VIX9D", "VIX3M", "VIX6M", "SKEW")
-    assert {
-        symbol: {
-            "source_ticker": spec["source_ticker"],
-            "instrument_type": spec["instrument_type"],
-            "expected_currency": spec["expected_currency"],
-            "accepted_yahoo_exchanges": spec["accepted_yahoo_exchanges"],
-        }
-        for symbol, spec in GLOBAL_INDEX_REGISTRY.items()
-        if symbol in {"VIX9D", "VIX3M", "VIX6M", "SKEW"}
-    } == {
-        "VIX9D": {
-            "source_ticker": "^VIX9D", "instrument_type": "INDEX",
-            "expected_currency": None, "accepted_yahoo_exchanges": ("WCB", "CBOE"),
-        },
-        "VIX3M": {
-            "source_ticker": "^VIX3M", "instrument_type": "INDEX",
-            "expected_currency": None, "accepted_yahoo_exchanges": ("WCB", "CBOE"),
-        },
-        "VIX6M": {
-            "source_ticker": "^VIX6M", "instrument_type": "INDEX",
-            "expected_currency": None, "accepted_yahoo_exchanges": ("WCB", "CBOE"),
-        },
-        "SKEW": {
-            "source_ticker": "^SKEW", "instrument_type": "INDEX",
-            "expected_currency": None, "accepted_yahoo_exchanges": ("WCB", "CBOE"),
-        },
-    }
+    assert GLOBAL_INDEX_SYMBOLS_BY_PROVIDER["cboe_index_history_csv"] == (
+        "VIX9D", "VIX3M", "VIX6M", "SKEW",
+    )
+    for symbol in GLOBAL_INDEX_DAILY_SYMBOLS[-4:]:
+        spec = GLOBAL_INDEX_REGISTRY[symbol]
+        assert spec["source_ticker"] == symbol
+        assert spec["provider"] == "cboe_index_history_csv"
+        assert spec["source_url"].endswith(f"/{symbol}_History.csv")
+        assert "ohlc_fill_from_close" not in spec
     derived = CONTRACTS["us_vix_term_structure_daily"]
     assert derived.layer == "derived"
     assert derived.primary_key == ("date",)

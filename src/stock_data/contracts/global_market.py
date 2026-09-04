@@ -24,50 +24,69 @@ GLOBAL_INDEX_REGISTRY = MappingProxyType({
     "SP500": {
         "source_ticker": "^GSPC", "instrument_type": "INDEX",
         "expected_currency": None, "accepted_yahoo_exchanges": (),
+        "provider": "yahoo_chart_api",
+        "source_url": "https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC",
     },
     "NASDAQ_COMPOSITE": {
         "source_ticker": "^IXIC", "instrument_type": "INDEX",
         "expected_currency": None, "accepted_yahoo_exchanges": (),
+        "provider": "yahoo_chart_api",
+        "source_url": "https://query1.finance.yahoo.com/v8/finance/chart/%5EIXIC",
     },
     "NASDAQ100": {
         "source_ticker": "^NDX", "instrument_type": "INDEX",
         "expected_currency": None, "accepted_yahoo_exchanges": (),
+        "provider": "yahoo_chart_api",
+        "source_url": "https://query1.finance.yahoo.com/v8/finance/chart/%5ENDX",
     },
     "SOX": {
         "source_ticker": "^SOX", "instrument_type": "INDEX",
         "expected_currency": None,
         "accepted_yahoo_exchanges": ("NIM", "NGM", "NMS", "NASDAQ"),
+        "provider": "yahoo_chart_api",
+        "source_url": "https://query1.finance.yahoo.com/v8/finance/chart/%5ESOX",
     },
     "DOW_JONES": {
         "source_ticker": "^DJI", "instrument_type": "INDEX",
         "expected_currency": None, "accepted_yahoo_exchanges": (),
+        "provider": "yahoo_chart_api",
+        "source_url": "https://query1.finance.yahoo.com/v8/finance/chart/%5EDJI",
     },
     "DOLLAR_INDEX": {
         "source_ticker": "DX-Y.NYB", "instrument_type": "INDEX",
         "expected_currency": None, "accepted_yahoo_exchanges": ("NYB", "ICE"),
+        "provider": "yahoo_chart_api",
+        "source_url": "https://query1.finance.yahoo.com/v8/finance/chart/DX-Y.NYB",
     },
     "VIX9D": {
-        "source_ticker": "^VIX9D", "instrument_type": "INDEX",
-        "expected_currency": None, "accepted_yahoo_exchanges": ("WCB", "CBOE"),
-        "require_exchange_identity": True, "ohlc_fill_from_close": True,
+        "source_ticker": "VIX9D", "instrument_type": "INDEX",
+        "expected_currency": None, "provider": "cboe_index_history_csv",
+        "source_url": "https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX9D_History.csv",
     },
     "VIX3M": {
-        "source_ticker": "^VIX3M", "instrument_type": "INDEX",
-        "expected_currency": None, "accepted_yahoo_exchanges": ("WCB", "CBOE"),
-        "require_exchange_identity": True, "ohlc_fill_from_close": True,
+        "source_ticker": "VIX3M", "instrument_type": "INDEX",
+        "expected_currency": None, "provider": "cboe_index_history_csv",
+        "source_url": "https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX3M_History.csv",
     },
     "VIX6M": {
-        "source_ticker": "^VIX6M", "instrument_type": "INDEX",
-        "expected_currency": None, "accepted_yahoo_exchanges": ("WCB", "CBOE"),
-        "require_exchange_identity": True, "ohlc_fill_from_close": True,
+        "source_ticker": "VIX6M", "instrument_type": "INDEX",
+        "expected_currency": None, "provider": "cboe_index_history_csv",
+        "source_url": "https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX6M_History.csv",
     },
     "SKEW": {
-        "source_ticker": "^SKEW", "instrument_type": "INDEX",
-        "expected_currency": None, "accepted_yahoo_exchanges": ("WCB", "CBOE"),
-        "require_exchange_identity": True, "ohlc_fill_from_close": True,
+        "source_ticker": "SKEW", "instrument_type": "INDEX",
+        "expected_currency": None, "provider": "cboe_index_history_csv",
+        "source_url": "https://cdn.cboe.com/api/global/us_indices/daily_prices/SKEW_History.csv",
     },
 })
 GLOBAL_INDEX_DAILY_SYMBOLS = tuple(GLOBAL_INDEX_REGISTRY)
+GLOBAL_INDEX_SYMBOLS_BY_PROVIDER = MappingProxyType({
+    provider: tuple(
+        symbol for symbol, spec in GLOBAL_INDEX_REGISTRY.items()
+        if spec["provider"] == provider
+    )
+    for provider in ("yahoo_chart_api", "cboe_index_history_csv")
+})
 
 
 def global_index_endpoint_window(symbol: str) -> EndpointWindowPolicy:
@@ -108,10 +127,10 @@ GLOBAL_INDEX_PRICE_DAILY = DatasetContract(
     name="global_index_price_daily", version=1, status="active",
     description=(
         "Daily OHLCV for explicitly registered overseas indices, including broad-market "
-        "and semiconductor benchmarks. Provider identity and daily granularity must match "
-        "the registered Yahoo ticker before normalization."
+        "and semiconductor benchmarks. Provider identity must match each symbol's "
+        "registered Yahoo chart or Cboe public daily-history source before normalization."
     ),
-    source="yahoo_chart_api", layer="normalized", storage_format="parquet", frequency="daily",
+    source="registered_global_index_provider", layer="normalized", storage_format="parquet", frequency="daily",
     timezone="source_exchange", primary_key=("date", "symbol"), sort_key=("date", "symbol"),
     partition_by=("symbol", "year"), columns=(
         ColumnContract("date", "date32", False), ColumnContract("symbol", "string", False),
@@ -204,7 +223,7 @@ US_VIX_TERM_STRUCTURE_DAILY = DatasetContract(
     name="us_vix_term_structure_daily", version=1, status="active",
     description=(
         "VIX 기간구조: 1개월/3개월 비율 < 1 = 콘탱고(평온), > 1 = "
-        "백워데이션(공포). FRED VIXCLS와 Yahoo Cboe 기간 지수를 날짜별로 "
+        "백워데이션(공포). FRED VIXCLS와 Cboe 기간 지수를 날짜별로 "
         "결합한 재현 가능한 파생 데이터셋."
     ),
     source="fred_vix_daily+global_index_price_daily", layer="derived",

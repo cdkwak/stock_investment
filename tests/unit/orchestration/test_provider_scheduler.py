@@ -22,6 +22,7 @@ from stock_data.orchestration.kr_index_daily_live import (
 from stock_data.storage.contract_parquet import read_dataset, write_dataset_atomic
 from stock_data.validation.kr_etf import validate_kr_etf_master
 import stock_data.orchestration.provider_scheduler as scheduler
+import scripts.manual.collect.refresh_global_current as refresh
 from stock_data.orchestration.provider_scheduler import ProviderSchedulerError, run_lane
 
 
@@ -94,11 +95,112 @@ def test_global_index_dry_run_lists_vix_term_symbols_without_network(tmp_path: P
     assert result["api_calls"] == 0
     assert result["dependency_refresh_ids"] == ["us_vix_term_structure_daily"]
     assert result["registered_indices"][-4:] == [
-        {"symbol": "VIX9D", "ticker": "^VIX9D"},
-        {"symbol": "VIX3M", "ticker": "^VIX3M"},
-        {"symbol": "VIX6M", "ticker": "^VIX6M"},
-        {"symbol": "SKEW", "ticker": "^SKEW"},
+        {"symbol": "VIX9D", "ticker": "VIX9D", "provider": "cboe_index_history_csv"},
+        {"symbol": "VIX3M", "ticker": "VIX3M", "provider": "cboe_index_history_csv"},
+        {"symbol": "VIX6M", "ticker": "VIX6M", "provider": "cboe_index_history_csv"},
+        {"symbol": "SKEW", "ticker": "SKEW", "provider": "cboe_index_history_csv"},
     ]
+    assert {
+        item["provider"] for item in result["registered_indices"][:-4]
+    } == {"yahoo_chart_api"}
+
+
+def test_global_refresh_phase_accounting_separates_yahoo_and_cboe_indices() -> None:
+    yahoo_limit, yahoo_contract, yahoo_symbols = refresh.PHASES["yahoo"]
+    cboe_limit, cboe_contract, cboe_symbols = refresh.PHASES["cboe_index"]
+
+    assert yahoo_limit == 6 == len(yahoo_symbols)
+    assert cboe_limit == 4 == len(cboe_symbols)
+    assert cboe_symbols == ("VIX9D", "VIX3M", "VIX6M", "SKEW")
+    assert set(yahoo_symbols).isdisjoint(cboe_symbols)
+    assert yahoo_contract is cboe_contract is scheduler.GLOBAL_INDEX_PRICE_DAILY
+
+
+def test_cboe_phase_full_history_capture_promote_and_api_zero_replay(tmp_path: Path) -> None:
+    root = tmp_path / "project"
+    root.mkdir()
+    production = root / "data/normalized/global_index_price_daily"
+    existing = pd.DataFrame([{
+        "date": "2026-09-02", "symbol": "SP500", "source_ticker": "^GSPC",
+        "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5,
+        "volume": 10,
+    }])
+    existing["volume"] = existing["volume"].astype("Int64")
+    write_dataset_atomic(
+        existing, production, scheduler.GLOBAL_INDEX_PRICE_DAILY,
+        scheduler.validate_global_index,
+    )
+
+    class Response:
+        status_code = 200
+        headers = {"Content-Type": "text/csv"}
+
+        def __init__(self, symbol: str) -> None:
+            self.content = (
+                f"DATE,{symbol}\n09/02/2026,17.1\n09/03/2026,17.4\n"
+            ).encode()
+
+        @staticmethod
+        def raise_for_status() -> None:
+            return None
+
+    class Backend:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def get(self, url, **_kwargs):
+            self.calls += 1
+            symbol = next(value for value in ("VIX9D", "VIX3M", "VIX6M", "SKEW") if value in url)
+            return Response(symbol)
+
+    backend = Backend()
+    prepared = refresh.prepare_phase(
+        root, "cboe_index", end=date(2026, 9, 3), session=backend,
+    )
+
+    assert backend.calls == prepared["http_calls"] == 4
+    assert prepared["http_statuses"] == [200, 200, 200, 200]
+    assert {item["provider"] for item in prepared["landing_captures"]} == {
+        "cboe_index_history_csv",
+    }
+    assert all(item["response_bytes"] > 0 for item in prepared["landing_captures"])
+    landing = root / "data/landing/cboe_index_history" / prepared["run_id"]
+    assert {path.name for path in landing.glob("*.csv")} == {
+        "VIX9D.csv", "VIX3M.csv", "VIX6M.csv", "SKEW.csv",
+    }
+
+    checkpoint = root / "data/state/global_current_refresh" / prepared["run_id"] / "checkpoint.json"
+    promoted = refresh.promote_phase(
+        root, checkpoint, approval_digest=prepared["approval_digest"],
+    )
+    assert promoted["status"] == "PROMOTED"
+    retained = read_dataset(
+        production, scheduler.GLOBAL_INDEX_PRICE_DAILY,
+        scheduler.validate_global_index,
+    )
+    assert set(retained["symbol"]) == {
+        "SP500", "VIX9D", "VIX3M", "VIX6M", "SKEW",
+    }
+
+    class MustNotCall:
+        @staticmethod
+        def get(*_args, **_kwargs):
+            raise AssertionError("Cboe retained-target replay must be API zero")
+
+    replay = refresh.prepare_phase(
+        root, "cboe_index", end=date(2026, 9, 3), session=MustNotCall(),
+    )
+    assert replay["status"] == "NOOP_IDEMPOTENT"
+    assert replay["http_calls"] == 0
+
+
+def test_cboe_endpoint_accepts_last_file_row_one_us_session_before_plan() -> None:
+    assert refresh._cboe_response_covers_endpoint_window(
+        observed_end=date(2026, 9, 2), planned_end=date(2026, 9, 3),
+    )
+    assert not refresh._cboe_response_covers_endpoint_window(
+        observed_end=date(2026, 9, 1), planned_end=date(2026, 9, 3),
+    )
 
 
 def test_fundamentals_weekly_dry_run_reports_count_budget_and_gate(
@@ -934,6 +1036,7 @@ def test_global_index_phase_bad_new_symbol_does_not_block_other_landing_promotio
     stored["date"] = "2026-08-31"
     module = SimpleNamespace()
     candidates = {}
+    prepared_phases = {}
 
     def original_fetch(symbol, start, end, *, session, capture_root):
         call = _write_yahoo_index_landing(capture_root / symbol, symbol=symbol, rows=[
@@ -956,18 +1059,42 @@ def test_global_index_phase_bad_new_symbol_does_not_block_other_landing_promotio
         }], columns=scheduler.GLOBAL_INDEX_PRICE_DAILY.column_names)
 
     def prepare_phase(project_root, phase, *, end, start, symbols):
-        assert len(symbols) == 1 and start == date(2025, 8, 31)
+        assert len(symbols) == 1
         symbol = symbols[0]
-        frame = module.fetch_global_index(
-            symbol, start, end, session=object(),
-            capture_root=project_root / "captures" / symbol,
-        )
+        prepared_phases[symbol] = phase
+        if phase == "yahoo":
+            assert start == date(2025, 8, 31)
+            frame = module.fetch_global_index(
+                symbol, start, end, session=object(),
+                capture_root=project_root / "captures" / symbol,
+            )
+            provider = "yahoo"
+            response_bytes = 100
+        else:
+            assert phase == "cboe_index" and start is None
+            observed_end = date(2026, 8, 28) if symbol == "SKEW" else end
+            frame = pd.DataFrame([{
+                "date": observed_end.isoformat(), "symbol": symbol,
+                "source_ticker": symbol,
+                "open": 104.0, "high": 106.0, "low": 103.0, "close": 105.0,
+                "volume": pd.NA,
+            }], columns=scheduler.GLOBAL_INDEX_PRICE_DAILY.column_names)
+            frame["volume"] = frame["volume"].astype("Int64")
+            provider = "cboe_index_history_csv"
+            response_bytes = 200_000
+        if phase == "yahoo":
+            observed_end = end
         candidates[symbol] = frame
         return {
             "status": "CANDIDATE_REVIEW_REQUIRED", "phase": phase,
             "max_http_calls": 1, "http_calls": 1, "retry_count": 0,
             "http_statuses": [200], "run_id": f"{symbol.lower()}-run",
             "approval_digest": "approved",
+            "landing_captures": [{
+                "item": symbol, "provider": provider,
+                "response_bytes": response_bytes,
+            }],
+            "coverage": {symbol: {"observed_end": observed_end.isoformat()}},
             "revision_report": {
                 symbol: {
                     "source_omitted_existing_dates": 0,
@@ -1005,8 +1132,19 @@ def test_global_index_phase_bad_new_symbol_does_not_block_other_landing_promotio
     assert set(stored["symbol"]) == {
         *tickers, "DOW_JONES", "DOLLAR_INDEX", "VIX9D", "VIX3M", "VIX6M", "SKEW",
     }
-    assert len(list((tmp_path / "captures").rglob("call.json"))) == 7
+    assert len(list((tmp_path / "captures").rglob("call.json"))) == 3
     assert module.fetch_global_index is original_fetch
+    assert {
+        prepared_phases[symbol]
+        for symbol in ("VIX9D", "VIX3M", "VIX6M", "SKEW")
+    } == {"cboe_index"}
+    assert all(
+        item["provider"] == "cboe_index_history_csv"
+        and item["response_bytes"] == 200_000
+        for item in result["symbol_results"]
+        if item["symbol"] in {"VIX9D", "VIX3M", "VIX6M", "SKEW"}
+    )
+    assert result["latest_after"]["SKEW"] == "2026-08-28"
     assert sorted(promoted) == sorted([
         (tmp_path / "data/state/global_current_refresh/dollar_index-run/checkpoint.json", "approved"),
         (tmp_path / "data/state/global_current_refresh/dow_jones-run/checkpoint.json", "approved"),

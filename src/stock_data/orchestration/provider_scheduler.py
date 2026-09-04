@@ -266,7 +266,8 @@ LANE_SCHEDULES = MappingProxyType({
         dataset_ids=("global_index_price_daily", "us_vix_term_structure_daily"),
         accepted_source=(
             "Yahoo chart API: registered SP500, NASDAQ_COMPOSITE, NASDAQ100, SOX, "
-            "DOW_JONES, DOLLAR_INDEX, VIX9D, VIX3M, VIX6M, and SKEW; derived "
+            "DOW_JONES, and DOLLAR_INDEX; Cboe public daily-history CSV: VIX9D, "
+            "VIX3M, VIX6M, and SKEW; derived "
             "term structure also uses retained FRED VIXCLS"
         ),
     ),
@@ -855,6 +856,10 @@ _GLOBAL_INDEX_TICKERS = MappingProxyType({
     symbol: str(spec["source_ticker"])
     for symbol, spec in GLOBAL_INDEX_REGISTRY.items()
 })
+_GLOBAL_INDEX_PROVIDERS = MappingProxyType({
+    symbol: str(spec["provider"])
+    for symbol, spec in GLOBAL_INDEX_REGISTRY.items()
+})
 _GLOBAL_ETF_SYMBOLS = GLOBAL_ETF_DAILY_SYMBOLS
 _GLOBAL_FUTURES_SYMBOLS = (
     "NASDAQ100_FUTURES", "GOLD", "WTI_CRUDE_OIL",
@@ -1020,8 +1025,9 @@ def _prepare_global_index_with_landing_replay(
 def _run_registered_yahoo_phase(
     project_root: Path, *, phase: str, target: date, symbols: tuple[str, ...],
     contract: object, validator: Callable[[pd.DataFrame], None],
+    providers: MappingProxyType | None = None,
 ) -> dict[str, object]:
-    """Advance registered Yahoo symbols independently through the same CAS path."""
+    """Advance registered symbols independently through the same CAS path."""
     production = project_root / "data/normalized" / str(contract.name)
     existing = read_dataset(production, contract, validator)
     present = set(existing["symbol"].astype(str))
@@ -1042,6 +1048,8 @@ def _run_registered_yahoo_phase(
     http_calls = 0
 
     for symbol in symbols:
+        provider = str(providers[symbol]) if providers is not None else "yahoo_chart_api"
+        symbol_phase = "cboe_index" if provider == "cboe_index_history_csv" else phase
         selected = existing.loc[existing["symbol"].astype(str).eq(symbol), "date"]
         retained = (
             date.fromisoformat(str(selected.astype(str).max()))
@@ -1052,25 +1060,31 @@ def _run_registered_yahoo_phase(
             latest_after[symbol] = retained.isoformat()
             symbol_results.append({
                 "symbol": symbol, "status": "NOOP_IDEMPOTENT", "http_calls": 0,
+                "provider": provider, "response_bytes": 0,
                 "latest_before": retained.isoformat(), "latest_after": retained.isoformat(),
                 "reason": "EXPECTED_SESSION_ALREADY_RETAINED",
             })
             continue
-        if retained is not None and calendar.next_trading_day(retained) != target:
+        if (
+            provider == "yahoo_chart_api"
+            and retained is not None
+            and calendar.next_trading_day(retained) != target
+        ):
             failed_symbols[symbol] = "NON_CONSECUTIVE_RETAINED_SESSION"
             latest_after[symbol] = retained.isoformat()
             symbol_results.append({
                 "symbol": symbol, "status": "FAILED_PRESERVED", "http_calls": 0,
+                "provider": provider, "response_bytes": 0,
                 "latest_before": retained.isoformat(), "latest_after": retained.isoformat(),
                 "error_type": "NonConsecutiveRetainedSession",
             })
             continue
 
-        prepare_start = retained if phase == "yahoo_etf" else None
-        if retained is None:
+        prepare_start = retained if symbol_phase == "yahoo_etf" else None
+        if retained is None and symbol_phase != "cboe_index":
             prepare_start = target - timedelta(days=365)
         try:
-            if phase == "yahoo":
+            if symbol_phase == "yahoo":
                 checkpoint, replayed = _prepare_global_index_with_landing_replay(
                     module, project_root, existing, target,
                     symbols=(symbol,), start=prepare_start,
@@ -1078,7 +1092,7 @@ def _run_registered_yahoo_phase(
                 replayed_symbols.extend(replayed)
             else:
                 checkpoint = module.prepare_phase(
-                    project_root, phase, end=target, start=prepare_start,
+                    project_root, symbol_phase, end=target, start=prepare_start,
                     symbols=(symbol,),
                 )
             http_calls += int(checkpoint.get("http_calls", 0) or 0)
@@ -1086,6 +1100,7 @@ def _run_registered_yahoo_phase(
                 latest_after[symbol] = target.isoformat()
                 symbol_results.append({
                     "symbol": symbol, "status": "NOOP_IDEMPOTENT", "http_calls": 0,
+                    "provider": provider, "response_bytes": 0,
                     "latest_before": latest_before[symbol],
                     "latest_after": target.isoformat(),
                     "reason": "EXPECTED_SESSION_ALREADY_RETAINED",
@@ -1094,9 +1109,23 @@ def _run_registered_yahoo_phase(
             revision = checkpoint.get("revision_report")
             report = revision.get(symbol) if isinstance(revision, dict) else None
             inserted = report.get("inserted_rows") if isinstance(report, dict) else None
+            accepted_end = target
+            if provider == "cboe_index_history_csv":
+                coverage = checkpoint.get("coverage")
+                symbol_coverage = coverage.get(symbol) if isinstance(coverage, dict) else None
+                observed_end = (
+                    symbol_coverage.get("observed_end")
+                    if isinstance(symbol_coverage, dict) else None
+                )
+                try:
+                    accepted_end = date.fromisoformat(str(observed_end))
+                except ValueError as error:
+                    raise ProviderSchedulerError(
+                        f"{symbol} Cboe coverage identity is incomplete"
+                    ) from error
             if (
                 checkpoint.get("status") != "CANDIDATE_REVIEW_REQUIRED"
-                or checkpoint.get("phase") != phase
+                or checkpoint.get("phase") != symbol_phase
                 or checkpoint.get("max_http_calls") != 1
                 or checkpoint.get("http_calls") != 1
                 or checkpoint.get("retry_count") != 0
@@ -1107,7 +1136,11 @@ def _run_registered_yahoo_phase(
                 or report.get("finite_to_null_cells") != 0
                 or not isinstance(inserted, int)
                 or inserted < 1
-                or (retained is not None and inserted != 1)
+                or (
+                    retained is not None
+                    and provider == "yahoo_chart_api"
+                    and inserted != 1
+                )
             ):
                 raise ProviderSchedulerError(
                     f"{symbol} accepted-source checkpoint validation failed"
@@ -1130,15 +1163,20 @@ def _run_registered_yahoo_phase(
             accepted = existing.loc[
                 existing["symbol"].astype(str).eq(symbol), "date"
             ].astype(str)
-            if target.isoformat() not in set(accepted):
-                raise ProviderSchedulerError(f"{symbol} promoted read-back missed target")
+            if accepted_end.isoformat() not in set(accepted):
+                raise ProviderSchedulerError(f"{symbol} promoted read-back missed accepted endpoint")
             promoted_symbols.append(symbol)
             run_ids.append(run_id)
-            latest_after[symbol] = target.isoformat()
+            latest_after[symbol] = accepted_end.isoformat()
             symbol_results.append({
                 "symbol": symbol, "status": "PROMOTED", "http_calls": 1,
+                "provider": provider,
+                "response_bytes": sum(
+                    int(capture.get("response_bytes", 0) or 0)
+                    for capture in checkpoint.get("landing_captures", [])
+                ),
                 "run_id": run_id, "latest_before": latest_before[symbol],
-                "latest_after": target.isoformat(),
+                "latest_after": accepted_end.isoformat(),
                 "reason": "VALIDATED_SYMBOL_BOUND_ATOMIC_PROMOTION",
             })
         except Exception as error:
@@ -1149,6 +1187,11 @@ def _run_registered_yahoo_phase(
             latest_after[symbol] = latest_before[symbol]
             symbol_results.append({
                 "symbol": symbol, "status": "FAILED_PRESERVED",
+                "provider": provider,
+                "response_bytes": sum(
+                    int(capture.get("response_bytes", 0) or 0)
+                    for capture in stopped.get("landing_captures", [])
+                ) if isinstance(stopped, dict) else 0,
                 "http_calls": int(stopped.get("http_calls", 0) or 0)
                 if isinstance(stopped, dict) else 0,
                 "latest_before": latest_before[symbol],
@@ -1184,7 +1227,7 @@ def _run_global_index_phase(
     return _run_registered_yahoo_phase(
         project_root, phase="yahoo", target=target,
         symbols=tuple(_GLOBAL_INDEX_TICKERS), contract=GLOBAL_INDEX_PRICE_DAILY,
-        validator=validate_global_index,
+        validator=validate_global_index, providers=_GLOBAL_INDEX_PROVIDERS,
     )
 
 
@@ -1337,7 +1380,11 @@ def run_lane(
         ] + [{"symbol": "KOSPI200", "ticker": "1028"}]
     if lane == "GLOBAL_INDEX_DAILY":
         base["registered_indices"] = [
-            {"symbol": symbol, "ticker": ticker}
+            {
+                "symbol": symbol,
+                "ticker": ticker,
+                "provider": _GLOBAL_INDEX_PROVIDERS[symbol],
+            }
             for symbol, ticker in _GLOBAL_INDEX_TICKERS.items()
         ]
     if lane == "KR_FUNDAMENTALS_WEEKLY":
