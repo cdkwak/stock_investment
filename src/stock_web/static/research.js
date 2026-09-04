@@ -800,19 +800,27 @@
 
   function renderCompoundHeatmap(combination) {
     const mode = $("compound-heatmap-axes").value;
+    // The surface follows the knobs: the axes vary, every other dimension (the other
+    // thresholds, exit, cost, base exposure) is the value currently on screen. Cost and
+    // tax are scenario constants, never grid axes (05:20 review + Obsidian session rule):
+    // the ★ search runs inside one cost scenario, and heatMetric() reads the fit window only.
     const definitions = {
-      threshold_x_levels: { x: "drawdown_threshold", y: "levels", fixed: { disp60_threshold: -.10, leverage_multiple: 2 } },
-      levels_x_multiple: { x: "levels", y: "leverage_multiple", fixed: { drawdown_threshold: -.20, disp60_threshold: -.10 } },
-      threshold_x_multiple: { x: "drawdown_threshold", y: "leverage_multiple", fixed: { disp60_threshold: -.10, levels: 2 } },
+      threshold_x_levels: { x: "drawdown_threshold", y: "levels", fixed: { disp60_threshold: combination.disp60_threshold, leverage_multiple: combination.leverage_multiple } },
+      levels_x_multiple: { x: "levels", y: "leverage_multiple", fixed: { drawdown_threshold: combination.drawdown_threshold, disp60_threshold: combination.disp60_threshold } },
+      threshold_x_multiple: { x: "drawdown_threshold", y: "leverage_multiple", fixed: { disp60_threshold: combination.disp60_threshold, levels: combination.levels } },
     };
     const definition = definitions[mode];
-    const rows = ((compoundState.payload || {}).rows || []).filter((row) => row.base_exposure === 1 && row.exit === "a" && row.cost_enabled === true
+    const scenario = `출구 ${combination.exit} · ${combination.cost_enabled ? "거래비용 포함" : "거래비용 제외"} · 기본 노출 ${combination.base_exposure ?? 1}`;
+    const rows = ((compoundState.payload || {}).rows || []).filter((row) => row.row_kind !== "baseline"
+      && Number(row.base_exposure) === Number(combination.base_exposure ?? 1)
+      && row.exit === combination.exit && row.cost_enabled === combination.cost_enabled
       && Object.entries(definition.fixed).every(([key, value]) => Number(row[key]) === Number(value))
       && finite((heatMetric(row, combination.product_variant) || {}).relative_to_baseline));
     const host = $("compound-heatmap");
-    if (!rows.length) {
-      host.innerHTML = '<div class="unavailable">미계산 조합 · 이 surface가 캐시에 없습니다.</div>';
-      $("compound-plateau-verdict").textContent = "판정할 이웃 셀이 없습니다.";
+    if (rows.length < 4) {
+      // Never let a verdict for another combination stand in: no information beats wrong information.
+      host.innerHTML = `<div class="unavailable">이 조합(${esc(scenario)})의 고원 표면은 캐시에 없습니다.</div>`;
+      $("compound-plateau-verdict").textContent = "이 조합의 고원 판정은 아직 계산 안 됨";
       return;
     }
     const xs = [...new Set(rows.map((row) => row[definition.x]))].sort((a, b) => Number(a) - Number(b));
@@ -840,9 +848,7 @@
     const bestValue = Number(heatMetric(best, combination.product_variant).relative_to_baseline);
     const neighbourMean = neighbours.length ? neighbours.reduce((sum, row) => sum + Number(heatMetric(row, combination.product_variant).relative_to_baseline), 0) / neighbours.length : NaN;
     const sharp = bestValue > 1 && Number.isFinite(neighbourMean) && bestValue - neighbourMean > .25 * (bestValue - 1);
-    const surfaceNote = (combination.exit !== "a" || combination.cost_enabled !== true)
-      ? " · 주의: 이 표면은 출구 a · 거래비용 포함 · 기본 노출 1 기준이라 지금 손잡이(출구 " + combination.exit + (combination.cost_enabled ? "" : " · 비용 제외") + ")와 다른 조합을 설명함"
-      : " · 표면 기준: 출구 a · 거래비용 포함 · 기본 노출 1";
+    const surfaceNote = ` · 표면 기준: ${scenario} (손잡이와 같음)`;
     $("compound-plateau-verdict").textContent = `${sharp ? "뾰족한 봉우리" : "넓은 고원"} · 최적 ${bestValue.toFixed(2)}x${Number.isFinite(neighbourMean) ? ` / 이웃 평균 ${neighbourMean.toFixed(2)}x` : " / 이웃 없음"}${surfaceNote}`;
   }
 
