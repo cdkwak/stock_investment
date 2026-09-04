@@ -85,6 +85,36 @@ def build_router(project_root: Path, *, public_mode: bool = False) -> APIRouter:
             for name in ("x-forwarded-for", "tailscale-user-login", "tailscale-user-name")
         )
 
+    def write_response(
+        request: Request, *, path: str, payload: object, status_code: int,
+        error_code: str, row_counts: dict[str, int] | None = None,
+    ) -> Response:
+        from stock_web.api.account_page import append_web_write_audit
+
+        append_web_write_audit(
+            project_root,
+            path=path,
+            client_kind="loopback" if loopback(request) else "relayed",
+            status=status_code,
+            error_code=error_code,
+            row_counts=row_counts,
+        )
+        return json_response(payload, status_code=status_code)
+
+    def watchlist_counts(payload: object) -> dict[str, int]:
+        if not isinstance(payload, dict):
+            return {}
+        lists = payload.get("lists")
+        if not isinstance(lists, list):
+            return {}
+        return {
+            "lists": len(lists),
+            "items": sum(
+                len(item.get("items", []))
+                for item in lists if isinstance(item, dict) and isinstance(item.get("items"), list)
+            ),
+        }
+
     def request_client_key(request: Request) -> str:
         forwarded = request.headers.get("x-forwarded-for", "")
         if forwarded:
@@ -146,26 +176,44 @@ def build_router(project_root: Path, *, public_mode: bool = False) -> APIRouter:
         from stock_web.api.account_page import AccountInputError, save_cash_flow
 
         if not loopback(request):
-            return json_response({"error": "로컬 접속에서만 저장할 수 있습니다."}, status_code=403)
+            return write_response(
+                request, path="/api/cash-flows", payload={"error": "로컬 접속에서만 저장할 수 있습니다."},
+                status_code=403, error_code="LOCAL_ONLY",
+            )
         try:
             saved = save_cash_flow(project_root, await request.json())
         except (ValueError, AccountInputError) as error:
-            return json_response({"error": str(error)}, status_code=400)
+            return write_response(
+                request, path="/api/cash-flows", payload={"error": str(error)},
+                status_code=400, error_code="VALIDATION_ERROR",
+            )
         clear_home_cache()
-        return json_response(saved)
+        return write_response(
+            request, path="/api/cash-flows", payload=saved, status_code=200,
+            error_code="OK", row_counts={"entries": len(saved.get("entries", []))},
+        )
 
     @router.delete("/cash-flows")
     async def delete_cash_flow_entry(request: Request) -> Response:
         from stock_web.api.account_page import AccountInputError, delete_cash_flow
 
         if not loopback(request):
-            return json_response({"error": "로컬 접속에서만 저장할 수 있습니다."}, status_code=403)
+            return write_response(
+                request, path="/api/cash-flows", payload={"error": "로컬 접속에서만 저장할 수 있습니다."},
+                status_code=403, error_code="LOCAL_ONLY",
+            )
         try:
             saved = delete_cash_flow(project_root, await request.json())
         except (ValueError, AccountInputError) as error:
-            return json_response({"error": str(error)}, status_code=400)
+            return write_response(
+                request, path="/api/cash-flows", payload={"error": str(error)},
+                status_code=400, error_code="VALIDATION_ERROR",
+            )
         clear_home_cache()
-        return json_response(saved)
+        return write_response(
+            request, path="/api/cash-flows", payload=saved, status_code=200,
+            error_code="OK", row_counts={"entries": len(saved.get("entries", []))},
+        )
 
     @router.get("/trade-journal")
     def trade_journal(days: int = 60) -> Response:
@@ -183,12 +231,22 @@ def build_router(project_root: Path, *, public_mode: bool = False) -> APIRouter:
         from stock_web.api.trade_journal import build_trade_journal, save_manual_entry
 
         if not loopback(request):
-            return json_response({"error": "로컬 접속에서만 저장할 수 있습니다."}, status_code=403)
+            return write_response(
+                request, path="/api/trade-journal/manual", payload={"error": "로컬 접속에서만 저장할 수 있습니다."},
+                status_code=403, error_code="LOCAL_ONLY",
+            )
         try:
-            save_manual_entry(project_root, await request.json())
-            return json_response(build_trade_journal(project_root))
+            ledger = save_manual_entry(project_root, await request.json())
+            saved = build_trade_journal(project_root)
         except (ValueError, AccountInputError) as error:
-            return json_response({"error": str(error)}, status_code=400)
+            return write_response(
+                request, path="/api/trade-journal/manual", payload={"error": str(error)},
+                status_code=400, error_code="VALIDATION_ERROR",
+            )
+        return write_response(
+            request, path="/api/trade-journal/manual", payload=saved, status_code=200,
+            error_code="OK", row_counts={"entries": len(ledger.get("entries", []))},
+        )
 
     @router.delete("/trade-journal/manual")
     async def delete_manual_trade_journal_entry(request: Request) -> Response:
@@ -196,12 +254,22 @@ def build_router(project_root: Path, *, public_mode: bool = False) -> APIRouter:
         from stock_web.api.trade_journal import build_trade_journal, delete_manual_entry
 
         if not loopback(request):
-            return json_response({"error": "로컬 접속에서만 저장할 수 있습니다."}, status_code=403)
+            return write_response(
+                request, path="/api/trade-journal/manual", payload={"error": "로컬 접속에서만 저장할 수 있습니다."},
+                status_code=403, error_code="LOCAL_ONLY",
+            )
         try:
-            delete_manual_entry(project_root, await request.json())
-            return json_response(build_trade_journal(project_root))
+            ledger = delete_manual_entry(project_root, await request.json())
+            saved = build_trade_journal(project_root)
         except (ValueError, AccountInputError) as error:
-            return json_response({"error": str(error)}, status_code=400)
+            return write_response(
+                request, path="/api/trade-journal/manual", payload={"error": str(error)},
+                status_code=400, error_code="VALIDATION_ERROR",
+            )
+        return write_response(
+            request, path="/api/trade-journal/manual", payload=saved, status_code=200,
+            error_code="OK", row_counts={"entries": len(ledger.get("entries", []))},
+        )
 
     @router.get("/stocks")
     def stocks() -> Response:
@@ -259,65 +327,110 @@ def build_router(project_root: Path, *, public_mode: bool = False) -> APIRouter:
         from stock_web.api.stocks_page import StocksInputError, mutate_watchlist
 
         if not loopback(request):
-            return json_response({"error": "로컬 접속에서만 저장할 수 있습니다."}, status_code=403)
+            return write_response(
+                request, path="/api/watchlists", payload={"error": "로컬 접속에서만 저장할 수 있습니다."},
+                status_code=403, error_code="LOCAL_ONLY",
+            )
         try:
             saved = mutate_watchlist(project_root, await request.json())
         except (KeyError, ValueError, StocksInputError) as error:
-            return json_response({"error": str(error)}, status_code=400)
+            return write_response(
+                request, path="/api/watchlists", payload={"error": str(error)},
+                status_code=400, error_code="VALIDATION_ERROR",
+            )
         clear_home_cache()
-        return json_response(saved)
+        return write_response(
+            request, path="/api/watchlists", payload=saved, status_code=200,
+            error_code="OK", row_counts=watchlist_counts(saved),
+        )
 
     @router.post("/watchlist/items")
     async def add_watchlist(request: Request) -> Response:
         from stock_web.api.stocks_page import StocksInputError, add_watchlist_item
 
         if not loopback(request):
-            return json_response({"error": "로컬 접속에서만 저장할 수 있습니다."}, status_code=403)
+            return write_response(
+                request, path="/api/watchlist/items", payload={"error": "로컬 접속에서만 저장할 수 있습니다."},
+                status_code=403, error_code="LOCAL_ONLY",
+            )
         try:
             saved = add_watchlist_item(project_root, await request.json())
         except (KeyError, ValueError, StocksInputError) as error:
-            return json_response({"error": str(error)}, status_code=400)
+            return write_response(
+                request, path="/api/watchlist/items", payload={"error": str(error)},
+                status_code=400, error_code="VALIDATION_ERROR",
+            )
         clear_home_cache()
-        return json_response(saved)
+        return write_response(
+            request, path="/api/watchlist/items", payload=saved, status_code=200,
+            error_code="OK", row_counts=watchlist_counts(saved),
+        )
 
     @router.delete("/watchlist/items")
     async def delete_watchlist(request: Request) -> Response:
         from stock_web.api.stocks_page import StocksInputError, remove_watchlist_item
 
         if not loopback(request):
-            return json_response({"error": "로컬 접속에서만 저장할 수 있습니다."}, status_code=403)
+            return write_response(
+                request, path="/api/watchlist/items", payload={"error": "로컬 접속에서만 저장할 수 있습니다."},
+                status_code=403, error_code="LOCAL_ONLY",
+            )
         try:
             saved = remove_watchlist_item(project_root, await request.json())
         except (KeyError, ValueError, StocksInputError) as error:
-            return json_response({"error": str(error)}, status_code=400)
+            return write_response(
+                request, path="/api/watchlist/items", payload={"error": str(error)},
+                status_code=400, error_code="VALIDATION_ERROR",
+            )
         clear_home_cache()
-        return json_response(saved)
+        return write_response(
+            request, path="/api/watchlist/items", payload=saved, status_code=200,
+            error_code="OK", row_counts=watchlist_counts(saved),
+        )
 
     @router.post("/watchlist/items/move")
     async def reorder_watchlist(request: Request) -> Response:
         from stock_web.api.stocks_page import StocksInputError, move_watchlist_item
 
         if not loopback(request):
-            return json_response({"error": "로컬 접속에서만 저장할 수 있습니다."}, status_code=403)
+            return write_response(
+                request, path="/api/watchlist/items/move", payload={"error": "로컬 접속에서만 저장할 수 있습니다."},
+                status_code=403, error_code="LOCAL_ONLY",
+            )
         try:
             saved = move_watchlist_item(project_root, await request.json())
         except (KeyError, ValueError, StocksInputError) as error:
-            return json_response({"error": str(error)}, status_code=400)
+            return write_response(
+                request, path="/api/watchlist/items/move", payload={"error": str(error)},
+                status_code=400, error_code="VALIDATION_ERROR",
+            )
         clear_home_cache()
-        return json_response(saved)
+        return write_response(
+            request, path="/api/watchlist/items/move", payload=saved, status_code=200,
+            error_code="OK", row_counts=watchlist_counts(saved),
+        )
 
     @router.post("/watch-conditions")
     async def watch_conditions(request: Request) -> Response:
         from stock_web.api.stocks_page import StocksInputError, save_conditions
 
         if not loopback(request):
-            return json_response({"error": "로컬 접속에서만 저장할 수 있습니다."}, status_code=403)
+            return write_response(
+                request, path="/api/watch-conditions", payload={"error": "로컬 접속에서만 저장할 수 있습니다."},
+                status_code=403, error_code="LOCAL_ONLY",
+            )
         try:
             saved = save_conditions(project_root, await request.json())
         except (ValueError, StocksInputError) as error:
-            return json_response({"error": str(error)}, status_code=400)
+            return write_response(
+                request, path="/api/watch-conditions", payload={"error": str(error)},
+                status_code=400, error_code="VALIDATION_ERROR",
+            )
         clear_home_cache()
-        return json_response(saved)
+        return write_response(
+            request, path="/api/watch-conditions", payload=saved, status_code=200,
+            error_code="OK", row_counts={"conditions": len(saved.get("conditions", []))},
+        )
 
     @router.get("/manual/accounts")
     def manual_accounts() -> Response:
@@ -329,15 +442,27 @@ def build_router(project_root: Path, *, public_mode: bool = False) -> APIRouter:
     async def save_manual(request: Request) -> Response:
         from stock_web.api.account_page import AccountInputError, save_manual_accounts
 
-        if request.client is None or request.client.host not in {"127.0.0.1", "::1"}:
-            return json_response({"error": "로컬 접속에서만 저장할 수 있습니다."}, status_code=403)
+        if not loopback(request):
+            return write_response(
+                request, path="/api/manual/accounts", payload={"error": "로컬 접속에서만 저장할 수 있습니다."},
+                status_code=403, error_code="LOCAL_ONLY",
+            )
         try:
             payload = await request.json()
             saved = save_manual_accounts(project_root, payload)
         except (ValueError, AccountInputError) as error:
-            return json_response({"error": str(error)}, status_code=400)
+            return write_response(
+                request, path="/api/manual/accounts", payload={"error": str(error)},
+                status_code=400, error_code="VALIDATION_ERROR",
+            )
         clear_home_cache()
-        return json_response(saved)
+        return write_response(
+            request, path="/api/manual/accounts", payload=saved, status_code=200,
+            error_code="OK", row_counts={
+                "accounts": len(saved.get("accounts", [])),
+                "positions": sum(len(item.get("positions", [])) for item in saved.get("accounts", [])),
+            },
+        )
 
     @router.get("/net-worth")
     def net_worth() -> Response:
@@ -395,15 +520,28 @@ def build_router(project_root: Path, *, public_mode: bool = False) -> APIRouter:
     async def save_net_worth_snapshot(request: Request) -> Response:
         from stock_web.api.account_page import AccountInputError, save_net_worth
 
-        if request.client is None or request.client.host not in {"127.0.0.1", "::1"}:
-            return json_response({"error": "로컬 접속에서만 저장할 수 있습니다."}, status_code=403)
+        if not loopback(request):
+            return write_response(
+                request, path="/api/net-worth", payload={"error": "로컬 접속에서만 저장할 수 있습니다."},
+                status_code=403, error_code="LOCAL_ONLY",
+            )
         try:
             payload = await request.json()
             saved = save_net_worth(project_root, payload)
         except (ValueError, AccountInputError) as error:
-            return json_response({"error": str(error)}, status_code=400)
+            return write_response(
+                request, path="/api/net-worth", payload={"error": str(error)},
+                status_code=400, error_code="VALIDATION_ERROR",
+            )
         clear_home_cache()
-        return json_response(saved)
+        latest = saved.get("latest") if isinstance(saved, dict) else None
+        return write_response(
+            request, path="/api/net-worth", payload=saved, status_code=200,
+            error_code="OK", row_counts={
+                "assets": len(latest.get("assets", [])) if isinstance(latest, dict) else 0,
+                "liabilities": len(latest.get("liabilities", [])) if isinstance(latest, dict) else 0,
+            },
+        )
 
     @router.get("/ping")
     def ping() -> dict[str, str]:

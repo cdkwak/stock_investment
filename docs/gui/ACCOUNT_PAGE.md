@@ -39,3 +39,32 @@ exposes account identifiers.
 - On narrow screens, the account name owns the wrapped note, while the title
   remains unbroken. Reference date and inclusion state move under the account
   name so the account table does not require horizontal scrolling at 375px.
+
+## Manual input identity and save diagnostics
+
+- 수동 증권 계좌 and 매매일지 use the same provider-free local symbol resolver.
+  The index includes Korean equities, the latest validated
+  `kr_etf_universe_daily` rows (including its non-Hive `partitioning=None`
+  storage contract), and the accepted static U.S. ETF catalog.
+- A selected name fills canonical code, display name, and KRW/USD. When a POST
+  has a blank code, one exact or unique local name match is accepted. Ambiguous
+  input fails with at most three `code name` candidates; no match fails closed.
+- Every account-related local write attempt appends one JSON line to
+  `artifacts/local_user/web_write_audit.jsonl`. Its complete schema is `ts`,
+  `path`, `client_kind`, `status`, `error_code`, and integer-only `row_counts`.
+  It never stores request/response payloads, amounts, quantities, holding names,
+  free-form labels, memos, or account numbers.
+- The page shows the five most recent validated receipts under `최근 저장 시도`.
+  Save results also appear in the form status and in the same fixed toast for
+  eight seconds; `403` identifies phone/relayed writes and `400` identifies
+  field validation failures.
+
+## Page order and input density
+
+The display order is investment/net-worth headline, true investment return,
+account sources, net-worth timeline and composition, then one collapsed input
+panel. The four input subsections are individually collapsed. Form controls use
+labels above inputs in a six-column desktop grid and a two-column narrow grid.
+At 1600px and wider, the overview and expanded input subsections retain the
+two-column desktop layout. The journal initially renders ten recent rows and
+reveals further rows in batches through `더 보기`.

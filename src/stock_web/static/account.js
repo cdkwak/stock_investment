@@ -44,10 +44,60 @@
   let returnPeriodHydrated = false;
   let journalPayload = { events: [], summary: {}, gaps: [] };
   let selectedJournalDays = 90;
+  let journalVisibleRows = 10;
   let journalSearchTimer = null;
   let journalSearchSequence = 0;
   let journalSearchMatches = [];
   let selectedJournalIdentity = null;
+  let manualSearchTimer = null;
+  let manualSearchSequence = 0;
+  let manualSearchMatches = [];
+  let activeManualSearchInput = null;
+  let toastTimer = null;
+
+  function showToast(message) {
+    const toast = $("account-toast");
+    toast.textContent = message;
+    toast.hidden = false;
+    window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => { toast.hidden = true; }, 8000);
+  }
+
+  function setWriteStatus(statusHost, message, { toast = true } = {}) {
+    $(statusHost).textContent = message;
+    if (toast) showToast(message);
+  }
+
+  function writeStatusText(status, result, successDetail = "") {
+    const detail = result && result.error ? ` · ${result.error}` : "";
+    if (status === 403) return `403 · 폰에서는 저장 불가${detail}`;
+    if (status === 400) return `400 · 항목 필드 오류${detail}`;
+    if (status >= 200 && status < 300) return `200 · 저장 완료${successDetail ? ` · ${successDetail}` : ""}`;
+    return `${status || "연결 오류"} · 저장 상태 확인 필요${detail}`;
+  }
+
+  async function writeJson(url, method, body, statusHost, successDetail = "") {
+    $(statusHost).textContent = "요청 전송 중…";
+    let response;
+    let result;
+    try {
+      response = await fetch(url, {
+        method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      });
+      result = await response.json();
+    } catch (error) {
+      const message = "연결 오류 · 요청을 보내지 못했거나 응답을 받지 못했습니다";
+      setWriteStatus(statusHost, message);
+      const wrapped = new Error(message); wrapped.handled = true; throw wrapped;
+    }
+    const message = writeStatusText(response.status, result, successDetail);
+    setWriteStatus(statusHost, message);
+    if (!response.ok) {
+      refreshWriteAudit().catch(() => {});
+      const error = new Error(message); error.handled = true; throw error;
+    }
+    return result;
+  }
 
   function sourceAsOf(rows, kinds) {
     return (rows || []).filter((row) => kinds.includes(row.kind)).map((row) => `${row.name} ${row.as_of_label || shortDate(row.as_of)}${row.included ? "" : " 제외"}`).join(" · ");
@@ -206,6 +256,64 @@
     }, 350);
   }
 
+  function closeManualSearch() {
+    if (activeManualSearchInput) {
+      const host = activeManualSearchInput.closest(".manual-search-field")?.querySelector(".manual-search-results");
+      if (host) { host.hidden = true; host.innerHTML = ""; }
+      activeManualSearchInput.setAttribute("aria-expanded", "false");
+    }
+    manualSearchMatches = [];
+    activeManualSearchInput = null;
+  }
+
+  function renderManualSearch(input, matches, reason = null) {
+    activeManualSearchInput = input;
+    manualSearchMatches = matches || [];
+    const host = input.closest(".manual-search-field").querySelector(".manual-search-results");
+    host.innerHTML = manualSearchMatches.length ? manualSearchMatches.map((item, index) => `
+      <button type="button" class="journal-search-option manual-search-option" role="option" data-search-index="${index}">
+        <b>${esc(item.name)} <span class="num">${esc(item.symbol)}</span></b>
+        <small>${esc(item.market)} · ${esc(item.security_type)}</small>
+      </button>`).join("") : `<div class="journal-search-empty">${esc(reason || "일치하는 종목이 없습니다.")}</div>`;
+    host.hidden = false;
+    input.setAttribute("aria-expanded", "true");
+  }
+
+  function scheduleManualSearch(input) {
+    const query = input.value.trim();
+    if (query !== input.dataset.selectedName) {
+      input.closest(".holding-row").querySelector('[data-field="ticker"]').value = "";
+      delete input.dataset.selectedName;
+    }
+    window.clearTimeout(manualSearchTimer);
+    const sequence = ++manualSearchSequence;
+    if (!query) { closeManualSearch(); return; }
+    manualSearchTimer = window.setTimeout(async () => {
+      try {
+        const response = await fetch(`/api/stocks/search?q=${encodeURIComponent(query)}`);
+        const result = await response.json();
+        if (sequence !== manualSearchSequence) return;
+        if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+        renderManualSearch(input, result.matches || [], result.reason);
+      } catch (error) {
+        if (sequence !== manualSearchSequence) return;
+        renderManualSearch(input, [], `검색 실패 · ${error.message}`);
+      }
+    }, 350);
+  }
+
+  function selectManualIdentity(item) {
+    if (!item || !activeManualSearchInput) return;
+    const input = activeManualSearchInput;
+    const row = input.closest(".holding-row");
+    const editor = input.closest(".manual-account-editor");
+    input.value = item.name || "";
+    input.dataset.selectedName = input.value;
+    row.querySelector('[data-field="ticker"]').value = item.symbol || "";
+    editor.querySelector('[data-field="currency"]').value = item.currency || (item.market === "US ETF" ? "USD" : "KRW");
+    closeManualSearch();
+  }
+
   function updateJournalPriceField() {
     const setting = JOURNAL_PRICE_LABELS[$("journal-side").value] || JOURNAL_PRICE_LABELS.OTHER;
     $("journal-price-label").textContent = setting.label;
@@ -245,7 +353,8 @@
 
   function renderJournal() {
     const events = journalPayload.events || [];
-    $("journal-rows").innerHTML = events.length ? events.map((entry) => {
+    const shown = events.slice(0, journalVisibleRows);
+    $("journal-rows").innerHTML = shown.length ? shown.map((entry) => {
       const recurring = entry.recurring_like ? '<span class="journal-tag">모으기/소액</span>' : "";
       const manualDelete = entry.origin === "manual" ? `<button type="button" class="text-button delete-journal-entry" data-entry-id="${esc(entry.id)}">삭제</button>` : "";
       const memo = entry.memo ? ` · ${esc(entry.memo)}` : "";
@@ -258,6 +367,9 @@
         <td class="journal-basis"><span>${esc(entry.basis || "")}${memo}</span>${manualDelete}</td>
       </tr>`;
     }).join("") : `<tr><td colspan="9" class="unavailable">선택한 기간에 매매일지 항목이 없습니다.</td></tr>`;
+    const remaining = Math.max(0, events.length - shown.length);
+    $("journal-more").hidden = remaining === 0;
+    $("journal-more").textContent = remaining ? `더 보기 (${Math.min(10, remaining)}개)` : "더 보기";
     const summary = journalPayload.summary || {};
     $("journal-summary").innerHTML = `<span>매수 <b>${fmt(summary.buys || 0, 0)}건</b></span><span>매도 <b>${fmt(summary.sells || 0, 0)}건</b></span><span>실현손익 추정 <b>${esc(currencySummary(summary.realized_pnl_est))}</b></span><span>배당 추정 <b>${esc(currencySummary(summary.dividends_est))}</b></span>`;
     const gaps = journalPayload.gaps || [];
@@ -277,16 +389,19 @@
     return `<div class="manual-account-editor" data-account-index="${accountIndex}">
       <div class="editor-head"><b>${esc(account.label || `새 계좌 ${accountIndex + 1}`)}</b><button type="button" class="text-button remove-account">계좌 삭제</button></div>
       <input type="hidden" data-field="source_id" value="${esc(account.source_id || "")}">
-      <div class="form-grid manual-account-fields">
+      <div class="input-form-grid manual-account-fields">
         <label class="field"><span>계좌 이름</span><input data-field="label" value="${esc(account.label || "")}" placeholder="예: 미래에셋"></label>
         <label class="field"><span>통화</span><select data-field="currency"><option value="KRW" ${account.currency !== "USD" ? "selected" : ""}>KRW</option><option value="USD" ${account.currency === "USD" ? "selected" : ""}>USD</option></select></label>
         <label class="field"><span>현금</span><input data-field="cash" type="number" min="0" step="any" value="${esc(account.cash ?? 0)}"></label>
         <label class="field"><span>기준일</span><input data-field="snapshot_date" type="date" value="${esc(account.snapshot_date || today())}"></label>
       </div>
       <div class="holding-head"><span>보유 종목</span><button type="button" class="button add-holding">종목 추가</button></div>
-      <div class="holding-rows">${positions.map((position, positionIndex) => `<div class="holding-row" data-position-index="${positionIndex}">
-        <label class="field"><span>종목코드·티커</span><input data-field="ticker" value="${esc(position.ticker || "")}"></label>
-        <label class="field"><span>종목명</span><input data-field="name" value="${esc(position.name || "")}"></label>
+      <div class="holding-rows">${positions.map((position, positionIndex) => `<div class="holding-row input-form-grid" data-position-index="${positionIndex}">
+        <div class="manual-search-field">
+          <label class="field"><span>종목명</span><input class="manual-name-search" data-field="name" value="${esc(position.name || "")}" maxlength="80" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="manual-search-results-${accountIndex}-${positionIndex}" placeholder="이름만 입력하거나 검색 결과 선택"></label>
+          <div class="journal-search-results manual-search-results" id="manual-search-results-${accountIndex}-${positionIndex}" role="listbox" hidden></div>
+        </div>
+        <label class="field"><span>종목코드·티커</span><input data-field="ticker" value="${esc(position.ticker || "")}" placeholder="검색 선택 시 자동 입력"></label>
         <label class="field"><span>수량</span><input data-field="quantity" type="number" min="0" step="any" value="${esc(position.quantity ?? "")}"></label>
         <label class="field"><span>평균단가</span><input data-field="average_cost" type="number" min="0" step="any" value="${esc(position.average_cost ?? "")}"></label>
         <label class="field"><span>수동 현재가</span><input data-field="manual_price" type="number" min="0" step="any" value="${esc(position.manual_price ?? "")}" placeholder="선택"></label>
@@ -324,7 +439,7 @@
     const options = payload.net_worth.options || {};
     const classOptions = kind === "asset" ? options.asset_classes : options.liability_classes;
     const classField = kind === "asset" ? "asset_class" : "liability_class";
-    return `<div class="net-worth-input-row" data-kind="${kind}" data-index="${index}">
+    return `<div class="net-worth-input-row input-form-grid" data-kind="${kind}" data-index="${index}">
       <label class="field"><span>항목명</span><input data-field="name" value="${esc(row.name || "")}"></label>
       <label class="field"><span>분류</span><select data-field="${classField}">${optionHtml(classOptions, row[classField])}</select></label>
       <label class="field"><span>금액(원)</span><input data-field="amount_krw" type="number" min="0" step="1" value="${esc(row.amount_krw ?? "")}"></label>
@@ -377,6 +492,41 @@
     </div>`).join("") : `<div class="unavailable">저장된 자산·부채 구성이 없습니다.</div>`;
   }
 
+  function renderWriteAudit() {
+    const attempts = payload.recent_write_attempts || [];
+    const pathLabels = {
+      "/api/net-worth": "순자산", "/api/manual/accounts": "수동 계좌",
+      "/api/trade-journal/manual": "매매일지", "/api/cash-flows": "입출금",
+      "/api/watchlists": "관심목록", "/api/watchlist/items": "관심종목",
+      "/api/watchlist/items/move": "관심종목 순서", "/api/watch-conditions": "관심조건",
+    };
+    const countLabels = {
+      accounts: "계좌", positions: "종목", assets: "자산", liabilities: "부채",
+      entries: "항목", lists: "목록", items: "종목", conditions: "조건",
+    };
+    $("write-audit-list").innerHTML = attempts.length ? attempts.map((entry) => {
+      const counts = Object.entries(entry.row_counts || {}).map(([key, value]) => `${countLabels[key] || key} ${value}`).join(" · ");
+      const status = entry.status === 403 ? "403 · 폰에서는 저장 불가"
+        : entry.status === 400 ? "400 · 항목 필드 오류"
+          : entry.status === 200 ? "200 · 저장 완료" : `${entry.status} · 저장 오류`;
+      return `<div class="write-audit-row">
+        <span class="num">${esc(shortDate(entry.ts))}</span>
+        <b>${esc(pathLabels[entry.path] || entry.path)}</b>
+        <span>${entry.client_kind === "loopback" ? "PC 직접 접속" : "폰·중계 접속"}</span>
+        <span class="${entry.status === 200 ? "up" : "down"}">${esc(status)}</span>
+        <span class="muted">${esc(counts || "행 변경 없음")}</span>
+      </div>`;
+    }).join("") : `<div class="unavailable">기록된 저장 시도가 없습니다.</div>`;
+  }
+
+  async function refreshWriteAudit() {
+    const response = await fetch("/api/account");
+    if (!response.ok) return;
+    const latest = await response.json();
+    payload.recent_write_attempts = latest.recent_write_attempts || [];
+    renderWriteAudit();
+  }
+
   function hydrateState() {
     hydrateReturnPeriod();
     manualAccounts = ((payload.manual_accounts || {}).accounts || []).map((account) => ({
@@ -389,7 +539,7 @@
   }
 
   function renderAll() {
-    renderSummary(); renderSourceRows(); renderPerformance(); renderCashFlows(); renderJournal(); renderManualAccounts(); renderNetWorthForm(); renderTimeline(); renderBreakdown();
+    renderSummary(); renderSourceRows(); renderPerformance(); renderCashFlows(); renderJournal(); renderManualAccounts(); renderNetWorthForm(); renderTimeline(); renderBreakdown(); renderWriteAudit();
     $("account-safety").textContent = payload.safety_note || "";
   }
 
@@ -406,11 +556,7 @@
   }
 
   async function postJson(url, body, statusHost) {
-    $(statusHost).textContent = "저장 중…";
-    const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
-    $(statusHost).textContent = "저장했습니다.";
+    await writeJson(url, "POST", body, statusHost);
     await refresh();
   }
 
@@ -418,7 +564,10 @@
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
     const searchOption = target.closest(".journal-search-option");
-    if (searchOption) {
+    const manualSearchOption = target.closest(".manual-search-option");
+    if (manualSearchOption) {
+      selectManualIdentity(manualSearchMatches[Number(manualSearchOption.dataset.searchIndex)]);
+    } else if (searchOption) {
       selectJournalIdentity(journalSearchMatches[Number(searchOption.dataset.searchIndex)]);
     } else if (target.id === "add-manual-account") {
       manualAccounts.push({ label: "", currency: "KRW", cash: 0, snapshot_date: today(), positions: [] }); renderManualAccounts();
@@ -449,8 +598,10 @@
       target.classList.add("on"); selectedReturnWindow = target.dataset.v; renderPerformance();
     } else if (target.closest("#journal-range button")) {
       document.querySelectorAll("#journal-range button").forEach((button) => button.classList.remove("on"));
-      target.classList.add("on"); selectedJournalDays = Number(target.dataset.days);
+      target.classList.add("on"); selectedJournalDays = Number(target.dataset.days); journalVisibleRows = 10;
       loadJournal().catch((error) => { $("journal-status").textContent = `조회 실패 · ${error.message}`; });
+    } else if (target.id === "journal-more") {
+      journalVisibleRows += 10; renderJournal();
     } else if (target.classList.contains("edit-cash-flow")) {
       const entry = ((payload.cash_flows || {}).entries || []).find((row) => row.id === target.dataset.flowId);
       if (entry) {
@@ -461,26 +612,37 @@
     } else if (target.classList.contains("delete-cash-flow")) {
       (async () => {
         try {
-          const response = await fetch("/api/cash-flows", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: target.dataset.flowId }) });
-          const result = await response.json(); if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
-          $("cash-flow-status").textContent = "삭제했습니다."; resetCashFlowForm(); await refresh();
-        } catch (error) { $("cash-flow-status").textContent = `삭제 실패 · ${error.message}`; }
+          await writeJson("/api/cash-flows", "DELETE", { id: target.dataset.flowId }, "cash-flow-status", "삭제 완료");
+          resetCashFlowForm(); await refresh();
+        } catch (error) { if (!error.handled) setWriteStatus("cash-flow-status", `삭제 실패 · ${error.message}`); }
       })();
     } else if (target.id === "cancel-cash-flow") {
       resetCashFlowForm(); $("cash-flow-status").textContent = "";
     } else if (target.classList.contains("delete-journal-entry")) {
       (async () => {
         try {
-          const response = await fetch("/api/trade-journal/manual", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: target.dataset.entryId }) });
-          const result = await response.json(); if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
-          $("journal-status").textContent = "삭제했습니다."; await loadJournal();
-        } catch (error) { $("journal-status").textContent = `삭제 실패 · ${error.message}`; }
+          await writeJson("/api/trade-journal/manual", "DELETE", { id: target.dataset.entryId }, "journal-status", "삭제 완료");
+          await refresh();
+        } catch (error) { if (!error.handled) setWriteStatus("journal-status", `삭제 실패 · ${error.message}`); }
       })();
     }
     if (!target.closest(".journal-search-field")) closeJournalSearch();
+    if (!target.closest(".manual-search-field")) closeManualSearch();
   });
 
   document.addEventListener("DOMContentLoaded", async () => {
+    $("manual-accounts-form").addEventListener("input", (event) => {
+      if (event.target instanceof HTMLInputElement && event.target.classList.contains("manual-name-search")) {
+        scheduleManualSearch(event.target);
+      }
+    });
+    $("manual-accounts-form").addEventListener("keydown", (event) => {
+      if (!(event.target instanceof HTMLInputElement) || !event.target.classList.contains("manual-name-search")) return;
+      if (event.key === "Escape") closeManualSearch();
+      if (event.key === "Enter" && manualSearchMatches.length) {
+        event.preventDefault(); selectManualIdentity(manualSearchMatches[0]);
+      }
+    });
     $("journal-name").addEventListener("input", scheduleJournalSearch);
     $("journal-name").addEventListener("keydown", (event) => {
       if (event.key === "Escape") closeJournalSearch();
@@ -492,17 +654,14 @@
     $("journal-side").addEventListener("change", updateJournalPriceField);
     $("save-manual-accounts").addEventListener("click", async () => {
       try { await postJson("/api/manual/accounts", { schema_version: 1, accounts: collectManualAccounts() }, "manual-status"); }
-      catch (error) { $("manual-status").textContent = `저장 실패 · ${error.message}`; }
+      catch (error) { if (!error.handled) setWriteStatus("manual-status", `저장 실패 · ${error.message}`); }
     });
     $("save-net-worth").addEventListener("click", async () => {
       try {
         await postJson("/api/net-worth", { as_of_date: $("net-worth-date").value, assets: collectNetWorthRows("asset"), liabilities: collectNetWorthRows("liability") }, "net-worth-status");
         $("save-net-worth").classList.remove("attention");
       } catch (error) {
-        const relayed = /로컬 접속|403/.test(String(error.message));
-        $("net-worth-status").textContent = relayed
-          ? "저장 실패 · 폰(테일스케일)에서는 저장할 수 없습니다 · PC 브라우저(127.0.0.1:8787)에서 같은 내용을 저장하세요"
-          : `저장 실패 · ${error.message}`;
+        if (!error.handled) setWriteStatus("net-worth-status", `저장 실패 · ${error.message}`);
       }
     });
     // Rows added or edited in the 순자산 form are NOT persisted until 새 스냅샷 저장 is pressed —
@@ -524,11 +683,10 @@
         const body = { date: $("cash-flow-date").value, amount_krw: Number($("cash-flow-amount").value), account: $("cash-flow-account").value.trim(), memo: $("cash-flow-memo").value.trim() };
         if ($("cash-flow-id").value) body.id = $("cash-flow-id").value;
         await postJson("/api/cash-flows", body, "cash-flow-status"); resetCashFlowForm();
-      } catch (error) { $("cash-flow-status").textContent = `저장 실패 · ${error.message}`; }
+      } catch (error) { if (!error.handled) setWriteStatus("cash-flow-status", `저장 실패 · ${error.message}`); }
     });
     $("save-journal-entry").addEventListener("click", async () => {
       try {
-        $("journal-status").textContent = "저장 중…";
         const body = {
           date: $("journal-date").value, account_label: $("journal-account").value.trim(),
           symbol: $("journal-symbol").value.trim(), name: $("journal-name").value.trim(),
@@ -536,11 +694,10 @@
           price: $("journal-price").value === "" ? null : Number($("journal-price").value), currency: $("journal-currency").value,
           memo: $("journal-memo").value.trim(),
         };
-        const response = await fetch("/api/trade-journal/manual", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-        const result = await response.json(); if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+        const result = await writeJson("/api/trade-journal/manual", "POST", body, "journal-status");
         const success = savedJournalSummary(result, body);
-        resetJournalForm(); await loadJournal(); $("journal-status").textContent = success;
-      } catch (error) { $("journal-status").textContent = `저장 실패 · ${error.message}`; }
+        resetJournalForm(); journalVisibleRows = 10; await refresh(); setWriteStatus("journal-status", `200 · 저장 완료 · ${success.replace(/^저장했습니다 · /, "")}`);
+      } catch (error) { if (!error.handled) setWriteStatus("journal-status", `저장 실패 · ${error.message}`); }
     });
     resetCashFlowForm();
     resetJournalForm();

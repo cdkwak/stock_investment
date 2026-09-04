@@ -25,6 +25,7 @@ from stock_web.api.account_page import (
     _atomic_json_replace,
     load_cash_flows,
 )
+from stock_web.api.symbol_resolver import SymbolResolutionError, resolve_local_symbol
 
 
 TOSS_LANDING = Path("data/landing/tossinvest/account_snapshot")
@@ -667,54 +668,21 @@ def _manual_optional_positive_number(value: object, field: str) -> float | None:
     return _manual_positive_number(value, field)
 
 
-def _manual_identity_candidates(project_root: Path, query: str) -> list[dict[str, object]]:
-    from stock_web.api.stocks_page import search_stocks
-
-    result = search_stocks(project_root, query)
-    matches = result.get("matches") if isinstance(result, Mapping) else None
-    return [dict(item) for item in matches or [] if isinstance(item, Mapping)]
-
-
 def _resolve_manual_identity(project_root: Path, payload: object) -> object:
     if not isinstance(payload, Mapping):
         return payload
     resolved = dict(payload)
-    symbol = str(resolved.get("symbol") or "").strip().upper()
-    name = str(resolved.get("name") or "").strip()
-    if symbol:
-        if not name:
-            exact = [
-                item for item in _manual_identity_candidates(project_root, symbol)
-                if str(item.get("symbol") or "").strip().upper() == symbol
-            ]
-            if len(exact) == 1:
-                resolved["name"] = str(exact[0].get("name") or symbol)
-        return resolved
-    clean_name = _manual_text(name, "종목명", 80)
-    matches = _manual_identity_candidates(project_root, clean_name)
-    folded = clean_name.casefold()
-    exact = [
-        item for item in matches
-        if folded in {
-            str(item.get("name") or "").strip().casefold(),
-            str(item.get("full_name") or "").strip().casefold(),
-        }
-    ]
-    candidates = exact if exact else matches
-    if len(candidates) == 1:
-        selected = candidates[0]
-        resolved["symbol"] = str(selected.get("symbol") or "").strip().upper()
-        resolved["name"] = str(selected.get("name") or clean_name).strip()
-        return resolved
-    if candidates:
-        choices = " · ".join(
-            f"{str(item.get('symbol') or '').strip()} {str(item.get('name') or '').strip()}"
-            for item in candidates[:3]
+    try:
+        identity = resolve_local_symbol(
+            project_root, symbol=resolved.get("symbol"), name=resolved.get("name"),
         )
-        raise AccountInputError(f"종목코드를 고르세요: {choices}")
-    raise AccountInputError(
-        "종목명을 찾을 수 없습니다. 종목코드를 직접 입력하거나 검색 결과에서 고르세요."
-    )
+    except SymbolResolutionError as error:
+        raise AccountInputError(str(error)) from error
+    resolved["symbol"] = identity["symbol"]
+    resolved["name"] = identity["name"]
+    if identity["currency"]:
+        resolved["currency"] = identity["currency"]
+    return resolved
 
 
 def _manual_entry(payload: object, *, allow_missing_id: bool) -> dict[str, object]:

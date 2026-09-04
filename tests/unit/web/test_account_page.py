@@ -142,8 +142,48 @@ def _net_worth_post_payload() -> dict[str, object]:
     }
 
 
+def _write_searchable_account_etfs(root: Path) -> None:
+    _write_parquet(
+        root,
+        "data/normalized/kr_etf_universe_daily/source_date=2026-09-04/data.parquet",
+        pd.DataFrame({
+            "source_date": ["2026-09-04"] * 4,
+            "symbol": ["0015B0", "100001", "100002", "100003"],
+            "name": [
+                "KoAct 미국나스닥성장기업액티브",
+                "미국 성장 1호", "미국 성장 2호", "미국 성장 3호",
+            ],
+            "full_name": [None] * 4,
+            "isin": [None] * 4,
+            "listing_date": ["2025-02-25", "2024-01-01", "2024-01-02", "2024-01-03"],
+            "underlying_index": [None] * 4,
+            "market": ["KRX"] * 4,
+            "security_type": ["ETF"] * 4,
+            "listing_status": ["LISTED_AT_SOURCE_DATE"] * 4,
+        }),
+    )
+
+
 def _account_project() -> Path:
     root = new_temp_root()
+    _write_parquet(
+        root,
+        "data/normalized/kr_equity_master/market=KOSPI/data.parquet",
+        pd.DataFrame({
+            "symbol": ["005930"], "name": ["삼성전자"], "market": ["KOSPI"],
+            "isin": ["KR7005930003"], "listing_date": ["1975-06-11"],
+            "delisting_date": [None], "security_type_name": ["보통주"],
+        }),
+    )
+    _write_parquet(
+        root,
+        "data/normalized/kr_equity_master/market=KOSDAQ/data.parquet",
+        pd.DataFrame({
+            "symbol": ["035720"], "name": ["카카오"], "market": ["KOSDAQ"],
+            "isin": ["KR7035720002"], "listing_date": ["1999-11-11"],
+            "delisting_date": [None], "security_type_name": ["보통주"],
+        }),
+    )
     _write_parquet(
         root,
         "data/normalized/kr_equity_price_daily/market=KOSPI/year=2026/data.parquet",
@@ -328,17 +368,156 @@ def test_account_posts_are_loopback_only_and_pages_and_get_apis_render() -> None
     assert "계좌 관측 또는 환율이 3거래일 넘게 오래된 날" in account_page_html
     assert 'class="account-wide-grid"' in account_page_html
     assert 'class="return-metrics dense"' in account_page_html
+    assert 'id="account-toast"' in account_page_html
+    assert 'role="status"' in account_page_html
+    for status_id in ("manual-status", "net-worth-status", "cash-flow-status", "journal-status"):
+        assert f'id="{status_id}"' in account_page_html
+    assert 'class="card account-input-panel"' in account_page_html
+    assert "최근 저장 시도" in account_page_html
+    assert account_page_html.index("진짜 투자 수익") < account_page_html.index("계좌별")
+    assert account_page_html.index("계좌별") < account_page_html.index("순자산 타임라인")
+    assert account_page_html.index("최근 자산·부채 구성") < account_page_html.index("입력 (수동 계좌")
+    assert account_page_html.index("입력 (수동 계좌") < account_page_html.index("최근 저장 시도")
     app_css = client.get("/static/app.css").text
     assert ".page {" in app_css
     assert "max-width: 1760px" in app_css
     assert "margin: 0 auto" in app_css
     account_css = client.get("/static/account.css").text
+    account_javascript = client.get("/static/account.js").text
     assert ".card-head b" in account_css
-    assert "grid-template-columns: repeat(3, minmax(0, 1fr))" in account_css
+    assert "grid-template-columns: repeat(6, minmax(0, 1fr))" in account_css
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in account_css
     assert "white-space: nowrap" in account_css
     assert ".source-mobile-meta" in account_css
+    assert "manual-name-search" in account_javascript
+    assert "manualSearchSequence" in account_javascript
+    assert "events.slice(0, journalVisibleRows)" in account_javascript
+    assert "window.setTimeout(() => { toast.hidden = true; }, 8000)" in account_javascript
     assert client.get("/api/manual/accounts").status_code == 200
     assert client.get("/api/net-worth").status_code == 200
+
+
+def test_manual_accounts_resolve_unique_names_and_hint_ambiguous_or_missing_names() -> None:
+    root = _account_project()
+    _write_searchable_account_etfs(root)
+    client = ASGITestClient(create_app(root))
+    base = _manual_post_payload()
+    base["accounts"] = [{
+        **base["accounts"][0],
+        "positions": [{
+            "ticker": "", "name": "KoAct 미국나스닥성장기업액티브",
+            "quantity": 2, "average_cost": 10_000, "manual_price": None,
+        }],
+    }]
+
+    resolved = client.post(
+        "/api/manual/accounts", json=base, client_host="127.0.0.1",
+    )
+    assert resolved.status_code == 200
+    saved = resolved.json()["accounts"][0]
+    assert saved["positions"][0]["ticker"] == "0015B0"
+    assert saved["positions"][0]["name"] == "KoAct 미국나스닥성장기업액티브"
+    assert saved["currency"] == "KRW"
+
+    kr_stock_payload = {
+        **base,
+        "accounts": [{
+            **base["accounts"][0],
+            "positions": [{
+                "ticker": "", "name": "삼성전자", "quantity": 1,
+                "average_cost": 70_000, "manual_price": None,
+            }],
+        }],
+    }
+    response = client.post(
+        "/api/manual/accounts", json=kr_stock_payload, client_host="127.0.0.1",
+    )
+    assert response.status_code == 200
+    assert response.json()["accounts"][0]["positions"][0]["ticker"] == "005930"
+
+    us_payload = {
+        **base,
+        "accounts": [{
+            **base["accounts"][0],
+            "currency": "KRW",
+            "positions": [{
+                "ticker": "", "name": "SPDR S&P 500 ETF Trust",
+                "quantity": 1, "average_cost": 500, "manual_price": 510,
+            }],
+        }],
+    }
+    response = client.post(
+        "/api/manual/accounts", json=us_payload, client_host="127.0.0.1",
+    )
+    assert response.status_code == 200
+    assert response.json()["accounts"][0]["positions"][0]["ticker"] == "SPY"
+    assert response.json()["accounts"][0]["currency"] == "USD"
+
+    ambiguous = {
+        **base,
+        "accounts": [{
+            **base["accounts"][0],
+            "positions": [{
+                **base["accounts"][0]["positions"][0], "name": "미국 성장",
+            }],
+        }],
+    }
+    response = client.post(
+        "/api/manual/accounts", json=ambiguous, client_host="127.0.0.1",
+    )
+    assert response.status_code == 400
+    assert response.json()["error"] == (
+        "종목코드를 고르세요: 100001 미국 성장 1호 · 100002 미국 성장 2호 · 100003 미국 성장 3호"
+    )
+
+    missing = {
+        **base,
+        "accounts": [{
+            **base["accounts"][0],
+            "positions": [{
+                **base["accounts"][0]["positions"][0], "name": "존재하지 않는 종목",
+            }],
+        }],
+    }
+    response = client.post(
+        "/api/manual/accounts", json=missing, client_host="127.0.0.1",
+    )
+    assert response.status_code == 400
+    assert response.json()["error"] == (
+        "종목명을 찾을 수 없습니다. 종목코드를 직접 입력하거나 검색 결과에서 고르세요."
+    )
+
+
+def test_write_audit_records_200_400_403_without_private_payload_content() -> None:
+    root = _account_project()
+    client = ASGITestClient(create_app(root))
+    valid = _net_worth_post_payload()
+    valid["assets"][0]["name"] = "감사비밀자산"
+    valid["assets"][0]["amount_krw"] = 987_654_321
+
+    assert client.post(
+        "/api/net-worth", json=valid, client_host="127.0.0.1",
+    ).status_code == 200
+    assert client.post(
+        "/api/net-worth", json={"as_of_date": "bad", "assets": [], "liabilities": []},
+        client_host="::1",
+    ).status_code == 400
+    assert client.post(
+        "/api/net-worth", json={"account": "123-456-789012", "amount": 11223344},
+        client_host="127.0.0.1", headers={"x-forwarded-for": "100.64.0.8"},
+    ).status_code == 403
+
+    audit_path = root / "artifacts/local_user/web_write_audit.jsonl"
+    raw = audit_path.read_text(encoding="utf-8")
+    lines = [json.loads(line) for line in raw.splitlines()]
+    assert [line["status"] for line in lines] == [200, 400, 403]
+    assert [line["client_kind"] for line in lines] == ["loopback", "loopback", "relayed"]
+    assert set(lines[0]) == {"ts", "path", "client_kind", "status", "error_code", "row_counts"}
+    assert lines[0]["row_counts"] == {"assets": 2, "liabilities": 1}
+    for private_text in ("감사비밀자산", "987654321", "123-456-789012", "11223344"):
+        assert private_text not in raw
+    recent = client.get("/api/account").json()["recent_write_attempts"]
+    assert [line["status"] for line in recent] == [403, 400, 200]
 
 
 def test_home_account_keeps_total_alias_and_adds_split_fields() -> None:

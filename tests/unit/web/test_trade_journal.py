@@ -170,10 +170,8 @@ def test_buy_sell_new_gone_and_fractional_rows_are_one_daily_event() -> None:
     assert by_key[("kb_self", "2026-09-01", "KBNEW", "SELL")]["price"] == 60_000
 
 
-def test_positions_history_wins_over_landing_and_same_day_overwrite_invalidates_cache(
-    tmp_path: Path,
-) -> None:
-    root = tmp_path
+def test_positions_history_wins_over_landing_and_same_day_overwrite_invalidates_cache() -> None:
+    root = _make_project()
     _write_snapshot(root, "toss", "2026-09-01", [], 1_000_000)
     _write_snapshot(root, "toss", "2026-09-02", [
         _position("PREFERRED", "9", "100", "110"),
@@ -196,10 +194,8 @@ def test_positions_history_wins_over_landing_and_same_day_overwrite_invalidates_
     assert second[0]["quantity"] == 3
 
 
-def test_positions_history_quantity_decrease_remains_visible_without_price_or_cash(
-    tmp_path: Path,
-) -> None:
-    root = tmp_path
+def test_positions_history_quantity_decrease_remains_visible_without_price_or_cash() -> None:
+    root = _make_project()
     _write_positions_history(root, "kb", "2026-09-01", [
         _position("MINIMAL", "2", "100", "110", source="kb"),
     ])
@@ -215,10 +211,8 @@ def test_positions_history_quantity_decrease_remains_visible_without_price_or_ca
     assert event["price_basis"] == "unavailable"
 
 
-def test_trade_journal_still_reads_landing_when_positions_history_is_absent(
-    tmp_path: Path,
-) -> None:
-    root = tmp_path
+def test_trade_journal_still_reads_landing_when_positions_history_is_absent() -> None:
+    root = _make_project()
     _write_snapshot(root, "kb", "2026-09-01", [], 100_000)
     _write_snapshot(root, "kb", "2026-09-02", [
         _position("LANDING", "1", "100", "110", source="kb"),

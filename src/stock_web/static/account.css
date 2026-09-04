@@ -23,19 +23,116 @@
   display: contents;
 }
 
-.account-source-card { order: 1; }
-.account-performance-card { order: 2; }
-.cash-flow-card { order: 3; }
-.journal-card { order: 4; }
-.manual-account-card { order: 5; }
-.net-worth-form-card { order: 6; }
+.account-toast {
+  position: fixed;
+  z-index: 100;
+  top: 62px;
+  left: 50%;
+  width: min(680px, calc(100vw - 28px));
+  transform: translateX(-50%);
+  border: 1px solid #285f43;
+  border-radius: 7px;
+  background: #173f2d;
+  box-shadow: 0 10px 28px rgba(17, 32, 24, .22);
+  color: #fff;
+  padding: 10px 14px;
+  font-size: 13px;
+}
+
+.account-toast[hidden] { display: none; }
+
+.account-input-panel > summary,
+.input-subsection > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.account-input-panel > summary::-webkit-details-marker,
+.input-subsection > summary::-webkit-details-marker { display: none; }
+
+.account-input-panel > summary::before,
+.input-subsection > summary::before {
+  content: "▸";
+  color: var(--muted);
+  margin-right: 7px;
+}
+
+.account-input-panel[open] > summary::before,
+.input-subsection[open] > summary::before { content: "▾"; }
+
+.input-panel-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.input-subsections {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.input-subsection {
+  margin: 0;
+  min-width: 0;
+}
+
+.input-subsection[open] > summary {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--grid);
+}
+
+.input-form-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  align-items: end;
+}
+
+.form-top-grid { margin: 10px 0; }
+
+.manual-account-editor,
+.net-worth-input-row {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--grid);
+}
+
+.manual-search-field {
+  position: relative;
+  min-width: 0;
+}
+
+.manual-search-results {
+  z-index: 30;
+}
+
+.journal-more-wrap {
+  display: flex;
+  justify-content: center;
+  margin-top: 10px;
+}
+
+.write-audit-list {
+  display: grid;
+  gap: 0;
+}
+
+.write-audit-row {
+  display: grid;
+  grid-template-columns: 110px 130px 110px minmax(180px, 1fr) minmax(100px, auto);
+  gap: 8px;
+  align-items: center;
+  padding: 7px 0;
+  border-top: 1px solid var(--grid);
+  font-size: 12px;
+}
+
+.write-audit-row:first-child { border-top: 0; }
 
 .journal-card .data-table-wrap {
   margin-top: 12px;
-}
-
-.journal-form {
-  grid-template-columns: repeat(6, minmax(120px, 1fr));
 }
 
 .journal-form .journal-memo {
@@ -142,20 +239,13 @@
 
   .account-wide-grid {
     display: grid;
-    grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    grid-template-columns: minmax(0, 6fr) minmax(0, 5fr);
     gap: 12px;
     align-items: start;
   }
 
-  .account-wide-column {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    min-width: 0;
-  }
-
-  .account-wide-column > * {
-    order: initial;
+  .input-subsections {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .return-metrics {
@@ -177,9 +267,16 @@
 }
 
 @media (max-width: 1000px) {
-  .journal-form {
+  .input-form-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .write-audit-row {
+    grid-template-columns: 90px minmax(90px, 1fr) minmax(150px, 2fr);
+  }
+
+  .write-audit-row > :nth-child(3),
+  .write-audit-row > :nth-child(5) { display: none; }
 }
 
 @media (max-width: 599px) {

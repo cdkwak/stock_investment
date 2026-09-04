@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
+from threading import Lock
 from typing import Any, Mapping
 from uuid import uuid4
 
@@ -44,6 +45,7 @@ from stock_data.gui.net_worth_service import (
 )
 
 from stock_web.api import datasets
+from stock_web.api.symbol_resolver import SymbolResolutionError, resolve_local_symbol
 
 
 MANUAL_ACCOUNTS_PATH = Path("artifacts/local_user/manual_accounts.json")
@@ -51,6 +53,7 @@ MANUAL_WEB_PATH = Path("artifacts/local_user/manual_accounts_web.json")
 NET_WORTH_ROOT = Path("data/local/net_worth_history")
 NET_WORTH_LABELS_PATH = Path("artifacts/local_user/net_worth_labels.json")
 CASH_FLOWS_PATH = Path("artifacts/local_user/cash_flows.json")
+WEB_WRITE_AUDIT_PATH = Path("artifacts/local_user/web_write_audit.jsonl")
 
 _MANUAL_SCHEMA_VERSION = 1
 _MANUAL_CURRENCIES = frozenset({"KRW", "USD"})
@@ -58,6 +61,11 @@ _SOURCE_ID = re.compile(r"manual:[a-z0-9][a-z0-9_-]{0,47}\Z")
 _TICKER = re.compile(r"[A-Za-z0-9.^_-]{1,20}\Z")
 _ACCOUNT_NUMBER = re.compile(r"(?<!\d)(?:\d[ -]?){9,13}\d(?!\d)")
 _CASH_FLOW_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
+_AUDIT_COUNT_KEYS = frozenset({
+    "accounts", "assets", "conditions", "entries", "items", "liabilities",
+    "lists", "positions",
+})
+_AUDIT_LOCK = Lock()
 
 ASSET_LABELS = {
     AssetClass.CASH.value: "예금·현금",
@@ -109,6 +117,78 @@ STATUS_LABELS = {
 
 class AccountInputError(ValueError):
     """Sanitized validation error suitable for an HTTP 400 response."""
+
+
+def append_web_write_audit(
+    project_root: Path, *, path: str, client_kind: str, status: int,
+    error_code: str, row_counts: Mapping[str, int] | None = None,
+) -> dict[str, object]:
+    """Append one payload-free write receipt for local troubleshooting."""
+    counts: dict[str, int] = {}
+    for key, value in (row_counts or {}).items():
+        if key not in _AUDIT_COUNT_KEYS or isinstance(value, bool):
+            raise ValueError("unsupported audit row count")
+        count = int(value)
+        if count < 0 or count != value:
+            raise ValueError("invalid audit row count")
+        counts[key] = count
+    if client_kind not in {"loopback", "relayed"}:
+        raise ValueError("invalid audit client kind")
+    entry: dict[str, object] = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "path": str(path),
+        "client_kind": client_kind,
+        "status": int(status),
+        "error_code": str(error_code),
+        "row_counts": counts,
+    }
+    audit_path = Path(project_root) / WEB_WRITE_AUDIT_PATH
+    line = json.dumps(entry, ensure_ascii=False, separators=(",", ":")) + "\n"
+    with _AUDIT_LOCK:
+        audit_path.parent.mkdir(parents=True, exist_ok=True)
+        with audit_path.open("a", encoding="utf-8", newline="") as stream:
+            stream.write(line)
+            stream.flush()
+            os.fsync(stream.fileno())
+    return entry
+
+
+def load_web_write_audit(project_root: Path, *, limit: int = 5) -> list[dict[str, object]]:
+    """Return only validated, privacy-minimal recent write receipts."""
+    audit_path = Path(project_root) / WEB_WRITE_AUDIT_PATH
+    if not audit_path.is_file():
+        return []
+    try:
+        lines = audit_path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError):
+        return []
+    accepted: list[dict[str, object]] = []
+    required = {"ts", "path", "client_kind", "status", "error_code", "row_counts"}
+    for line in reversed(lines):
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(entry, dict) or set(entry) != required:
+            continue
+        counts = entry.get("row_counts")
+        if (
+            entry.get("client_kind") not in {"loopback", "relayed"}
+            or not isinstance(entry.get("status"), int)
+            or not isinstance(counts, dict)
+            or any(
+                key not in _AUDIT_COUNT_KEYS
+                or isinstance(value, bool)
+                or not isinstance(value, int)
+                or value < 0
+                for key, value in counts.items()
+            )
+        ):
+            continue
+        accepted.append(entry)
+        if len(accepted) >= limit:
+            break
+    return accepted
 
 
 def _atomic_json_replace(path: Path, payload: Mapping[str, object]) -> None:
@@ -405,6 +485,45 @@ def _normalize_manual_payload(payload: object) -> dict[str, object]:
     return {"schema_version": _MANUAL_SCHEMA_VERSION, "accounts": accounts}
 
 
+def _resolve_manual_account_identities(project_root: Path, payload: object) -> object:
+    if not isinstance(payload, Mapping) or not isinstance(payload.get("accounts"), list):
+        return payload
+    resolved_payload = dict(payload)
+    resolved_accounts: list[object] = []
+    for raw_account in payload["accounts"]:
+        if not isinstance(raw_account, Mapping) or not isinstance(raw_account.get("positions", []), list):
+            resolved_accounts.append(raw_account)
+            continue
+        account = dict(raw_account)
+        positions: list[object] = []
+        catalog_currencies: set[str] = set()
+        for raw_position in raw_account.get("positions", []):
+            if not isinstance(raw_position, Mapping):
+                positions.append(raw_position)
+                continue
+            position = dict(raw_position)
+            if not str(position.get("ticker") or "").strip() or not str(position.get("name") or "").strip():
+                try:
+                    identity = resolve_local_symbol(
+                        project_root,
+                        symbol=position.get("ticker"),
+                        name=position.get("name"),
+                    )
+                except SymbolResolutionError as error:
+                    raise AccountInputError(str(error)) from error
+                position["ticker"] = identity["symbol"]
+                position["name"] = identity["name"]
+                if identity["currency"]:
+                    catalog_currencies.add(str(identity["currency"]))
+            positions.append(position)
+        if len(catalog_currencies) == 1:
+            account["currency"] = catalog_currencies.pop()
+        account["positions"] = positions
+        resolved_accounts.append(account)
+    resolved_payload["accounts"] = resolved_accounts
+    return resolved_payload
+
+
 def _legacy_manual_payload(registry: ManualAccountRegistry) -> dict[str, object]:
     return {
         "schema_version": _MANUAL_SCHEMA_VERSION,
@@ -441,7 +560,9 @@ def load_manual_accounts(project_root: Path) -> dict[str, object]:
 
 
 def save_manual_accounts(project_root: Path, payload: object) -> dict[str, object]:
-    normalized = _normalize_manual_payload(payload)
+    normalized = _normalize_manual_payload(
+        _resolve_manual_account_identities(Path(project_root), payload),
+    )
     compatible: list[ManualAccountRecord] = []
     for account in normalized["accounts"]:
         positions = account["positions"]
@@ -1596,6 +1717,7 @@ def build_account_page_data(project_root: Path) -> dict[str, object]:
         "manual_accounts": manual,
         "net_worth": net_worth,
         "cash_flows": cash_flows,
+        "recent_write_attempts": load_web_write_audit(project_root, limit=5),
         "total_asset_history": history,
         "benchmark": benchmark,
         "return_metrics": return_metrics,
@@ -1614,8 +1736,8 @@ def build_account_page_data(project_root: Path) -> dict[str, object]:
 
 
 __all__ = [
-    "AccountInputError", "build_account_page_data", "build_api_account_data",
+    "AccountInputError", "append_web_write_audit", "build_account_page_data", "build_api_account_data",
     "build_cash_flow_data", "build_manual_account_data", "build_net_worth_data",
     "calculate_return_metrics", "delete_cash_flow", "load_cash_flows",
-    "load_manual_accounts", "save_cash_flow", "save_manual_accounts", "save_net_worth",
+    "load_manual_accounts", "load_web_write_audit", "save_cash_flow", "save_manual_accounts", "save_net_worth",
 ]
