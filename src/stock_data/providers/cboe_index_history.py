@@ -143,9 +143,18 @@ def parse_cboe_index_history_csv(content: bytes, symbol: str) -> pd.DataFrame:
         raise CboeIndexHistoryError("Cboe index history close contains missing values")
     if numeric.isna().any().any() or not np.isfinite(numeric.to_numpy()).all():
         raise CboeIndexHistoryError("Cboe index history OHLC contains invalid values")
+    # Cboe's published files carry a handful of rows whose HIGH and LOW columns are
+    # swapped (observed: VIX6M 2019-07-05 OPEN 16.18 HIGH 15.87 LOW 16.50 CLOSE 15.99).
+    # Swap those two columns back and record the dates; every other relationship
+    # violation is still rejected.
+    swapped = numeric["high"] < numeric["low"]
+    if swapped.any():
+        high = numeric.loc[swapped, "high"].copy()
+        numeric.loc[swapped, "high"] = numeric.loc[swapped, "low"]
+        numeric.loc[swapped, "low"] = high
+    repaired_dates = tuple(dates[swapped].dt.strftime("%Y-%m-%d"))
     if (
-        (numeric["high"] < numeric["low"])
-        | ~numeric["open"].between(numeric["low"], numeric["high"])
+        ~numeric["open"].between(numeric["low"], numeric["high"])
         | ~numeric["close"].between(numeric["low"], numeric["high"])
     ).any():
         raise CboeIndexHistoryError("Cboe index history OHLC relationship is invalid")
@@ -160,6 +169,7 @@ def parse_cboe_index_history_csv(content: bytes, symbol: str) -> pd.DataFrame:
         "volume": pd.Series(pd.NA, index=source.index, dtype="Int64"),
     })[list(GLOBAL_INDEX_PRICE_DAILY.column_names)]
     frame.attrs["provider_gap_dates"] = ()
+    frame.attrs["repaired_high_low_dates"] = repaired_dates
     return frame
 
 

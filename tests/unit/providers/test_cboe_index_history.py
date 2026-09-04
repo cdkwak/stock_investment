@@ -118,3 +118,25 @@ def test_fetch_cboe_history_retains_invalid_body_before_parser_failure(tmp_path)
 def test_parse_cboe_csv_rejects_unregistered_symbol_before_work() -> None:
     with pytest.raises(ValueError, match="unregistered"):
         parse_cboe_index_history_csv(OHLC_CSV, "VIX")
+
+
+def test_parse_cboe_csv_repairs_swapped_high_low_rows() -> None:
+    content = (
+        b"DATE,OPEN,HIGH,LOW,CLOSE\n"
+        b"07/03/2019,16.00,16.40,15.90,16.10\n"
+        b"07/05/2019,16.18,15.87,16.50,15.99\n"
+    )
+    frame = parse_cboe_index_history_csv(content, "VIX6M")
+    row = frame.iloc[1]
+    assert (row["high"], row["low"]) == (16.50, 15.87)
+    assert frame.attrs["repaired_high_low_dates"] == ("2019-07-05",)
+    assert frame.attrs["provider_gap_dates"] == ()
+
+
+def test_parse_cboe_csv_still_rejects_close_outside_range() -> None:
+    content = (
+        b"DATE,OPEN,HIGH,LOW,CLOSE\n"
+        b"07/03/2019,16.00,16.40,15.90,17.10\n"
+    )
+    with pytest.raises(CboeIndexHistoryError, match="relationship"):
+        parse_cboe_index_history_csv(content, "VIX6M")
