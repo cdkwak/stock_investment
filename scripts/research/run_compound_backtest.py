@@ -79,6 +79,27 @@ CURRENT = {
     "exit": "a",
     "cost_enabled": True,
 }
+BASE_SWEEP_MULTIPLES = (2, 3)
+BASE_SWEEP_EXITS = ("a", "d")
+BASE_SWEEP_PERIODS = ("fit", "holdout", "full")
+BASE_SWEEP_REQUIRED_FIELDS = {
+    "schema_version",
+    "experiment",
+    "development_only",
+    "api_calls",
+    "quick",
+    "basket",
+    "underlying",
+    "parameters",
+    "input_manifest_sha256",
+    "input_manifest",
+    "calibration",
+    "independent_cycle_count",
+    "references",
+    "rows",
+    "thresholds",
+    "runtime_seconds",
+}
 
 
 def _json_value(value: Any) -> Any:
@@ -128,6 +149,148 @@ def _baseline_metrics(
     transaction_cost: float,
 ) -> dict[str, dict[str, Any]]:
     return simulate_baseline(dates, returns, transaction_cost=transaction_cost).metrics
+
+
+def _metric_pair(metrics: dict[str, Any]) -> dict[str, float]:
+    return {
+        "final_wealth_multiple": float(metrics["final_wealth_multiple"]),
+        "max_drawdown": float(metrics["max_drawdown"]),
+    }
+
+
+def _safe_ratio(numerator: float, denominator: float) -> float:
+    return numerator / denominator if denominator != 0.0 else float("nan")
+
+
+def _comparison_periods(
+    ladder: dict[str, dict[str, Any]],
+    permanent: dict[str, dict[str, Any]],
+    baseline: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for period in BASE_SWEEP_PERIODS:
+        ladder_pair = _metric_pair(ladder[period])
+        permanent_pair = _metric_pair(permanent[period])
+        baseline_pair = _metric_pair(baseline[period])
+        result[period] = {
+            "ladder_on_base": ladder_pair,
+            "permanent_base": permanent_pair,
+            "baseline_1x": baseline_pair,
+            "ladder_to_baseline_ratio": _safe_ratio(
+                ladder_pair["final_wealth_multiple"],
+                baseline_pair["final_wealth_multiple"],
+            ),
+            "ladder_to_permanent_ratio": _safe_ratio(
+                ladder_pair["final_wealth_multiple"],
+                permanent_pair["final_wealth_multiple"],
+            ),
+        }
+    return result
+
+
+def _independent_cycle_counts(frame: pd.DataFrame, executable_levels: pd.Series) -> dict[str, int]:
+    filled = pd.to_numeric(executable_levels, errors="coerce").ffill().fillna(0).astype(int)
+    dates = pd.to_datetime(frame.loc[filled.gt(0), "date"], errors="raise")
+
+    def count(selected: pd.Series) -> int:
+        ordered = selected.drop_duplicates().sort_values()
+        if ordered.empty:
+            return 0
+        gaps = ordered.diff().dt.days.gt(90)
+        return 1 + int(gaps.sum())
+
+    return {
+        "fit": count(dates.loc[dates.le(pd.Timestamp("2015-12-31"))]),
+        "holdout": count(dates.loc[dates.ge(pd.Timestamp("2016-01-01"))]),
+        "full": count(dates),
+    }
+
+
+def _base_sweep_thresholds(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    thresholds: list[dict[str, Any]] = []
+    for multiple in BASE_SWEEP_MULTIPLES:
+        for exit_variant in BASE_SWEEP_EXITS:
+            candidates = sorted(
+                (
+                    row
+                    for row in rows
+                    if row["leverage_multiple"] == multiple and row["exit"] == exit_variant
+                ),
+                key=lambda row: float(row["base_exposure"]),
+            )
+            for period in BASE_SWEEP_PERIODS:
+                winner = next(
+                    (
+                        row
+                        for row in candidates
+                        if float(row["periods"][period]["ladder_to_baseline_ratio"]) > 1.0
+                    ),
+                    None,
+                )
+                metric = winner["periods"][period] if winner is not None else None
+                thresholds.append({
+                    "leverage_multiple": multiple,
+                    "exit": exit_variant,
+                    "period": period,
+                    "smallest_base_exposure": (
+                        float(winner["base_exposure"]) if winner is not None else None
+                    ),
+                    "beats_permanent_at_threshold": (
+                        bool(float(metric["ladder_to_permanent_ratio"]) > 1.0)
+                        if metric is not None
+                        else None
+                    ),
+                    "ladder_to_baseline_ratio": (
+                        float(metric["ladder_to_baseline_ratio"]) if metric is not None else None
+                    ),
+                    "ladder_to_permanent_ratio": (
+                        float(metric["ladder_to_permanent_ratio"]) if metric is not None else None
+                    ),
+                })
+    return thresholds
+
+
+def validate_base_sweep_payload(payload: dict[str, Any]) -> None:
+    missing = BASE_SWEEP_REQUIRED_FIELDS.difference(payload)
+    if missing:
+        raise ValueError(f"base sweep payload is missing fields: {sorted(missing)}")
+    if payload["schema_version"] != 1 or payload["experiment"] != "compound-ladder/base-exposure-sweep-v1":
+        raise ValueError("base sweep payload identity is invalid")
+    if payload["api_calls"] != 0:
+        raise ValueError("base sweep must remain provider-free")
+    counts = payload["independent_cycle_count"]
+    if set(counts) != set(BASE_SWEEP_PERIODS) or any(int(value) < 0 for value in counts.values()):
+        raise ValueError("base sweep cycle counts are invalid")
+    period_required = {
+        "ladder_on_base",
+        "permanent_base",
+        "baseline_1x",
+        "ladder_to_baseline_ratio",
+        "ladder_to_permanent_ratio",
+    }
+    metric_required = {"final_wealth_multiple", "max_drawdown"}
+    if not payload["rows"] or not payload["references"]:
+        raise ValueError("base sweep must contain strategy and permanent reference rows")
+    for row in payload["rows"]:
+        if row.get("row_kind") != "ladder_on_base":
+            raise ValueError("base sweep strategy row_kind is invalid")
+        if float(row["base_exposure"]) > int(row["leverage_multiple"]):
+            raise ValueError("base sweep row violates base_exposure <= leverage_multiple")
+        periods = row.get("periods", {})
+        if set(periods) != set(BASE_SWEEP_PERIODS):
+            raise ValueError("base sweep strategy periods are incomplete")
+        for period in BASE_SWEEP_PERIODS:
+            if period_required.difference(periods[period]):
+                raise ValueError("base sweep comparison metrics are incomplete")
+            for metric_name in ("ladder_on_base", "permanent_base", "baseline_1x"):
+                if metric_required.difference(periods[period][metric_name]):
+                    raise ValueError("base sweep wealth/drawdown metrics are incomplete")
+    for row in payload["references"]:
+        if row.get("row_kind") != "permanent_base" or set(row.get("periods", {})) != set(BASE_SWEEP_PERIODS):
+            raise ValueError("base sweep permanent reference row is invalid")
+    expected_thresholds = len(BASE_SWEEP_MULTIPLES) * len(BASE_SWEEP_EXITS) * len(BASE_SWEEP_PERIODS)
+    if len(payload["thresholds"]) != expected_thresholds:
+        raise ValueError("base sweep threshold rows are incomplete")
 
 
 def _is_current(row: dict[str, Any]) -> bool:
@@ -838,6 +1001,378 @@ def run(project_root: Path, baskets: tuple[str, ...], *, quick: bool) -> dict[st
     return _json_value(summary)
 
 
+def _base_sweep_series(
+    root: Path,
+    basket: str,
+    underlying: str,
+    frame: pd.DataFrame,
+    real_products: pd.DataFrame,
+    base_exposures: tuple[float, ...],
+    *,
+    quick: bool,
+    manifest_digest: str,
+    manifest: list[dict[str, Any]],
+) -> dict[str, Any]:
+    started = time.perf_counter()
+    signals = compute_signals(frame)
+    signal_spec = LadderSpec(-0.20, -0.10, 2, 1.0)
+    executable_levels = ladder_levels(signals, signal_spec)["executable_level"]
+    no_ladder_levels = pd.Series(np.zeros(len(frame)), index=frame.index, dtype="float64")
+    underlying_returns = frame["close"].pct_change(fill_method=None).fillna(0.0)
+    baseline = _baseline_metrics(
+        frame["date"],
+        underlying_returns,
+        transaction_cost=TRANSACTION_COST,
+    )
+    short_rate = load_short_rate(root, frame["date"])
+    rate_for_returns = pd.Series(short_rate.annual_rate.to_numpy(), index=frame.index)
+    rows: list[dict[str, Any]] = []
+    references: list[dict[str, Any]] = []
+    calibration: dict[str, dict[str, Any]] = {}
+
+    for multiple in BASE_SWEEP_MULTIPLES:
+        gap = realized_tracking_gap(
+            frame,
+            real_products,
+            underlying=underlying,
+            leverage_multiple=multiple,
+            short_rate=short_rate,
+        )
+        extra_drag = gap.calibrated_extra_drag if gap is not None else 0.0
+        product_returns = synthetic_daily_returns(
+            frame["close"],
+            leverage_multiple=multiple,
+            annual_short_rate=rate_for_returns,
+            annual_tracking_drag=extra_drag,
+        )
+        calibration[str(multiple)] = {
+            "enabled": True,
+            "available": gap is not None,
+            "applied": gap is not None,
+            "reason_if_unavailable": (
+                None if gap is not None else "no retained mapped real-product overlap"
+            ),
+            "tracking_gap": asdict(gap) if gap is not None else None,
+        }
+        for base_exposure in base_exposures:
+            if base_exposure > multiple:
+                continue
+            spec = LadderSpec(-0.20, -0.10, 2, base_exposure)
+            permanent = simulate_grid_metrics(
+                frame["date"],
+                product_returns,
+                no_ladder_levels,
+                underlying_returns=underlying_returns,
+                spec=spec,
+                leverage_multiple=multiple,
+                exit_variant="a",
+                transaction_cost=TRANSACTION_COST,
+            )
+            references.append({
+                "row_kind": "permanent_base",
+                "leverage_multiple": multiple,
+                "base_exposure": base_exposure,
+                "calibration_applied": gap is not None,
+                "periods": {
+                    period: _metric_pair(permanent[period])
+                    for period in BASE_SWEEP_PERIODS
+                },
+            })
+            for exit_variant in BASE_SWEEP_EXITS:
+                ladder = simulate_grid_metrics(
+                    frame["date"],
+                    product_returns,
+                    executable_levels,
+                    underlying_returns=underlying_returns,
+                    spec=spec,
+                    leverage_multiple=multiple,
+                    exit_variant=exit_variant,
+                    transaction_cost=TRANSACTION_COST,
+                )
+                rows.append({
+                    "row_kind": "ladder_on_base",
+                    "leverage_multiple": multiple,
+                    "base_exposure": base_exposure,
+                    "exit": exit_variant,
+                    "calibration_applied": gap is not None,
+                    "periods": _comparison_periods(ladder, permanent, baseline),
+                })
+
+    payload: dict[str, Any] = {
+        "schema_version": 1,
+        "experiment": "compound-ladder/base-exposure-sweep-v1",
+        "development_only": True,
+        "api_calls": 0,
+        "quick": quick,
+        "basket": basket,
+        "underlying": underlying,
+        "parameters": {
+            "drawdown_threshold": -0.20,
+            "disp60_threshold": -0.10,
+            "levels": 2,
+            "leverage_multiples": list(BASE_SWEEP_MULTIPLES),
+            "base_exposures": list(base_exposures),
+            "exits": list(BASE_SWEEP_EXITS),
+            "cost_enabled": True,
+            "transaction_cost_one_way": TRANSACTION_COST,
+            "calibrated_real_product_gap_enabled": True,
+            "fit_end": "2015-12-31",
+            "holdout_start": "2016-01-01",
+        },
+        "input_manifest_sha256": manifest_digest,
+        "input_manifest": manifest,
+        "calibration": calibration,
+        "short_rate_source": short_rate.source,
+        "short_rate_fallback_used": short_rate.fallback_used,
+        "independent_cycle_count": _independent_cycle_counts(frame, executable_levels),
+        "references": references,
+        "rows": rows,
+        "thresholds": _base_sweep_thresholds(rows),
+        "runtime_seconds": time.perf_counter() - started,
+    }
+    validate_base_sweep_payload(payload)
+    return _json_value(payload)
+
+
+def _base_sweep_markdown(payloads: list[dict[str, Any]], runtime_seconds: float) -> str:
+    threshold_rows: list[tuple[Any, ...]] = []
+    detail_rows: list[tuple[Any, ...]] = []
+    reference_rows: list[tuple[Any, ...]] = []
+    cycle_rows: list[tuple[Any, ...]] = []
+    calibration_rows: list[tuple[Any, ...]] = []
+    for payload in payloads:
+        label = f"{payload['basket']}/{payload['underlying']}"
+        counts = payload["independent_cycle_count"]
+        cycle_rows.append((label, counts["fit"], counts["holdout"], counts["full"]))
+        for multiple, calibration in payload["calibration"].items():
+            gap = calibration["tracking_gap"]
+            calibration_rows.append((
+                label,
+                multiple,
+                "적용" if calibration["applied"] else "불가",
+                gap["product_symbol"] if gap is not None else "N/A",
+                _fmt_pct(gap["annualized_gap"]) if gap is not None else "N/A",
+                _fmt_pct(gap["calibrated_extra_drag"]) if gap is not None else "N/A",
+            ))
+        for threshold in payload["thresholds"]:
+            threshold_rows.append((
+                label,
+                threshold["leverage_multiple"],
+                threshold["exit"],
+                threshold["period"],
+                (
+                    f"{threshold['smallest_base_exposure']:.1f}x"
+                    if threshold["smallest_base_exposure"] is not None
+                    else "없음"
+                ),
+                (
+                    "예" if threshold["beats_permanent_at_threshold"] is True
+                    else "아니오" if threshold["beats_permanent_at_threshold"] is False
+                    else "N/A"
+                ),
+                _fmt_multiple(threshold["ladder_to_baseline_ratio"]),
+                _fmt_multiple(threshold["ladder_to_permanent_ratio"]),
+            ))
+        for row in payload["rows"]:
+            for period in BASE_SWEEP_PERIODS:
+                metric = row["periods"][period]
+                ladder = metric["ladder_on_base"]
+                permanent = metric["permanent_base"]
+                baseline = metric["baseline_1x"]
+                detail_rows.append((
+                    label,
+                    row["leverage_multiple"],
+                    f"{row['base_exposure']:.1f}",
+                    row["exit"],
+                    period,
+                    _fmt_multiple(ladder["final_wealth_multiple"]),
+                    _fmt_multiple(permanent["final_wealth_multiple"]),
+                    _fmt_multiple(baseline["final_wealth_multiple"]),
+                    _fmt_multiple(metric["ladder_to_baseline_ratio"]),
+                    _fmt_multiple(metric["ladder_to_permanent_ratio"]),
+                    _fmt_pct(ladder["max_drawdown"]),
+                    _fmt_pct(permanent["max_drawdown"]),
+                    _fmt_pct(baseline["max_drawdown"]),
+                ))
+        for row in payload["references"]:
+            for period in BASE_SWEEP_PERIODS:
+                metric = row["periods"][period]
+                baseline_metric = next(
+                    strategy["periods"][period]["baseline_1x"]
+                    for strategy in payload["rows"]
+                    if strategy["leverage_multiple"] == row["leverage_multiple"]
+                    and strategy["base_exposure"] == row["base_exposure"]
+                )
+                reference_rows.append((
+                    label,
+                    row["leverage_multiple"],
+                    f"{row['base_exposure']:.1f}",
+                    period,
+                    _fmt_multiple(metric["final_wealth_multiple"]),
+                    _fmt_multiple(baseline_metric["final_wealth_multiple"]),
+                    _fmt_multiple(_safe_ratio(
+                        metric["final_wealth_multiple"], baseline_metric["final_wealth_multiple"]
+                    )),
+                    _fmt_pct(metric["max_drawdown"]),
+                    _fmt_pct(baseline_metric["max_drawdown"]),
+                ))
+
+    holdout_thresholds = [
+        threshold
+        for payload in payloads
+        for threshold in payload["thresholds"]
+        if threshold["period"] == "holdout" and threshold["smallest_base_exposure"] is not None
+    ]
+    ladder_adds = sum(threshold["beats_permanent_at_threshold"] is True for threshold in holdout_thresholds)
+    threshold_values = [float(row["smallest_base_exposure"]) for row in holdout_thresholds]
+    if not holdout_thresholds:
+        conclusion = (
+            "결론: hold-out에서 시험한 어떤 기본 노출도 사다리 계좌를 1x baseline 위로 올리지 못했다. "
+            "따라서 이 범위에서는 사다리나 기본 레버리지 어느 쪽에도 최종부 우위가 확인되지 않았다."
+        )
+    else:
+        threshold_range = f"{min(threshold_values):.1f}x~{max(threshold_values):.1f}x"
+        source = (
+            "사다리 자체의 추가 기여도 함께 보였다"
+            if ladder_adds == len(holdout_thresholds)
+            else "대부분의 우위는 사다리보다 기본 레버리지 수준에서 왔다"
+        )
+        conclusion = (
+            f"결론: hold-out에서 1x를 넘긴 {len(holdout_thresholds)}개 지수×k×exit 조합의 최소 기본 노출은 "
+            f"{threshold_range}였고, 그 문턱에서 단순 영구 기본 노출까지 이긴 경우는 {ladder_adds}개였다. "
+            f"따라서 {source}; 사다리의 독립적 edge는 `ladder/permanent`가 1을 넘는 경우에만 인정해야 한다."
+        )
+
+    manifest_digests = sorted({payload["input_manifest_sha256"] for payload in payloads})
+    cycle_values = [payload["independent_cycle_count"]["full"] for payload in payloads]
+    return "\n\n".join([
+        "# 기본 노출 × 낙폭 사다리 sweep 결과 (2026-09-05)",
+        (
+            "> `compound-ladder/base-exposure-sweep-v1` 개발용 retained-Parquet 시뮬레이션. "
+            "현재 규칙(drawdown252 ≤ -20%, disp60 ≤ -10%, 2단계), exit a/d, 편도 0.10% 비용, "
+            "가능한 경우 retained 실제 상품 gap 보정을 사용했다."
+        ),
+        "## 한줄 결론",
+        conclusion,
+        "## 1x 초과 최소 기본 노출",
+        _table(
+            ("basket/index", "k", "exit", "split", "최소 b", "사다리가 영구 b를 이김?", "사다리/1x", "사다리/영구 b"),
+            threshold_rows,
+        ),
+        "## 상세 비교",
+        _table(
+            (
+                "basket/index", "k", "b", "exit", "split", "(i) 사다리", "(ii) 영구 b", "(iii) 1x",
+                "(i)/(iii)", "(i)/(ii)", "MDD (i)", "MDD (ii)", "MDD (iii)",
+            ),
+            detail_rows,
+        ),
+        "## 참조 행: always b× with NO ladder",
+        _table(
+            ("basket/index", "k", "b", "split", "영구 b", "1x", "영구 b/1x", "MDD 영구 b", "MDD 1x"),
+            reference_rows,
+        ),
+        "## 독립 cycle 수",
+        _table(("basket/index", "fit", "hold-out", "full"), cycle_rows),
+        (
+            f"양수 level 신호일을 90 calendar-day 초과 공백에서 분리한 full 독립 cycle 수는 지수별 {min(cycle_values)}~{max(cycle_values)}개다."
+        ),
+        "## 실제 상품 gap 보정",
+        _table(("basket/index", "k", "상태", "상품", "연환산 gap", "추가 drag"), calibration_rows),
+        "## 해석 한계",
+        "\n".join([
+            "- 상품 경로는 일일 재설정 synthetic이며, 실제 상품 gap은 명시적 mapping과 retained 공통 구간이 있을 때만 상수 drag로 보정했다. 보정 불가 조합은 그 사실을 JSON과 표에 남겼다.",
+            f"- 독립 cycle이 지수별 {min(cycle_values)}~{max(cycle_values)}개뿐이어서 표본이 적고, 한두 crisis path가 결과를 지배할 수 있다.",
+            "- 신호는 T 종가로 계산해 다음 retained session 종가에서 반영하지만, retained 원천의 역사적 빈티지·당시 공개시각이 PIT-safe였다고 검증한 실험은 아니다. 따라서 look-ahead가 없다는 주장을 하지 않는다.",
+            "- 이 결과는 개발용 비교이며 실현 가능한 체결, 세금·용량·대차, 적합성, 추천 또는 실계좌 성과 주장이 아니다.",
+        ]),
+        "## 재현 정보",
+        "\n".join([
+            f"- runtime: {runtime_seconds:.3f}초",
+            f"- input manifest SHA-256: `{', '.join(manifest_digests)}`",
+            "- API calls: `0`; 입력은 retained Parquet만 사용",
+            "- 기존 `grid_*.json`과 `summary.json`은 이 sweep 경로에서 쓰지 않음",
+        ]),
+        "",
+    ])
+
+
+def run_base_exposure_sweep(
+    project_root: Path,
+    baskets: tuple[str, ...],
+    base_exposures: tuple[float, ...],
+    *,
+    quick: bool,
+) -> dict[str, Any]:
+    started = time.perf_counter()
+    root = project_root.resolve()
+    output = root / "artifacts/research/compound_ladder"
+    universe = load_index_universe(root)
+    real_products = load_real_products(root)
+    retained_paths = [
+        Path("data/normalized/kr_index_daily"),
+        Path("data/normalized/kr_kospi200_index_daily"),
+        Path("data/normalized/global_index_price_daily"),
+        Path("data/normalized/global_etf_price_daily"),
+        Path("data/normalized/kr_etf_price_daily"),
+        Path("data/normalized/kr_etf_master"),
+        *[path.relative_to(root) for path in sorted((root / "data/normalized").glob("fred_*"))],
+    ]
+    manifest_digest, manifest = retained_manifest_digest(root, retained_paths)
+    available = set(universe["series_id"].astype(str))
+    payloads: list[dict[str, Any]] = []
+    artifact_paths: list[str] = []
+    for basket in baskets:
+        for underlying in BASKET_SERIES[basket]:
+            if underlying not in available:
+                print(f"SKIP {basket}/{underlying}: retained symbol absent")
+                continue
+            frame = universe.loc[universe["series_id"].eq(underlying)].copy().reset_index(drop=True)
+            payload = _base_sweep_series(
+                root,
+                basket,
+                underlying,
+                frame,
+                real_products,
+                base_exposures,
+                quick=quick,
+                manifest_digest=manifest_digest,
+                manifest=manifest,
+            )
+            path = output / f"sweep_base_{_slug(basket)}_{_slug(underlying)}.json"
+            _write_json(path, payload)
+            artifact_paths.append(path.relative_to(root).as_posix())
+            payloads.append(payload)
+            print(f"DONE {basket}/{underlying}: {len(payload['rows'])} ladder rows")
+    runtime_seconds = time.perf_counter() - started
+    _write_text(
+        root / "docs/research/RESULTS_20260905_base_exposure_sweep.md",
+        _base_sweep_markdown(payloads, runtime_seconds),
+    )
+    return {
+        "payloads": payloads,
+        "artifact_paths": artifact_paths,
+        "runtime_seconds": runtime_seconds,
+        "quick": quick,
+    }
+
+
+def _parse_base_exposures(raw: str) -> tuple[float, ...]:
+    parts = [part for part in re.split(r"[\s,]+", raw.strip()) if part]
+    if not parts:
+        raise argparse.ArgumentTypeError("--base-exposures requires at least one value")
+    try:
+        values = sorted({float(part) for part in parts})
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("--base-exposures values must be numeric") from exc
+    for value in values:
+        try:
+            LadderSpec(base_exposure=value)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(str(exc)) from exc
+    return tuple(values)
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Continuous-account compound drawdown ladder backtest")
     parser.add_argument("--project-root", type=Path, default=ROOT)
@@ -847,6 +1382,17 @@ def _parser() -> argparse.ArgumentParser:
         help="Comma-separated subset of KR,US_TECH,SEMIS,FOREIGN",
     )
     parser.add_argument("--quick", action="store_true", help="Run the reduced deterministic smoke grid")
+    parser.add_argument(
+        "--base-exposures",
+        nargs="+",
+        type=_parse_base_exposures,
+        default=None,
+        help=(
+            "One or more base exposures, each value or group optionally comma-separated. "
+            "When supplied, run the fixed-rule "
+            "base-exposure sweep and write only sweep_base_*.json plus its dedicated report."
+        ),
+    )
     return parser
 
 
@@ -856,6 +1402,33 @@ def main(argv: list[str] | None = None) -> int:
     unknown = sorted(set(baskets).difference(BASKET_SERIES))
     if not baskets or unknown:
         raise SystemExit(f"unsupported baskets: {unknown or 'empty selection'}")
+    if args.base_exposures is not None:
+        base_exposures = tuple(sorted({
+            value
+            for group in args.base_exposures
+            for value in group
+        }))
+        result = run_base_exposure_sweep(
+            args.project_root,
+            baskets,
+            base_exposures,
+            quick=args.quick,
+        )
+        print("basket | underlying | k | exit | holdout smallest b | beats permanent")
+        for payload in result["payloads"]:
+            for threshold in payload["thresholds"]:
+                if threshold["period"] != "holdout":
+                    continue
+                base = threshold["smallest_base_exposure"]
+                beats = threshold["beats_permanent_at_threshold"]
+                print(
+                    f"{payload['basket']} | {payload['underlying']} | {threshold['leverage_multiple']} | "
+                    f"{threshold['exit']} | {base if base is not None else 'none'} | "
+                    f"{beats if beats is not None else 'n/a'}"
+                )
+        print(f"runtime_seconds={result['runtime_seconds']:.3f}")
+        print("BASE_EXPOSURE_SWEEP_COMPLETE")
+        return 0
     summary = run(args.project_root, baskets, quick=args.quick)
     print("basket | underlying | holdout strategy | holdout baseline | relative")
     for basket, items in summary["baskets"].items():

@@ -17,6 +17,11 @@ from stock_data.research.leveraged_product import (
     price_from_returns,
     synthetic_daily_returns,
 )
+from scripts.research.run_compound_backtest import (
+    _independent_cycle_counts,
+    _parser,
+    validate_base_sweep_payload,
+)
 
 
 def _dates(n: int) -> pd.Series:
@@ -218,6 +223,83 @@ def test_two_level_core_overlay_has_hand_computed_wealth_and_exposure() -> None:
     assert result.curve["exposure"].tolist() == pytest.approx([1.0, 1.5, 2.0, 1.5, 1.0])
 
 
+def test_two_level_ladder_interpolates_product_fraction_above_one_x_base() -> None:
+    result = simulate_account(
+        _dates(5),
+        pd.Series(np.zeros(5)),
+        pd.Series([np.nan, 0.0, 1.0, 2.0, 0.0]),
+        underlying_returns=pd.Series(np.zeros(5)),
+        spec=LadderSpec(levels=2, base_exposure=1.5),
+        leverage_multiple=3,
+        exit_variant="a",
+        transaction_cost=0.0,
+    )
+    # f0=(1.5-1)/(3-1)=0.25; f(level)=f0+(1-f0)*level/2.
+    assert result.curve["product_weight"].tolist() == pytest.approx(
+        [0.25, 0.25, 0.625, 1.0, 0.25]
+    )
+    assert result.curve["exposure"].tolist() == pytest.approx(
+        [1.5, 1.5, 2.25, 3.0, 1.5]
+    )
+
+
+@pytest.mark.parametrize(("multiple", "exit_variant"), [(2, "a"), (2, "d"), (3, "a"), (3, "d")])
+def test_base_equal_to_product_multiple_makes_ladder_identical_to_permanent_hold(
+    multiple: int,
+    exit_variant: str,
+) -> None:
+    product = pd.Series([0.0, 0.08, -0.04, 0.05, -0.02])
+    underlying = pd.Series([0.0, 0.03, -0.01, 0.02, -0.01])
+    ladder = simulate_account(
+        _dates(5),
+        product,
+        pd.Series([np.nan, 1.0, 2.0, 0.0, 1.0]),
+        underlying_returns=underlying,
+        spec=LadderSpec(levels=2, base_exposure=float(multiple)),
+        leverage_multiple=multiple,
+        exit_variant=exit_variant,
+        transaction_cost=0.001,
+    )
+    permanent = simulate_account(
+        _dates(5),
+        product,
+        pd.Series(np.zeros(5)),
+        underlying_returns=underlying,
+        spec=LadderSpec(levels=2, base_exposure=float(multiple)),
+        leverage_multiple=multiple,
+        exit_variant="a",
+        transaction_cost=0.001,
+    )
+    pd.testing.assert_frame_equal(
+        ladder.curve.drop(columns="executable_level"),
+        permanent.curve.drop(columns="executable_level"),
+    )
+    for period in ("holdout", "full"):
+        assert ladder.metrics[period]["final_wealth_multiple"] == pytest.approx(
+            permanent.metrics[period]["final_wealth_multiple"]
+        )
+        assert ladder.metrics[period]["max_drawdown"] == pytest.approx(
+            permanent.metrics[period]["max_drawdown"]
+        )
+        assert ladder.metrics[period]["transaction_cost"] == pytest.approx(
+            permanent.metrics[period]["transaction_cost"]
+        )
+
+
+def test_base_exposure_must_not_exceed_product_multiple() -> None:
+    with pytest.raises(ValueError, match="less than or equal"):
+        simulate_account(
+            _dates(3),
+            pd.Series(np.zeros(3)),
+            pd.Series(np.zeros(3)),
+            underlying_returns=pd.Series(np.zeros(3)),
+            spec=LadderSpec(levels=2, base_exposure=2.1),
+            leverage_multiple=2,
+        )
+    with pytest.raises(ValueError, match=r"\[0.0, 3.0\]"):
+        LadderSpec(base_exposure=3.1)
+
+
 def test_daily_reset_two_x_path_is_point_nine_six_not_point_nine_nine() -> None:
     close = pd.Series([100.0, 110.0, 99.0])
     returns = synthetic_daily_returns(
@@ -305,6 +387,89 @@ def test_grid_row_schema_and_baseline_comparison() -> None:
     del broken["exit"]
     with pytest.raises(ValueError, match="missing fields"):
         validate_grid_row(broken)
+
+
+def test_base_sweep_file_schema_requires_comparisons_references_and_thresholds() -> None:
+    metric = {"final_wealth_multiple": 1.2, "max_drawdown": -0.3}
+    comparison = {
+        "ladder_on_base": dict(metric),
+        "permanent_base": dict(metric),
+        "baseline_1x": dict(metric),
+        "ladder_to_baseline_ratio": 1.0,
+        "ladder_to_permanent_ratio": 1.0,
+    }
+    payload = {
+        "schema_version": 1,
+        "experiment": "compound-ladder/base-exposure-sweep-v1",
+        "development_only": True,
+        "api_calls": 0,
+        "quick": False,
+        "basket": "KR",
+        "underlying": "KOSPI",
+        "parameters": {},
+        "input_manifest_sha256": "0" * 64,
+        "input_manifest": [],
+        "calibration": {},
+        "independent_cycle_count": {"fit": 1, "holdout": 1, "full": 2},
+        "references": [{
+            "row_kind": "permanent_base",
+            "leverage_multiple": 2,
+            "base_exposure": 1.0,
+            "periods": {period: dict(metric) for period in ("fit", "holdout", "full")},
+        }],
+        "rows": [{
+            "row_kind": "ladder_on_base",
+            "leverage_multiple": 2,
+            "base_exposure": 1.0,
+            "exit": "a",
+            "periods": {
+                period: {
+                    key: dict(value) if isinstance(value, dict) else value
+                    for key, value in comparison.items()
+                }
+                for period in ("fit", "holdout", "full")
+            },
+        }],
+        "thresholds": [
+            {
+                "leverage_multiple": multiple,
+                "exit": exit_variant,
+                "period": period,
+                "smallest_base_exposure": None,
+                "beats_permanent_at_threshold": None,
+                "ladder_to_baseline_ratio": None,
+                "ladder_to_permanent_ratio": None,
+            }
+            for multiple in (2, 3)
+            for exit_variant in ("a", "d")
+            for period in ("fit", "holdout", "full")
+        ],
+        "runtime_seconds": 0.1,
+    }
+    validate_base_sweep_payload(payload)
+    del payload["rows"][0]["periods"]["fit"]["ladder_to_permanent_ratio"]
+    with pytest.raises(ValueError, match="comparison metrics"):
+        validate_base_sweep_payload(payload)
+
+
+def test_base_sweep_independent_cycles_split_signal_clusters_at_ninety_day_gaps() -> None:
+    frame = pd.DataFrame({
+        "date": pd.to_datetime([
+            "2015-01-02",
+            "2015-01-05",
+            "2015-05-01",
+            "2016-01-04",
+            "2016-01-05",
+        ])
+    })
+    levels = pd.Series([1.0, 1.0, 1.0, 1.0, 1.0])
+    assert _independent_cycle_counts(frame, levels) == {"fit": 2, "holdout": 1, "full": 3}
+
+
+def test_base_exposure_cli_is_opt_in_and_accepts_list_or_comma_groups() -> None:
+    assert _parser().parse_args([]).base_exposures is None
+    parsed = _parser().parse_args(["--base-exposures", "1.0", "1.3,1.5"])
+    assert parsed.base_exposures == [(1.0,), (1.3, 1.5)]
 
 
 @pytest.mark.parametrize("variant", ["a", "b60", "b120", "c", "d"])

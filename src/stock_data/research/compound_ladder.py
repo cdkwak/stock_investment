@@ -49,8 +49,8 @@ class LadderSpec:
             raise ValueError("drawdown threshold must be between -1 and 0")
         if not -1.0 < self.disp60_threshold < 0.0:
             raise ValueError("disp60 threshold must be between -1 and 0")
-        if self.base_exposure not in (0.0, 1.0):
-            raise ValueError("base_exposure must be 0.0 or 1.0")
+        if not np.isfinite(self.base_exposure) or not 0.0 <= self.base_exposure <= 3.0:
+            raise ValueError("base_exposure must be finite and in [0.0, 3.0]")
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,15 +101,38 @@ def _target_allocation(
     """Return core weight, product weight, and effective market exposure."""
 
     overlay = min(max(float(overlay_fraction), 0.0), 1.0)
-    if base_exposure == 1.0:
-        if leverage_multiple == 1:
-            return 1.0, 0.0, 1.0
-        core_weight = 1.0 - overlay
+    if base_exposure <= 1.0:
+        core_weight = base_exposure * (1.0 - overlay)
         product_weight = overlay
-        exposure = core_weight + leverage_multiple * product_weight
-        return core_weight, product_weight, exposure
-    product_weight = overlay
-    return 0.0, product_weight, leverage_multiple * product_weight
+    else:
+        base_product_fraction = (base_exposure - 1.0) / (leverage_multiple - 1.0)
+        product_weight = base_product_fraction + (1.0 - base_product_fraction) * overlay
+        core_weight = 1.0 - product_weight
+    exposure = core_weight + leverage_multiple * product_weight
+    return core_weight, product_weight, exposure
+
+
+def _validate_base_exposure(base_exposure: float, leverage_multiple: int) -> None:
+    if base_exposure > leverage_multiple:
+        raise ValueError("base_exposure must be less than or equal to leverage_multiple")
+
+
+def _base_product_fraction(base_exposure: float, leverage_multiple: int) -> float:
+    if base_exposure <= 1.0:
+        return 0.0
+    return (base_exposure - 1.0) / (leverage_multiple - 1.0)
+
+
+def _overlay_progress_from_product_weight(
+    product_weight: float,
+    *,
+    base_exposure: float,
+    leverage_multiple: int,
+) -> float:
+    base_fraction = _base_product_fraction(base_exposure, leverage_multiple)
+    if base_fraction >= 1.0:
+        return 1.0
+    return min(max((product_weight - base_fraction) / (1.0 - base_fraction), 0.0), 1.0)
 
 
 def _rebalance_assets(
@@ -488,14 +511,19 @@ def _simulate_profit_events_fast(
     wealth[0] = 1.0
 
     if spec.base_exposure > 0:
+        core_weight, product_weight, _ = _target_allocation(
+            0.0,
+            base_exposure=spec.base_exposure,
+            leverage_multiple=leverage_multiple,
+        )
         cash, core_units, product_units, notional, cost = _rebalance_assets(
             cash,
             0.0,
             0.0,
             core_prices[0],
             product_prices[0],
-            1.0,
-            0.0,
+            core_weight,
+            product_weight,
             transaction_cost,
         )
         notionals[0] += notional
@@ -548,7 +576,12 @@ def _simulate_profit_events_fast(
                     if current_wealth > 0.0
                     else 0.0
                 )
-                target_overlay = min(1.0, current_product_weight + 1.0 / spec.levels)
+                current_overlay = _overlay_progress_from_product_weight(
+                    current_product_weight,
+                    base_exposure=spec.base_exposure,
+                    leverage_multiple=leverage_multiple,
+                )
+                target_overlay = min(1.0, current_overlay + 1.0 / spec.levels)
                 core_weight, product_weight, _ = _target_allocation(
                     target_overlay,
                     base_exposure=spec.base_exposure,
@@ -607,6 +640,7 @@ def simulate_grid_metrics(
 ) -> dict[str, dict[str, float | int | str | None]]:
     """Fast metric-only equivalent used by the exhaustive sensitivity grid."""
 
+    _validate_base_exposure(spec.base_exposure, leverage_multiple)
     if spec.base_exposure == 1.0 and leverage_multiple == 1:
         return simulate_baseline(
             dates,
@@ -818,20 +852,33 @@ def _simulate_profit_account(
     initial_notional = 0.0
     initial_cost = 0.0
     if spec.base_exposure > 0:
+        initial_core_weight, initial_product_weight, initial_exposure = _target_allocation(
+            0.0,
+            base_exposure=spec.base_exposure,
+            leverage_multiple=leverage_multiple,
+        )
         cash, core_units, product_units, notional, cost = _rebalance_assets(
             cash,
             0.0,
             0.0,
             core_prices[0],
             product_prices[0],
-            1.0,
-            0.0,
+            initial_core_weight,
+            initial_product_weight,
             transaction_cost,
         )
         initial_notional = notional
         initial_cost = cost
         if notional > 0:
-            trade_rows.append(_trade_row(calendar[0], "base_entry", None, notional, cost, 0.0, 1.0))
+            trade_rows.append(_trade_row(
+                calendar[0],
+                "base_entry",
+                None,
+                notional,
+                cost,
+                initial_product_weight,
+                initial_exposure,
+            ))
     for i, date in enumerate(calendar):
         if i > 0:
             cash *= 1.0 + daily_cash
@@ -877,7 +924,12 @@ def _simulate_profit_account(
                     if current_wealth > 0.0
                     else 0.0
                 )
-                target_overlay = min(1.0, current_product_weight + 1.0 / spec.levels)
+                current_overlay = _overlay_progress_from_product_weight(
+                    current_product_weight,
+                    base_exposure=spec.base_exposure,
+                    leverage_multiple=leverage_multiple,
+                )
+                target_overlay = min(1.0, current_overlay + 1.0 / spec.levels)
                 core_weight, product_weight, target_exposure = _target_allocation(
                     target_overlay,
                     base_exposure=spec.base_exposure,
@@ -949,6 +1001,7 @@ def _episode_rows(
     *,
     baseline_curve: pd.DataFrame | None,
     base_exposure: float,
+    leverage_multiple: int,
 ) -> pd.DataFrame:
     executable = pd.to_numeric(curve["executable_level"], errors="coerce").ffill().fillna(0).astype(int)
     positive = executable.gt(0)
@@ -957,11 +1010,12 @@ def _episode_rows(
     start_indices = list(curve.index[starts])
     end_indices = list(curve.index[ends])
     rows: list[dict[str, Any]] = []
+    base_product_fraction = _base_product_fraction(base_exposure, leverage_multiple)
     for number, (start, signal_end) in enumerate(zip(start_indices, end_indices, strict=True), start=1):
         entry_wealth = float(curve.loc[max(start - 1, 0), "wealth"])
         actual_exit: int | None = None
         for idx in range(signal_end + 1, len(curve)):
-            if float(curve.loc[idx, "product_weight"]) <= 1e-8:
+            if float(curve.loc[idx, "product_weight"]) <= base_product_fraction + 1e-8:
                 actual_exit = idx
                 break
         measurement_end = actual_exit if actual_exit is not None else signal_end
@@ -1010,6 +1064,7 @@ def simulate_account(
         raise ValueError("transaction_cost must be in [0, 1)")
     if cash_yield <= -1.0:
         raise ValueError("cash_yield must be greater than -100%")
+    _validate_base_exposure(spec.base_exposure, leverage_multiple)
     if spec.base_exposure == 1.0 and leverage_multiple == 1:
         return simulate_baseline(
             dates,
@@ -1056,6 +1111,7 @@ def simulate_account(
         trades,
         baseline_curve=baseline_curve,
         base_exposure=spec.base_exposure,
+        leverage_multiple=leverage_multiple,
     )
     return SimulationResult(curve, trades, cycles, performance_metrics(curve))
 
@@ -1142,8 +1198,14 @@ def validate_grid_row(row: dict[str, Any]) -> None:
         raise ValueError(f"grid row is missing fields: {sorted(missing)}")
     if row["row_kind"] not in {"strategy", "baseline"}:
         raise ValueError("grid row_kind must be strategy or baseline")
-    if row["base_exposure"] not in (0.0, 1.0):
-        raise ValueError("grid base_exposure must be 0.0 or 1.0")
+    base_exposure = row["base_exposure"]
+    if not isinstance(base_exposure, (int, float)) or not np.isfinite(base_exposure):
+        raise ValueError("grid base_exposure must be finite")
+    if not 0.0 <= float(base_exposure) <= 3.0:
+        raise ValueError("grid base_exposure must be in [0.0, 3.0]")
+    leverage_multiple = row["leverage_multiple"]
+    if leverage_multiple is not None and float(base_exposure) > float(leverage_multiple):
+        raise ValueError("grid base_exposure must not exceed leverage_multiple")
     for period in ("fit", "holdout", "full"):
         metrics = row[period]
         required = {"final_wealth_multiple", "cagr", "max_drawdown"}
