@@ -49,7 +49,7 @@ def test_freshness_is_independent_of_operational_block():
 
 
 def test_reconcile_rejects_partial_registry():
-    with pytest.raises(ValueError, match="45-entry"):
+    with pytest.raises(ValueError, match="47-entry"):
         MODULE.reconcile({"datasets": []}, run_id="x", as_of="2026-08-18T18:00:00+09:00")
 
 
@@ -81,19 +81,19 @@ def test_universe_health_v2_preserves_all_axes_without_inventing_expected_dates(
         {"datasets": rows}, run_id="universe-v2", as_of="2026-08-18T23:00:00+09:00",
     )
     result = MODULE.reconcile_universe(core)
-    assert result["dataset_count"] == 89
-    assert result["core_operations_count"] == 45
-    assert result["automation_enabled_count"] == 47
-    assert result["operations_registry_count"] == 45
+    assert result["dataset_count"] == 91
+    assert result["core_operations_count"] == 47
+    assert result["automation_enabled_count"] == 49
+    assert result["operations_registry_count"] == 47
     assert result["core_operation_missing"] == []
     assert result["generated_at"] == "2026-08-18T23:00:00+09:00"
     assert result["core_reference_time"] == "2026-08-18T23:00:00+09:00"
-    assert result["dimension_summary"]["grain"]["DAILY"] == 69
+    assert result["dimension_summary"]["grain"]["DAILY"] == 70
     assert result["dimension_summary"]["operational"]["BLOCKED"] == 8
     assert result["schema_version"] == 2
-    assert sum(result["dimension_summary"]["display_consumer_eligibility"].values()) == 89
-    assert sum(result["dimension_summary"]["research_consumer_eligibility"].values()) == 89
-    assert sum(result["dimension_summary"]["predictive_consumer_eligibility"].values()) == 89
+    assert sum(result["dimension_summary"]["display_consumer_eligibility"].values()) == 91
+    assert sum(result["dimension_summary"]["research_consumer_eligibility"].values()) == 91
+    assert sum(result["dimension_summary"]["predictive_consumer_eligibility"].values()) == 91
     assert all(
         row["display_consumer_eligibility"]
         and row["display_consumer_reason"]
@@ -173,6 +173,30 @@ def test_kr_etf_health_rows_use_retained_latest_and_post_close_expectation(
     assert all(row["predictive_consumer_eligibility"] == "BLOCKED" for row in etf_rows.values())
 
 
+def test_new_global_price_rows_project_current_at_the_retained_2221_kst_run() -> None:
+    rows = [{
+        "dataset_id": dataset_id, "actual_latest": None,
+        "expected_latest": None, "freshness_status": "UNKNOWN",
+    } for dataset_id in MODULE.DATASET_OPERATIONS]
+
+    result = MODULE.reconcile_universe({
+        "run_id": "global-price-health",
+        "as_of": "2026-09-04T22:21:56+09:00",
+        "datasets": rows,
+    })
+    projected = {row["dataset"]: row for row in result["datasets"]}
+    equity = projected["global_equity_price_daily"]
+    quotes = projected["tossinvest_us_quote_30m"]
+
+    assert equity["latest"] == equity["expected"] == "2026-09-03"
+    assert equity["display_status"] == "CURRENT"
+    assert equity["scheduler_lane"] == "GLOBAL_EQUITY_DAILY"
+    assert quotes["latest"] == "2026-09-04"
+    assert quotes["grain"] == "INTRADAY"
+    assert quotes["display_status"] == "CURRENT"
+    assert quotes["scheduler_lane"] == "TOSSINVEST_US_QUOTES_30M"
+
+
 def test_core_health_projection_serializes_consumer_triage_from_typed_universe():
     rows = [{
         "dataset_id": dataset_id, "actual_latest": None,
@@ -218,9 +242,9 @@ def test_universe_health_accepts_historical_core_subset_and_exposes_registry_gap
         "datasets": rows,
     })
 
-    assert result["dataset_count"] == 89
-    assert result["core_operations_count"] == 42
-    assert result["operations_registry_count"] == 45
+    assert result["dataset_count"] == 91
+    assert result["core_operations_count"] == 44
+    assert result["operations_registry_count"] == 47
     assert result["core_operation_missing"] == sorted(omitted)
     bounded = next(
         row for row in result["datasets"]

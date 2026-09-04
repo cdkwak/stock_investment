@@ -401,6 +401,48 @@ def test_us_daily_gap_is_pending_at_0530_and_late_at_0700_kst() -> None:
     assert after_due.freshness is ExpectedFreshness.STALE
 
 
+def test_global_equity_uses_the_global_daily_final_expectation_shape() -> None:
+    result = resolve_expected_latest(
+        dataset="global_equity_price_daily",
+        lane="GLOBAL_EQUITY_DAILY",
+        retained_latest=date(2026, 9, 3),
+        as_of=datetime.fromisoformat("2026-09-04T22:21:00+09:00"),
+    )
+
+    assert result is not None
+    assert result.expected_available_observation == date(2026, 9, 3)
+    assert result.due_at == datetime.fromisoformat("2026-09-04T06:35:00+09:00")
+    assert result.freshness is ExpectedFreshness.CURRENT
+
+
+def test_toss_us_quotes_use_each_in_window_30m_boundary_and_preserve_outside() -> None:
+    in_window = resolve_expected_latest(
+        dataset="tossinvest_us_quote_30m",
+        lane="TOSSINVEST_US_QUOTES_30M",
+        retained_latest=date(2026, 9, 4),
+        as_of=datetime.fromisoformat("2026-09-04T22:21:00+09:00"),
+    )
+    outside_window = resolve_expected_latest(
+        dataset="tossinvest_us_quote_30m",
+        lane="TOSSINVEST_US_QUOTES_30M",
+        retained_latest=date(2026, 9, 3),
+        as_of=datetime.fromisoformat("2026-09-04T16:00:00+09:00"),
+    )
+
+    assert in_window is not None and outside_window is not None
+    assert in_window.expected_available_observation == date(2026, 9, 4)
+    assert in_window.due_at == datetime.fromisoformat("2026-09-04T22:00:00+09:00")
+    assert in_window.freshness is ExpectedFreshness.CURRENT
+    assert in_window.provider_availability_policy is (
+        ProviderAvailabilityPolicy.TOSSINVEST_US_QUOTES_GLOBAL_30M_WINDOW
+    )
+    assert outside_window.due_at == datetime.fromisoformat(
+        "2026-09-04T05:30:00+09:00"
+    )
+    assert outside_window.freshness is ExpectedFreshness.EXPECTED_LAG
+    assert outside_window.collection_required is False
+
+
 def test_weekend_uses_the_previous_us_session_expectation() -> None:
     saturday = resolve_expected_latest(
         dataset="global_index_price_daily",

@@ -11,10 +11,12 @@ from stock_data.contracts.kr_index_fundamental_daily import (
     KR_INDEX_FUNDAMENTAL_DAILY,
 )
 from stock_data.contracts.global_etf import GLOBAL_ETF_DAILY_SYMBOLS
+from stock_data.contracts.global_equity import GLOBAL_EQUITY_DAILY_SYMBOLS
 from stock_data.contracts.kr_fundamentals import KR_FUNDAMENTALS_CONTRACTS
 from stock_data.contracts.research_target_prices import (
     RESEARCH_TARGET_PRICE_CONSENSUS,
 )
+from stock_data.orchestration.tossinvest_us_quotes import TOSSINVEST_US_QUOTE_SYMBOLS
 
 
 CONTRACTS = {
@@ -24,7 +26,7 @@ CONTRACTS = {
     RESEARCH_TARGET_PRICE_CONSENSUS.name: RESEARCH_TARGET_PRICE_CONSENSUS,
 }
 
-# Canonical provider-symbol membership for the three Yahoo daily datasets.
+# Canonical provider-symbol membership for registered global price datasets.
 # Coverage remains dataset-level below; newly registered symbols are not treated
 # as retained until a validated Landing-first promotion actually writes rows.
 DATASET_SYMBOL_REGISTRY: Mapping[str, tuple[str, ...]] = MappingProxyType({
@@ -33,6 +35,8 @@ DATASET_SYMBOL_REGISTRY: Mapping[str, tuple[str, ...]] = MappingProxyType({
         "DOLLAR_INDEX", "VIX9D", "VIX3M", "VIX6M", "SKEW",
     ),
     "global_etf_price_daily": GLOBAL_ETF_DAILY_SYMBOLS,
+    "global_equity_price_daily": GLOBAL_EQUITY_DAILY_SYMBOLS,
+    "tossinvest_us_quote_30m": TOSSINVEST_US_QUOTE_SYMBOLS,
     "global_commodity_futures_daily": (
         "NASDAQ100_FUTURES", "GOLD", "WTI_CRUDE_OIL",
         "SP500_FUTURES", "DOW_FUTURES",
@@ -457,7 +461,8 @@ _CLASSIFICATION_IDS = {
         kr_equity_price_provisional_daily kr_equity_investor_flow_daily
         kr_equity_market_cap_daily kr_equity_universe_daily
         kr_etf_master kr_etf_price_daily
-        global_index_price_daily global_etf_price_daily global_commodity_futures_daily
+        global_index_price_daily global_etf_price_daily global_equity_price_daily
+        global_commodity_futures_daily tossinvest_us_quote_30m
         fred_treasury_yield_daily fred_usd_fx_daily fred_vix_daily
         bok_ecos_usd_krw_daily
         kr_short_selling_balance_daily kr_short_selling_investor_daily kr_market_liquidity_daily
@@ -550,6 +555,8 @@ _COVERAGE = {
     "kr_kospi200_breadth_daily": ("2026-08-12", "2026-08-25"),
     "global_index_price_daily": ("1928-01-03", "2026-08-18"),
     "global_etf_price_daily": ("2025-08-18", "2026-08-18"),
+    "global_equity_price_daily": ("2026-07-13", "2026-09-03"),
+    "tossinvest_us_quote_30m": ("2026-09-04", "2026-09-04"),
     "global_commodity_futures_daily": ("2025-08-18", "2026-08-18"),
     "fred_treasury_yield_daily": ("1962-01-02", "2026-08-17"),
     "fred_usd_fx_daily": ("1971-01-04", "2026-08-14"),
@@ -656,6 +663,8 @@ _LANE_GROUPS = {
     }),
     "FRED_DAILY": frozenset({"fred_treasury_yield_daily", "fred_usd_fx_daily", "fred_vix_daily", "us_treasury_spread_daily"}),
     "GLOBAL_ETF_DAILY": frozenset({"global_etf_price_daily"}),
+    "GLOBAL_EQUITY_DAILY": frozenset({"global_equity_price_daily"}),
+    "TOSSINVEST_US_QUOTES_30M": frozenset({"tossinvest_us_quote_30m"}),
     "KR_ETF_PRICE_DAILY": frozenset({"kr_etf_master", "kr_etf_price_daily"}),
     "GLOBAL_COMMODITY_DAILY": frozenset({"global_commodity_futures_daily"}),
     "VKOSPI_DAILY": frozenset({"kr_vkospi_daily"}),
@@ -707,7 +716,8 @@ _ECONOMIC_GROUPS = {
     "kr_equity_universe": ("kr_equity_universe_daily", "kr_equity_canonical_universe_daily"),
     "kr_equity_index_level": ("kr_index_daily", "kr_kospi200_index_daily", "kb_domestic_index_snapshot"),
     "global_market_price": (
-        "global_index_price_daily", "market_price_15m_observation",
+        "global_index_price_daily", "global_equity_price_daily",
+        "tossinvest_us_quote_30m", "market_price_15m_observation",
         "kb_global_symbol_snapshot",
     ),
     "kr_equity_price": (
@@ -766,6 +776,7 @@ _DIRECT_GUI = frozenset("""
     kr_corp_code_map kr_fundamentals_quarterly
     market_price_60m_observation
     kr_index_daily kr_kospi200_index_daily global_index_price_daily global_etf_price_daily
+    global_equity_price_daily tossinvest_us_quote_30m
     bok_ecos_kr_treasury_yield_source_observation bok_ecos_usd_krw_daily
     fred_treasury_yield_daily fred_usd_fx_daily
     global_commodity_futures_daily kr_market_breadth_daily
@@ -774,7 +785,7 @@ _DIRECT_GUI = frozenset("""
     kr_kospi200_option_pcr_daily kr_kospi200_option_walls_daily
     kr_kospi200_futures_nearest_listed_daily
     kr_kospi200_futures_investor_net_purchase_daily kr_equity_price_daily
-    kr_equity_price_provisional_daily
+    kr_equity_price_provisional_daily tossinvest_us_quote_30m
     kr_etf_master
     kr_short_selling_trading_daily kr_short_selling_balance_daily kr_stock_lending_daily
     kr_stock_lending_market_daily ls_t8462_daily_raw
@@ -898,7 +909,8 @@ _FINALITY_GATE_IDS = frozenset({
     "kr_kospi200_breadth_daily",
 })
 _READY_WITH_LIMITS_IDS = frozenset({
-    "global_index_price_daily", "global_etf_price_daily", "global_commodity_futures_daily",
+    "global_index_price_daily", "global_etf_price_daily", "global_equity_price_daily",
+    "global_commodity_futures_daily", "tossinvest_us_quote_30m",
     "kr_etf_master", "kr_etf_price_daily", "kr_equity_price_provisional_daily",
     "kr_equity_investor_flow_daily",
     "fred_treasury_yield_daily", "fred_usd_fx_daily", "fred_vix_daily",
@@ -997,6 +1009,12 @@ def classify_health_display(
     ).upper()
     if any(token in last_run_text for token in ("FAIL", "ERROR", "BLOCKED")):
         return HealthDisplayStatus.FAILED, "마지막 실행 실패"
+    if (
+        spec.scheduler_lane == "TOSSINVEST_US_QUOTES_30M"
+        and latest is not None
+        and freshness in {"CURRENT", "EXPECTED_LAG", "UNKNOWN"}
+    ):
+        return HealthDisplayStatus.CURRENT, "최근 30분 경계 관측 보존"
     try:
         latest_value = date.fromisoformat(latest) if latest else None
         expected_value = date.fromisoformat(expected) if expected else None
@@ -1015,6 +1033,10 @@ def classify_health_display(
 
 
 _PHYSICAL_OVERRIDES = {
+    "tossinvest_us_quote_30m": (
+        "normalized/tossinvest_us_quote_30m",
+        "artifacts/intraday/tossinvest_us_quotes_latest.json",
+    ),
     "kr_equity_investor_flow_daily": (
         "landing/kr_equity_investor_flow_daily/<run_id>",
         "normalized/kr_equity_investor_flow_daily",
@@ -1178,7 +1200,7 @@ _AUTO_ENABLED_IDS: frozenset[str] = frozenset({
     "kr_stock_lending_participant_daily",
     "kr_vkospi_daily",
     "kr_index_daily", "kr_kospi200_index_daily", "kr_index_fundamental_daily",
-    "global_etf_price_daily",
+    "global_etf_price_daily", "global_equity_price_daily", "tossinvest_us_quote_30m",
     "kr_etf_master", "kr_etf_price_daily", "kr_equity_investor_flow_daily",
     "global_index_price_daily", "global_commodity_futures_daily",
     "kr_market_investor_net_purchase_bridge_daily",

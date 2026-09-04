@@ -36,6 +36,9 @@ class ProviderAvailabilityPolicy(StrEnum):
     KOFIA_T_PLUS_2_2030 = "KOFIA_T_PLUS_2_2030"
     KRX_COMPLETED_SUCCESSOR_SESSION = "KRX_COMPLETED_SUCCESSOR_SESSION"
     BOK_ECOS_FX_DAILY_1600_KST = "BOK_ECOS_FX_DAILY_1600_KST"
+    TOSSINVEST_US_QUOTES_GLOBAL_30M_WINDOW = (
+        "TOSSINVEST_US_QUOTES_GLOBAL_30M_WINDOW"
+    )
     MANUAL_OBSERVATION = "MANUAL_OBSERVATION"
     NOT_APPLICABLE = "NOT_APPLICABLE"
 
@@ -154,6 +157,16 @@ def policy_for_dataset(dataset: str, lane: str) -> ExpectedLatestPolicy | None:
             ProviderAvailabilityPolicy.BOK_ECOS_FX_DAILY_1600_KST,
             ExpectedLagPolicy.NONE,
             ProviderFinality.UNKNOWN,
+        )
+    if (
+        dataset == "tossinvest_us_quote_30m"
+        and lane == "TOSSINVEST_US_QUOTES_30M"
+    ):
+        return ExpectedLatestPolicy(
+            ObservationCalendar.NO_MARKET_CALENDAR_REQUIRED,
+            ProviderAvailabilityPolicy.TOSSINVEST_US_QUOTES_GLOBAL_30M_WINDOW,
+            ExpectedLagPolicy.NONE,
+            ProviderFinality.AS_RETRIEVED,
         )
     if lane == "KOSPI200_BREADTH_DAILY":
         return ExpectedLatestPolicy(
@@ -347,6 +360,17 @@ def _latest_daily_run(as_of: datetime, run_time: time, zone: str) -> datetime:
     local = as_of.astimezone(ZoneInfo(zone))
     run_day = local.date() if local.time() >= run_time else local.date() - timedelta(days=1)
     return _at(run_day, run_time, zone)
+
+
+def _global_30m_boundary(as_of: datetime) -> tuple[datetime, bool]:
+    local = as_of.astimezone(_KST)
+    inside_window = local.time() >= time(17, 0) or local.time() < time(6, 0)
+    if inside_window:
+        minute = 30 if local.minute >= 30 else 0
+        boundary = local.replace(minute=minute, second=0, microsecond=0)
+    else:
+        boundary = datetime.combine(local.date(), time(5, 30), _KST)
+    return boundary, inside_window
 
 
 def _provider_target(
@@ -547,6 +571,39 @@ def resolve_expected_latest(
     policy = policy_for_dataset(dataset, lane)
     if policy is None:
         return None
+    if (
+        policy.provider_availability_policy
+        is ProviderAvailabilityPolicy.TOSSINVEST_US_QUOTES_GLOBAL_30M_WINDOW
+    ):
+        boundary, inside_window = _global_30m_boundary(as_of)
+        target = boundary.date()
+        if retained_latest is None:
+            freshness = ExpectedFreshness.UNKNOWN
+        elif retained_latest >= target:
+            freshness = ExpectedFreshness.CURRENT
+        elif inside_window:
+            freshness = ExpectedFreshness.STALE
+        else:
+            freshness = ExpectedFreshness.EXPECTED_LAG
+        return ExpectedLatestResult(
+            dataset=dataset,
+            calendar="GLOBAL_30M_KST_WINDOW",
+            expected_market_date=target,
+            expected_available_observation=target,
+            retained_latest=retained_latest,
+            freshness=freshness,
+            availability=availability or ProviderAvailability.AVAILABLE,
+            finality=policy.finality_policy,
+            collection_required=inside_window and (
+                retained_latest is None or retained_latest < target
+            ),
+            observation_calendar=policy.observation_calendar,
+            provider_availability_policy=policy.provider_availability_policy,
+            expected_lag_policy=policy.expected_lag_policy,
+            calendar_source="typed-global-30m-kst-window",
+            calendar_version="1",
+            due_at=boundary,
+        )
     if (
         policy.provider_availability_policy
         is ProviderAvailabilityPolicy.BOK_ECOS_FX_DAILY_1600_KST

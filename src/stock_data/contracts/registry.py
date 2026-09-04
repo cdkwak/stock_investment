@@ -1,9 +1,11 @@
+from stock_data.contracts.base import ColumnContract, DatasetContract
 from stock_data.contracts.global_market import (
     FRED_TREASURY_YIELD_DAILY, FRED_USD_FX_DAILY, FRED_VIX_DAILY, GLOBAL_INDEX_PRICE_DAILY,
     GLOBAL_COMMODITY_FUTURES_DAILY,
     US_TREASURY_SPREAD_DAILY, US_VIX_TERM_STRUCTURE_DAILY,
 )
 from stock_data.contracts.global_etf import GLOBAL_ETF_PRICE_DAILY
+from stock_data.contracts.global_equity import GLOBAL_EQUITY_PRICE_DAILY
 from stock_data.contracts.market_60m import MARKET_PRICE_60M_OBSERVATION
 from stock_data.contracts.market_15m import MARKET_PRICE_15M_OBSERVATION
 from stock_data.contracts.kr_equity import (
@@ -55,6 +57,31 @@ from stock_data.contracts.ls_t8428 import LS_T8428_CONTRACTS
 from stock_data.contracts.kr_etf import KR_ETF_CONTRACTS
 
 
+# The runtime lane owns the executable inline contract.  Importing an
+# orchestration submodule here would execute orchestration.__init__ and cycle
+# back through this registry, so the authoritative registry retains the exact
+# schema descriptor without coupling contracts to orchestration startup.
+TOSSINVEST_US_QUOTE_30M = DatasetContract(
+    name="tossinvest_us_quote_30m", version=1, status="active",
+    description=(
+        "As-retrieved Toss Securities U.S. watchlist quotes sampled by the bounded "
+        "30-minute scheduler lane; not a bar or official close."
+    ),
+    source="tossinvest_open_api", layer="normalized", storage_format="parquet",
+    frequency="intraday", timezone="Asia/Seoul",
+    primary_key=("retrieved_at", "symbol"),
+    sort_key=("date", "retrieved_at", "symbol"),
+    partition_by=("date",), columns=(
+        ColumnContract("date", "date32", False),
+        ColumnContract("symbol", "string", False),
+        ColumnContract("timestamp_kst", "string", False),
+        ColumnContract("last_price", "float64", False),
+        ColumnContract("currency", "string", False),
+        ColumnContract("retrieved_at", "timestamp[us, UTC]", False),
+    ),
+)
+
+
 CONTRACTS = {contract.name: contract for contract in (
     KR_INDEX_DAILY, KR_EQUITY_PRICE_DAILY, KR_EQUITY_PRICE_PROVISIONAL_DAILY,
     KR_EQUITY_INVESTOR_FLOW_DAILY,
@@ -62,6 +89,7 @@ CONTRACTS = {contract.name: contract for contract in (
     KR_EQUITY_MASTER, KR_EQUITY_UNIVERSE_DAILY, KR_EQUITY_CANONICAL_UNIVERSE_DAILY,
     KR_INVESTOR_FLOW_DAILY, KR_MARKET_BREADTH_DAILY,
     GLOBAL_INDEX_PRICE_DAILY, GLOBAL_COMMODITY_FUTURES_DAILY, GLOBAL_ETF_PRICE_DAILY,
+    GLOBAL_EQUITY_PRICE_DAILY, TOSSINVEST_US_QUOTE_30M,
     MARKET_PRICE_60M_OBSERVATION, MARKET_PRICE_15M_OBSERVATION,
     FRED_TREASURY_YIELD_DAILY, FRED_USD_FX_DAILY, FRED_VIX_DAILY,
     US_TREASURY_SPREAD_DAILY, US_VIX_TERM_STRUCTURE_DAILY,
@@ -89,5 +117,5 @@ CONTRACTS = {contract.name: contract for contract in (
     *KR_ETF_CONTRACTS,
 )}
 
-if len(CONTRACTS) != 27 + len(DATA_V1_CONTRACTS) + len(KR_DERIVATIVE_CONTRACTS) + len(KBSEC_SNAPSHOT_CONTRACTS) + len(LEGACY_KOSPI200_CONTRACTS) + len(LEGACY_MARKET_INVESTOR_CONTRACTS) + len(INVESTOR_BRIDGE_CONTRACTS) + len(DIVIDEND_OBSERVATION_CONTRACTS) + len(KOSPI200_DERIVATIVES_BRIDGE_CONTRACTS) + len(TOSSINVEST_HISTORICAL_CONTRACTS) + len(BOK_ECOS_TREASURY_CONTRACTS) + len(BOK_ECOS_FX_CONTRACTS) + len(STOCK_ISSUANCE_OBSERVATION_CONTRACTS) + len(KRX_DERIVATIVES_INVESTOR_CONTRACTS) + len(LS_T8428_CONTRACTS) + len(KOSPI200_CONSTITUENT_BREADTH_CONTRACTS) + len(KR_ETF_CONTRACTS):
+if len(CONTRACTS) != 29 + len(DATA_V1_CONTRACTS) + len(KR_DERIVATIVE_CONTRACTS) + len(KBSEC_SNAPSHOT_CONTRACTS) + len(LEGACY_KOSPI200_CONTRACTS) + len(LEGACY_MARKET_INVESTOR_CONTRACTS) + len(INVESTOR_BRIDGE_CONTRACTS) + len(DIVIDEND_OBSERVATION_CONTRACTS) + len(KOSPI200_DERIVATIVES_BRIDGE_CONTRACTS) + len(TOSSINVEST_HISTORICAL_CONTRACTS) + len(BOK_ECOS_TREASURY_CONTRACTS) + len(BOK_ECOS_FX_CONTRACTS) + len(STOCK_ISSUANCE_OBSERVATION_CONTRACTS) + len(KRX_DERIVATIVES_INVESTOR_CONTRACTS) + len(LS_T8428_CONTRACTS) + len(KOSPI200_CONSTITUENT_BREADTH_CONTRACTS) + len(KR_ETF_CONTRACTS):
     raise RuntimeError("duplicate Dataset Contract name")

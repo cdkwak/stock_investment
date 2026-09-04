@@ -43,3 +43,6 @@ htmlcov/
 /artifacts/analysis/
 artifacts/research/
 /artifacts/daily_health/universe_data_v2_latest.json
+
+# runtime intraday quote snapshots (Toss US quotes lane)
+artifacts/intraday/

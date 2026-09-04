@@ -167,6 +167,7 @@ def test_korean_equity_investor_flow_contract_is_registered_at_symbol_date_grain
 
 def test_first_global_equity_registry_entry_is_exact_skhy_adr_identity() -> None:
     assert GLOBAL_EQUITY_DAILY_SYMBOLS == ("SKHY",)
+    assert CONTRACTS["global_equity_price_daily"] is GLOBAL_EQUITY_PRICE_DAILY
     assert GLOBAL_EQUITY_PRICE_DAILY.column_names == CONTRACTS[
         "global_etf_price_daily"
     ].column_names
@@ -187,3 +188,12 @@ def test_first_global_equity_registry_entry_is_exact_skhy_adr_identity() -> None
         "cadence": "GLOBAL_DAILY",
         "automation_enabled": True,
     }
+
+
+def test_tossinvest_us_quote_contract_is_in_the_authoritative_registry() -> None:
+    contract = CONTRACTS["tossinvest_us_quote_30m"]
+
+    assert contract.frequency == "intraday"
+    assert contract.primary_key == ("retrieved_at", "symbol")
+    assert contract.partition_by == ("date",)
+    assert contract.source == "tossinvest_open_api"

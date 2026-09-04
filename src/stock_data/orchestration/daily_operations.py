@@ -22,6 +22,7 @@ from stock_data.orchestration.dataset_universe import (
 class Cadence(StrEnum):
     KR_DAILY = "KR_DAILY"
     GLOBAL_DAILY = "GLOBAL_DAILY"
+    GLOBAL_30M = "GLOBAL_30M"
     SNAPSHOT = "SNAPSHOT"
     WEEKLY = "WEEKLY"
     MONTHLY = "MONTHLY"
@@ -1586,6 +1587,18 @@ DAILY_LANE_READINESS = (
         "global_current_refresh yahoo_etf prepare/promote", "run checkpoint plus promotion journal",
         "confirmed symbol-scoped CAS promotion and exact-session pre-network no-op", "contract-registry ETF health adapter", True,
         None, "schedule the explicitly registered Yahoo ETF symbols"),
+    LaneReadiness("GLOBAL_EQUITY_DAILY", LaneReadinessStatus.READY,
+        "Yahoo chart", "global trading daily", "explicit registered-symbol reviewed end date",
+        "global_current_refresh yahoo_equity prepare/promote", "run checkpoint plus promotion journal",
+        "confirmed symbol-scoped CAS promotion and exact-session pre-network no-op", "contract-registry equity health adapter", True,
+        None, "schedule the explicitly registered Yahoo equity symbols"),
+    LaneReadiness("TOSSINVEST_US_QUOTES_30M", LaneReadinessStatus.READY,
+        "Toss Securities Open API /api/v1/prices", "30-minute U.S. watchlist quote observation",
+        "each :00/:30 boundary in [17:00,06:00) KST; outside the window retain the last in-window boundary",
+        "one retry-zero multi-symbol quote request", "immutable Landing plus append-only Normalized Parquet and latest artifact",
+        "confirmed one-call validation, atomic append, prior-valid preservation, and API-zero dry run",
+        "descriptive direct-display health adapter; never an official bar or close", True, None,
+        "run only in the bounded overnight window and preserve the last accepted observation outside it"),
     LaneReadiness("GLOBAL_COMMODITY_DAILY", LaneReadinessStatus.READY,
         "Yahoo chart", "global futures completed daily", "next US business day after 08:00 ET",
         "global_current_refresh yahoo_dashboard_futures prepare/promote", "run checkpoint plus promotion journal",
@@ -1951,6 +1964,39 @@ CORE_DATASET_SPECS = REPRESENTATIVE_DATASET_SPECS + (
         1, provider_auth_id="yahoo", status=OperationalStatus.AUTO_READY,
         cadence=Cadence.GLOBAL_DAILY, idempotency=IdempotencyStatus.CONFIRMED,
         dashboard_required=True, automation_enabled=True),
+    _registered_manual_spec("global_equity_price_daily", "Registered global equity OHLCV", "Yahoo chart API",
+        1, provider_auth_id="yahoo", status=OperationalStatus.AUTO_READY,
+        cadence=Cadence.GLOBAL_DAILY, idempotency=IdempotencyStatus.CONFIRMED,
+        dashboard_required=True, automation_enabled=True),
+    DatasetOperationSpec(
+        dataset_id="tossinvest_us_quote_30m",
+        economic_variable="As-retrieved U.S. watchlist quotes",
+        cadence=Cadence.GLOBAL_30M,
+        tier=DatasetTier.TIER_3_DELAYED,
+        primary_source="Toss Securities Open API /api/v1/prices",
+        contract_id="tossinvest_us_quote_30m",
+        contract_version=1,
+        operational_status=OperationalStatus.AUTO_READY,
+        freshness_policy=FreshnessPolicy(
+            "tossinvest_us_quote_global_30m_window",
+            "Asia/Seoul",
+            "latest :00/:30 due boundary in [17:00,06:00) KST; outside the window retain the last in-window boundary",
+            FinalityPolicy(
+                FinalityEvidence.AS_RETRIEVED,
+                "Asia/Seoul",
+                provider_available_rule="one accepted multi-symbol response at the governing in-window boundary",
+                provider_final_rule="as-retrieved positive finite USD quotes with source timestamps",
+                collection_window="[17:00,06:00) KST at :00/:30 boundaries",
+            ),
+        ),
+        pipeline_dependencies=(),
+        idempotency_status=IdempotencyStatus.CONFIRMED,
+        pit_status=PitStatus.NON_PREDICTIVE,
+        automation_enabled=True,
+        provider_auth_id="tossinvest",
+        validation_policy="one-call identity, USD, positive-finite price, timestamp, Landing, and atomic append validation",
+        dashboard_required=True,
+    ),
     _registered_manual_spec(
         "kr_etf_master", "Current Korean ETF identities", "KRX/pykrx",
         1, provider_auth_id="pykrx_login", status=OperationalStatus.AUTO_READY,
@@ -2162,7 +2208,7 @@ def build_daily_universe_gap_status(
             plan_status=status,
             pre_network_noop=noop,
         ))
-    if len(rows) != 69:
+    if len(rows) != 70:
         raise RuntimeError("daily-grain universe count differs from the typed registry")
     return tuple(rows)
 
