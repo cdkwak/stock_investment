@@ -381,6 +381,101 @@ def test_manual_post_delete_are_atomic_validated_and_loopback_only(
     }
 
 
+def _write_searchable_etfs(root: Path) -> None:
+    _write_parquet(
+        root,
+        "data/normalized/kr_etf_universe_daily/source_date=2026-09-04/data.parquet",
+        pd.DataFrame({
+            "source_date": ["2026-09-04"] * 4,
+            "symbol": ["0015B0", "100001", "100002", "100003"],
+            "name": [
+                "KoAct 미국나스닥성장기업액티브",
+                "미국 성장 1호",
+                "미국 성장 2호",
+                "미국 성장 3호",
+            ],
+            "full_name": [None] * 4,
+            "isin": [None] * 4,
+            "listing_date": ["2025-02-25", "2024-01-01", "2024-01-02", "2024-01-03"],
+            "underlying_index": [None] * 4,
+            "market": ["KRX"] * 4,
+            "security_type": ["ETF"] * 4,
+            "listing_status": ["LISTED_AT_SOURCE_DATE"] * 4,
+        }),
+    )
+
+
+def test_manual_post_resolves_unique_name_and_rejects_ambiguous_or_missing_name() -> None:
+    root = _make_project()
+    _write_searchable_etfs(root)
+    client = ASGITestClient(create_app(root))
+    base = {
+        "date": datetime.now(KST).date().isoformat(),
+        "account_label": "미래에셋",
+        "symbol": "",
+        "side": "BUY",
+        "quantity": 1,
+        "price": 10_000,
+        "currency": "KRW",
+        "memo": "",
+    }
+
+    created = client.post(
+        "/api/trade-journal/manual",
+        json={**base, "name": "KoAct 미국나스닥성장기업액티브"},
+        client_host="127.0.0.1",
+    )
+    assert created.status_code == 200
+    saved = next(item for item in created.json()["events"] if item["origin"] == "manual")
+    assert saved["symbol"] == "0015B0"
+    assert saved["name"] == "KoAct 미국나스닥성장기업액티브"
+
+    ambiguous = client.post(
+        "/api/trade-journal/manual",
+        json={**base, "name": "미국 성장"},
+        client_host="127.0.0.1",
+    )
+    assert ambiguous.status_code == 400
+    assert ambiguous.json()["error"] == (
+        "종목코드를 고르세요: 100001 미국 성장 1호 · 100002 미국 성장 2호 · 100003 미국 성장 3호"
+    )
+
+    missing = client.post(
+        "/api/trade-journal/manual",
+        json={**base, "name": "존재하지 않는 종목"},
+        client_host="127.0.0.1",
+    )
+    assert missing.status_code == 400
+    assert missing.json()["error"] == (
+        "종목명을 찾을 수 없습니다. 종목코드를 직접 입력하거나 검색 결과에서 고르세요."
+    )
+
+
+def test_manual_transfer_allows_optional_price_and_direct_code_can_fill_name() -> None:
+    root = _make_project()
+    _write_searchable_etfs(root)
+    client = ASGITestClient(create_app(root))
+    created = client.post(
+        "/api/trade-journal/manual",
+        json={
+            "date": datetime.now(KST).date().isoformat(),
+            "account_label": "미래에셋",
+            "symbol": "0015B0",
+            "name": "",
+            "side": "TRANSFER_IN",
+            "quantity": 2,
+            "price": None,
+            "currency": "KRW",
+            "memo": "타사 입고",
+        },
+        client_host="127.0.0.1",
+    )
+    assert created.status_code == 200
+    saved = next(item for item in created.json()["events"] if item["origin"] == "manual")
+    assert saved["name"] == "KoAct 미국나스닥성장기업액티브"
+    assert saved["price"] is None and saved["amount"] is None
+
+
 def test_trade_journal_page_and_days_validation_are_exposed() -> None:
     root = _make_project()
     client = ASGITestClient(create_app(root))

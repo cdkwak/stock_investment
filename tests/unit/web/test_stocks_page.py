@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from time import perf_counter
 
 import pandas as pd
 import pytest
 
 from stock_data.gui.watchlist_service import LocalWatchlistService
-from stock_web.api import home_data
+from stock_web.api import home_data, stocks_page
 from stock_web.api import scanner as scanner_api
 from stock_web.api.scanner import build_scanner
 from stock_web.api.stocks_page import (
@@ -277,6 +278,61 @@ def test_search_index_ranks_exact_then_prefix_by_latest_market_cap() -> None:
     assert [item["symbol"] for item in prefix[:4]] == ["005930", "000002", "000003", "000001"]
     assert exact_name[0]["symbol"] == "000001"
     assert exact_symbol[0]["symbol"] == "000003"
+
+
+def test_search_index_includes_full_kr_etf_universe_with_ranking_and_warm_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = make_project(new_temp_root())
+    path = root / "data/normalized/kr_etf_universe_daily/source_date=2026-09-04/data.parquet"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame({
+        "source_date": ["2026-09-04"] * 4,
+        "symbol": ["0015B0", "0099A0", "0088A0", "0077A0"],
+        "name": [
+            "KoAct 미국나스닥성장기업액티브",
+            "성장기업 ETF",
+            "미국 성장기업 인컴 ETF",
+            "0015B0 추종 ETF",
+        ],
+        "full_name": [
+            "삼성 KoAct 미국나스닥성장기업액티브증권상장지수투자신탁",
+            "성장기업 상장지수투자신탁",
+            "미국 성장기업 인컴 상장지수투자신탁",
+            "0015B0 추종 상장지수투자신탁",
+        ],
+        "isin": ["KR70015B0001", "KR70099A0001", "KR70088A0001", "KR70077A0001"],
+        "listing_date": ["2025-02-25", "2024-01-02", "2024-01-03", "2024-01-04"],
+        "underlying_index": ["NASDAQ Growth", "Growth", "Growth Income", "Code Tracking"],
+        "market": ["KRX"] * 4,
+        "security_type": ["ETF"] * 4,
+        "listing_status": ["LISTED_AT_SOURCE_DATE"] * 4,
+    }).to_parquet(path, index=False)
+
+    exact = search_stocks(root, "0015B0")["matches"]
+    ranked = search_stocks(root, "성장기업")["matches"]
+    full_name = search_stocks(root, "삼성 KoAct")["matches"]
+
+    assert exact[0]["symbol"] == "0015B0"
+    assert exact[0]["name"] == "KoAct 미국나스닥성장기업액티브"
+    assert exact[0]["market"] == "KRX"
+    assert exact[0]["security_type"] == "ETF"
+    assert exact[0]["listing_date"] == "2025-02-25"
+    assert exact[0]["source"] == "kr_etf_universe"
+    assert exact[1]["symbol"] == "0077A0"
+    assert ranked[0]["symbol"] == "0099A0"
+    assert {item["symbol"] for item in ranked[1:3]} == {"0015B0", "0088A0"}
+    assert full_name[0]["symbol"] == "0015B0"
+
+    monkeypatch.setattr(
+        stocks_page.pd, "read_parquet",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("warm search rebuilt")),
+    )
+    started = perf_counter()
+    warm = search_stocks(root, "KoAct")
+    elapsed = perf_counter() - started
+    assert warm["matches"][0]["symbol"] == "0015B0"
+    assert elapsed < 0.2
 
 
 def test_stocks_posts_refuse_non_loopback_and_page_renders() -> None:

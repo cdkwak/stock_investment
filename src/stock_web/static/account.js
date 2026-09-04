@@ -27,6 +27,14 @@
     return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
   };
   const optionHtml = (options, selected) => (options || []).map((item) => `<option value="${esc(item.value)}" ${item.value === selected ? "selected" : ""}>${esc(item.label)}</option>`).join("");
+  const JOURNAL_PRICE_LABELS = Object.freeze({
+    BUY: { label: "매수 단가 (원/주)", hint: "실제 매수 체결가를 1주 기준으로 입력하세요.", required: true },
+    SELL: { label: "매도 단가 (원/주)", hint: "실제 매도 체결가를 1주 기준으로 입력하세요.", required: true },
+    DIVIDEND: { label: "주당 배당금 (세전)", hint: "세금이 빠지기 전 1주당 배당금을 입력하세요.", required: true },
+    TRANSFER_IN: { label: "단가 (선택)", hint: "입고 당시 단가를 아는 경우에만 입력하세요.", required: false },
+    TRANSFER_OUT: { label: "단가 (선택)", hint: "출고 당시 단가를 아는 경우에만 입력하세요.", required: false },
+    OTHER: { label: "단가 (선택)", hint: "금액 계산이 필요한 경우에만 단가를 입력하세요.", required: false },
+  });
 
   let payload = null;
   let manualAccounts = [];
@@ -36,6 +44,10 @@
   let returnPeriodHydrated = false;
   let journalPayload = { events: [], summary: {}, gaps: [] };
   let selectedJournalDays = 90;
+  let journalSearchTimer = null;
+  let journalSearchSequence = 0;
+  let journalSearchMatches = [];
+  let selectedJournalIdentity = null;
 
   function sourceAsOf(rows, kinds) {
     return (rows || []).filter((row) => kinds.includes(row.kind)).map((row) => `${row.name} ${row.as_of_label || shortDate(row.as_of)}${row.included ? "" : " 제외"}`).join(" · ");
@@ -129,12 +141,90 @@
   }
 
   function journalSideLabel(side) {
-    return ({ BUY: "매수", SELL: "매도", DIVIDEND: "배당 추정", "DIVIDEND?": "추정(미확인)" })[side] || side;
+    return ({
+      BUY: "매수", SELL: "매도", DIVIDEND: "배당 추정", "DIVIDEND?": "추정(미확인)",
+      TRANSFER_IN: "입고", TRANSFER_OUT: "출고", OTHER: "기타",
+    })[side] || side;
   }
 
   function currencySummary(values) {
     const entries = Object.entries(values || {});
     return entries.length ? entries.map(([currency, value]) => nativeMoney(value, currency)).join(" · ") : "—";
+  }
+
+  function closeJournalSearch() {
+    journalSearchMatches = [];
+    $("journal-search-results").hidden = true;
+    $("journal-search-results").innerHTML = "";
+    $("journal-name").setAttribute("aria-expanded", "false");
+  }
+
+  function renderJournalSearch(matches, reason = null) {
+    journalSearchMatches = matches || [];
+    const host = $("journal-search-results");
+    host.innerHTML = journalSearchMatches.length ? journalSearchMatches.map((item, index) => `
+      <button type="button" class="journal-search-option" role="option" data-search-index="${index}">
+        <b>${esc(item.name)} <span class="num">${esc(item.symbol)}</span></b>
+        <small>${esc(item.market)} · ${esc(item.security_type)}${item.listing_date ? ` · 상장 ${esc(item.listing_date)}` : ""}</small>
+      </button>`).join("") : `<div class="journal-search-empty">${esc(reason || "일치하는 종목이 없습니다.")}</div>`;
+    host.hidden = false;
+    $("journal-name").setAttribute("aria-expanded", "true");
+  }
+
+  function selectJournalIdentity(item) {
+    if (!item) return;
+    selectedJournalIdentity = item;
+    $("journal-name").value = item.name || "";
+    $("journal-symbol").value = item.symbol || "";
+    $("journal-currency").value = item.market === "US ETF" ? "USD" : "KRW";
+    closeJournalSearch();
+  }
+
+  function scheduleJournalSearch() {
+    const query = $("journal-name").value.trim();
+    if (selectedJournalIdentity && query !== selectedJournalIdentity.name) {
+      selectedJournalIdentity = null;
+      $("journal-symbol").value = "";
+    }
+    window.clearTimeout(journalSearchTimer);
+    const sequence = ++journalSearchSequence;
+    if (!query) {
+      closeJournalSearch();
+      return;
+    }
+    journalSearchTimer = window.setTimeout(async () => {
+      try {
+        const response = await fetch(`/api/stocks/search?q=${encodeURIComponent(query)}`);
+        const result = await response.json();
+        if (sequence !== journalSearchSequence) return;
+        if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+        renderJournalSearch(result.matches || [], result.reason);
+      } catch (error) {
+        if (sequence !== journalSearchSequence) return;
+        renderJournalSearch([], `검색 실패 · ${error.message}`);
+      }
+    }, 350);
+  }
+
+  function updateJournalPriceField() {
+    const setting = JOURNAL_PRICE_LABELS[$("journal-side").value] || JOURNAL_PRICE_LABELS.OTHER;
+    $("journal-price-label").textContent = setting.label;
+    $("journal-price-hint").textContent = setting.hint;
+    $("journal-price").required = setting.required;
+    $("journal-price").placeholder = setting.required ? "필수" : "선택";
+  }
+
+  function savedJournalSummary(result, body) {
+    const saved = (result.events || []).find((entry) => (
+      entry.origin === "manual" && entry.date === body.date
+      && entry.account_label === body.account_label && entry.side === body.side
+      && String(entry.memo || "") === String(body.memo || "")
+    ));
+    const row = saved || body;
+    const identity = row.symbol ? `${row.name || row.symbol} (${row.symbol})` : (row.name || "종목");
+    const quantity = row.quantity === null || row.quantity === undefined ? "" : ` · ${fmt(row.quantity, 6)}주`;
+    const price = row.price === null || row.price === undefined ? "" : ` · ${nativeMoney(row.price, row.currency)}`;
+    return `저장했습니다 · ${row.date} · ${row.account_label} · ${identity} · ${journalSideLabel(row.side)}${quantity}${price}`;
   }
 
   function resetJournalForm() {
@@ -147,6 +237,10 @@
     $("journal-quantity").value = "";
     $("journal-price").value = "";
     $("journal-memo").value = "";
+    selectedJournalIdentity = null;
+    ++journalSearchSequence;
+    closeJournalSearch();
+    updateJournalPriceField();
   }
 
   function renderJournal() {
@@ -323,7 +417,10 @@
   document.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
-    if (target.id === "add-manual-account") {
+    const searchOption = target.closest(".journal-search-option");
+    if (searchOption) {
+      selectJournalIdentity(journalSearchMatches[Number(searchOption.dataset.searchIndex)]);
+    } else if (target.id === "add-manual-account") {
       manualAccounts.push({ label: "", currency: "KRW", cash: 0, snapshot_date: today(), positions: [] }); renderManualAccounts();
     } else if (target.classList.contains("remove-account")) {
       manualAccounts = collectManualAccounts();
@@ -380,9 +477,19 @@
         } catch (error) { $("journal-status").textContent = `삭제 실패 · ${error.message}`; }
       })();
     }
+    if (!target.closest(".journal-search-field")) closeJournalSearch();
   });
 
   document.addEventListener("DOMContentLoaded", async () => {
+    $("journal-name").addEventListener("input", scheduleJournalSearch);
+    $("journal-name").addEventListener("keydown", (event) => {
+      if (event.key === "Escape") closeJournalSearch();
+      if (event.key === "Enter" && journalSearchMatches.length) {
+        event.preventDefault();
+        selectJournalIdentity(journalSearchMatches[0]);
+      }
+    });
+    $("journal-side").addEventListener("change", updateJournalPriceField);
     $("save-manual-accounts").addEventListener("click", async () => {
       try { await postJson("/api/manual/accounts", { schema_version: 1, accounts: collectManualAccounts() }, "manual-status"); }
       catch (error) { $("manual-status").textContent = `저장 실패 · ${error.message}`; }
@@ -426,12 +533,13 @@
           date: $("journal-date").value, account_label: $("journal-account").value.trim(),
           symbol: $("journal-symbol").value.trim(), name: $("journal-name").value.trim(),
           side: $("journal-side").value, quantity: Number($("journal-quantity").value),
-          price: Number($("journal-price").value), currency: $("journal-currency").value,
+          price: $("journal-price").value === "" ? null : Number($("journal-price").value), currency: $("journal-currency").value,
           memo: $("journal-memo").value.trim(),
         };
         const response = await fetch("/api/trade-journal/manual", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
         const result = await response.json(); if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
-        $("journal-status").textContent = "저장했습니다."; resetJournalForm(); await loadJournal();
+        const success = savedJournalSummary(result, body);
+        resetJournalForm(); await loadJournal(); $("journal-status").textContent = success;
       } catch (error) { $("journal-status").textContent = `저장 실패 · ${error.message}`; }
     });
     resetCashFlowForm();

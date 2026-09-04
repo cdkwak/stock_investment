@@ -557,3 +557,23 @@ def test_cash_flow_crud_is_atomic_newest_first_and_loopback_only(
     assert json.loads(flow_path.read_text(encoding="utf-8")) == {
         "schema_version": 1, "entries": [],
     }
+
+
+def test_trade_journal_name_search_and_side_specific_price_labels_are_rendered() -> None:
+    root = new_temp_root()
+    html = ASGITestClient(create_app(root)).get("/account").text
+    script = (
+        Path(__file__).parents[3] / "src/stock_web/static/account.js"
+    ).read_text(encoding="utf-8")
+
+    assert 'id="journal-search-results"' in html
+    assert 'role="combobox"' in html
+    assert "const JOURNAL_PRICE_LABELS" in script
+    assert 'label: "매수 단가 (원/주)"' in script
+    assert 'label: "매도 단가 (원/주)"' in script
+    assert 'label: "주당 배당금 (세전)"' in script
+    assert 'label: "단가 (선택)"' in script
+    assert "journalSearchSequence" in script
+    assert "sequence !== journalSearchSequence" in script
+    assert "}, 350);" in script
+    assert "/api/stocks/search?q=" in script

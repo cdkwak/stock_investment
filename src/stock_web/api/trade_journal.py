@@ -661,6 +661,62 @@ def _manual_positive_number(value: object, field: str) -> float:
     return number
 
 
+def _manual_optional_positive_number(value: object, field: str) -> float | None:
+    if value is None or value == "":
+        return None
+    return _manual_positive_number(value, field)
+
+
+def _manual_identity_candidates(project_root: Path, query: str) -> list[dict[str, object]]:
+    from stock_web.api.stocks_page import search_stocks
+
+    result = search_stocks(project_root, query)
+    matches = result.get("matches") if isinstance(result, Mapping) else None
+    return [dict(item) for item in matches or [] if isinstance(item, Mapping)]
+
+
+def _resolve_manual_identity(project_root: Path, payload: object) -> object:
+    if not isinstance(payload, Mapping):
+        return payload
+    resolved = dict(payload)
+    symbol = str(resolved.get("symbol") or "").strip().upper()
+    name = str(resolved.get("name") or "").strip()
+    if symbol:
+        if not name:
+            exact = [
+                item for item in _manual_identity_candidates(project_root, symbol)
+                if str(item.get("symbol") or "").strip().upper() == symbol
+            ]
+            if len(exact) == 1:
+                resolved["name"] = str(exact[0].get("name") or symbol)
+        return resolved
+    clean_name = _manual_text(name, "종목명", 80)
+    matches = _manual_identity_candidates(project_root, clean_name)
+    folded = clean_name.casefold()
+    exact = [
+        item for item in matches
+        if folded in {
+            str(item.get("name") or "").strip().casefold(),
+            str(item.get("full_name") or "").strip().casefold(),
+        }
+    ]
+    candidates = exact if exact else matches
+    if len(candidates) == 1:
+        selected = candidates[0]
+        resolved["symbol"] = str(selected.get("symbol") or "").strip().upper()
+        resolved["name"] = str(selected.get("name") or clean_name).strip()
+        return resolved
+    if candidates:
+        choices = " · ".join(
+            f"{str(item.get('symbol') or '').strip()} {str(item.get('name') or '').strip()}"
+            for item in candidates[:3]
+        )
+        raise AccountInputError(f"종목코드를 고르세요: {choices}")
+    raise AccountInputError(
+        "종목명을 찾을 수 없습니다. 종목코드를 직접 입력하거나 검색 결과에서 고르세요."
+    )
+
+
 def _manual_entry(payload: object, *, allow_missing_id: bool) -> dict[str, object]:
     if not isinstance(payload, Mapping):
         raise AccountInputError("수동 매매일지 항목은 JSON 객체여야 합니다.")
@@ -685,7 +741,7 @@ def _manual_entry(payload: object, *, allow_missing_id: bool) -> dict[str, objec
     if _SYMBOL.fullmatch(symbol) is None:
         raise AccountInputError("종목코드 또는 티커가 올바르지 않습니다.")
     side = str(payload.get("side") or "").upper()
-    if side not in {"BUY", "SELL", "DIVIDEND"}:
+    if side not in {"BUY", "SELL", "DIVIDEND", "TRANSFER_IN", "TRANSFER_OUT", "OTHER"}:
         raise AccountInputError("매매 구분이 올바르지 않습니다.")
     currency = str(payload.get("currency") or "").upper()
     if currency not in {"KRW", "USD"}:
@@ -694,13 +750,18 @@ def _manual_entry(payload: object, *, allow_missing_id: bool) -> dict[str, objec
     normalized_label = re.sub(r"\s+", "", account_label).casefold()
     if any(normalized_label in aliases for aliases in _SOURCE_ALIASES.values()):
         raise AccountInputError("Toss와 KB는 스냅샷에서 자동 추정하므로 수동 입력할 수 없습니다.")
+    price = (
+        _manual_positive_number(payload.get("price"), "단가")
+        if side in {"BUY", "SELL", "DIVIDEND"}
+        else _manual_optional_positive_number(payload.get("price"), "단가")
+    )
     return {
         "id": entry_id, "date": canonical_date,
         "account_label": account_label,
         "symbol": symbol, "name": _manual_text(payload.get("name"), "종목명", 80),
         "side": side,
         "quantity": round(_manual_positive_number(payload.get("quantity"), "수량"), 6),
-        "price": _manual_positive_number(payload.get("price"), "단가"),
+        "price": price,
         "currency": currency,
         "memo": _manual_text(payload.get("memo"), "메모", 200, required=False),
     }
@@ -730,7 +791,9 @@ def load_manual_entries(project_root: Path) -> dict[str, object]:
 
 
 def save_manual_entry(project_root: Path, payload: object) -> dict[str, object]:
-    entry = _manual_entry(payload, allow_missing_id=True)
+    entry = _manual_entry(
+        _resolve_manual_identity(Path(project_root), payload), allow_missing_id=True,
+    )
     ledger = load_manual_entries(project_root)
     entries = list(ledger["entries"])
     for index, current in enumerate(entries):
@@ -761,10 +824,10 @@ def delete_manual_entry(project_root: Path, payload: object) -> dict[str, object
 
 def _manual_public_event(entry: Mapping[str, object]) -> dict[str, object]:
     quantity = float(entry["quantity"])
-    price = float(entry["price"])
+    price = None if entry.get("price") is None else float(entry["price"])
     return {
         **entry,
-        "source": "manual", "amount": quantity * price,
+        "source": "manual", "amount": None if price is None else quantity * price,
         "realized_pnl_est": None, "price_basis": "manual",
         "basis": "API 미연결 계좌의 사용자 수동 입력",
         "snapshot_dates": [], "recurring_like": False,

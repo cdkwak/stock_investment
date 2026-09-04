@@ -68,12 +68,15 @@
     <div class="cash-flow-form journal-form">
       <label class="field"><span>날짜</span><input type="date" id="journal-date"></label>
       <label class="field"><span>계좌</span><input id="journal-account" maxlength="60" placeholder="예: 미래에셋"></label>
-      <label class="field"><span>종목코드·티커</span><input id="journal-symbol" maxlength="24" placeholder="005930 / AAPL"></label>
-      <label class="field"><span>종목명</span><input id="journal-name" maxlength="80"></label>
-      <label class="field"><span>구분</span><select id="journal-side"><option value="BUY">매수</option><option value="SELL">매도</option><option value="DIVIDEND">배당</option></select></label>
+      <div class="journal-search-field">
+        <label class="field" for="journal-name"><span>종목명</span><input id="journal-name" maxlength="80" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="journal-search-results" placeholder="회사명·ETF명 또는 코드 검색"></label>
+        <div class="journal-search-results" id="journal-search-results" role="listbox" hidden></div>
+      </div>
+      <label class="field"><span>종목코드·티커</span><input id="journal-symbol" maxlength="24" placeholder="검색 선택 시 자동 입력 · 직접 입력 가능"></label>
+      <label class="field"><span>구분</span><select id="journal-side"><option value="BUY">매수</option><option value="SELL">매도</option><option value="DIVIDEND">배당</option><option value="TRANSFER_IN">입고</option><option value="TRANSFER_OUT">출고</option><option value="OTHER">기타</option></select></label>
       <label class="field"><span>통화</span><select id="journal-currency"><option value="KRW">KRW</option><option value="USD">USD</option></select></label>
       <label class="field"><span>수량</span><input type="number" min="0" step="0.000001" id="journal-quantity"></label>
-      <label class="field"><span>단가·주당배당</span><input type="number" min="0" step="any" id="journal-price"></label>
+      <label class="field journal-price-field"><span id="journal-price-label">매수 단가 (원/주)</span><input type="number" min="0" step="any" id="journal-price"><small class="muted" id="journal-price-hint">실제 매수 체결가를 1주 기준으로 입력하세요.</small></label>
       <label class="field journal-memo"><span>메모</span><input id="journal-memo" maxlength="200" placeholder="선택 메모"></label>
       <button type="button" class="button primary" id="save-journal-entry">수동 기록 저장</button>
     </div>

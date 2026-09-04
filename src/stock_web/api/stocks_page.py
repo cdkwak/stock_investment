@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import math
 import os
+from dataclasses import dataclass
 from pathlib import Path
 import re
 import threading
@@ -26,7 +27,16 @@ CONDITION_FIELDS = frozenset({
 })
 CONDITION_OPS = frozenset({"<=", ">="})
 CONDITION_SCOPES = frozenset({"watchlist", "universe"})
-_SEARCH_INDEX_CACHE: dict[str, tuple[str, tuple[tuple[EquityIdentity, float | None], ...]]] = {}
+@dataclass(frozen=True)
+class _SearchIndexEntry:
+    identity: EquityIdentity
+    market_cap: float | None
+    aliases: tuple[str, ...]
+    source: str
+    full_name: str | None = None
+
+
+_SEARCH_INDEX_CACHE: dict[str, tuple[str, tuple[_SearchIndexEntry, ...]]] = {}
 _SEARCH_INDEX_LOCK = threading.Lock()
 
 
@@ -193,6 +203,7 @@ def _master_signature(project_root: Path) -> str:
     for relative in (
         "data/normalized/kr_equity_master",
         "data/normalized/kr_etf_master",
+        "data/normalized/kr_etf_universe_daily",
     ):
         dataset = root / relative
         try:
@@ -269,7 +280,63 @@ def _issued_share_price_caps(project_root: Path) -> dict[str, float]:
         return {}
 
 
-def _search_index(project_root: Path) -> tuple[tuple[EquityIdentity, float | None], ...]:
+def _optional_search_date(value: object) -> str | None:
+    if value is None or pd.isna(value):
+        return None
+    parsed = pd.to_datetime(value, errors="coerce")
+    return None if pd.isna(parsed) else parsed.date().isoformat()
+
+
+def _kr_etf_universe_search_entries(project_root: Path) -> tuple[_SearchIndexEntry, ...]:
+    dataset = Path(project_root) / "data/normalized/kr_etf_universe_daily"
+    paths = sorted(dataset.rglob("*.parquet"))
+    if not paths:
+        return ()
+    columns = [
+        "source_date", "symbol", "name", "full_name", "isin", "listing_date",
+        "underlying_index", "market", "security_type", "listing_status",
+    ]
+    frames = [pd.read_parquet(path, columns=columns) for path in paths]
+    frame = pd.concat(frames, ignore_index=True)
+    frame["_source_date"] = pd.to_datetime(frame["source_date"], errors="coerce")
+    if frame.empty or frame["_source_date"].isna().any():
+        raise ValueError("Korean ETF universe source date is invalid")
+    latest = frame.loc[frame["_source_date"].eq(frame["_source_date"].max())].copy()
+    if (
+        latest.empty
+        or latest["symbol"].astype(str).duplicated().any()
+        or not latest["symbol"].astype(str).str.fullmatch(r"[0-9A-Z]{6}").all()
+        or latest[["symbol", "name", "market", "security_type", "listing_status"]].isna().any().any()
+        or not latest["market"].astype(str).eq("KRX").all()
+        or not latest["security_type"].astype(str).eq("ETF").all()
+        or not latest["listing_status"].astype(str).eq("LISTED_AT_SOURCE_DATE").all()
+    ):
+        raise ValueError("Korean ETF universe identity is invalid")
+    entries: list[_SearchIndexEntry] = []
+    for row in latest.sort_values(["symbol"], kind="stable").itertuples(index=False):
+        name = str(row.name).strip()
+        full_name = None if pd.isna(row.full_name) else str(row.full_name).strip() or None
+        if not name:
+            raise ValueError("Korean ETF universe short name is empty")
+        aliases = tuple(dict.fromkeys(value for value in (name, full_name) if value))
+        entries.append(_SearchIndexEntry(
+            identity=EquityIdentity(
+                symbol=str(row.symbol), name=name, market="KRX",
+                isin=None if pd.isna(row.isin) else str(row.isin),
+                listing_date=_optional_search_date(row.listing_date),
+                security_type="ETF",
+                exposure=None if pd.isna(row.underlying_index) else str(row.underlying_index),
+                currency="KRW", identity_source="kr_etf_universe",
+            ),
+            market_cap=None,
+            aliases=aliases,
+            source="kr_etf_universe",
+            full_name=full_name,
+        ))
+    return tuple(entries)
+
+
+def _search_index(project_root: Path) -> tuple[_SearchIndexEntry, ...]:
     root = Path(project_root).resolve()
     key = str(root)
     signature = _master_signature(root)
@@ -287,24 +354,41 @@ def _search_index(project_root: Path) -> tuple[tuple[EquityIdentity, float | Non
         market_caps = _latest_market_caps(root) if catalog else {}
         if catalog and len(market_caps) < len(catalog):
             market_caps = {**_issued_share_price_caps(root), **market_caps}
+        base_entries = tuple(_SearchIndexEntry(
+            identity=identity,
+            market_cap=market_caps.get(identity.symbol),
+            aliases=(identity.name,),
+            source=(
+                "kr_etf_master" if identity.market == "KRX" and identity.security_type == "ETF"
+                else "us_etf_catalog" if identity.market == "US ETF"
+                else "kr_equity_master"
+            ),
+        ) for identity in (*catalog, *US_ETF_CHART_IDENTITIES))
+        try:
+            universe_entries = _kr_etf_universe_search_entries(root)
+        except (KeyError, OSError, PermissionError, TypeError, ValueError):
+            universe_entries = ()
+        universe_keys = {entry.identity.key for entry in universe_entries}
         index = tuple(
-            (identity, market_caps.get(identity.symbol))
-            for identity in (*catalog, *US_ETF_CHART_IDENTITIES)
-        )
+            entry for entry in base_entries if entry.identity.key not in universe_keys
+        ) + universe_entries
         _SEARCH_INDEX_CACHE[key] = (signature, index)
         return index
 
 
-def _search_rank(identity: EquityIdentity, market_cap: float | None, folded: str) -> tuple[object, ...] | None:
+def _search_rank(entry: _SearchIndexEntry, folded: str) -> tuple[object, ...] | None:
+    identity = entry.identity
+    market_cap = entry.market_cap
     symbol = identity.symbol.casefold()
     name = identity.name.casefold()
+    aliases = tuple(value.casefold() for value in entry.aliases)
     if symbol == folded:
         match_rank = 0
-    elif name == folded:
+    elif folded in aliases:
         match_rank = 1
-    elif name.startswith(folded):
+    elif any(value.startswith(folded) for value in aliases):
         match_rank = 2
-    elif folded in name:
+    elif folded in symbol or any(folded in value for value in aliases):
         match_rank = 3
     elif (
         folded in (identity.issuer or "").casefold()
@@ -325,26 +409,38 @@ def _search_rank(identity: EquityIdentity, market_cap: float | None, folded: str
     )
 
 
+def _search_payload(entry: _SearchIndexEntry) -> dict[str, object]:
+    return {
+        **_identity_payload(entry.identity),
+        "full_name": entry.full_name,
+        "source": entry.source,
+    }
+
+
 def search_stocks(project_root: Path, text: str) -> dict[str, object]:
     query = str(text or "").strip()
     if not query:
-        return {"query": query, "matches": [], "reason": "회사명·6자리 코드·미국 ETF 티커를 입력하세요."}
+        return {
+            "query": query,
+            "matches": [],
+            "reason": "회사명·ETF명·6자리 코드·미국 ETF 티커를 입력하세요.",
+        }
     folded = query.casefold()
     try:
         ranked = [
-            (rank, identity)
-            for identity, market_cap in _search_index(Path(project_root))
-            if (rank := _search_rank(identity, market_cap, folded)) is not None
+            (rank, entry)
+            for entry in _search_index(Path(project_root))
+            if (rank := _search_rank(entry, folded)) is not None
         ]
         ranked.sort(key=lambda item: item[0])
-        combined = [identity for _, identity in ranked[:30]]
+        combined = [entry for _, entry in ranked[:30]]
         unavailable_reason = None
     except (KeyError, OSError, PermissionError, TypeError, ValueError):
         combined = []
         unavailable_reason = "종목 식별정보를 읽거나 검증할 수 없습니다."
     return {
         "query": query,
-        "matches": [_identity_payload(item) for item in combined],
+        "matches": [_search_payload(item) for item in combined],
         "reason": None if combined else (unavailable_reason or "일치하는 종목이 없습니다."),
     }
 

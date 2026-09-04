@@ -35,6 +35,39 @@ KR_ETF_MASTER = DatasetContract(
 )
 
 
+KR_ETF_UNIVERSE_DAILY = DatasetContract(
+    name="kr_etf_universe_daily",
+    version=1,
+    status="active_display_only_pit_blocked",
+    description=(
+        "One current-list KRX ETF identity snapshot per collection date. The snapshot "
+        "is descriptive as retrieved and must not be back-projected as historical membership."
+    ),
+    source="KRX/pykrx ETF_전종목기본종목",
+    layer="normalized",
+    storage_format="parquet",
+    frequency="daily",
+    timezone="Asia/Seoul",
+    primary_key=("source_date", "symbol"),
+    sort_key=("source_date", "symbol"),
+    partition_by=("source_date",),
+    columns=(
+        ColumnContract("source_date", "date32", False, "as_retrieved_KST_date"),
+        ColumnContract("symbol", "string", False),
+        ColumnContract("name", "string", False),
+        ColumnContract("full_name", "string", True),
+        ColumnContract("isin", "string", True),
+        ColumnContract("listing_date", "date32", True),
+        ColumnContract("underlying_index", "string", True),
+        ColumnContract("market", "string", False),
+        ColumnContract("security_type", "string", False),
+        ColumnContract("listing_status", "string", False),
+        ColumnContract("source", "string", False),
+        ColumnContract("source_operation", "string", False),
+    ),
+)
+
+
 KR_ETF_PRICE_DAILY = DatasetContract(
     name="kr_etf_price_daily",
     version=1,
@@ -86,10 +119,11 @@ def infer_kr_etf_leverage_multiple(name: str) -> int:
     return 1
 
 
-KR_ETF_CONTRACTS = (KR_ETF_MASTER, KR_ETF_PRICE_DAILY)
+KR_ETF_CONTRACTS = (KR_ETF_MASTER, KR_ETF_UNIVERSE_DAILY, KR_ETF_PRICE_DAILY)
 
 
 __all__ = [
     "KR_ETF_CONTRACTS", "KR_ETF_MASTER", "KR_ETF_PRICE_DAILY",
+    "KR_ETF_UNIVERSE_DAILY",
     "infer_kr_etf_leverage_multiple",
 ]

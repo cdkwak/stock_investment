@@ -25,6 +25,7 @@ this project's `artifacts/` and `data/` trees.
 - KB fallback: `data/landing/kbsec/account_snapshot/*.json`
 - Cash flows: `artifacts/local_user/cash_flows.json`
 - Korean equity identity: `data/normalized/kr_equity_master`
+- Current Korean ETF identity: `data/normalized/kr_etf_universe_daily`
 - Korean dividends: `data/normalized/kr_equity_dividend`
 - Manual journal: `artifacts/local_user/trade_journal_manual.json`
 
@@ -116,10 +117,32 @@ retained reference source exists.
 
 `trade_journal_manual.json` has `schema_version: 1` and `entries[]`. Each entry
 contains `id`, ISO date, identifier-free `account_label`, symbol, name, side
-(`BUY`, `SELL`, or `DIVIDEND`), positive quantity and price, currency (`KRW` or
-`USD`), and optional memo. POST and DELETE are loopback-only. Validation fails
-closed with HTTP 400, and writes atomically replace the ledger. Manual entries
-are marked `estimated: false` and are never inferred from account snapshots.
+(`BUY`, `SELL`, `DIVIDEND`, `TRANSFER_IN`, `TRANSFER_OUT`, or `OTHER`), positive
+quantity, currency (`KRW` or `USD`), and optional memo. Price is positive and
+required for buy, sell, and dividend entries; it is nullable for transfer-in,
+transfer-out, and other entries. POST and DELETE are loopback-only. Validation
+fails closed with HTTP 400, and writes atomically replace the ledger. Manual
+entries are marked `estimated: false` and are never inferred from account
+snapshots.
+
+The 종목명 control searches the same provider-free `/api/stocks/search` index as
+the stocks page. The index combines the Korean equity master, current Korean ETF
+universe, retained small ETF master, and accepted static U.S. ETF identities.
+The client waits 350 ms and ignores out-of-order responses. Selecting a result
+fills code, canonical display name, and KRW for Korean markets or USD for the
+U.S. ETF catalog; a code may still be entered directly.
+
+When POST receives a name and a blank code, the server accepts one exact name
+match or one unique search match and stores its canonical code and short name.
+Multiple candidates fail with HTTP 400 and list at most three `code name`
+choices; no match also fails closed. A supplied code with a blank name may fill
+the name only when that exact code is present in the same local index.
+
+The price label is semantic rather than generic: buy and sell identify their
+respective per-share fill price, dividend identifies the pre-tax per-share
+amount, and transfer/other sides say that price is optional. After a successful
+write, the client keeps a one-line summary of the saved date, account, identity,
+side, quantity, and price instead of returning only a generic success message.
 
 ## Cache and response
 
