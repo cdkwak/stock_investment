@@ -816,6 +816,9 @@ def test_compound_panel_static_contract_uses_cached_frame_render_and_existing_ch
     assert "setTimeout(pollCompoundRun, 2000)" in script
     assert 'fetch("/api/research/candidates"' in script
     assert "compound.underlyings" in script
+    assert 'id="compound-exit-compare"' in template
+    assert "renderCompoundExitCompare(combination)" in script
+    assert "출구 5개 나란히" in script
     assert "item.holdout_relative_to_baseline" in script
     assert "item.holdout_baseline_final_wealth_multiple" in script
     assert '"거래비용 포함" : "거래비용 제외"' in script

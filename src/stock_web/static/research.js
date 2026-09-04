@@ -855,6 +855,7 @@
       $("compound-fit-metrics").innerHTML = '<div class="unavailable">선택한 모든 값이 일치하는 cached grid row가 없습니다.</div>';
       $("compound-holdout-output").hidden = true;
       $("compound-knob-note").textContent = "미계산 조합";
+      renderCompoundExitCompare(combination);
       renderCompoundCurve(null, null, combination.product_variant);
       renderCompoundCycles(null, combination.product_variant);
       renderCompoundHeatmap(combination);
@@ -867,6 +868,7 @@
     $("compound-knob-note").textContent = `${row.underlying || combination.product} · ${compoundProductLabel(combination.product_variant)} · ${combination.cost_enabled ? "거래비용 포함" : "거래비용 제외"} · cached row`;
     if (compoundState.holdoutVisible) renderCompoundHoldout(row, combination);
     else $("compound-holdout-output").hidden = true;
+    renderCompoundExitCompare(combination);
     renderCompoundCurve(row, fit, combination.product_variant);
     renderCompoundCycles(row, combination.product_variant);
     renderCompoundHeatmap(combination);
@@ -883,6 +885,28 @@
       return;
     }
     compoundState.frame = requestAnimationFrame(renderCompound);
+  }
+
+  const compoundExitLabels = { a: "a 점수 역주행", b60: "b60 시간 분할", b120: "b120 시간 분할", c: "c 목표수익 분할", d: "d 안 팔기" };
+
+  // 05:05 review: final multiple ranked alone always crowns "안 팔기"; the MDD trade-off
+  // only shows when every exit sits on its own line with both numbers side by side.
+  function renderCompoundExitCompare(combination) {
+    const host = $("compound-exit-compare");
+    if (!host) return;
+    const exits = ["a", "b60", "b120", "c", "d"];
+    const showHoldout = compoundState.holdoutVisible;
+    const rows = exits.map((exit) => {
+      const row = compoundRow({ ...combination, exit });
+      const fit = compoundMetric(row, combination.product_variant, "fit");
+      const holdout = showHoldout ? compoundMetric(row, combination.product_variant, "holdout") : null;
+      const current = exit === combination.exit;
+      const cell = (metric) => metric
+        ? `<td>${multipleText(metric.relative_to_baseline)}</td><td class="${valueClass(metric.max_drawdown)}">${pct(metric.max_drawdown)}</td>`
+        : "<td>미계산</td><td>—</td>";
+      return `<tr class="${current ? "current" : ""}"><td>${esc(compoundExitLabels[exit] || exit)}${current ? ' <span class="muted">(선택)</span>' : ""}</td>${cell(fit)}${showHoldout ? cell(holdout) : ""}</tr>`;
+    }).join("");
+    host.innerHTML = `<div class="compound-subhead"><b>출구 5개 나란히 · 최종배수와 최대낙폭을 같은 줄에</b><span class="muted">같은 신호·배율·비용, 출구만 다름${showHoldout ? "" : " · 홀드아웃 열은 '홀드아웃 보기' 뒤에"}</span></div><div class="research-table-wrap"><table class="research-table compound-exit-table"><thead><tr><th>출구</th><th>FIT 최종/기준선</th><th>FIT MDD</th>${showHoldout ? "<th>홀드아웃 최종/기준선</th><th>홀드아웃 MDD</th>" : ""}</tr></thead><tbody>${rows}</tbody></table></div>`;
   }
 
   function renderCompoundHoldout(row, combination) {
