@@ -183,6 +183,12 @@
     return normalized.filter((row) => !row.hidden).map((row) => `<div${rowClass ? ` class="${rowClass}"` : ""}><span>${esc(row.label)}</span><span class="num"><b>${esc(row.value)}</b>${row.hint ? ` <small>· ${esc(row.hint)}</small>` : ""}</span></div>`).join("") +
       (hidden ? `<div class="regime-hidden-note">근거 없는 지표 ${hidden}개 숨김</div>` : "");
   }
+  function regimeCompact(rows) {
+    // Collapsed band: one wrapped line of "label value" pairs so the card is not empty.
+    const items = (rows || []).map(regimeRow).filter((row) => !row.hidden && !placeholderEvidence.has(String(row.value).trim()));
+    if (!items.length) return `<span class="muted">근거 없음</span>`;
+    return items.map((row) => `<span><span class="k">${esc(row.label)}</span> <b>${esc(row.value)}</b></span>`).join('<span class="sep">·</span>');
+  }
   const regimeEvidenceStorageKey = "si.regime.evidence";
   function loadRegimeEvidenceOpen() {
     try { return localStorage.getItem(regimeEvidenceStorageKey) === "open"; }
@@ -222,6 +228,7 @@
           <span class="t">${esc(m.title)}</span>
           <div class="temp"><b style="color:${m.hot ? "var(--amber-soft)" : "#f4f2ee"}">${esc(m.temperature)}</b><span>${esc(String(m.subtitle || "").replace(/^신호 (?=\d+\/3)/, "자료 "))}</span>${index === 0 ? '<button class="regime-toggle" id="regime-toggle" type="button" aria-expanded="false">근거 펼치기 ▾</button>' : ""}</div>
         </div>
+        <div class="ev-compact">${regimeCompact(m.evidence)}</div>
         <div class="ev">${regimeRows(m.evidence)}</div>
       </div>`).join("");
     renderRegimeEvidenceStrip(sec);
