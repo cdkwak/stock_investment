@@ -306,6 +306,19 @@ def main(argv: list[str] | None = None) -> int:
     result = run_us_quote_lane(
         args.project_root, now=now, client=client, dry_run=args.dry_run,
     )
+    if not args.dry_run:
+        # Same receipt shape the other Windows tasks leave for the 데이터 page
+        # (artifacts/scheduler_logs/<TASK>_last.json); payload-free.
+        _atomic_json(
+            args.project_root.resolve() / "artifacts/scheduler_logs" / "STOCK_DATA_TOSS_US_QUOTES_30M_last.json",
+            {
+                **result,
+                "task_name": "STOCK_DATA_TOSS_US_QUOTES_30M",
+                "scheduler_process_status": "SUCCESS",
+                "started_at_utc": now.isoformat(),
+                "finished_at_utc": datetime.now(timezone.utc).isoformat(),
+            },
+        )
     print(json.dumps(result, ensure_ascii=False, sort_keys=True, indent=2))
     return 0
 
