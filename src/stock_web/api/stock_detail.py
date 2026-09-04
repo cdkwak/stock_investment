@@ -14,6 +14,7 @@ import time
 from typing import Any
 
 import pandas as pd
+import pyarrow.dataset as pads
 
 from stock_data.gui.services import US_ETF_CHART_IDENTITIES
 from stock_data.research.target_prices import read_target_price_consensus
@@ -63,6 +64,86 @@ def _normalize_symbol(symbol: str) -> str:
 
 def _is_korean(symbol: str, market: str = "") -> bool:
     return bool(_KR_SYMBOL.fullmatch(symbol)) or market.strip().upper() in {"KR", "KRX", "KOSPI", "KOSDAQ"}
+
+
+def _is_korean_etf(project_root: Path, symbol: str, identity: dict[str, object]) -> bool:
+    security_type = str(identity.get("security_type") or "").upper()
+    if "ETF" in security_type or "ETN" in security_type:
+        return True
+    frame = dsx.load(
+        project_root,
+        "data/normalized/kr_etf_master",
+        filter_expr=(field("symbol") == symbol),
+        partitioning=None,
+    )
+    return frame is not None and not frame.empty
+
+
+def _investor_flows(
+    project_root: Path, *, symbol: str, supported: bool,
+) -> dict[str, object]:
+    """Project a Korean stock's retained investor flow in raw won."""
+    if not supported:
+        return {"reason": "종목별 수급은 국내 주식만 보존"}
+    root = project_root / "data/normalized/kr_equity_investor_flow_daily"
+    if not root.is_dir():
+        return {"reason": "종목별 수급 데이터 미보존"}
+    required = [
+        "date", "symbol", "foreign_net", "institution_net", "individual_net",
+        "other_corp_net",
+    ]
+    try:
+        dataset = pads.dataset(root, format="parquet", partitioning=None)
+        columns = [*required]
+        if "captured_at" in dataset.schema.names:
+            columns.append("captured_at")
+        frame = dataset.to_table(
+            columns=columns,
+            filter=pads.field("symbol") == symbol,
+        ).to_pandas()
+    except Exception:
+        return {"reason": "종목별 수급 데이터를 읽을 수 없습니다."}
+    if frame.empty or not set(required).issubset(frame.columns):
+        return {"reason": "종목별 수급 데이터 미보존"}
+    frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
+    value_columns = required[2:]
+    for column in value_columns:
+        frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    frame = frame.dropna(subset=["date", *value_columns])
+    sort_columns = ["date"]
+    if "captured_at" in frame.columns:
+        frame["captured_at"] = pd.to_datetime(frame["captured_at"], utc=True, errors="coerce")
+        sort_columns.append("captured_at")
+    frame = (
+        frame.sort_values(sort_columns, kind="stable")
+        .drop_duplicates("date", keep="last")
+        .tail(20)
+        .reset_index(drop=True)
+    )
+    if frame.empty:
+        return {"reason": "종목별 수급 데이터 미보존"}
+    rows = [{
+        "date": row["date"].date().isoformat(),
+        "foreign_net": int(row["foreign_net"]),
+        "institution_net": int(row["institution_net"]),
+        "individual_net": int(row["individual_net"]),
+        "other_corp_net": int(row["other_corp_net"]),
+    } for _, row in frame.tail(10).iloc[::-1].iterrows()]
+    return {
+        "as_of": frame["date"].iloc[-1].date().isoformat(),
+        "rows": rows,
+        "cumulative": {
+            "dates": [value.date().isoformat() for value in frame["date"]],
+            "foreign": [int(value) for value in frame["foreign_net"].cumsum()],
+            "institution": [int(value) for value in frame["institution_net"].cumsum()],
+            "individual": [int(value) for value in frame["individual_net"].cumsum()],
+        },
+        "summary_20d": {
+            "foreign": int(frame["foreign_net"].sum()),
+            "institution": int(frame["institution_net"].sum()),
+            "individual": int(frame["individual_net"].sum()),
+        },
+    }
 
 
 def _load_ohlcv(project_root: Path, symbol: str) -> pd.DataFrame | None:
@@ -474,6 +555,11 @@ def build_stock_detail_payload(project_root: Path, *, symbol: str, market: str =
     dividends = _dividends(
         root, isin=identity.get("isin"), korean=korean, price=headline.get("price"),
     )
+    investor_flows = _investor_flows(
+        root,
+        symbol=normalized_symbol,
+        supported=korean and not _is_korean_etf(root, normalized_symbol, identity),
+    )
     stats["dividend_yield_pct"] = dividends.get("dividend_yield_pct")
     conditions = _condition_matches(root, {**stats, "change_pct": headline.get("change_pct")})
     as_of = headline.get("as_of")
@@ -488,6 +574,7 @@ def build_stock_detail_payload(project_root: Path, *, symbol: str, market: str =
         "company": company,
         "fundamentals": _fundamentals(root, normalized_symbol, korean),
         "dividends": dividends,
+        "investor_flows": investor_flows,
         "target_price": _target_price(
             root, symbol=normalized_symbol, korean=korean, price=headline.get("price"),
         ),

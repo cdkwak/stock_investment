@@ -972,6 +972,7 @@ def build_scanner(project_root: Path) -> dict[str, object]:
 
 
 def build_watchlist(project_root: Path) -> dict[str, object]:
+    """Return Home watchlist rows with optional retained investor summaries."""
     from stock_web.api.home_cards import build_watchlist as build_watchlist_card
 
     return build_watchlist_card(project_root)

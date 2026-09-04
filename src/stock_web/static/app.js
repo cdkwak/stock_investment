@@ -67,6 +67,13 @@
     return `${fmt(numeric, 0)}%`;
   }
 
+  function signedEok(value, digits = 1) {
+    if (value === null || value === undefined || !Number.isFinite(Number(value))) return "—";
+    const numeric = Number(value) / 1e8;
+    const sign = numeric > 0 ? "+" : numeric < 0 ? "−" : "";
+    return `${sign}${Math.abs(numeric).toLocaleString("ko-KR", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+  }
+
   function formatPcr(value) {
     return value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value)) ? Number(value).toFixed(2) : "—";
   }
@@ -389,19 +396,34 @@
     const isUs = /^(US|USA|NASDAQ|NYSE|AMEX)$/i.test(market) || /^[A-Z][A-Z0-9.-]{0,9}$/.test(symbol);
     return isUs && symbol ? symbol : (row.name || symbol || "—");
   }
+  function watchlistInvestorCell(row, participant) {
+    const investor = row.investor;
+    if (!investor) return '<div class="r num muted watch-investor-cell">—</div>';
+    const today = investor[`${participant}_1d`];
+    const tooltip = `5일 ${signedEok(investor[`${participant}_5d`])}억 · 20일 ${signedEok(investor[`${participant}_20d`])}억 · 기준일 ${investor.as_of || "—"}`;
+    return `<div class="r num ${cls(today)} watch-investor-cell" title="${esc(tooltip)}">${signedEok(today)}</div>`;
+  }
+  function watchlistInvestorMobile(row) {
+    const investor = row.investor;
+    if (!investor) return '<div class="watch-investor-mobile muted">외 — · 기 —</div>';
+    return `<div class="watch-investor-mobile"><span class="${cls(investor.foreign_1d)}">외 ${signedEok(investor.foreign_1d, 0)}</span> · <span class="${cls(investor.institution_1d)}">기 ${signedEok(investor.institution_1d, 0)}</span></div>`;
+  }
   function renderWatchlist(sec) {
     const host = $("watchlist");
     if (!sec || !sec.rows) { host.innerHTML = unavailable(sec && sec.reason); return; }
     const rows = [...sec.rows].sort((left, right) => Number(Boolean(right.held)) - Number(Boolean(left.held)));
     $("watchlist-meta").textContent = `보유 ${sec.held_count ?? 0} · 관심 ${sec.watch_count ?? 0}`;
-    host.innerHTML = `<div class="tr th watch"><div>종목</div><div>구분</div><div class="r">현재가</div><div class="r">등락</div><div class="r">고점 대비</div><div class="r">RSI14</div></div>` +
+    host.innerHTML = `<div class="tr th watch"><div>종목</div><div>구분</div><div class="r">현재가</div><div class="r">등락</div><div class="r">고점 대비</div><div class="r">RSI14</div><div class="watch-investor-head"><small>순매수 억원 · 당일 (툴팁 5일·20일)</small><span>외국인</span><span>기관</span><span>개인</span></div></div>` +
       rows.map((r) => `<div class="tr watch">
-        <div title="${esc(r.name || r.symbol || "")}"><div>${esc(watchlistName(r))}</div>${r.flag ? `<div class="flag">조건 도달 · ${esc(r.flag)}</div>` : ""}</div>
+        <div title="${esc(r.name || r.symbol || "")}"><div>${esc(watchlistName(r))}</div>${watchlistInvestorMobile(r)}${r.flag ? `<div class="flag">조건 도달 · ${esc(r.flag)}</div>` : ""}</div>
         <div class="watch-status">${r.held ? '<span class="badge held-badge">보유</span>' : '<span class="muted">관심</span>'}</div>
         <div class="r num">${r.price ?? "—"}</div>
         <div class="r num ${cls(r.change_pct)}">${pct(r.change_pct)}</div>
         <div class="r num ${cls(r.drawdown_pct)}">${pct(r.drawdown_pct)}</div>
         <div class="r num">${r.rsi14 === null || r.rsi14 === undefined ? "—" : Math.round(r.rsi14)}</div>
+        ${watchlistInvestorCell(r, "foreign")}
+        ${watchlistInvestorCell(r, "institution")}
+        ${watchlistInvestorCell(r, "individual")}
       </div>`).join("");
   }
 
@@ -583,6 +605,6 @@
     renderWatchlist(s.watchlist); renderAccount(s.account); renderFlows(s.flows); renderDerivatives(s.derivatives);
     renderSchedule(s.schedule); renderBrief(s.schedule, s.brief); renderScanner(s.scanner); renderSummaryStrip(s);
   }
-  if (typeof module !== "undefined" && module.exports) module.exports = { aggregateCandles, brokerReportedPnl, formatCompactKorean, formatSharePercent, rsiWilder };
+  if (typeof module !== "undefined" && module.exports) module.exports = { aggregateCandles, brokerReportedPnl, formatCompactKorean, formatSharePercent, rsiWilder, signedEok };
   if (typeof document !== "undefined") document.addEventListener("DOMContentLoaded", () => { if ($("home-page")) boot(); });
 })();

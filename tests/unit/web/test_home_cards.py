@@ -129,6 +129,54 @@ def test_watchlist_matches_kb_prefixed_kr_symbol_and_us_ticker_without_quantitie
     assert all(row["weight_pct"] is None for row in result["rows"])
 
 
+def test_watchlist_adds_plain_column_investor_flow_session_sums(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = new_temp_root()
+    dates = pd.date_range("2026-08-01", periods=20)
+    units = pd.Series(range(1, 21), dtype="int64") * 100_000_000
+    _write_parquet(
+        root,
+        "data/normalized/kr_equity_investor_flow_daily/data.parquet",
+        pd.DataFrame({
+            "date": dates, "symbol": ["005930"] * 20,
+            "foreign_net": units,
+            "institution_net": -units * 2,
+            "individual_net": [300_000_000] * 20,
+            "other_corp_net": units - units,
+            "total_net": -units + 300_000_000,
+            "source": ["fixture"] * 20,
+            "captured_at": pd.to_datetime(["2026-09-04T00:00:00Z"] * 20),
+        }),
+    )
+    monkeypatch.setattr(stocks_page, "build_home_watchlist", lambda _root: {
+        "rows": [
+            {"name": "삼성전자", "symbol": "005930", "held": False},
+            {"name": "미국 ETF", "symbol": "QQQ", "held": False},
+        ],
+        "held_count": 0, "watch_count": 2,
+    })
+    monkeypatch.setattr(account_page, "build_account_page_data", lambda _root: {
+        "manual_accounts": {"accounts": []},
+    })
+
+    rows = home_cards.build_watchlist(root)["rows"]
+
+    assert rows[0]["investor"] == {
+        "as_of": "2026-08-20",
+        "foreign_1d": 2_000_000_000,
+        "institution_1d": -4_000_000_000,
+        "individual_1d": 300_000_000,
+        "foreign_5d": 9_000_000_000,
+        "institution_5d": -18_000_000_000,
+        "individual_5d": 1_500_000_000,
+        "foreign_20d": 21_000_000_000,
+        "institution_20d": -42_000_000_000,
+        "individual_20d": 6_000_000_000,
+    }
+    assert "investor" not in rows[1]
+
+
 def test_account_extras_use_existing_source_and_cash_flow_fields_only() -> None:
     payload = {
         "summary": {"sources": [{

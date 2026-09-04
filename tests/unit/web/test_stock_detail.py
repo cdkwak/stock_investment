@@ -99,6 +99,22 @@ def _make_detail_project() -> Path:
         "retrieved_at": datetime(2026, 9, 2, 1, tzinfo=timezone.utc),
         "terms_ref": "docs/data/sources/TARGET_PRICE_CONSENSUS.md#yahoo-finance-us",
     }]), root / "data/normalized/research_target_price_consensus")
+
+    flow_dates = pd.date_range(end="2026-09-02", periods=25, freq="B")
+    flow_units = pd.Series(range(1, 26), dtype="int64") * 100_000_000
+    _write_parquet(
+        root,
+        "data/normalized/kr_equity_investor_flow_daily/symbol=005930/year=2026/data.parquet",
+        pd.DataFrame({
+            "date": flow_dates, "symbol": ["005930"] * 25,
+            "foreign_net": flow_units,
+            "institution_net": -(flow_units // 2),
+            "individual_net": -(flow_units * 4 // 10),
+            "other_corp_net": -(flow_units // 10),
+            "total_net": [0] * 25, "source": ["fixture"] * 25,
+            "captured_at": pd.to_datetime(["2026-09-04T00:00:00Z"] * 25),
+        }),
+    )
     return root
 
 
@@ -139,6 +155,23 @@ def test_korean_stock_detail_projects_stats_company_fundamentals_and_dividends()
     assert dividends["next_event_value"] == "2026-12-31"
     assert dividends["next_payment_label"] == "다음 기준일 (예상) 2026-12-31"
     assert payload["stats"]["dividend_yield_pct"] == dividends["dividend_yield_pct"]
+
+    flows = payload["investor_flows"]
+    assert flows["as_of"] == "2026-09-02"
+    assert len(flows["rows"]) == 10
+    assert flows["rows"][0] == {
+        "date": "2026-09-02", "foreign_net": 2_500_000_000,
+        "institution_net": -1_250_000_000, "individual_net": -1_000_000_000,
+        "other_corp_net": -250_000_000,
+    }
+    assert len(flows["cumulative"]["dates"]) == 20
+    assert flows["cumulative"]["foreign"][0] == 600_000_000
+    assert flows["cumulative"]["foreign"][-1] == 31_000_000_000
+    assert flows["summary_20d"] == {
+        "foreign": 31_000_000_000,
+        "institution": -15_500_000_000,
+        "individual": -12_400_000_000,
+    }
 
 
 def test_latest_dividend_without_payment_date_is_labeled_pending() -> None:
@@ -192,6 +225,31 @@ def test_us_etf_keeps_unavailable_sections_typed_and_reads_target_price() -> Non
     assert payload["target_price"]["analyst_count"] == 12
     assert payload["target_price"]["as_of"] == "2026-09-02"
     assert payload["target_price"]["upside_pct"] == (500 / 439 - 1) * 100
+    assert payload["investor_flows"] == {"reason": "종목별 수급은 국내 주식만 보존"}
+
+
+def test_missing_korean_symbol_flow_is_typed_unavailable() -> None:
+    root = _make_detail_project()
+
+    flows = ASGITestClient(create_app(root)).get(
+        "/api/stock-detail", params={"symbol": "000660", "market": "KOSPI"},
+    ).json()["investor_flows"]
+
+    assert flows == {"reason": "종목별 수급 데이터 미보존"}
+
+
+def test_korean_etf_flow_is_typed_unsupported() -> None:
+    root = _make_detail_project()
+    _write_parquet(
+        root, "data/normalized/kr_etf_master/data.parquet",
+        pd.DataFrame({"symbol": ["123320"], "name": ["테스트 ETF"]}),
+    )
+
+    flows = ASGITestClient(create_app(root)).get(
+        "/api/stock-detail", params={"symbol": "123320", "market": "KRX"},
+    ).json()["investor_flows"]
+
+    assert flows == {"reason": "종목별 수급은 국내 주식만 보존"}
 
 
 def test_sparkline_endpoint_returns_last_thirty_closes_in_time_order() -> None:

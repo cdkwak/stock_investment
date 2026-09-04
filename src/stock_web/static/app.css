@@ -103,10 +103,15 @@ a { color: inherit; text-decoration: none; }
 .table .th { font-size: 10px; color: var(--muted); border-bottom: 1px solid var(--line); }
 .table .r { text-align: right; }
 .table .flag { font-size: 10px; color: var(--amber); }
-.watch { grid-template-columns: minmax(0, 7fr) minmax(0, 3fr) minmax(0, 4fr) minmax(0, 3fr) minmax(0, 3fr) minmax(0, 2fr); }
+.watch { grid-template-columns: minmax(0, 7fr) minmax(0, 3fr) minmax(0, 4fr) minmax(0, 3fr) minmax(0, 3fr) minmax(0, 2fr) repeat(3, minmax(0, 3fr)); }
 .watch > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .watch-status { display: flex; align-items: center; gap: 4px; min-width: 0; font-size: 10px; }
 .held-badge { border-color: var(--ink); color: var(--ink); font-size: 9px; padding: 1px 5px; }
+.watch-investor-head { grid-column: 7 / 10; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); text-align: right; }
+.watch > .watch-investor-head { overflow: visible; }
+.watch-investor-head small { grid-column: 1 / -1; margin-bottom: 2px; white-space: nowrap; }
+.watch-investor-cell { font-size: 10.5px; }
+.watch-investor-mobile { display: none; font-size: 9px; margin-top: 2px; white-space: nowrap; }
 .flow { grid-template-columns: 3fr 3fr 3fr 3fr; }
 .bal { grid-template-columns: 3fr 4fr 2fr 2fr 2fr 3fr; align-items: center; }
 .balance-table { margin-top: 7px; }
@@ -410,6 +415,7 @@ a { color: inherit; text-decoration: none; }
   .derivatives-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 599px) {
+  .watch-investor-mobile { display: block; }
   /* narrow tiles: let the 장중 note drop under the headline instead of colliding with the change % */
   .tile .headline-value { flex-wrap: wrap; row-gap: 0; }
   .tile .headline-value small { flex-basis: 100%; }
@@ -567,6 +573,13 @@ a { color: inherit; text-decoration: none; }
 .dividend-summary b { color: var(--ink); font-size: 12px; }
 .stock-dividend-table { min-width: 540px; }
 .stock-dividend-table th:last-child, .stock-dividend-table td:last-child { text-align: right; }
+.investor-flow-summary { display: flex; align-items: baseline; flex-wrap: wrap; gap: 5px 12px; margin: 3px 0 8px; font-size: 11px; }
+.investor-flow-summary > span { flex: 1 1 auto; }
+.investor-flow-summary small { margin-left: auto; }
+.stock-investor-chart { width: 100%; height: 220px; margin-bottom: 8px; }
+.stock-investor-chart .si-line-chart { width: 100%; height: 220px; }
+.stock-investor-table { min-width: 650px; }
+.stock-investor-table th:nth-child(n+2), .stock-investor-table td:nth-child(n+2) { text-align: right; }
 .stocks-management { padding: 0; overflow: hidden; }
 .stocks-management > summary { cursor: pointer; font-size: 13px; font-weight: 600; list-style-position: inside; padding: 11px 14px; }
 .stocks-management[open] > summary { border-bottom: 1px solid var(--grid); }

@@ -13,6 +13,12 @@
   const arrow = (value) => value > 0 ? "▲" : value < 0 ? "▼" : "";
   const uid = () => window.crypto && crypto.randomUUID ? crypto.randomUUID() : `condition-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const compact = (value) => window.SIChart ? SIChart.formatCompactKorean(value) : number(value, 0);
+  const signedEok = (value, digits = 1) => {
+    if (value === null || value === undefined || !Number.isFinite(Number(value))) return "—";
+    const numeric = Number(value) / 1e8;
+    const sign = numeric > 0 ? "+" : numeric < 0 ? "−" : "";
+    return `${sign}${Math.abs(numeric).toLocaleString("ko-KR", { minimumFractionDigits: digits, maximumFractionDigits: digits })}억`;
+  };
 
   let page = { watchlists: { lists: [] }, conditions: { conditions: [] }, table: [] };
   let selectedListId = "favorites";
@@ -278,6 +284,31 @@
       <div class="data-table-wrap"><table class="data-table stock-dividend-table"><thead><tr><th>기준일</th><th>지급일</th><th>구분</th><th>주당 배당</th></tr></thead><tbody>${dividends.rows.map((row) => `<tr><td>${esc(row.dividend_record_date || "—")}</td><td>${esc(row.cash_payment_date || "—")}</td><td>${esc(row.category)}</td><td class="num">${number(row.ordinary_dividend_amount, 0)}원</td></tr>`).join("")}</tbody></table></div>`;
   }
 
+  function renderInvestorFlows(flows) {
+    const host = $("stock-investor-flows");
+    if (!flows || flows.reason) {
+      host.innerHTML = `<div class="unavailable">${esc((flows || {}).reason || "종목별 수급 데이터 미보존")}</div>`;
+      return;
+    }
+    const summary = flows.summary_20d || {};
+    host.innerHTML = `<div class="investor-flow-summary"><b>20일 누적</b><span>외국인 <strong class="num ${tone(summary.foreign)}">${signedEok(summary.foreign, 0)}</strong> · 기관 <strong class="num ${tone(summary.institution)}">${signedEok(summary.institution, 0)}</strong> · 개인 <strong class="num ${tone(summary.individual)}">${signedEok(summary.individual, 0)}</strong></span><small class="muted">기준일 ${esc(flows.as_of || "—")}</small></div>
+      <div id="stock-investor-chart" class="stock-investor-chart"></div>
+      <div class="data-table-wrap"><table class="data-table stock-investor-table"><thead><tr><th>일자</th><th>외국인</th><th>기관</th><th>개인</th><th>기타법인</th></tr></thead><tbody>${(flows.rows || []).map((row) => `<tr><td>${esc(row.date)}</td><td class="num ${tone(row.foreign_net)}">${signedEok(row.foreign_net)}</td><td class="num ${tone(row.institution_net)}">${signedEok(row.institution_net)}</td><td class="num ${tone(row.individual_net)}">${signedEok(row.individual_net)}</td><td class="num ${tone(row.other_corp_net)}">${signedEok(row.other_corp_net)}</td></tr>`).join("")}</tbody></table></div>`;
+    const cumulative = flows.cumulative || {};
+    const points = (values) => (cumulative.dates || []).map((date, index) => ({ t: date, v: values[index] }));
+    if (window.SIChart) SIChart.renderLineChart($("stock-investor-chart"), [], {
+      height: 220, ariaLabel: "20일 누적 투자자 순매수 차트", xMode: "index",
+      axisFormatter: (value) => `${(Number(value) / 1e8).toFixed(0)}억`,
+      valueFormatter: (value) => signedEok(value),
+      emptyMessage: "투자자 수급 관측이 2개 이상이면 선이 표시됩니다.",
+      series: [
+        { key: "foreign", label: "외국인", color: "#c0392b", points: points(cumulative.foreign || []) },
+        { key: "institution", label: "기관", color: "#2b62c0", points: points(cumulative.institution || []) },
+        { key: "individual", label: "개인", color: "#a8621a", points: points(cumulative.individual || []) },
+      ],
+    });
+  }
+
   function ensurePriceChart() {
     if (priceChart || !window.LightweightCharts) return;
     const host = $("stock-price-chart");
@@ -424,6 +455,7 @@
     selectedIdentity = { symbol: detail.identity.symbol, market: detail.identity.market };
     renderSidebar(); renderHeadline(detail); renderCompany(detail.company); renderTarget(detail.target_price);
     renderFundamentals(detail.fundamentals); renderDividends(detail.dividends);
+    renderInvestorFlows(detail.investor_flows);
     $("stock-chart-basis").textContent = basisLabel(detail);
   }
 

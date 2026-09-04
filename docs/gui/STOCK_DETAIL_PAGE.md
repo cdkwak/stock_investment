@@ -15,9 +15,9 @@ access in `stock_web.api.router`.
 ## API
 
 - `GET /api/stock-detail?symbol=&market=` returns `identity`, `headline`,
-  `stats`, `company`, `fundamentals`, `dividends`, `target_price`, `basis`, and
-  `conditions`. Results are cached in memory for 60 seconds per project root,
-  symbol, and market.
+  `stats`, `company`, `fundamentals`, `dividends`, `investor_flows`,
+  `target_price`, `basis`, and `conditions`. Results are cached in memory for
+  60 seconds per project root, symbol, and market.
 - `GET /api/stock-sparklines?symbols=005930,QQQ` returns at most the latest 30
   retained closes for each requested identity, oldest to newest.
 - `GET /api/stocks/search?q=` uses a process-local catalog index invalidated by
@@ -51,6 +51,14 @@ continues to load through `/api/chart` and the existing Lightweight Charts and
   newest record date has no payment date, the summary says `지급 예정` with
   the record date and `지급일 미공시`. Otherwise it shows the next quarter-end
   record date as `다음 기준일 (예상)` and does not repeat a paid quarter.
+- Korean common-stock investor flow comes only from
+  `kr_equity_investor_flow_daily`, read with Arrow `partitioning=None` so the
+  six-character symbol column remains a string. `investor_flows.rows` exposes
+  the newest 10 sessions in descending date order; `cumulative` exposes the
+  oldest-to-newest cumulative foreign, institution, and individual totals for
+  at most 20 sessions; `summary_20d` exposes the same raw-won sums. Missing
+  symbols return a typed reason. Korean and U.S. ETFs return
+  `종목별 수급은 국내 주식만 보존` and never receive an inferred flow.
 - Korean target consensus always displays: `국내 종목 컨센서스는 보관 가능한
   공개 출처가 없어 표시하지 않습니다.` U.S. target consensus uses the newest
   retained `research_target_price_consensus` vintage and otherwise says
@@ -84,4 +92,7 @@ append `· 잠정`. The scanner remains canonical-only and explicitly labels
 
 The existing 관심종목 관리, 조건 설정, and 과매도 스캐너 controls remain below
 the detail in collapsible sections with their original element IDs and API
-routes.
+routes. Immediately after 배당, 투자자 수급 shows the 20-session summary, a
+three-line cumulative chart through `SIChart.renderLineChart`, and the newest
+10 sessions for 외국인·기관·개인·기타법인. Visible amounts are signed,
+direction-coloured, and formatted to one decimal place in 억원.

@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from stock_web.api import home_data
+from stock_web.api import account_page, home_data, stocks_page
 from stock_web.api.regime import (
     build_rules,
     global_risk_temperature,
@@ -117,6 +117,40 @@ def test_home_payload_cache_is_keyed_by_root_and_lasts_sixty_seconds(
     assert calls == [root, root]
     fourth = home_data.build_home_payload(root)
     assert fourth["call"] == 2
+
+
+def test_home_watchlist_preserves_investor_flow_from_hive_directory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = new_temp_root()
+    dates = pd.date_range("2026-08-24", periods=6)
+    _write_parquet(
+        root,
+        "data/normalized/kr_equity_investor_flow_daily/symbol=005930/year=2026/data.parquet",
+        pd.DataFrame({
+            "date": dates, "symbol": ["005930"] * 6,
+            "foreign_net": [100_000_000] * 6,
+            "institution_net": [-200_000_000] * 6,
+            "individual_net": [50_000_000] * 6,
+            "other_corp_net": [50_000_000] * 6,
+            "total_net": [0] * 6, "source": ["fixture"] * 6,
+            "captured_at": pd.to_datetime(["2026-09-04T00:00:00Z"] * 6),
+        }),
+    )
+    monkeypatch.setattr(stocks_page, "build_home_watchlist", lambda _root: {
+        "rows": [{"name": "삼성전자", "symbol": "005930", "held": False}],
+        "held_count": 0, "watch_count": 1,
+    })
+    monkeypatch.setattr(account_page, "build_account_page_data", lambda _root: {
+        "manual_accounts": {"accounts": []},
+    })
+
+    investor = home_data.build_watchlist(root)["rows"][0]["investor"]
+
+    assert investor["as_of"] == "2026-08-29"
+    assert investor["foreign_1d"] == 100_000_000
+    assert investor["institution_5d"] == -1_000_000_000
+    assert investor["individual_20d"] == 300_000_000
 
 
 def test_rules_compare_only_against_user_supplied_limits(
@@ -343,6 +377,8 @@ def test_home_javascript_formatters_cover_tiny_shares_compact_krw_and_pnl_fallba
         "tiny:f.formatSharePercent(0.049),"
         "cash:f.formatSharePercent(0),"
         "krw:f.formatCompactKorean(650000),"
+        "eokUp:f.signedEok(1250000000),"
+        "eokDown:f.signedEok(-800000000),"
         "pnl:f.brokerReportedPnl({broker_reported_pnl_krw:1234},{}),"
         "week:f.aggregateCandles(["
         "{t:'2026-08-31',o:10,h:12,l:9,c:11,v:100},"
@@ -362,6 +398,8 @@ def test_home_javascript_formatters_cover_tiny_shares_compact_krw_and_pnl_fallba
     assert result["tiny"] == "<0.1%"
     assert result["cash"] == "0%"
     assert result["krw"] == "65만"
+    assert result["eokUp"] == "+12.5"
+    assert result["eokDown"] == "−8.0"
     assert result["pnl"] == 1234
     assert result["week"] == [
         {"t": "2026-09-01", "o": 10, "h": 14, "l": 9, "c": 13, "v": 300},

@@ -7,6 +7,7 @@ import re
 from typing import Mapping
 
 import pandas as pd
+import pyarrow.dataset as pads
 
 from stock_web.api import datasets as dsx
 from stock_web.api.fmt import KST
@@ -302,8 +303,58 @@ def _held_symbols(project_root: Path, account_page_payload: Mapping[str, object]
     return kr, us
 
 
+def _investor_flow_summaries(
+    project_root: Path, symbols: set[str],
+) -> dict[str, dict[str, object]]:
+    """Return raw-won 1/5/20-session net-purchase sums by Korean symbol."""
+    root = project_root / "data/normalized/kr_equity_investor_flow_daily"
+    if not symbols or not root.is_dir():
+        return {}
+    columns = ["date", "symbol", "foreign_net", "institution_net", "individual_net"]
+    try:
+        dataset = pads.dataset(root, format="parquet", partitioning=None)
+        read_columns = [*columns]
+        if "captured_at" in dataset.schema.names:
+            read_columns.append("captured_at")
+        frame = dataset.to_table(
+            columns=read_columns,
+            filter=pads.field("symbol").isin(sorted(symbols)),
+        ).to_pandas()
+    except Exception:
+        return {}
+    if frame.empty or not set(columns).issubset(frame.columns):
+        return {}
+    frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
+    for column in columns[2:]:
+        frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    frame["symbol"] = frame["symbol"].astype(str).map(_kr_symbol)
+    frame = frame.dropna(subset=["date", *columns[2:]])
+    sort_columns = ["date"]
+    if "captured_at" in frame.columns:
+        frame["captured_at"] = pd.to_datetime(frame["captured_at"], utc=True, errors="coerce")
+        sort_columns.append("captured_at")
+    summaries: dict[str, dict[str, object]] = {}
+    for symbol, rows in frame.groupby("symbol", sort=False):
+        rows = (
+            rows.sort_values(sort_columns, kind="stable")
+            .drop_duplicates("date", keep="last")
+        )
+        if rows.empty:
+            continue
+        result: dict[str, object] = {"as_of": rows["date"].iloc[-1].date().isoformat()}
+        for sessions in (1, 5, 20):
+            tail = rows.tail(sessions)
+            result.update({
+                f"foreign_{sessions}d": int(tail["foreign_net"].sum()),
+                f"institution_{sessions}d": int(tail["institution_net"].sum()),
+                f"individual_{sessions}d": int(tail["individual_net"].sum()),
+            })
+        summaries[symbol] = result
+    return summaries
+
+
 def build_watchlist(project_root: Path) -> dict[str, object]:
-    """Attach identifier-only holding flags to the existing Home watchlist rows."""
+    """Attach holding flags and retained Korean investor flow to Home rows."""
     from stock_web.api.account_page import build_account_page_data
     from stock_web.api.stocks_page import build_home_watchlist
 
@@ -314,6 +365,12 @@ def build_watchlist(project_root: Path) -> dict[str, object]:
             return {"reason": str(payload.get("reason") or "관심종목을 읽을 수 없습니다.")}
         account_payload = build_account_page_data(project_root)
         kr, us = _held_symbols(project_root, account_payload)
+        symbols = {
+            _kr_symbol(row.get("symbol")) for row in rows
+            if isinstance(row, Mapping)
+            and re.fullmatch(r"\d{6}", _kr_symbol(row.get("symbol")))
+        }
+        investor_by_symbol = _investor_flow_summaries(project_root, symbols)
         held_count = 0
         projected: list[dict[str, object]] = []
         for row in rows:
@@ -322,7 +379,11 @@ def build_watchlist(project_root: Path) -> dict[str, object]:
             symbol = str(row.get("symbol") or "").strip().upper()
             held = _kr_symbol(symbol) in kr if len(symbol) == 6 and symbol[0:1].isdigit() else symbol in us
             held_count += int(held)
-            projected.append({**row, "held": held, "weight_pct": None})
+            projected_row = {**row, "held": held, "weight_pct": None}
+            investor = investor_by_symbol.get(_kr_symbol(symbol))
+            if investor is not None:
+                projected_row["investor"] = investor
+            projected.append(projected_row)
         return {
             **payload,
             "rows": projected,
