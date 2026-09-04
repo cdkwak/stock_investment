@@ -92,6 +92,8 @@ def test_dashboard_static_polish_contracts_are_present() -> None:
     root = Path(__file__).parents[3] / "src/stock_web"
     app_js = (root / "static/app.js").read_text(encoding="utf-8")
     account_js = (root / "static/account.js").read_text(encoding="utf-8")
+    account_css = (root / "static/account.css").read_text(encoding="utf-8")
+    account_html = (root / "templates/account.html").read_text(encoding="utf-8")
     css = (root / "static/app.css").read_text(encoding="utf-8")
 
     assert "window.SIChart = { renderLineChart }" in app_js
@@ -99,6 +101,14 @@ def test_dashboard_static_polish_contracts_are_present() -> None:
     assert "LightweightCharts.createChart" in app_js
     assert "LightweightCharts" not in account_js
     assert "return_pct_modified_dietz" in account_js
+    assert "visibleHoldingRows" in account_js
+    assert "renderAllocation" in account_js
+    assert 'postJson("/api/manual/dividends"' in account_js
+    assert 'id="net-worth-overlay"' in account_html
+    assert 'id="allocation-tabs"' in account_html
+    assert 'id="dividend-chart"' in account_html
+    assert ".account-main-grid" in account_css
+    assert ".allocation-card { order: 2; }" in account_css
     assert "tile-sub-note" in app_js
     assert "summary-separator" in app_js
     assert "regime-title-line" in app_js

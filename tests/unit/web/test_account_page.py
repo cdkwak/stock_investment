@@ -250,6 +250,18 @@ def test_account_totals_use_local_prices_fx_and_exclude_unpriced_holdings() -> N
     assert payload["total_asset_history"]
     assert next(row for row in payload["rows"] if row["name"] == "Toss")["as_of_label"] == "09-02 07:00"
     assert payload["manual_accounts"]["unpriced_count"] == 1
+    assert payload["holdings"]["rows"] == sorted(
+        payload["holdings"]["rows"],
+        key=lambda row: (
+            row["weight_pct"] is None,
+            -(row["weight_pct"] or 0),
+            row["id"],
+        ),
+    )
+    safe = next(row for row in payload["holdings"]["rows"] if row["symbol"] == "SAFE")
+    assert safe["weight_pct"] == pytest.approx(8_000 / 59_700 * 100)
+    assert payload["net_worth"]["timeline"][-1]["v"] == payload["summary"]["net_worth_krw"]
+    assert payload["net_worth"]["timeline"][-1]["label"] == "현재(계산값)"
     unpriced = next(
         position
         for account in payload["manual_accounts"]["accounts"]
@@ -361,23 +373,31 @@ def test_account_posts_are_loopback_only_and_pages_and_get_apis_render() -> None
     assert client.get("/account").status_code == 200
     account_page_html = client.get("/account").text
     assert "투자 자산" in account_page_html
+    assert "이번 달 진짜 손익" in account_page_html
+    assert "자산 변동 추이" in account_page_html
+    assert "보유현황" in account_page_html
+    assert "비중" in account_page_html
+    assert "배당" in account_page_html
     assert "입출금 기록" in account_page_html
     assert "lightweight-charts" not in account_page_html
     assert '/static/app.js' in account_page_html
     assert '/static/account.css' in account_page_html
     assert "계좌 관측 또는 환율이 3거래일 넘게 오래된 날" in account_page_html
-    assert 'class="account-wide-grid"' in account_page_html
-    assert 'class="return-metrics dense"' in account_page_html
+    assert 'class="account-main-grid"' in account_page_html
+    assert 'id="net-worth-overlay"' in account_page_html
+    assert 'id="holding-account-filter"' in account_page_html
+    assert 'id="allocation-donut"' in account_page_html
+    assert 'id="dividend-dialog"' in account_page_html
     assert 'id="account-toast"' in account_page_html
     assert 'role="status"' in account_page_html
-    for status_id in ("manual-status", "net-worth-status", "cash-flow-status", "journal-status"):
+    for status_id in ("manual-status", "net-worth-status", "cash-flow-status", "journal-status", "dividend-status"):
         assert f'id="{status_id}"' in account_page_html
     assert 'class="card account-input-panel"' in account_page_html
     assert "최근 저장 시도" in account_page_html
-    assert account_page_html.index("진짜 투자 수익") < account_page_html.index("계좌별")
-    assert account_page_html.index("계좌별") < account_page_html.index("순자산 타임라인")
-    assert account_page_html.index("최근 자산·부채 구성") < account_page_html.index("입력 (수동 계좌")
-    assert account_page_html.index("입력 (수동 계좌") < account_page_html.index("최근 저장 시도")
+    assert account_page_html.index("자산 변동 추이") < account_page_html.index("진짜 투자 수익")
+    assert account_page_html.index("진짜 투자 수익") < account_page_html.index("보유현황")
+    assert account_page_html.index("보유현황") < account_page_html.index("배당")
+    assert account_page_html.index("배당") < account_page_html.index("최근 저장 시도")
     app_css = client.get("/static/app.css").text
     assert ".page {" in app_css
     assert "max-width: 1760px" in app_css
@@ -389,6 +409,9 @@ def test_account_posts_are_loopback_only_and_pages_and_get_apis_render() -> None
     assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in account_css
     assert "white-space: nowrap" in account_css
     assert ".source-mobile-meta" in account_css
+    assert "grid-template-columns: repeat(12, minmax(0, 1fr))" in account_css
+    assert "@media (max-width: 768px)" in account_css
+    assert ".allocation-card { order: 2; }" in account_css
     assert "manual-name-search" in account_javascript
     assert "manualSearchSequence" in account_javascript
     assert "/api/stocks/resolve?code=" in account_javascript
@@ -692,7 +715,8 @@ def test_account_payload_selects_all_for_short_history_and_labels_chart(
         "default_window": "ALL", "all_label": "전체 (08-26~)",
     }
     assert payload["chart_labels"] == {
-        "primary": "총자산", "benchmark": "KOSPI (시작값 맞춤)",
+        "primary": "총 투자자산", "benchmark": "KOSPI (시작값 맞춤)",
+        "net_worth": "순자산 스냅샷",
     }
 
 
@@ -800,3 +824,103 @@ def test_trade_journal_name_search_and_side_specific_price_labels_are_rendered()
     assert "sequence !== journalSearchSequence" in script
     assert "}, 350);" in script
     assert "/api/stocks/search?q=" in script
+
+
+def test_account_asset_classification_uses_identity_and_leverage_metadata() -> None:
+    root = new_temp_root()
+    catalog = {
+        "SOXL": {"market": "US ETF", "security_type": "ETF", "leverage_multiple": 3},
+        "SPY": {"market": "US ETF", "security_type": "ETF", "leverage_multiple": 1},
+        "TLT": {"market": "US ETF", "security_type": "ETF", "leverage_multiple": 1},
+        "SGOV": {"market": "US ETF", "security_type": "ETF", "leverage_multiple": 1},
+        "VNQ": {"market": "US ETF", "security_type": "ETF", "leverage_multiple": 1},
+        "GLD": {"market": "US ETF", "security_type": "ETF", "leverage_multiple": 1},
+        "HOUSE": {"market": "LOCAL", "security_type": "ASSET", "leverage_multiple": 1},
+        "123456": {"market": "KRX", "security_type": "ETF", "leverage_multiple": 2},
+        "0015B0": {"market": "KRX", "security_type": "ETF", "leverage_multiple": 1},
+        "005930": {"market": "KOSPI", "security_type": "보통주", "leverage_multiple": 1},
+        "SKHY": {"market": "US 주식", "security_type": "ADR", "leverage_multiple": 1},
+    }
+
+    def classified(symbol: str, name: str, currency: str) -> tuple[str, int]:
+        return account_page.classify_asset(
+            root, symbol=symbol, name=name, currency=currency, catalog=catalog,
+        )
+
+    assert classified("SOXL", "Semiconductor Bull 3X", "USD") == ("미국 레버리지 ETF", 3)
+    assert classified("123456", "TIGER 레버리지", "KRW") == ("국내 레버리지 ETF", 2)
+    assert classified("0015B0", "KoAct 미국나스닥성장기업액티브", "KRW") == ("국내 상장 해외 ETF", 1)
+    assert classified("SPY", "SPDR S&P 500 ETF", "USD") == ("미국 ETF", 1)
+    assert classified("TLT", "iShares 20+ Year Treasury Bond ETF", "USD") == ("채권", 1)
+    assert classified("SGOV", "0-3 Month Treasury Bond ETF", "USD") == ("현금·단기국채", 1)
+    assert classified("VNQ", "Vanguard Real Estate REIT ETF", "USD") == ("리츠", 1)
+    assert classified("GLD", "SPDR Gold Shares", "USD") == ("금", 1)
+    assert classified("HOUSE", "거주 부동산", "KRW") == ("부동산", 1)
+    assert classified("SKHY", "SK hynix ADR", "USD") == ("미국 주식", 1)
+    assert classified("005930", "삼성전자", "KRW") == ("국내 주식", 1)
+    assert classified("UNKNOWN", "분류 없는 자산", "KRW") == ("기타", 1)
+
+
+def test_holding_filters_and_sort_keep_unvalued_rows_last() -> None:
+    rows = [
+        {"id": "a", "name": "A", "account": "Toss", "account_group": "Toss", "currency": "USD", "weight_pct": 20.0},
+        {"id": "b", "name": "B", "account": "퇴직연금", "account_group": "연금", "currency": "KRW", "weight_pct": 30.0},
+        {"id": "c", "name": "C", "account": "KB", "account_group": "KB", "currency": "KRW", "weight_pct": None},
+    ]
+
+    assert [row["id"] for row in account_page.filter_and_sort_holdings(rows)] == ["b", "a", "c"]
+    assert [row["id"] for row in account_page.filter_and_sort_holdings(rows, account_filter="연금")] == ["b"]
+    assert [row["id"] for row in account_page.filter_and_sort_holdings(rows, currency_filter="USD")] == ["a"]
+
+
+def test_holding_catalog_reads_kr_etf_master_leverage_multiple() -> None:
+    root = new_temp_root()
+    _write_parquet(
+        root,
+        "data/normalized/kr_etf_master/market=KRX/data.parquet",
+        pd.DataFrame({
+            "symbol": ["123456"], "name": ["합성 레버리지"],
+            "market": ["KRX"], "security_type": ["ETF"],
+            "listing_status": ["LISTED_AT_SOURCE_DATE"],
+            "leverage_multiple": [2],
+        }),
+    )
+
+    catalog = account_page._asset_identity_catalog(root)
+
+    assert catalog["123456"]["leverage_multiple"] == 2
+    assert account_page.classify_asset(
+        root, symbol="123456", name="합성 레버리지", currency="KRW",
+        catalog=catalog,
+    ) == ("국내 레버리지 ETF", 2)
+
+
+def test_dividend_endpoint_is_loopback_only_validated_atomic_and_amount_free_in_audit() -> None:
+    root = new_temp_root()
+    client = ASGITestClient(create_app(root))
+    payload = {
+        "date": "2026-09-05", "symbol": "SYNTH", "amount_krw": 314_159,
+        "account": "테스트 연금",
+    }
+
+    assert client.post("/api/manual/dividends", json=payload).status_code == 403
+    assert client.post(
+        "/api/manual/dividends", json={**payload, "amount_krw": 0},
+        client_host="127.0.0.1",
+    ).status_code == 400
+    saved = client.post(
+        "/api/manual/dividends", json=payload, client_host="::1",
+    )
+
+    assert saved.status_code == 200
+    assert saved.json()["entries"][0]["symbol"] == "SYNTH"
+    assert saved.json()["year_total_krw"] == 314_159
+    stored = json.loads(
+        (root / "artifacts/local_user/dividends.json").read_text(encoding="utf-8")
+    )
+    assert stored["schema_version"] == 1
+    assert stored["entries"][0]["amount_krw"] == 314_159
+    audit = (root / "artifacts/local_user/web_write_audit.jsonl").read_text(encoding="utf-8")
+    assert "314159" not in audit
+    assert "SYNTH" not in audit
+    assert [json.loads(line)["status"] for line in audit.splitlines()] == [403, 400, 200]

@@ -53,6 +53,7 @@ MANUAL_WEB_PATH = Path("artifacts/local_user/manual_accounts_web.json")
 NET_WORTH_ROOT = Path("data/local/net_worth_history")
 NET_WORTH_LABELS_PATH = Path("artifacts/local_user/net_worth_labels.json")
 CASH_FLOWS_PATH = Path("artifacts/local_user/cash_flows.json")
+DIVIDENDS_PATH = Path("artifacts/local_user/dividends.json")
 WEB_WRITE_AUDIT_PATH = Path("artifacts/local_user/web_write_audit.jsonl")
 
 _MANUAL_SCHEMA_VERSION = 1
@@ -61,6 +62,7 @@ _SOURCE_ID = re.compile(r"manual:[a-z0-9][a-z0-9_-]{0,47}\Z")
 _TICKER = re.compile(r"[A-Za-z0-9.^_-]{1,20}\Z")
 _ACCOUNT_NUMBER = re.compile(r"(?<!\d)(?:\d[ -]?){9,13}\d(?!\d)")
 _CASH_FLOW_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
+_DIVIDEND_SYMBOL = re.compile(r"[^\x00-\x1f\x7f]{1,80}\Z")
 _AUDIT_COUNT_KEYS = frozenset({
     "accounts", "assets", "conditions", "entries", "items", "liabilities",
     "lists", "notes", "positions",
@@ -356,6 +358,125 @@ def delete_cash_flow(project_root: Path, payload: object) -> dict[str, object]:
         {"schema_version": 1, "entries": entries},
     )
     return build_cash_flow_data(project_root)
+
+
+def _normalize_dividend_entry(
+    payload: object, *, allow_missing_id: bool,
+) -> dict[str, object]:
+    if not isinstance(payload, dict):
+        raise AccountInputError("배당 기록은 JSON 객체여야 합니다.")
+    required = {"date", "symbol", "amount_krw", "account"}
+    if not required.issubset(payload) or not set(payload).issubset(required | {"id"}):
+        raise AccountInputError("배당 기록 형식이 올바르지 않습니다.")
+    raw_id = payload.get("id")
+    if (raw_id is None or raw_id == "") and allow_missing_id:
+        entry_id = f"dividend_{uuid4().hex}"
+    elif isinstance(raw_id, str) and _CASH_FLOW_ID.fullmatch(raw_id):
+        entry_id = raw_id
+    else:
+        raise AccountInputError("배당 기록 ID가 올바르지 않습니다.")
+    symbol = str(payload["symbol"]).strip() if isinstance(payload["symbol"], str) else ""
+    if not symbol or _DIVIDEND_SYMBOL.fullmatch(symbol) is None or _ACCOUNT_NUMBER.search(symbol):
+        raise AccountInputError("배당 종목 값이 올바르지 않습니다.")
+    amount = _cash_flow_amount(payload["amount_krw"])
+    if amount <= 0:
+        raise AccountInputError("세후 입금액은 0보다 큰 원 단위 정수여야 합니다.")
+    return {
+        "id": entry_id,
+        "date": _canonical_date(payload["date"], "배당"),
+        "symbol": symbol,
+        "amount_krw": amount,
+        "account": _cash_flow_text(
+            payload["account"], "계좌", maximum=60, required=True,
+        ),
+    }
+
+
+def _normalize_dividend_ledger(payload: object) -> dict[str, object]:
+    if not isinstance(payload, dict) or set(payload) != {"schema_version", "entries"}:
+        raise AccountInputError("배당 원장 형식이 올바르지 않습니다.")
+    if payload["schema_version"] != 1 or not isinstance(payload["entries"], list):
+        raise AccountInputError("지원하지 않는 배당 원장 형식입니다.")
+    entries = [
+        _normalize_dividend_entry(entry, allow_missing_id=False)
+        for entry in payload["entries"]
+    ]
+    ids = [str(entry["id"]) for entry in entries]
+    if len(ids) != len(set(ids)):
+        raise AccountInputError("배당 기록 ID가 중복되었습니다.")
+    entries.sort(key=lambda entry: (str(entry["date"]), str(entry["id"])))
+    return {"schema_version": 1, "entries": entries}
+
+
+def load_dividends(project_root: Path) -> dict[str, object]:
+    path = Path(project_root) / DIVIDENDS_PATH
+    if not path.is_file():
+        return {"schema_version": 1, "entries": []}
+    try:
+        return _normalize_dividend_ledger(json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, UnicodeError, json.JSONDecodeError, AccountInputError) as error:
+        raise AccountInputError("배당 원장을 읽을 수 없습니다.") from error
+
+
+def _recent_months(reference: date) -> list[str]:
+    year, month = reference.year, reference.month
+    result: list[str] = []
+    for offset in range(11, -1, -1):
+        absolute = year * 12 + month - 1 - offset
+        result.append(f"{absolute // 12:04d}-{absolute % 12 + 1:02d}")
+    return result
+
+
+def build_dividend_data(
+    project_root: Path, *, invest_total_krw: float | None = None,
+) -> dict[str, object]:
+    ledger = load_dividends(project_root)
+    entries = list(reversed(ledger["entries"]))
+    today_value = date.today()
+    months = _recent_months(today_value)
+    monthly_totals = {month: 0 for month in months}
+    current_year = str(today_value.year)
+    year_total = 0
+    by_symbol: dict[str, int] = defaultdict(int)
+    for entry in entries:
+        entry_date = str(entry["date"])
+        month = entry_date[:7]
+        if month in monthly_totals:
+            monthly_totals[month] += int(entry["amount_krw"])
+        if entry_date.startswith(current_year + "-"):
+            year_total += int(entry["amount_krw"])
+            by_symbol[str(entry["symbol"])] += int(entry["amount_krw"])
+    total = float(invest_total_krw or 0.0)
+    return {
+        "schema_version": 1,
+        "entries": entries,
+        "monthly": [
+            {"month": month, "amount_krw": monthly_totals[month]}
+            for month in months
+        ],
+        "year_total_krw": year_total,
+        "monthly_average_krw": year_total / today_value.month,
+        "symbol_count": len(by_symbol),
+        "yield_pct": year_total / total * 100.0 if total > 0 else None,
+        "by_symbol": [
+            {"symbol": symbol, "amount_krw": amount}
+            for symbol, amount in sorted(
+                by_symbol.items(), key=lambda item: (-item[1], item[0]),
+            )
+        ],
+        "empty_note": "기록 없음 · KB 배당은 자동 수집 예정 · 토스·연금은 캡처로 입력",
+    }
+
+
+def save_dividend(project_root: Path, payload: object) -> dict[str, object]:
+    entry = _normalize_dividend_entry(payload, allow_missing_id=True)
+    ledger = load_dividends(project_root)
+    normalized = _normalize_dividend_ledger({
+        "schema_version": 1,
+        "entries": [*ledger["entries"], entry],
+    })
+    _atomic_json_replace(Path(project_root) / DIVIDENDS_PATH, normalized)
+    return build_dividend_data(project_root)
 
 
 def _generated_source_id(label: str, index: int) -> str:
@@ -903,6 +1024,329 @@ def build_api_account_data(project_root: Path) -> dict[str, object]:
         "broker_reported_pnl_krw": (
             broker_reported_pnl_krw if broker_reported_seen else None
         ),
+    }
+
+
+_BOND_SYMBOLS = frozenset({"TLT", "IEF", "SHY", "VGLT"})
+_SHORT_TREASURY_SYMBOLS = frozenset({"SGOV"})
+_OVERSEAS_ETF_TOKENS = (
+    "미국", "글로벌", "나스닥", "S&P", "NASDAQ", "CHINA", "차이나",
+    "일본", "인도", "유럽", "EURO", "WORLD", "MSCI", "해외",
+)
+
+
+def _asset_identity_catalog(project_root: Path) -> dict[str, dict[str, object]]:
+    """Return provider-free security identities needed by the account view."""
+    from stock_data.contracts.global_etf import GLOBAL_ETF_REGISTRY
+    from stock_web.api.symbol_resolver import global_equity_identities
+
+    catalog: dict[str, dict[str, object]] = {}
+    for symbol, spec in GLOBAL_ETF_REGISTRY.items():
+        catalog[str(symbol).upper()] = {
+            "market": "US ETF", "security_type": "ETF",
+            "leverage_multiple": int(spec["leverage_multiple"]),
+        }
+    for identity in global_equity_identities():
+        catalog.setdefault(str(identity["symbol"]).upper(), {
+            "market": "US 주식", "security_type": identity["security_type"],
+            "leverage_multiple": 1,
+        })
+
+    dataset_specs = (
+        (
+            "data/normalized/kr_etf_master",
+            ["symbol", "name", "market", "security_type", "listing_status", "leverage_multiple"],
+            "ETF",
+        ),
+        (
+            "data/normalized/kr_equity_master",
+            ["symbol", "name", "market", "security_type_name", "delisting_date"],
+            "EQUITY",
+        ),
+    )
+    for relative, columns, kind in dataset_specs:
+        try:
+            frame = datasets.load(project_root, relative, columns=columns)
+        except (OSError, PermissionError, TypeError, ValueError, KeyError):
+            continue
+        if frame is None or frame.empty:
+            continue
+        for row in frame.to_dict("records"):
+            symbol = str(row.get("symbol") or "").strip().upper()
+            if not symbol:
+                continue
+            if kind == "ETF":
+                if (
+                    str(row.get("security_type")) != "ETF"
+                    or str(row.get("listing_status")) != "LISTED_AT_SOURCE_DATE"
+                ):
+                    continue
+                try:
+                    multiple = int(row.get("leverage_multiple"))
+                except (TypeError, ValueError):
+                    continue
+                catalog[symbol] = {
+                    "market": "KRX", "security_type": "ETF",
+                    "name": str(row.get("name") or ""),
+                    "leverage_multiple": abs(multiple),
+                }
+            elif row.get("delisting_date") is None or pd.isna(row.get("delisting_date")):
+                catalog.setdefault(symbol, {
+                    "market": str(row.get("market") or "KRX"),
+                    "security_type": str(row.get("security_type_name") or "주식"),
+                    "leverage_multiple": 1,
+                })
+    return catalog
+
+
+def classify_asset(
+    project_root: Path, *, symbol: object, name: object, currency: object,
+    catalog: Mapping[str, Mapping[str, object]] | None = None,
+) -> tuple[str, int]:
+    """Classify one holding only from retained identities and explicit names."""
+    clean_symbol = str(symbol or "").strip().upper()
+    clean_name = str(name or "").strip()
+    upper_name = clean_name.upper()
+    identity = (catalog or _asset_identity_catalog(project_root)).get(clean_symbol, {})
+    multiple = int(identity.get("leverage_multiple") or 1)
+    market = str(identity.get("market") or "")
+    security_type = str(identity.get("security_type") or "").upper()
+    identity_name = str(identity.get("name") or "")
+    classification_name = f"{identity_name} {upper_name}".upper()
+
+    if clean_symbol == "CASH":
+        return "현금·단기국채", 1
+    if not identity:
+        return "기타", 1
+    if clean_symbol in _SHORT_TREASURY_SYMBOLS or any(
+        token in classification_name for token in ("현금", "CASH", "단기국채", "MONEY MARKET")
+    ):
+        return "현금·단기국채", 1
+    if clean_symbol in _BOND_SYMBOLS:
+        return "채권", 1
+    if any(token in classification_name for token in ("REIT", "리츠")):
+        return "리츠", multiple
+    if any(token in classification_name for token in ("GOLD", "금현물", "골드")):
+        return "금", multiple
+    if any(token in classification_name for token in ("부동산", "REAL ESTATE")):
+        return "부동산", multiple
+    if "ETF" in security_type:
+        if multiple > 1:
+            return ("미국 레버리지 ETF" if market == "US ETF" else "국내 레버리지 ETF"), multiple
+        if market == "US ETF" or str(currency or "").upper() == "USD":
+            return "미국 ETF", multiple
+        if market == "KRX" and any(token in classification_name for token in _OVERSEAS_ETF_TOKENS):
+            return "국내 상장 해외 ETF", multiple
+        return "기타", multiple
+    if market == "US 주식":
+        return "미국 주식", 1
+    if market in {"KOSPI", "KOSDAQ", "KRX"}:
+        return "국내 주식", 1
+    return "기타", 1
+
+
+def filter_and_sort_holdings(
+    rows: list[dict[str, object]], *, account_filter: str = "ALL",
+    currency_filter: str = "ALL", sort_by: str = "weight_pct",
+    descending: bool = True,
+) -> list[dict[str, object]]:
+    allowed_accounts = {"ALL", "Toss", "KB", "연금"}
+    if account_filter not in allowed_accounts or currency_filter not in {"ALL", "USD"}:
+        raise ValueError("invalid holding filter")
+    allowed_sort = {"name", "account", "asset_class", "quantity", "market_value_krw", "weight_pct", "return_pct"}
+    if sort_by not in allowed_sort:
+        raise ValueError("invalid holding sort")
+    filtered = [
+        row for row in rows
+        if (account_filter == "ALL" or row.get("account_group") == account_filter)
+        and (currency_filter == "ALL" or row.get("currency") == "USD")
+    ]
+
+    def key(row: Mapping[str, object]) -> tuple[bool, object, str]:
+        value = row.get(sort_by)
+        missing = value is None
+        normalized: object = str(value or "").casefold() if sort_by in {"name", "account", "asset_class"} else float(value or 0.0)
+        if descending and isinstance(normalized, float):
+            normalized = -normalized
+        return missing, normalized, str(row.get("id") or "")
+
+    return sorted(filtered, key=key, reverse=descending and sort_by in {"name", "account", "asset_class"})
+
+
+def build_holdings_data(
+    project_root: Path, api: Mapping[str, object], manual: Mapping[str, object],
+    *, invest_total_krw: float,
+) -> dict[str, object]:
+    from stock_data.gui.account_snapshot_service import LocalAccountSnapshotService
+    from stock_web.api.regime import build_rules
+
+    catalog = _asset_identity_catalog(project_root)
+    fx = api.get("fx_krw_per_usd") or manual.get("fx_krw_per_usd")
+    rows: list[dict[str, object]] = []
+
+    def append_row(
+        *, row_id: str, symbol: str, name: str, account: str,
+        account_group: str, currency: str, quantity: float | None,
+        market_value_native: float | None, market_value_krw: float | None,
+        return_pct: float | None, reason: str | None, force_class: str | None = None,
+    ) -> None:
+        asset_class, multiple = (
+            (force_class, 1) if force_class else classify_asset(
+                project_root, symbol=symbol, name=name, currency=currency, catalog=catalog,
+            )
+        )
+        rows.append({
+            "id": row_id, "symbol": symbol, "name": name,
+            "account": account, "account_group": account_group,
+            "currency": currency, "asset_class": asset_class,
+            "quantity": quantity, "market_value_native": market_value_native,
+            "market_value_krw": market_value_krw,
+            "weight_pct": (
+                market_value_krw / invest_total_krw * 100.0
+                if market_value_krw is not None and invest_total_krw > 0 else None
+            ),
+            "return_pct": return_pct, "leverage_multiple": multiple,
+            "valued": market_value_krw is not None, "reason": reason,
+        })
+
+    candidates = (
+        ("toss_self", "Toss", Path(project_root) / "data/normalized/toss_account_snapshot/latest.json"),
+        ("kb_self", "KB", Path(project_root) / "data/local/account_snapshots/kb_self.json"),
+    )
+    usd_assets_usd = 0.0
+    for source_id, account_name, path in candidates:
+        snapshot = LocalAccountSnapshotService(path).load()
+        if not snapshot.displays_values:
+            continue
+        if snapshot.currency == "USD":
+            component_cash = (
+                snapshot.available_cash if source_id == "toss_self"
+                else snapshot.cash_balance if snapshot.cash_balance is not None
+                else snapshot.available_cash
+            )
+            native_total = snapshot.total_assets
+            if native_total is None and snapshot.securities_value is not None:
+                native_total = float(snapshot.securities_value) + float(component_cash or 0.0)
+            usd_assets_usd += float(native_total or 0.0)
+        elif snapshot.currency is None:
+            usd_assets_usd += sum(
+                float(summary.securities_value or 0.0) + float(summary.cash_buying_power or 0.0)
+                for summary in snapshot.currency_summaries if summary.currency == "USD"
+            )
+        for index, position in enumerate(snapshot.positions):
+            currency = str(position.currency or snapshot.currency or "").upper()
+            native = position.market_value
+            converted = _convert(native, currency, float(fx) if fx is not None else None)
+            reason = None
+            if native is None:
+                reason = "평가금액 없음"
+            elif converted is None:
+                reason = "USD 환율 없음으로 평가 불가"
+            return_pct = position.return_pct
+            if return_pct is None and position.purchase_amount not in {None, 0} and position.unrealized_pnl is not None:
+                return_pct = float(position.unrealized_pnl) / float(position.purchase_amount) * 100.0
+            append_row(
+                row_id=f"{source_id}:{position.symbol}:{index}",
+                symbol=position.symbol, name=position.name, account=account_name,
+                account_group=account_name, currency=currency,
+                quantity=float(position.quantity), market_value_native=native,
+                market_value_krw=converted, return_pct=return_pct, reason=reason,
+            )
+        if source_id != "toss_self" and snapshot.cash_balance is not None and snapshot.currency:
+            currency = str(snapshot.currency).upper()
+            native_cash = float(snapshot.cash_balance)
+            converted_cash = _convert(native_cash, currency, float(fx) if fx is not None else None)
+            append_row(
+                row_id=f"{source_id}:cash", symbol="CASH", name="현금",
+                account=account_name, account_group=account_name, currency=currency,
+                quantity=None, market_value_native=native_cash,
+                market_value_krw=converted_cash, return_pct=None,
+                reason=None if converted_cash is not None else "USD 환율 없음으로 평가 불가",
+                force_class="현금·단기국채",
+            )
+
+    for account_index, account in enumerate(manual.get("accounts", [])):
+        account_name = str(account.get("label") or "수동 계좌")
+        group = "연금" if account.get("account_kind") == "PENSION" or "연금" in account_name else account_name
+        currency = str(account.get("currency") or "").upper()
+        if currency == "USD":
+            if fx:
+                usd_assets_usd += float(account.get("value_krw") or 0.0) / float(fx)
+            else:
+                usd_assets_usd += float(account.get("cash") or 0.0)
+        for position_index, position in enumerate(account.get("valued_positions", [])):
+            native = (
+                float(position["price"]) * float(position["quantity"])
+                if position.get("price") is not None else None
+            )
+            return_pct = None
+            if position.get("price") is not None and position.get("average_cost") not in {None, 0}:
+                return_pct = (
+                    float(position["price"]) / float(position["average_cost"]) - 1.0
+                ) * 100.0
+            append_row(
+                row_id=f"manual:{account_index}:{position_index}",
+                symbol=str(position.get("ticker") or ""),
+                name=str(position.get("name") or position.get("ticker") or ""),
+                account=account_name, account_group=group, currency=currency,
+                quantity=float(position.get("quantity") or 0.0),
+                market_value_native=native,
+                market_value_krw=position.get("market_value_krw"),
+                return_pct=return_pct, reason=position.get("note"),
+            )
+            if currency == "USD" and not fx and native is not None:
+                usd_assets_usd += native
+        cash_native = float(account.get("cash") or 0.0)
+        if cash_native:
+            cash_krw = account.get("cash_krw")
+            append_row(
+                row_id=f"manual:{account_index}:cash", symbol="CASH", name="현금",
+                account=account_name, account_group=group, currency=currency,
+                quantity=None, market_value_native=cash_native,
+                market_value_krw=cash_krw, return_pct=None,
+                reason=None if cash_krw is not None else "USD 환율 없음으로 평가 불가",
+                force_class="현금·단기국채",
+            )
+
+    sorted_rows = filter_and_sort_holdings(rows)
+    valued = [row for row in rows if row["market_value_krw"] is not None]
+    leveraged_value = sum(
+        float(row["market_value_krw"]) for row in valued
+        if int(row["leverage_multiple"]) > 1
+    )
+    effective_value = sum(
+        float(row["market_value_krw"]) * (
+            0 if row["asset_class"] == "현금·단기국채" else int(row["leverage_multiple"])
+        )
+        for row in valued
+    )
+    cash_value = sum(
+        float(row["market_value_krw"]) for row in valued
+        if row["asset_class"] == "현금·단기국채"
+    )
+    nominal_pct = leveraged_value / invest_total_krw * 100.0 if invest_total_krw else None
+    effective_pct = effective_value / invest_total_krw * 100.0 if invest_total_krw else None
+    cash_pct = cash_value / invest_total_krw * 100.0 if invest_total_krw else None
+    rule_projection = build_rules({
+        "leveraged_weight_pct": nominal_pct,
+        "effective_exposure_pct": effective_pct,
+        "cash_pct": cash_pct,
+        "short_treasury_pct": 0.0,
+    }, [], project_root)
+    limit_pct = None
+    for rule_row in (rule_projection or {}).get("rows", []):
+        if rule_row and str(rule_row[0]).startswith("레버리지 ETF 비중"):
+            match = re.search(r"한도\s*([0-9]+(?:\.[0-9]+)?)%", str(rule_row[2]))
+            limit_pct = float(match.group(1)) if match else None
+            break
+    return {
+        "rows": sorted_rows,
+        "leveraged_weight_pct": nominal_pct,
+        "effective_exposure_pct": effective_pct,
+        "leverage_limit_pct": limit_pct,
+        "rules": rule_projection,
+        "usd_assets_usd": usd_assets_usd if usd_assets_usd else None,
+        "fx_effect_pct": None,
     }
 
 
@@ -1679,6 +2123,21 @@ def build_account_page_data(project_root: Path) -> dict[str, object]:
         invest_total + float(other_net)
         if other_net is not None and net_worth.get("complete") else None
     )
+    holdings = build_holdings_data(
+        project_root, api, manual, invest_total_krw=invest_total,
+    )
+    try:
+        dividends = build_dividend_data(
+            project_root, invest_total_krw=invest_total,
+        )
+    except AccountInputError as error:
+        dividends = {
+            "schema_version": 1, "entries": [], "monthly": [],
+            "year_total_krw": 0, "monthly_average_krw": 0,
+            "symbol_count": 0, "yield_pct": None, "by_symbol": [],
+            "reason": str(error),
+            "empty_note": "기록 없음 · KB 배당은 자동 수집 예정 · 토스·연금은 캡처로 입력",
+        }
     rows = [
         {**row, "as_of_label": format_kst(row.get("as_of"))}
         for row in [*api["rows"], *manual["rows"], *net_worth["rows"]]
@@ -1688,10 +2147,28 @@ def build_account_page_data(project_root: Path) -> dict[str, object]:
         "as_of_label": row["as_of_label"],
         "included": bool(row["included"]), "note": row["note"],
     } for row in rows]
+    snapshot_timeline = [
+        {**point, "label": str(point.get("t") or "")}
+        for point in net_worth.get("timeline", [])
+    ]
+    snapshot_count = len(snapshot_timeline)
+    if combined_net_worth is not None:
+        snapshot_timeline.append({
+            "t": date.today().isoformat(),
+            "v": combined_net_worth,
+            "state": "CURRENT_COMPUTED",
+            "reason": None,
+            "delta_krw": None,
+            "label": "현재(계산값)",
+            "current_computed": True,
+        })
     net_worth = {
         **net_worth,
+        "timeline": snapshot_timeline,
+        "snapshot_count": snapshot_count,
         "as_of_label": format_kst(net_worth.get("as_of")),
-        "benchmark": _kospi_benchmark(project_root, net_worth.get("timeline", [])),
+        "benchmark": _kospi_benchmark(project_root, snapshot_timeline),
+        "timeline_note": "날짜 점은 저장 스냅샷 · 마지막 점은 카드와 같은 현재 계산값입니다.",
     }
     all_start = str(history[0]["t"])[5:] if history else None
     default_return_window = "3M"
@@ -1714,6 +2191,7 @@ def build_account_page_data(project_root: Path) -> dict[str, object]:
             "fx_as_of_label": format_kst(api.get("fx_as_of") or manual.get("fx_as_of")),
             "fx_source": api.get("fx_source") or manual.get("fx_source"),
             "broker_reported_pnl_krw": api.get("broker_reported_pnl_krw"),
+            "month_true_pnl_krw": month_true_pnl,
             "cash_krw": (
                 float(api["cash_krw"]) + float(manual["cash_krw"])
                 if cash_complete and api.get("cash_krw") is not None else None
@@ -1725,6 +2203,8 @@ def build_account_page_data(project_root: Path) -> dict[str, object]:
         "rows": rows,
         "manual_accounts": manual,
         "net_worth": net_worth,
+        "holdings": holdings,
+        "dividends": dividends,
         "cash_flows": cash_flows,
         "recent_write_attempts": load_web_write_audit(project_root, limit=5),
         "total_asset_history": history,
@@ -1735,8 +2215,9 @@ def build_account_page_data(project_root: Path) -> dict[str, object]:
             "all_label": f"전체 ({all_start}~)" if all_start else "전체",
         },
         "chart_labels": {
-            "primary": "총자산",
+            "primary": "총 투자자산",
             "benchmark": "KOSPI (시작값 맞춤)",
+            "net_worth": "순자산 스냅샷",
         },
         "daily_true_change_krw": daily_true_change,
         "month_true_pnl_krw": month_true_pnl,
@@ -1746,7 +2227,10 @@ def build_account_page_data(project_root: Path) -> dict[str, object]:
 
 __all__ = [
     "AccountInputError", "append_web_write_audit", "build_account_page_data", "build_api_account_data",
-    "build_cash_flow_data", "build_manual_account_data", "build_net_worth_data",
-    "calculate_return_metrics", "delete_cash_flow", "load_cash_flows",
-    "load_manual_accounts", "load_web_write_audit", "save_cash_flow", "save_manual_accounts", "save_net_worth",
+    "build_cash_flow_data", "build_dividend_data", "build_holdings_data",
+    "build_manual_account_data", "build_net_worth_data", "calculate_return_metrics",
+    "classify_asset", "delete_cash_flow", "filter_and_sort_holdings",
+    "load_cash_flows", "load_dividends", "load_manual_accounts",
+    "load_web_write_audit", "save_cash_flow", "save_dividend",
+    "save_manual_accounts", "save_net_worth",
 ]

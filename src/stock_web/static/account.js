@@ -42,6 +42,12 @@
   let liabilityRows = [];
   let selectedReturnWindow = "3M";
   let returnPeriodHydrated = false;
+  let netWorthOverlayVisible = false;
+  let holdingAccountFilter = "ALL";
+  let holdingCurrencyFilter = "ALL";
+  let holdingSortKey = "weight_pct";
+  let holdingSortDirection = "desc";
+  let allocationGroup = "asset_class";
   let journalPayload = { events: [], summary: {}, gaps: [] };
   let selectedJournalDays = 90;
   let journalVisibleRows = 10;
@@ -107,12 +113,14 @@
   function renderSummary() {
     const summary = payload.summary || {};
     $("invest-total").textContent = compactMoney(summary.invest_total_krw);
+    $("month-true-pnl").textContent = signedMoney(summary.month_true_pnl_krw);
+    $("month-true-pnl").className = `num ${valueClass(summary.month_true_pnl_krw)}`;
     $("net-worth-total").textContent = compactMoney(summary.net_worth_krw);
     $("invest-asof").textContent = sourceAsOf(payload.rows, ["api", "manual"]) || "연결된 투자 자산 없음";
     const netWorthSources = sourceAsOf(payload.rows, ["asset", "liability"]);
     $("net-worth-asof").textContent = summary.net_worth_krw === null || summary.net_worth_krw === undefined
       ? "기타 자산·부채 스냅샷 없음"
-      : netWorthSources || `부동산·예금 포함 · ${summary.net_worth_as_of_label || "기준일 미상"} 기준`;
+      : `부동산·예금 포함 · ${summary.net_worth_as_of_label || "기준일 미상"} 기준`;
   }
 
   function renderSourceRows() {
@@ -135,25 +143,127 @@
   function renderPerformance() {
     const metric = ((payload || {}).return_metrics || {})[selectedReturnWindow] || {};
     const label = selectedReturnWindow === "ALL" ? "전체" : selectedReturnWindow;
+    const holdings = payload.holdings || {};
+    $("return-period-label").textContent = metric.start_date && metric.end_date ? `${shortDate(metric.start_date)}~${shortDate(metric.end_date)}` : label;
+    const dollarAssets = holdings.usd_assets_usd === null || holdings.usd_assets_usd === undefined ? "—" : `$${fmt(holdings.usd_assets_usd, 2)}`;
+    const fxEffect = pct(holdings.fx_effect_pct);
     $("return-metrics").innerHTML = metric.reason ? `<div class="unavailable">${esc(metric.reason)}</div>` : `
-      <div class="return-metric"><span>${esc(label)} 진짜 손익</span><b class="num ${valueClass(metric.true_pnl_krw)}">${signedMoney(metric.true_pnl_krw)}</b></div>
-      <div class="return-metric"><span>순입출금</span><b class="num ${valueClass(metric.net_flows_krw)}">${signedMoney(metric.net_flows_krw)}</b></div>
-      <div class="return-metric" title="입출금 시점을 반영해 내가 실제 투입한 돈 대비 수익률입니다."><span>돈 가중(내 실제 수익률)</span><b class="num ${valueClass(metric.return_pct_modified_dietz)}">${pct(metric.return_pct_modified_dietz)}</b></div>
-      <div class="return-metric" title="입출금 영향을 잘라내고 운용 성과만 이어 붙인 수익률입니다."><span>시간 가중(운용 실력)</span><b class="num ${valueClass(metric.return_pct_twr)}">${pct(metric.return_pct_twr)}</b></div>
-      <div class="return-metric"><span>KOSPI 동기간</span><b class="num ${valueClass(metric.kospi_return_pct)}">${pct(metric.kospi_return_pct)}</b></div>
-      <div class="return-metric"><span>증권사 표시 손익</span><b class="num ${valueClass(metric.broker_reported_pnl_krw)}">${signedMoney(metric.broker_reported_pnl_krw)}</b></div>
-      ${metric.partial ? '<div class="return-metric"><span>관측 품질</span><b class="badge dashed">부분 관측 포함</b></div>' : ""}`;
+      <div class="return-row"><span>전체 진짜 손익</span><b class="num ${valueClass(metric.true_pnl_krw)}">${signedMoney(metric.true_pnl_krw)}</b></div>
+      <div class="return-row" title="입출금 시점을 반영한 실제 투입금 대비 수익률"><span>돈 가중 (내 실제 수익률)</span><b class="num ${valueClass(metric.return_pct_modified_dietz)}">${pct(metric.return_pct_modified_dietz)}</b></div>
+      <div class="return-row" title="입출금 영향을 잘라내고 이어 붙인 운용 성과"><span>시간 가중 (운용 실력)</span><b class="num ${valueClass(metric.return_pct_twr)}">${pct(metric.return_pct_twr)}</b></div>
+      <div class="return-row"><span>KOSPI 동기간</span><b class="num ${valueClass(metric.kospi_return_pct)}">${pct(metric.kospi_return_pct)}</b></div>
+      <div class="return-row"><span>증권사 표시 손익</span><b class="num ${valueClass(metric.broker_reported_pnl_krw)}">${signedMoney(metric.broker_reported_pnl_krw)}</b></div>
+      <div class="return-row"><span>달러 자산 · 환율 효과</span><b class="num">${dollarAssets} · ${fxEffect}</b></div>`;
+    $("mobile-return-summary").textContent = metric.reason ? metric.reason : `돈가중 ${pct(metric.return_pct_modified_dietz)} · 시간가중 ${pct(metric.return_pct_twr)} · KOSPI ${pct(metric.kospi_return_pct)}`;
     const history = payload.total_asset_history || [];
     const benchmark = payload.benchmark || [];
     const shownHistory = metric.start_date ? history.filter((point) => point.t >= metric.start_date) : history;
     const shownBenchmark = metric.start_date ? benchmark.filter((point) => point.t >= metric.start_date) : benchmark;
+    const netWorth = payload.net_worth || {};
+    const shownNetWorth = netWorthOverlayVisible && Number(netWorth.snapshot_count || 0) >= 2
+      ? (netWorth.timeline || []).filter((point) => !metric.start_date || point.t >= metric.start_date)
+      : [];
     const chartLabels = payload.chart_labels || {};
     window.SIChart.renderLineChart($("total-asset-chart"), shownHistory, {
-      benchmark: shownBenchmark, ariaLabel: "총 투자자산과 KOSPI 동기간 추이",
-      valueLabel: chartLabels.primary || "총자산",
-      benchmarkLabel: chartLabels.benchmark || "KOSPI (시작값 맞춤)",
+      series: [
+        { key: "invest", label: chartLabels.primary || "총 투자자산", color: "#1f1d1a", points: shownHistory },
+        { key: "kospi", label: chartLabels.benchmark || "KOSPI (시작값 맞춤)", color: "#2a78d6", points: shownBenchmark },
+        { key: "net-worth", label: chartLabels.net_worth || "순자산 스냅샷", color: "#8a847b", points: shownNetWorth },
+      ],
+      ariaLabel: "총 투자자산과 KOSPI 동기간 추이",
       emptyMessage: "총 투자자산 관측이 2개 이상이면 선이 표시됩니다.",
     });
+    const paths = $("total-asset-chart").querySelectorAll(".si-series-line");
+    if (shownNetWorth.length >= 2 && paths.length >= 3) paths[2].classList.add("net-worth-overlay-line");
+    const overlayButton = $("net-worth-overlay");
+    overlayButton.disabled = Number(netWorth.snapshot_count || 0) < 2;
+    overlayButton.setAttribute("aria-pressed", netWorthOverlayVisible ? "true" : "false");
+  }
+
+  function visibleHoldingRows() {
+    const rows = ((payload || {}).holdings || {}).rows || [];
+    const filtered = rows.filter((row) => (holdingAccountFilter === "ALL" || row.account_group === holdingAccountFilter)
+      && (holdingCurrencyFilter === "ALL" || row.currency === "USD"));
+    const numeric = new Set(["quantity", "market_value_krw", "weight_pct", "return_pct"]);
+    return [...filtered].sort((left, right) => {
+      const a = left[holdingSortKey], b = right[holdingSortKey];
+      if (a === null || a === undefined) return b === null || b === undefined ? String(left.id).localeCompare(String(right.id), "ko") : 1;
+      if (b === null || b === undefined) return -1;
+      const compared = numeric.has(holdingSortKey) ? Number(a) - Number(b) : String(a).localeCompare(String(b), "ko");
+      return holdingSortDirection === "asc" ? compared : -compared;
+    });
+  }
+
+  function renderHoldings() {
+    const rows = visibleHoldingRows();
+    $("holding-rows").innerHTML = rows.length ? rows.map((row) => {
+      const multiple = Number(row.leverage_multiple || 1);
+      const leverage = multiple > 1 ? `<span class="leverage-chip">${fmt(multiple, 0)}배</span>` : "";
+      const weight = row.weight_pct;
+      const width = weight === null || weight === undefined ? 0 : Math.min(100, Math.max(1, Number(weight) * 2));
+      return `<tr class="${row.valued ? "" : "holding-unvalued"}" title="${esc(row.reason || "")}">
+        <td class="holding-name"><div class="holding-name-main"><b>${esc(row.name || row.symbol)}</b>${leverage}</div><small class="holding-mobile-meta">${esc(row.account)} · ${esc(row.asset_class)}${row.reason ? ` · ${esc(row.reason)}` : ""}</small></td>
+        <td class="muted">${esc(row.account)}</td><td class="muted">${esc(row.asset_class)}</td>
+        <td class="num">${fmt(row.quantity, 6)}</td><td class="num">${money(row.market_value_krw)}</td>
+        <td class="holding-weight"><span class="weight-track"><i class="${multiple > 1 ? "leveraged" : ""}" style="width:${width}%"></i></span><span class="num">${row.weight_pct === null || row.weight_pct === undefined ? "—" : `${fmt(row.weight_pct, 1)}%`}</span></td>
+        <td class="num ${valueClass(row.return_pct)}">${pct(row.return_pct)}</td>
+      </tr>`;
+    }).join("") : `<tr><td colspan="7" class="unavailable">선택한 조건의 보유 자산이 없습니다.</td></tr>`;
+    document.querySelectorAll(".holdings-table th button").forEach((button) => {
+      const active = button.dataset.sort === holdingSortKey;
+      button.classList.toggle("active", active);
+      const base = button.textContent.replace(/\s[↑↓]$/, "");
+      button.textContent = active ? `${base} ${holdingSortDirection === "asc" ? "↑" : "↓"}` : base;
+    });
+    renderAllocation();
+  }
+
+  function groupedAllocations(rows) {
+    const groups = new Map();
+    rows.filter((row) => row.market_value_krw !== null && row.market_value_krw !== undefined).forEach((row) => {
+      const key = String(row[allocationGroup] || "기타");
+      groups.set(key, (groups.get(key) || 0) + Number(row.market_value_krw));
+    });
+    const ordered = [...groups.entries()].sort((a, b) => b[1] - a[1]);
+    if (ordered.length <= 6) return ordered;
+    return [...ordered.slice(0, 5), ["기타", ordered.slice(5).reduce((sum, item) => sum + item[1], 0)]];
+  }
+
+  function renderAllocation() {
+    const rows = visibleHoldingRows();
+    const groups = groupedAllocations(rows);
+    const total = groups.reduce((sum, item) => sum + item[1], 0);
+    const leveraged = rows.filter((row) => Number(row.leverage_multiple || 1) > 1 && row.market_value_krw !== null && row.market_value_krw !== undefined).reduce((sum, row) => sum + Number(row.market_value_krw), 0);
+    const leveragedPct = total ? leveraged / total * 100 : null;
+    const colors = ["#a8621a", "#2a78d6", "#1f1d1a", "#8a847b", "#62a58a", "#c9c3b9"];
+    const radius = 58, circumference = 2 * Math.PI * radius;
+    let offset = 0;
+    const arcs = groups.map((item, index) => {
+      const length = total ? item[1] / total * circumference : 0;
+      const arc = `<circle cx="78" cy="78" r="${radius}" fill="none" stroke="${colors[index]}" stroke-width="22" stroke-dasharray="${length} ${circumference - length}" stroke-dashoffset="${-offset}" transform="rotate(-90 78 78)"></circle>`;
+      offset += length; return arc;
+    }).join("");
+    $("allocation-donut").innerHTML = total ? `<svg viewBox="0 0 156 156" role="img" aria-label="보유 비중 도넛">${arcs}<text x="78" y="72" text-anchor="middle" class="si-axis-label">레버리지</text><text x="78" y="92" text-anchor="middle" font-size="18" font-weight="600" fill="#a8621a">${fmt(leveragedPct, 1)}%</text></svg><div class="donut-legend">${groups.map((item, index) => `<div class="donut-legend-row"><i style="background:${colors[index]}"></i><span>${esc(item[0])}</span><b class="num">${fmt(item[1] / total * 100, 1)}%</b></div>`).join("")}</div>` : `<div class="unavailable">표시할 비중이 없습니다.</div>`;
+    const holdings = payload.holdings || {};
+    const nominal = holdings.leveraged_weight_pct, exposure = holdings.effective_exposure_pct, limit = holdings.leverage_limit_pct;
+    $("leverage-gauge-value").textContent = `${nominal === null || nominal === undefined ? "—" : `${fmt(nominal, 1)}%`} / 한도 ${limit === null || limit === undefined ? "—" : `${fmt(limit, 0)}%`}`;
+    $("exposure-gauge-value").textContent = exposure === null || exposure === undefined ? "—" : `${fmt(exposure, 1)}%`;
+    $("leverage-gauge-bar").style.width = `${Math.min(100, Math.max(0, Number(nominal || 0)))}%`;
+    $("exposure-gauge-bar").style.width = `${Math.min(100, Math.max(0, Number(exposure || 0)))}%`;
+    $("leverage-limit-mark").hidden = limit === null || limit === undefined;
+    $("leverage-limit-mark").style.left = `${Math.min(100, Math.max(0, Number(limit || 0)))}%`;
+  }
+
+  function renderDividends() {
+    const dividend = payload.dividends || {};
+    const monthly = dividend.monthly || [];
+    const max = Math.max(1, ...monthly.map((row) => Number(row.amount_krw || 0)));
+    const width = 600, height = 128, baseline = 102, step = width / Math.max(monthly.length, 1), barWidth = Math.min(28, step * .58);
+    $("dividend-chart").innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="최근 12개월 세후 배당 입금"><line x1="0" x2="${width}" y1="${baseline}" y2="${baseline}" class="si-axis"></line>${monthly.map((row, index) => { const barHeight = Number(row.amount_krw || 0) / max * 78; const x = index * step + (step - barWidth) / 2; return `<rect x="${x}" y="${baseline - barHeight}" width="${barWidth}" height="${Math.max(1, barHeight)}" fill="#2a78d6"><title>${esc(row.month)} ${money(row.amount_krw)}</title></rect>${index === 0 || index === monthly.length - 1 || index === Math.floor(monthly.length / 2) ? `<text x="${x + barWidth / 2}" y="120" text-anchor="middle" class="si-axis-label">${esc(row.month.slice(2))}</text>` : ""}`; }).join("")}</svg>`;
+    $("dividend-summary").innerHTML = `<div class="dividend-kpi"><span>올해 누적</span><b class="num">${money(dividend.year_total_krw)}</b></div><div class="dividend-kpi"><span>월 평균</span><b class="num">${money(dividend.monthly_average_krw)}</b></div><div class="dividend-kpi"><span>배당 종목 수</span><b class="num">${fmt(dividend.symbol_count, 0)}종목</b></div><div class="dividend-kpi"><span>배당 수익률 (평가금액 대비)</span><b class="num">${pct(dividend.yield_pct)}</b></div>`;
+    $("dividend-symbols").innerHTML = (dividend.by_symbol || []).length ? dividend.by_symbol.map((row) => `<div class="dividend-symbol-row"><span>${esc(row.symbol)}</span><b class="num">${money(row.amount_krw)}</b></div>`).join("") : "";
+    $("dividend-empty").hidden = Boolean((dividend.entries || []).length);
+    $("dividend-empty").textContent = dividend.reason || dividend.empty_note || "기록 없음 · KB 배당은 자동 수집 예정 · 토스·연금은 캡처로 입력";
   }
 
   function hydrateReturnPeriod() {
@@ -596,6 +706,7 @@
     const attempts = payload.recent_write_attempts || [];
     const pathLabels = {
       "/api/net-worth": "순자산", "/api/manual/accounts": "수동 계좌",
+      "/api/manual/dividends": "배당 기록",
       "/api/trade-journal/manual": "매매일지", "/api/cash-flows": "입출금",
       "/api/watchlists": "관심목록", "/api/watchlist/items": "관심종목",
       "/api/watchlist/items/move": "관심종목 순서", "/api/watch-conditions": "관심조건",
@@ -636,10 +747,11 @@
     assetRows = latest ? latest.assets.map((row) => ({ ...row })) : [];
     liabilityRows = latest ? latest.liabilities.map((row) => ({ ...row })) : [];
     $("net-worth-date").value = latest ? latest.as_of_date : today();
+    $("dividend-date").value = today();
   }
 
   function renderAll() {
-    renderSummary(); renderSourceRows(); renderPerformance(); renderCashFlows(); renderJournal(); renderManualAccounts(); renderNetWorthForm(); renderTimeline(); renderBreakdown(); renderWriteAudit();
+    renderSummary(); renderPerformance(); renderHoldings(); renderDividends(); renderCashFlows(); renderJournal(); renderManualAccounts(); renderNetWorthForm(); renderWriteAudit();
     $("account-safety").textContent = payload.safety_note || "";
   }
 
@@ -693,9 +805,29 @@
       assetRows = collectNetWorthRows("asset"); liabilityRows = collectNetWorthRows("liability");
       const row = target.closest(".net-worth-input-row");
       (row.dataset.kind === "asset" ? assetRows : liabilityRows).splice(Number(row.dataset.index), 1); renderNetWorthForm();
+    } else if (target.id === "net-worth-overlay") {
+      netWorthOverlayVisible = !netWorthOverlayVisible; renderPerformance();
     } else if (target.closest("#return-range button")) {
       document.querySelectorAll("#return-range button").forEach((button) => button.classList.remove("on"));
       target.classList.add("on"); selectedReturnWindow = target.dataset.v; renderPerformance();
+    } else if (target.closest("#holding-account-filter button")) {
+      const button = target.closest("button");
+      document.querySelectorAll("#holding-account-filter button").forEach((item) => item.classList.remove("on"));
+      button.classList.add("on"); holdingAccountFilter = button.dataset.account; renderHoldings();
+    } else if (target.closest("#holding-currency-filter button")) {
+      const button = target.closest("button");
+      document.querySelectorAll("#holding-currency-filter button").forEach((item) => item.classList.remove("on"));
+      button.classList.add("on"); holdingCurrencyFilter = button.dataset.currency; renderHoldings();
+    } else if (target.closest(".holdings-table th button")) {
+      const button = target.closest("button");
+      holdingSortDirection = holdingSortKey === button.dataset.sort && holdingSortDirection === "desc" ? "asc" : "desc";
+      holdingSortKey = button.dataset.sort; renderHoldings();
+    } else if (target.closest("#allocation-tabs button")) {
+      const button = target.closest("button");
+      document.querySelectorAll("#allocation-tabs button").forEach((item) => item.classList.remove("on"));
+      button.classList.add("on"); allocationGroup = button.dataset.group; renderAllocation();
+    } else if (target.id === "open-dividend-form") {
+      $("dividend-dialog").showModal();
     } else if (target.closest("#journal-range button")) {
       document.querySelectorAll("#journal-range button").forEach((button) => button.classList.remove("on"));
       target.classList.add("on"); selectedJournalDays = Number(target.dataset.days); journalVisibleRows = 10;
@@ -775,6 +907,22 @@
       }
     });
     $("journal-side").addEventListener("change", updateJournalPriceField);
+    $("save-dividend").addEventListener("click", async () => {
+      try {
+        await postJson("/api/manual/dividends", {
+          date: $("dividend-date").value,
+          symbol: $("dividend-symbol").value.trim(),
+          amount_krw: Number($("dividend-amount").value),
+          account: $("dividend-account").value.trim(),
+        }, "dividend-status");
+        $("dividend-symbol").value = "";
+        $("dividend-amount").value = "";
+        $("dividend-account").value = "";
+        $("dividend-dialog").close();
+      } catch (error) {
+        if (!error.handled) setWriteStatus("dividend-status", `저장 실패 · ${error.message}`);
+      }
+    });
     $("save-manual-accounts").addEventListener("click", async () => {
       try { await postJson("/api/manual/accounts", { schema_version: 1, accounts: collectManualAccounts() }, "manual-status"); }
       catch (error) { if (!error.handled) setWriteStatus("manual-status", `저장 실패 · ${error.message}`); }

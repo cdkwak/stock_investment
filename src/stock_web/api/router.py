@@ -499,6 +499,29 @@ def build_router(project_root: Path, *, public_mode: bool = False) -> APIRouter:
             },
         )
 
+    @router.post("/manual/dividends")
+    async def save_manual_dividend(request: Request) -> Response:
+        from stock_web.api.account_page import AccountInputError, save_dividend
+
+        if not loopback(request):
+            return write_response(
+                request, path="/api/manual/dividends",
+                payload={"error": "로컬 접속에서만 저장할 수 있습니다."},
+                status_code=403, error_code="LOCAL_ONLY",
+            )
+        try:
+            saved = save_dividend(project_root, await request.json())
+        except (ValueError, AccountInputError) as error:
+            return write_response(
+                request, path="/api/manual/dividends", payload={"error": str(error)},
+                status_code=400, error_code="VALIDATION_ERROR",
+            )
+        return write_response(
+            request, path="/api/manual/dividends", payload=saved,
+            status_code=200, error_code="OK",
+            row_counts={"entries": len(saved.get("entries", []))},
+        )
+
     @router.get("/net-worth")
     def net_worth() -> Response:
         from stock_web.api.account_page import build_net_worth_data

@@ -28,45 +28,78 @@
 {% else %}
 <main class="page account-page">
   <div class="account-toast" id="account-toast" role="status" aria-live="polite" hidden></div>
-  <section class="account-summary" id="account-summary">
+  <section class="card account-summary" id="account-summary">
     <div class="account-headline"><span>투자 자산</span><b class="num" id="invest-total">—</b><small id="invest-asof"></small></div>
-    <div class="account-headline"><span>순자산</span><b class="num" id="net-worth-total">—</b><small id="net-worth-asof"></small></div>
+    <div class="account-headline account-month-result"><span>이번 달 진짜 손익</span><b class="num" id="month-true-pnl">—</b><small>돈가중 · 순입금 제외</small></div>
+    <div class="account-headline account-net-worth"><span>순자산</span><b class="num" id="net-worth-total">—</b><small id="net-worth-asof"></small></div>
   </section>
 
-  <div class="account-wide-grid">
-    <section class="card account-performance-card">
-      <div class="card-head"><b>진짜 투자 수익</b>
-        <div class="segmented small" id="return-range"><button data-v="1M">1M</button><button data-v="3M" class="on">3M</button><button data-v="YTD">YTD</button><button data-v="ALL">전체</button></div>
+  <div class="account-main-grid">
+    <section class="card account-trend-card">
+      <div class="card-head"><b>자산 변동 추이</b>
+        <div class="account-chart-actions"><button type="button" class="chip-toggle" id="net-worth-overlay" aria-pressed="false">순자산 겹치기</button><div class="segmented small" id="return-range"><button data-v="1M">1M</button><button data-v="3M" class="on">3M</button><button data-v="YTD">YTD</button><button data-v="ALL">전체</button></div></div>
       </div>
-      <div id="return-metrics" class="return-metrics dense"></div>
-      <div id="total-asset-chart" class="net-worth-chart"></div>
-      <p class="muted form-note" id="total-asset-note">실선은 총 투자자산 · 점선은 같은 시작값으로 맞춘 KOSPI · 주황 점: 계좌 관측 또는 환율이 3거래일 넘게 오래된 날</p>
+      <div class="chart-legend"><span><i class="legend-invest"></i>총 투자자산</span><span><i class="legend-kospi"></i>KOSPI (시작값 맞춤)</span><span><i class="legend-net-worth"></i>순자산 스냅샷</span></div>
+      <div id="total-asset-chart" class="account-trend-chart"></div>
+      <div id="mobile-return-summary" class="mobile-return-summary"></div>
+      <p class="muted form-note" id="total-asset-note">실선은 총 투자자산, 파란선은 같은 시작값으로 맞춘 KOSPI · 점선은 저장된 순자산 스냅샷(2개 이상일 때) · 주황 점: 계좌 관측 또는 환율이 3거래일 넘게 오래된 날</p>
     </section>
 
-    <section class="card account-source-card">
-      <div class="card-head"><b>계좌별</b><span class="muted">증권사 API로 받은 잔고를 이 PC에만 저장(계좌번호 제외) · 평가 불가 종목은 합계에서 제외</span></div>
-      <div class="data-table-wrap account-source-wrap">
-        <table class="data-table account-source-table">
-          <thead><tr><th>출처</th><th>평가액</th><th>현금</th><th>평가손익</th><th>기준일(KST)</th><th>포함 여부</th></tr></thead>
-          <tbody id="account-source-rows"></tbody>
+    <section class="card account-return-card">
+      <div class="card-head"><b>진짜 투자 수익</b><span class="muted" id="return-period-label"></span></div>
+      <div id="return-metrics" class="return-table"></div>
+      <p class="muted form-note">입출금은 아래 입력 섹션에서 기록 · 기록이 없으면 변동 전체를 손익으로 간주</p>
+    </section>
+
+    <section class="card holdings-card">
+      <div class="card-head holdings-head"><b>보유현황</b><div class="holding-filters" aria-label="보유현황 필터">
+        <div class="segmented small" id="holding-account-filter"><button class="on" data-account="ALL">전체 계좌</button><button data-account="Toss">Toss</button><button data-account="KB">KB</button><button data-account="연금">연금</button></div>
+        <div class="segmented small" id="holding-currency-filter"><button class="on" data-currency="ALL">KRW+USD</button><button data-currency="USD">USD만</button></div>
+      </div></div>
+      <div class="data-table-wrap holdings-table-wrap">
+        <table class="data-table holdings-table">
+          <thead><tr><th><button data-sort="name">종목</button></th><th><button data-sort="account">계좌</button></th><th><button data-sort="asset_class">자산군</button></th><th class="num"><button data-sort="quantity">수량</button></th><th class="num"><button data-sort="market_value_krw">평가금액</button></th><th class="holding-weight-head"><button data-sort="weight_pct" class="active">비중 ↓</button></th><th class="num"><button data-sort="return_pct">손익 %</button></th></tr></thead>
+          <tbody id="holding-rows"></tbody>
         </table>
+      </div>
+      <p class="muted form-note">비중 = 전체 투자자산 대비 · 주황 막대 = 레버리지 상품 · 평가 불가 종목은 회색 · 열 머리 클릭으로 정렬</p>
+    </section>
+
+    <section class="card allocation-card">
+      <div class="card-head"><b>비중</b><div class="segmented small" id="allocation-tabs"><button class="on" data-group="asset_class">자산군</button><button data-group="name">종목</button><button data-group="account">계좌</button></div></div>
+      <div id="allocation-donut" class="allocation-donut"></div>
+      <div class="rule-gauges">
+        <div class="muted gauge-title">규칙 한도 대비</div>
+        <div class="rule-gauge"><span>레버리지 명목 비중</span><div class="gauge-track"><i id="leverage-gauge-bar"></i><em id="leverage-limit-mark"></em></div><b class="num" id="leverage-gauge-value">—</b></div>
+        <div class="rule-gauge"><span>실효 노출 (비중×배수)</span><div class="gauge-track"><i id="exposure-gauge-bar"></i></div><b class="num" id="exposure-gauge-value">—</b></div>
       </div>
     </section>
   </div>
 
-  <section class="account-grid net-worth-grid">
-    <div class="card">
-      <div class="card-head"><b>순자산 타임라인</b><span class="muted" id="timeline-note"></span></div>
-      <div id="net-worth-chart" class="net-worth-chart"></div>
+  <section class="card dividend-card">
+    <div class="card-head"><b>배당</b><span class="muted">KB 배당은 자동 수집 예정 · 토스·연금은 캡처로 입력 · 세후 입금액 기준</span></div>
+    <div class="dividend-layout">
+      <div><div class="muted dividend-subtitle">월별 배당 입금 (최근 12개월)</div><div id="dividend-chart" class="dividend-chart"></div></div>
+      <div id="dividend-summary" class="dividend-summary"></div>
+      <div><div class="muted dividend-subtitle">종목별 (올해)</div><div id="dividend-symbols" class="dividend-symbols"></div><button type="button" class="button" id="open-dividend-form">배당 기록</button></div>
     </div>
-    <div class="card">
-      <div class="card-head"><b>최근 자산·부채 구성</b><span class="muted" id="breakdown-asof"></span></div>
-      <div id="net-worth-breakdown" class="breakdown-list"></div>
-    </div>
+    <div id="dividend-empty" class="unavailable" hidden></div>
   </section>
 
+  <dialog id="dividend-dialog" class="dividend-dialog">
+    <form method="dialog" id="dividend-form"><div class="card-head"><b>배당 기록</b><button class="text-button" value="cancel" aria-label="닫기">닫기</button></div>
+      <div class="dividend-form-grid">
+        <label class="field"><span>날짜</span><input type="date" id="dividend-date" required></label>
+        <label class="field"><span>종목</span><input id="dividend-symbol" maxlength="80" required></label>
+        <label class="field"><span>세후 입금액</span><input type="number" id="dividend-amount" min="1" step="1" required></label>
+        <label class="field"><span>계좌</span><input id="dividend-account" maxlength="60" required></label>
+      </div>
+      <div class="form-actions"><span class="muted" id="dividend-status"></span><button type="button" class="button primary" id="save-dividend">저장</button></div>
+    </form>
+  </dialog>
+
   <details class="card account-input-panel">
-    <summary class="card-head"><b>입력 (수동 계좌 · 자산/부채 · 입출금 · 매매일지)</b><span class="input-panel-meta"><span class="badge">4</span><span class="muted">기본 접힘 · PC에서만 저장</span></span></summary>
+    <summary class="card-head"><b>입력 <span class="muted input-kinds">수동 계좌 · 자산/부채 · 입출금 · 매매일지 · 배당 기록</span></b><span class="input-panel-meta"><span class="badge">5</span><span class="muted">기본 접힘 · PC에서만 저장</span></span></summary>
     <div class="input-subsections">
       <details class="card form-card input-subsection manual-account-card">
         <summary class="card-head"><b>수동 증권 계좌 입력</b><span class="muted">종목명↔코드 검색으로 이름·코드·통화 자동 입력</span></summary>

@@ -2,6 +2,228 @@
   --symbol-success: #217346;
 }
 
+.account-page .account-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  overflow: visible;
+  border-radius: 4px;
+  background: var(--card);
+  color: var(--ink);
+  padding: 0;
+}
+
+.account-page .account-headline {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 3px;
+  align-content: center;
+  padding: 12px 18px;
+}
+
+.account-page .account-headline + .account-headline {
+  border-top: 0;
+  border-left: 1px solid var(--grid);
+}
+
+.account-page .account-headline > span,
+.account-page .account-headline small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.account-page .account-headline b {
+  font-size: 22px;
+  line-height: 1.25;
+  text-align: left;
+}
+
+.account-page .account-month-result { text-align: center; }
+.account-page .account-month-result b { text-align: center; }
+.account-page .account-net-worth { text-align: right; }
+.account-page .account-net-worth b { text-align: right; }
+
+.account-main-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.account-trend-card,
+.holdings-card { grid-column: span 8; }
+.account-return-card,
+.allocation-card { grid-column: span 4; }
+
+.account-chart-actions,
+.holding-filters {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip-toggle {
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--card);
+  color: var(--muted);
+  padding: 2px 7px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.chip-toggle[aria-pressed="true"] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: #fff;
+}
+
+.chip-toggle:disabled { cursor: default; opacity: .45; }
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 13px;
+  margin: 5px 0 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.chart-legend i {
+  display: inline-block;
+  width: 14px;
+  height: 2px;
+  margin-right: 5px;
+  vertical-align: middle;
+  background: var(--ink);
+}
+
+.chart-legend .legend-kospi { background: #2a78d6; }
+.chart-legend .legend-net-worth {
+  height: 1px;
+  border-top: 1px dashed #8a847b;
+  background: transparent;
+}
+
+.account-trend-chart { height: 260px; }
+.account-trend-chart .net-worth-overlay-line { stroke-dasharray: 4 4; stroke-width: 1.3; }
+
+.return-table { display: grid; }
+.return-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--grid);
+  font-size: 12px;
+}
+.return-row span { color: var(--muted); }
+.return-row b { white-space: nowrap; }
+.mobile-return-summary { display: none; }
+
+.holdings-head { align-items: flex-start; }
+.holdings-table { min-width: 760px; font-size: 12px; }
+.holdings-table th,
+.holdings-table td { padding: 7px 6px; }
+.holdings-table th button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+.holdings-table th button.active { color: var(--ink); font-weight: 600; }
+.holdings-table th:nth-child(n+4),
+.holdings-table td:nth-child(n+4) { text-align: right; }
+.holdings-table .holding-name { white-space: normal; min-width: 150px; }
+.holding-name-main { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.holding-mobile-meta { display: none; }
+.leverage-chip {
+  display: inline-block;
+  border: 1px solid var(--amber);
+  border-radius: 3px;
+  color: var(--amber);
+  padding: 0 5px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.holding-weight { min-width: 150px; text-align: left !important; }
+.weight-track {
+  display: inline-block;
+  width: 92px;
+  height: 7px;
+  margin-right: 6px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--grid);
+  vertical-align: middle;
+}
+.weight-track i { display: block; height: 100%; background: #2a78d6; }
+.weight-track i.leveraged { background: var(--amber); }
+.holding-unvalued { color: var(--muted); background: #faf9f7; }
+.holding-unvalued .holding-name { text-decoration: none; }
+
+.allocation-donut {
+  min-height: 210px;
+  display: grid;
+  grid-template-columns: minmax(150px, .9fr) minmax(145px, 1.1fr);
+  gap: 8px;
+  align-items: center;
+}
+.allocation-donut svg { display: block; width: 100%; max-height: 190px; }
+.donut-legend { display: grid; gap: 6px; font-size: 11px; }
+.donut-legend-row { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 6px; align-items: center; }
+.donut-legend-row i { width: 9px; height: 9px; }
+.donut-legend-row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.rule-gauges { margin-top: 5px; padding-top: 8px; border-top: 1px solid var(--grid); }
+.gauge-title { margin-bottom: 6px; font-size: 11px; }
+.rule-gauge {
+  display: grid;
+  grid-template-columns: 112px minmax(60px, 1fr) 88px;
+  gap: 7px;
+  align-items: center;
+  margin-top: 6px;
+  font-size: 11px;
+}
+.rule-gauge > span { color: var(--muted); }
+.rule-gauge > b { text-align: right; font-weight: 500; }
+.gauge-track { position: relative; height: 8px; border-radius: 2px; background: var(--grid); }
+.gauge-track i { position: absolute; inset: 0 auto 0 0; max-width: 100%; border-radius: 2px; background: var(--amber); }
+.gauge-track em { position: absolute; top: -3px; width: 2px; height: 14px; background: var(--ink); }
+
+.dividend-layout {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 14px;
+  align-items: start;
+}
+.dividend-subtitle { margin-bottom: 4px; font-size: 11px; }
+.dividend-chart { min-height: 128px; }
+.dividend-chart svg { display: block; width: 100%; height: 128px; }
+.dividend-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.dividend-kpi span { display: block; color: var(--muted); font-size: 10px; }
+.dividend-kpi b { display: block; margin-top: 2px; font-size: 15px; }
+.dividend-symbols { margin-bottom: 8px; }
+.dividend-symbol-row { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--grid); font-size: 11px; }
+
+.dividend-dialog {
+  width: min(620px, calc(100vw - 28px));
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--card);
+  color: var(--ink);
+  padding: 14px;
+  box-shadow: 0 16px 45px rgba(31, 29, 26, .18);
+}
+.dividend-dialog::backdrop { background: rgba(31, 29, 26, .32); }
+.dividend-form-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.input-kinds { font-weight: 400; margin-left: 8px; }
+
 .card-head b {
   white-space: nowrap;
   flex-shrink: 0;
@@ -306,6 +528,64 @@
 
   .write-audit-row > :nth-child(3),
   .write-audit-row > :nth-child(5) { display: none; }
+}
+
+@media (max-width: 768px) {
+  .account-page .account-summary { grid-template-columns: 1fr; }
+  .account-page .account-headline,
+  .account-page .account-headline b,
+  .account-page .account-month-result,
+  .account-page .account-net-worth { text-align: left; }
+  .account-page .account-headline { padding: 10px 12px; }
+  .account-page .account-headline + .account-headline { border-left: 0; border-top: 1px solid var(--grid); }
+  .account-page .account-headline b { font-size: 20px; }
+
+  .account-main-grid { display: flex; flex-direction: column; }
+  .account-main-grid > .card { width: 100%; }
+  .account-trend-card { order: 1; }
+  .allocation-card { order: 2; }
+  .holdings-card { order: 3; }
+  .account-return-card { display: none; }
+  .account-trend-chart { height: 150px; }
+  .account-chart-actions { width: 100%; justify-content: space-between; }
+  .account-trend-card .card-head { align-items: flex-start; flex-wrap: wrap; }
+  .chart-legend { font-size: 10px; }
+  .mobile-return-summary { display: block; color: var(--muted); font-size: 10px; line-height: 1.55; }
+
+  .allocation-donut { min-height: 145px; grid-template-columns: 125px minmax(0, 1fr); }
+  .allocation-donut svg { max-height: 135px; }
+  .rule-gauge { grid-template-columns: 105px minmax(45px, 1fr) 82px; }
+
+  .holdings-head { flex-direction: column; }
+  .holding-filters { justify-content: flex-start; }
+  .holdings-table-wrap { overflow-x: visible; }
+  .holdings-table,
+  .holdings-table tbody { display: block; width: 100%; min-width: 0; }
+  .holdings-table thead { display: none; }
+  .holdings-table tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 8px;
+    align-items: center;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--grid);
+  }
+  .holdings-table td { display: none; border: 0; padding: 0; }
+  .holdings-table td:nth-child(1),
+  .holdings-table td:nth-child(6),
+  .holdings-table td:nth-child(7) { display: block; }
+  .holdings-table .holding-name { min-width: 0; }
+  .holding-mobile-meta { display: block; margin-top: 2px; color: var(--muted); font-size: 9px; }
+  .holding-weight { min-width: 0; }
+  .weight-track { width: 44px; }
+
+  .dividend-layout { grid-template-columns: 1fr; }
+  .dividend-layout > :nth-child(2),
+  .dividend-layout > :nth-child(3) { display: none; }
+  .dividend-form-grid { grid-template-columns: 1fr 1fr; }
+  .input-kinds { display: block; margin: 3px 0 0; white-space: normal; }
+  .input-panel-meta .badge,
+  .input-panel-meta .muted { display: none; }
 }
 
 @media (max-width: 599px) {
