@@ -532,3 +532,13 @@ def test_market_derivatives_expose_cboe_scope_table_only_in_private_mode() -> No
         "Cboe 거래소 합계", "지수", "ETP", "개별주", "VIX",
     ]
     assert "cboe_pcr" not in public
+
+
+def test_market_template_and_script_render_the_cboe_pcr_panel_with_reason() -> None:
+    root = Path(__file__).parents[3]
+    template = root.joinpath("src/stock_web/templates/market.html").read_text(encoding="utf-8")
+    script = root.joinpath("src/stock_web/static/market.js").read_text(encoding="utf-8")
+    assert 'id="cboe-pcr-panel"' in template
+    assert "renderCboePcr(section.cboe_pcr)" in script
+    assert 'unavailable(view.reason || "보존된 Cboe 일별 통계가 없습니다.")' in script
+

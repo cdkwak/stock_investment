@@ -305,7 +305,11 @@ def test_derivatives_translate_provider_warning_and_hide_us_missing_values(
     result = home_data.build_derivatives(new_temp_root())
 
     assert result["groups"][0]["rows"][0][1] == "출처 검증 전 · 미표시"
-    assert [row[1] for row in result["groups"][1]["rows"]] == ["미표시", "미표시"]
+    # The Cboe row carries its reason (review 08:00: a bare "미표시" hides whether the lane is
+    # broken, not yet collected, or switched off).
+    assert [row[1] for row in result["groups"][1]["rows"]] == [
+        "미표시", "미표시 · 보존된 Cboe 일별 통계 없음 (수집 전 · 기계 URL 확인 대기)",
+    ]
 
 
 def test_home_derivatives_show_retained_cboe_pcr_only_in_private_mode() -> None:

@@ -963,11 +963,15 @@ def build_derivatives(
                     f"{total_text} · 지수 {index_text} · {as_of}",
                 ])
             else:
-                cboe_views = current_us_option_pcr_scope_views()
-                reason = cboe_views[0].reason if cboe_views else None
-                us_rows.append(["Cboe 거래량 PCR (거래소 합계)", unavailable(reason, us_row=True)])
+                us_rows.append([
+                    "Cboe 거래량 PCR (거래소 합계)",
+                    "미표시 · 보존된 Cboe 일별 통계 없음 (수집 전 · 기계 URL 확인 대기)",
+                ])
         except Exception:
-            us_rows.append(["Cboe 거래량 PCR (거래소 합계)", "미표시"])
+            us_rows.append([
+                "Cboe 거래량 PCR (거래소 합계)",
+                "미표시 · 보존된 Cboe 일별 통계 없음 (수집 전 · 기계 URL 확인 대기)",
+            ])
     return {"groups": [
         {"title": "한국 · KOSPI200", "rows": [
             ["선물 Basis", display("KOSPI200_BASIS", "{:+.2f}")],

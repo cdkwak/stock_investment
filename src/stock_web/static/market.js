@@ -217,12 +217,31 @@
     if (payload.history_range) historyCache.set(payload.history_range, payload.sections);
   }
 
+  // Cboe daily put/call ratios (private mode only). The payload always carries the reason
+  // when the dataset is empty, so the panel never shows a bare "미표시".
+  function renderCboePcr(view) {
+    const panel = $("cboe-pcr-panel");
+    if (!panel) return;
+    if (!view) { panel.hidden = true; return; }
+    panel.hidden = false;
+    const meta = $("cboe-pcr-meta"), body = $("cboe-pcr-body");
+    if (view.status !== "VALUE" || !(view.rows || []).length) {
+      meta.innerHTML = `<span>${esc(view.scope_label || "")}</span>`;
+      body.innerHTML = `<div class="unavailable">${unavailable(view.reason || "보존된 Cboe 일별 통계가 없습니다.")} · 수집 전(기계 URL 확인 대기)</div>`;
+      return;
+    }
+    const asOf = (view.rows[0] || {}).date || "—";
+    meta.innerHTML = `<b class="num">${esc(pcr((view.rows.find((row) => row.scope === "TOTAL") || {}).volume_pcr))}</b><span>거래소 합계 거래량 PCR · 기준일 ${esc(asOf)} · ${esc(view.scope_label || "")} · 재배포 금지</span>`;
+    body.innerHTML = `<table class="market-table"><thead><tr><th>범위</th><th>거래량 PCR</th><th>미결제 PCR</th><th>콜 거래량</th><th>풋 거래량</th></tr></thead><tbody>${view.rows.map((row) => `<tr><td>${esc(row.label || row.scope)}</td><td class="num">${esc(pcr(row.volume_pcr))}</td><td class="num">${esc(pcr(row.oi_pcr))}</td><td class="num">${esc(fmt(row.call_volume, 0))}</td><td class="num">${esc(fmt(row.put_volume, 0))}</td></tr>`).join("")}</tbody></table>`;
+  }
+
   function renderDerivatives() {
     const section = ((pagePayload && pagePayload.sections) || {}).derivatives || {};
     const basis = historySection(rangeValue("basis"), "derivatives");
     const volumePcr = historySection(rangeValue("volume-pcr"), "derivatives");
     const oiPcr = historySection(rangeValue("oi-pcr"), "derivatives");
     $("derivatives-unavailable").textContent = section && section.status === "UNAVAILABLE" ? unavailable(section.reason) : "";
+    renderCboePcr(section.cboe_pcr);
     renderLinePanel("basis-chart", "basis-meta", basis.basis, "basis", "basis");
     renderLinePanel("volume-pcr-chart", "volume-pcr-meta", volumePcr.pcr && volumePcr.pcr.volume, "pcr", "volume-pcr");
     renderLinePanel("oi-pcr-chart", "oi-pcr-meta", oiPcr.pcr && oiPcr.pcr.oi, "pcr", "oi-pcr");
