@@ -283,7 +283,7 @@ def test_universe_health_treats_one_session_as_pending_until_daily_task_grace():
         row for row in after["datasets"] if row["dataset"] == "global_index_price_daily"
     )
     assert before_row["expected"] == "2026-08-26"
-    assert before_row["freshness"] == "CURRENT"
+    assert before_row["freshness"] == "STALE"
     assert before_row["display_status"] == "CURRENT"
     assert before_row["pending_until"] == "06:35"
     assert before_row["due_at"] == "2026-08-27T06:35:00+09:00"
@@ -353,7 +353,7 @@ def test_kr_post_close_outputs_wait_for_2030_occurrence_before_stale(
         dataset: (row["latest"], row["freshness"])
         for dataset, row in before_rows.items()
     } == {
-        dataset: (actual, "CURRENT")
+        dataset: (actual, "STALE")
         for dataset, (actual, _expected) in cases.items()
     }
     assert all(row["display_status"] == "CURRENT" for row in before_rows.values())
@@ -405,7 +405,8 @@ def test_universe_health_prefers_contract_validated_runtime_coverage(tmp_path, m
     assert blocked_probe["freshness"] == "UNKNOWN"
     assert regressed["latest"] == "2026-08-18"
     assert regressed["expected"] == "2026-08-19"
-    assert regressed["freshness"] == "CURRENT"
+    assert regressed["freshness"] == "STALE"
+    assert regressed["display_status"] == "CURRENT"
     assert regressed["pending_until"] == "20:45"
     assert result["runtime_coverage_validated_count"] == 2
     assert result["runtime_coverage_failure_count"] == 1
@@ -442,7 +443,7 @@ def test_scheduled_manual_publication_observation_is_preserved_when_validated(
     assert bok["display_status"] == "PRESERVED"
 
 
-def test_vix_health_is_pending_until_2300_kst_after_evening_release() -> None:
+def test_vix_health_waits_for_the_next_morning_lane_after_evening_release() -> None:
     rows = [{
         "dataset_id": dataset_id,
         "actual_latest": "2026-09-01" if dataset_id == "fred_vix_daily" else None,
@@ -457,11 +458,10 @@ def test_vix_health_is_pending_until_2300_kst_after_evening_release() -> None:
     })
     vix = next(row for row in result["datasets"] if row["dataset"] == "fred_vix_daily")
 
-    assert vix["expected"] == "2026-09-02"
-    assert vix["freshness"] == "CURRENT"
+    assert vix["expected"] == "2026-09-01"
+    assert vix["freshness"] == "EXPECTED_LAG"
     assert vix["display_status"] == "CURRENT"
-    assert vix["due_at"] == "2026-09-03T23:00:00+09:00"
-    assert vix["pending_until"] == "23:00"
+    assert vix["pending_until"] is None
 
 
 def test_runtime_coverage_latest_year_reader_supports_nested_market_partitions(

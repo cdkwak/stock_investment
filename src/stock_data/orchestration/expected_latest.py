@@ -116,6 +116,7 @@ US_DAILY_LANES = frozenset({
 _FRED_H15 = frozenset({"fred_treasury_yield_daily", "us_treasury_spread_daily"})
 _FRED_H10 = frozenset({"fred_usd_fx_daily"})
 _FRED_VIX = frozenset({"fred_vix_daily"})
+_FRED_DAILY_RUN_KST = time(6, 0)
 _KST = ZoneInfo("Asia/Seoul")
 _XKRX_MANUAL_DATASETS = frozenset({
     "kr_equity_foreign_ownership_daily", "kr_equity_fundamental_daily",
@@ -341,6 +342,12 @@ def _bok_fx_target(as_of: datetime) -> date:
     return candidate
 
 
+def _latest_daily_run(as_of: datetime, run_time: time, zone: str) -> datetime:
+    local = as_of.astimezone(ZoneInfo(zone))
+    run_day = local.date() if local.time() >= run_time else local.date() - timedelta(days=1)
+    return _at(run_day, run_time, zone)
+
+
 def _provider_target(
     policy: ExpectedLatestPolicy, calendar: ExchangeTradingCalendar, as_of: datetime,
 ) -> tuple[date, ProviderAvailability]:
@@ -355,9 +362,15 @@ def _provider_target(
         return calendar.previous_trading_day(release), ProviderAvailability.AVAILABLE
     if policy.provider_availability_policy is ProviderAvailabilityPolicy.FRED_VIX_NEXT_BUSINESS_DAY_0840_CT:
         available = []
+        # Scheduling is evaluated against the most recent 06:00 KST FRED
+        # occurrence. VIXCLS appears later, so it becomes a phase target only
+        # at the following occurrence; display due-times must not advance it.
+        evaluation_time = _latest_daily_run(
+            as_of, _FRED_DAILY_RUN_KST, "Asia/Seoul",
+        )
         for observation in sessions:
             release = calendar.next_trading_day(observation)
-            if _at(release, time(8, 40), "America/Chicago") <= as_of:
+            if _at(release, time(8, 40), "America/Chicago") <= evaluation_time:
                 available.append(observation)
         return available[-1], ProviderAvailability.AVAILABLE
     if policy.provider_availability_policy is ProviderAvailabilityPolicy.YAHOO_FUTURES_NEXT_BUSINESS_DAY_0800_ET:
@@ -553,8 +566,6 @@ def resolve_expected_latest(
             freshness = ExpectedFreshness.UNKNOWN
         elif retained_latest >= target:
             freshness = ExpectedFreshness.CURRENT
-        elif pending_until is not None:
-            freshness = ExpectedFreshness.CURRENT
         elif retained_latest >= _previous_weekday(target):
             # The 16:00 clock is operational, not a verified publication SLA.
             # One absent target row is expected provider lag, not stale/failure.
@@ -570,8 +581,7 @@ def resolve_expected_latest(
             freshness=freshness,
             availability=effective_availability,
             finality=policy.finality_policy,
-            collection_required=(retained_latest is None or retained_latest < target)
-            and pending_until is None,
+            collection_required=(retained_latest is None or retained_latest < target),
             observation_calendar=policy.observation_calendar,
             provider_availability_policy=policy.provider_availability_policy,
             expected_lag_policy=policy.expected_lag_policy,
@@ -618,8 +628,6 @@ def resolve_expected_latest(
         freshness = ExpectedFreshness.CURRENT
     elif retained_latest >= provider_target:
         freshness = ExpectedFreshness.EXPECTED_LAG
-    elif pending_until is not None:
-        freshness = ExpectedFreshness.CURRENT
     else:
         freshness = ExpectedFreshness.STALE
     return ExpectedLatestResult(
@@ -632,8 +640,7 @@ def resolve_expected_latest(
         availability=effective_availability,
         finality=policy.finality_policy,
         collection_required=(retained_latest is None or retained_latest < provider_target)
-        and effective_availability is ProviderAvailability.AVAILABLE
-        and pending_until is None,
+        and effective_availability is ProviderAvailability.AVAILABLE,
         observation_calendar=policy.observation_calendar,
         provider_availability_policy=policy.provider_availability_policy,
         expected_lag_policy=policy.expected_lag_policy,

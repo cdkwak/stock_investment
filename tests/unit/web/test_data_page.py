@@ -109,7 +109,8 @@ def test_data_page_labels_pending_current_row_with_due_time(tmp_path: Path) -> N
     root.mkdir(parents=True)
     (root / "universe_data_v2_latest.json").write_text(json.dumps({"datasets": [{
         "dataset": "kr_index_daily", "latest": "2026-09-03",
-        "expected": "2026-09-04", "freshness": "CURRENT",
+        "expected": "2026-09-04", "freshness": "STALE",
+        "display_status": "CURRENT",
         "due_at": "2026-09-04T20:45:00+09:00", "pending_until": "20:45",
     }]}), encoding="utf-8")
 
@@ -123,6 +124,7 @@ def test_data_page_labels_pending_current_row_with_due_time(tmp_path: Path) -> N
         "raw": "CURRENT", "label": "대기 20:45", "class": "current",
     }
     assert context["health_summary"]["display_current"] >= 1
+    assert context["health_summary"]["stale"] >= 1
 
 
 def test_old_scheduler_failure_is_separated_from_recent_receipts(tmp_path: Path) -> None:

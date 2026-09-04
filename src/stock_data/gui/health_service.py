@@ -235,7 +235,16 @@ class DailyHealthArtifactService:
             raise ValueError(f"health dataset is outside the typed universe: {dataset}")
         runtime_coverage = cls._optional_text(value.get("runtime_coverage"))
         pending_until = cls._pending_time_or_none(value.get("pending_until"))
-        if pending_until is not None and freshness == "STALE":
+        explicit_freshness = value.get("freshness", value.get("freshness_status"))
+        if (
+            pending_until is not None
+            and "display_status" not in value
+            and explicit_freshness == "CURRENT"
+        ):
+            # Compatibility for legacy/core-shaped rows that encoded a pending
+            # display as CURRENT without a separate display_status. Newly
+            # reconciled universe artifacts retain semantic STALE here and
+            # carry the overlay only in display_status/pending_until.
             freshness = "CURRENT"
         display_status, display_reason = classify_health_display(
             universe,

@@ -29,11 +29,11 @@ def test_fred_series_have_independent_provider_targets() -> None:
     assert yields.observation_calendar is ObservationCalendar.PROVIDER_BUSINESS_DAY
     assert fx.expected_available_observation == date(2026, 8, 14)
     assert fx.provider_availability_policy is ProviderAvailabilityPolicy.FRED_H10_WEEKLY_1615_ET
-    assert vix.expected_available_observation == date(2026, 8, 17)
-    assert vix.freshness is ExpectedFreshness.STALE
+    assert vix.expected_available_observation == date(2026, 8, 14)
+    assert vix.freshness is ExpectedFreshness.EXPECTED_LAG
 
 
-def test_fred_vix_is_pending_until_2300_kst_after_0840_ct_release() -> None:
+def test_fred_vix_advances_at_the_first_daily_run_after_0840_ct_release() -> None:
     after_release_before_next_run = resolve_expected_latest(
         dataset="fred_vix_daily", lane="FRED_DAILY",
         retained_latest=date(2026, 8, 24),
@@ -45,9 +45,8 @@ def test_fred_vix_is_pending_until_2300_kst_after_0840_ct_release() -> None:
         as_of=datetime(2026, 8, 26, 21, 0, tzinfo=timezone.utc),
     )
 
-    assert after_release_before_next_run.expected_available_observation == date(2026, 8, 25)
-    assert after_release_before_next_run.freshness is ExpectedFreshness.CURRENT
-    assert after_release_before_next_run.pending_until == "23:00"
+    assert after_release_before_next_run.expected_available_observation == date(2026, 8, 24)
+    assert after_release_before_next_run.freshness is ExpectedFreshness.EXPECTED_LAG
     assert at_next_run.expected_available_observation == date(2026, 8, 25)
     assert at_next_run.freshness is ExpectedFreshness.STALE
     assert at_next_run.collection_required
@@ -60,9 +59,9 @@ def test_h15_target_advances_only_after_official_release_clock() -> None:
         retained_latest=date(2026, 8, 14), as_of=after,
     )
     assert result.expected_available_observation == date(2026, 8, 17)
-    assert result.freshness is ExpectedFreshness.CURRENT
+    assert result.freshness is ExpectedFreshness.STALE
     assert result.pending_until == "06:35"
-    assert result.collection_required is False
+    assert result.collection_required
 
 
 def test_yahoo_continuous_futures_wait_for_next_business_day_completed_bar() -> None:
@@ -83,7 +82,7 @@ def test_yahoo_continuous_futures_wait_for_next_business_day_completed_bar() -> 
         as_of=datetime(2026, 8, 19, 12, 1, tzinfo=timezone.utc),
     )
     assert after_release.expected_available_observation == date(2026, 8, 18)
-    assert after_release.freshness is ExpectedFreshness.CURRENT
+    assert after_release.freshness is ExpectedFreshness.STALE
     assert after_release.pending_until == "22:25"
 
 
@@ -120,9 +119,9 @@ def test_short_trading_t_plus_one_advances_at_the_0910_scheduler_boundary() -> N
         as_of=datetime(2026, 8, 25, 0, 10, tzinfo=timezone.utc),
     )
     assert at_release.expected_available_observation == date(2026, 8, 24)
-    assert at_release.freshness is ExpectedFreshness.CURRENT
+    assert at_release.freshness is ExpectedFreshness.STALE
     assert at_release.pending_until == "09:25"
-    assert at_release.collection_required is False
+    assert at_release.collection_required is True
 
     after_release = resolve_expected_latest(
         dataset="kr_short_selling_trading_daily", lane="SHORT_SELLING_DAILY",
@@ -180,9 +179,9 @@ def test_credit_balance_uses_two_provider_business_day_expectation() -> None:
     assert expected.provider_availability_policy is (
         ProviderAvailabilityPolicy.KOFIA_T_PLUS_2_2030
     )
-    assert late.freshness is ExpectedFreshness.CURRENT
+    assert late.freshness is ExpectedFreshness.STALE
     assert late.pending_until == "20:45"
-    assert late.collection_required is False
+    assert late.collection_required is True
 
 
 def test_market_liquidity_keeps_manual_policy_without_matching_retained_lag() -> None:
@@ -292,7 +291,7 @@ def test_bok_fx_uses_1600_kst_target_and_one_day_expected_lag() -> None:
     assert before.expected_available_observation == date(2026, 9, 2)
     assert before.freshness is ExpectedFreshness.CURRENT
     assert after.expected_available_observation == date(2026, 9, 3)
-    assert after.freshness is ExpectedFreshness.CURRENT
+    assert after.freshness is ExpectedFreshness.EXPECTED_LAG
     assert after.pending_until == "20:45"
     assert after.provider_availability_policy is (
         ProviderAvailabilityPolicy.BOK_ECOS_FX_DAILY_1600_KST
@@ -356,7 +355,7 @@ def test_kr_daily_gap_is_pending_at_1700_and_late_at_2100_kst() -> None:
     assert before_due is not None and after_due is not None and older_backlog is not None
     assert before_due.expected_available_observation == date(2026, 9, 3)
     assert before_due.due_at == datetime.fromisoformat("2026-09-04T20:45:00+09:00")
-    assert before_due.freshness is ExpectedFreshness.CURRENT
+    assert before_due.freshness is ExpectedFreshness.STALE
     assert before_due.pending_until == "20:45"
     assert after_due.freshness is ExpectedFreshness.STALE
     assert after_due.pending_until is None
@@ -381,7 +380,7 @@ def test_us_daily_gap_is_pending_at_0530_and_late_at_0700_kst() -> None:
     assert before_due is not None and after_due is not None
     assert before_due.expected_available_observation == date(2026, 9, 3)
     assert before_due.due_at == datetime.fromisoformat("2026-09-04T06:35:00+09:00")
-    assert before_due.freshness is ExpectedFreshness.CURRENT
+    assert before_due.freshness is ExpectedFreshness.STALE
     assert before_due.pending_until == "06:35"
     assert after_due.freshness is ExpectedFreshness.STALE
 
@@ -396,7 +395,7 @@ def test_weekend_uses_the_previous_us_session_expectation() -> None:
 
     assert saturday is not None
     assert saturday.expected_available_observation == date(2026, 9, 4)
-    assert saturday.freshness is ExpectedFreshness.CURRENT
+    assert saturday.freshness is ExpectedFreshness.STALE
     assert saturday.pending_until == "06:35"
 
 
