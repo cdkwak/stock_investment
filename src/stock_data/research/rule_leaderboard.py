@@ -300,6 +300,14 @@ def _stats(
 ) -> dict[str, Any]:
     eligible = period_mask & frame["forward_return_90"].notna()
     selected = eligible & state["signal"] & state["exposure"].notna()
+    # A hybrid whose signal rows carry zero exposure (overheat ladder at its top level
+    # scales the vol-target exposure to 0) has nothing to measure: exposure × return is
+    # identically 0 and would print as a perfect "0.0%" row. Report the sample size but
+    # leave every metric undefined instead of a fake zero.
+    zero_exposure_n = 0
+    if selected.any() and pd.to_numeric(state.loc[selected, "exposure"], errors="coerce").eq(0.0).all():
+        zero_exposure_n = int(selected.sum())
+        selected = selected & False
     return_20 = _adjusted(frame, state, "forward_return_20", candidate).loc[selected].dropna()
     return_60 = _adjusted(frame, state, "forward_return_60", candidate).loc[selected].dropna()
     return_90 = _adjusted(frame, state, "forward_return_90", candidate).loc[selected].dropna()
@@ -313,7 +321,7 @@ def _stats(
     mean_60 = float(return_60.mean()) if not return_60.empty else np.nan
     baseline_60 = float(baseline.mean()) if not baseline.empty else np.nan
     result = {
-        "n": int(return_60.size),
+        "n": int(return_60.size) if not zero_exposure_n else zero_exposure_n,
         "mean_20": float(return_20.mean()) if not return_20.empty else np.nan,
         "mean_60": mean_60,
         "mean_90": float(return_90.mean()) if not return_90.empty else np.nan,
