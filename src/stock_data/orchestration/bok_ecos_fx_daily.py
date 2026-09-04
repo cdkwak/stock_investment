@@ -167,6 +167,9 @@ def _merge_append_only(existing: pd.DataFrame, incoming: pd.DataFrame) -> tuple[
             )
     additions = incoming.loc[accepted]
     merged = pd.concat([existing, additions], ignore_index=True)
+    # Retained rows carry datetime.date while a fresh capture may carry ISO strings;
+    # normalise before sorting or pandas raises "'<' not supported between str and date".
+    merged["date"] = pd.to_datetime(merged["date"]).dt.date
     merged = merged.sort_values("date", kind="stable").reset_index(drop=True)
     validate_bok_fx(merged)
     return merged, len(additions)
