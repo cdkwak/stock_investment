@@ -859,6 +859,14 @@ def test_account_asset_classification_uses_identity_and_leverage_metadata() -> N
     assert classified("SKHY", "SK hynix ADR", "USD") == ("미국 주식", 1)
     assert classified("005930", "삼성전자", "KRW") == ("국내 주식", 1)
     assert classified("UNKNOWN", "분류 없는 자산", "KRW") == ("기타", 1)
+    # KB prefixes KRX codes with "A": the catalog lookup must strip it.
+    assert classified("A123456", "TIGER 레버리지", "KRW") == ("국내 레버리지 ETF", 2)
+    # KRX ETFs outside the watchlist-scoped master are classified from brand + name.
+    assert classified("A0195R0", "TIGER 삼성전자단일종목레버리지", "KRW") == ("국내 레버리지 ETF", 2)
+    assert classified("494310", "KODEX 반도체레버리지", "KRW") == ("국내 레버리지 ETF", 2)
+    assert classified("0099Z0", "ACE 미국빅테크TOP7Plus", "KRW") == ("국내 상장 해외 ETF", 1)
+    assert classified("0099Y0", "KODEX 200", "KRW") == ("기타", 1)
+    assert classified("A0195R0", "TIGER 삼성전자단일종목레버리지", "USD") == ("기타", 1)
 
 
 def test_holding_filters_and_sort_keep_unvalued_rows_last() -> None:

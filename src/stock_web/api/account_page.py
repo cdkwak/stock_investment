@@ -1033,6 +1033,21 @@ _OVERSEAS_ETF_TOKENS = (
     "미국", "글로벌", "나스닥", "S&P", "NASDAQ", "CHINA", "차이나",
     "일본", "인도", "유럽", "EURO", "WORLD", "MSCI", "해외",
 )
+# KRX ETF brand prefixes: a KRW holding whose name starts with one of these is an ETF
+# even when the retained ETF master (watchlist scope only) does not list the symbol.
+_KR_ETF_BRANDS = (
+    "TIGER", "KODEX", "KOACT", "ACE", "TIME", "RISE", "SOL", "PLUS", "HANARO",
+    "ARIRANG", "KBSTAR", "KOSEF", "WOORI", "1Q", "히어로즈", "마이티", "파워",
+)
+_KB_SYMBOL_PREFIX = re.compile(r"^A([0-9A-Z]{6})$")
+
+
+def _catalog_symbol(symbol: object) -> str:
+    """Normalise a broker symbol for identity lookup (KB prefixes KRX codes with 'A')."""
+
+    clean = str(symbol or "").strip().upper()
+    match = _KB_SYMBOL_PREFIX.match(clean)
+    return match.group(1) if match else clean
 
 
 def _asset_identity_catalog(project_root: Path) -> dict[str, dict[str, object]]:
@@ -1104,10 +1119,20 @@ def classify_asset(
     catalog: Mapping[str, Mapping[str, object]] | None = None,
 ) -> tuple[str, int]:
     """Classify one holding only from retained identities and explicit names."""
-    clean_symbol = str(symbol or "").strip().upper()
+    clean_symbol = _catalog_symbol(symbol)
     clean_name = str(name or "").strip()
     upper_name = clean_name.upper()
     identity = (catalog or _asset_identity_catalog(project_root)).get(clean_symbol, {})
+    if not identity and str(currency or "").upper() == "KRW" and clean_symbol != "CASH":
+        # The retained KR ETF master only covers the watchlist scope, so KB's other KRX
+        # ETFs (single-stock leveraged products, sector leverage) are classified from
+        # the brand + name. KRX leveraged ETFs are 2x by rule.
+        if upper_name.startswith(_KR_ETF_BRANDS):
+            identity = {
+                "market": "KRX", "security_type": "ETF", "name": clean_name,
+                "leverage_multiple": 2 if "레버리지" in clean_name or "2X" in upper_name else 1,
+                "inferred_from_name": True,
+            }
     multiple = int(identity.get("leverage_multiple") or 1)
     market = str(identity.get("market") or "")
     security_type = str(identity.get("security_type") or "").upper()
@@ -1245,11 +1270,18 @@ def build_holdings_data(
             return_pct = position.return_pct
             if return_pct is None and position.purchase_amount not in {None, 0} and position.unrealized_pnl is not None:
                 return_pct = float(position.unrealized_pnl) / float(position.purchase_amount) * 100.0
+            quantity = float(position.quantity)
+            price = getattr(position, "current_price", None)
+            if quantity == 0 and native not in {None, 0} and price not in {None, 0}:
+                # KB's identifier-free projection currently carries 0 in its quantity
+                # field while price and valuation are populated: derive the display
+                # quantity from valuation / price instead of printing 0.
+                quantity = float(native) / float(price)
             append_row(
                 row_id=f"{source_id}:{position.symbol}:{index}",
                 symbol=position.symbol, name=position.name, account=account_name,
                 account_group=account_name, currency=currency,
-                quantity=float(position.quantity), market_value_native=native,
+                quantity=quantity, market_value_native=native,
                 market_value_krw=converted, return_pct=return_pct, reason=reason,
             )
         if source_id != "toss_self" and snapshot.cash_balance is not None and snapshot.currency:
