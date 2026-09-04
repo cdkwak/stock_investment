@@ -702,6 +702,9 @@ def _compound_catalog(project_root: Path) -> list[dict[str, str]]:
     ))
     catalog: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
+    summary_baskets: set[str] = set()
+    if isinstance(summary.get("baskets"), dict):
+        summary_baskets = {str(key).upper() for key in summary["baskets"]}
     for path in sorted(paths):
         stem = path.stem.removeprefix("grid_")
         match = next(
@@ -714,6 +717,10 @@ def _compound_catalog(project_root: Path) -> list[dict[str, str]]:
         product = stem[len(basket_slug) + 1:]
         key = (basket, product)
         if not product or key in seen:
+            continue
+        # Only baskets the latest summary.json covers belong in the catalog: leftover
+        # grid files from an older engine run (v1 FOREIGN grids) carry different semantics.
+        if summary_baskets and basket not in summary_baskets:
             continue
         seen.add(key)
         underlying = labels.get(product, product.replace("_", " ").upper())
