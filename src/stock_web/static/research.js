@@ -45,14 +45,40 @@
     return (((candidate || {}).results || {})[split]) || {};
   }
 
+  function sampleText(metrics) {
+    const base = `n=${number(metrics.n, 0)} (독립 사건 ${number(metrics.independent_events, 0)})`;
+    const simultaneous = metrics.simultaneous_n ?? metrics.simultaneous_count;
+    const unique = metrics.unique_n ?? metrics.unique_count;
+    return finite(simultaneous) && finite(unique)
+      ? `${base} · 동시 ${number(simultaneous, 0)} / 고유 ${number(unique, 0)}`
+      : base;
+  }
+
   function renderLeaderboard(payload) {
     const candidates = payload.candidates || [];
     $("leaderboard-body").innerHTML = candidates.map((candidate) => {
       const holdout = result(candidate, "holdout"), fit = result(candidate, "fit");
+      const compound = candidate.compound_ladder || {};
+      const underlyings = compound.status === "matched"
+        ? (Array.isArray(compound.underlyings) && compound.underlyings.length ? compound.underlyings : [compound])
+        : [];
+      // Every underlying of the basket is shown (KR = KOSPI and KOSPI200): the weaker one must not disappear.
+      const wealth = underlyings.length
+        ? underlyings.map((item) => `${esc(item.underlying || "")} ${multipleText(item.holdout_relative_to_baseline)}`).join("<br>")
+        : esc("미계산");
+      const wealthTitle = underlyings.length
+        ? `${compound.combination_label || ""} · ` + underlyings.map((item) => `${item.underlying || ""} 내 규칙 ${multipleText(item.holdout_final_wealth_multiple)} / 기준선 ${multipleText(item.holdout_baseline_final_wealth_multiple)}`).join(" · ")
+        : "일치하는 복리 grid 행 없음";
+      const plateau = underlyings.length
+        ? underlyings.map((item) => `${esc(item.underlying || "")} ${esc(item.plateau_verdict || "")}`).join("<br>")
+        : esc("미계산");
+      const sampleTitle = `독립 사건 = 90일 이상 떨어진 신호 묶음 (바스켓 합산) · 명명 사이클 ${number(holdout.cycles_with_signal, 0)}/9 · 사이클 밖 신호 ${number(holdout.signals_outside_cycles, 0)}건`;
       return `<tr data-candidate="${encodeURIComponent(candidate.id || "")}" tabindex="0" role="button" aria-label="${esc(candidate.name || candidate.id)} 상세 보기">
         <td class="rule-cell"><span class="rule-rank">${number(candidate.rank, 0)}</span><span class="rule-name">${esc(candidate.name || candidate.id)}</span><span class="rule-direction">${esc(candidate.direction_hint || "")}</span></td>
-        <td>${number(holdout.n, 0)}</td>
+        <td title="${esc(sampleTitle)}">${esc(sampleText(holdout))}</td>
         <td><b>${pct(holdout.mean_60)}</b> <span class="${valueClass(holdout.diff_60)}" title="기준 대비">(${pct(holdout.diff_60)})</span></td>
+        <td class="wealth-cell" title="${esc(wealthTitle)}">${wealth}</td>
+        <td class="plateau-cell">${plateau}</td>
         <td>${esc(sideLabels[candidate.side] || candidate.side || "—")}</td>
         <td>${esc(basketLabels[candidate.basket] || candidate.basket || "—")}</td>
         <td><span class="research-status ${esc(candidate.status || "")}">${esc(statusLabels[candidate.status] || candidate.status || "—")}</span></td>
@@ -60,7 +86,7 @@
         <td class="${valueClass(fit.diff_60)}">${pct(fit.diff_60)}</td>
         <td>${candidate.warn_small_sample ? '<span class="sample-warning" title="홀드아웃 표본 15 미만">⚠</span>' : ""}</td>
       </tr>`;
-    }).join("") || `<tr><td colspan="11"><div class="unavailable">${emptyMarkup(payload.message)}</div></td></tr>`;
+    }).join("") || `<tr><td colspan="13"><div class="unavailable">${emptyMarkup(payload.message)}</div></td></tr>`;
     document.querySelectorAll("#leaderboard-body tr[data-candidate]").forEach((row) => {
       const activate = () => selectCandidate(decodeURIComponent(row.dataset.candidate || ""));
       row.addEventListener("click", activate);
@@ -129,7 +155,7 @@
   function splitSummaryMarkup(candidate, horizon = 60) {
     const rows = ["fit", "holdout"].map((split) => {
       const metrics = result(candidate, split);
-      return `<tr><td>${split === "fit" ? "적합" : "홀드아웃"}</td><td>${number(metrics.n, 0)}</td><td class="${valueClass(metrics[`mean_${horizon}`])}">${pct(metrics[`mean_${horizon}`])}</td><td class="${valueClass(metrics.diff_60)}">${pct(metrics.diff_60)}</td><td>${pctUnsigned(metrics.hit_60, 0)}</td><td>${pctUnsigned(metrics.vol_60)}</td><td class="${valueClass(metrics.mdd_60)}">${pct(metrics.mdd_60)}</td></tr>`;
+      return `<tr><td>${split === "fit" ? "적합" : "홀드아웃"}</td><td>${esc(sampleText(metrics))}</td><td class="${valueClass(metrics[`mean_${horizon}`])}">${pct(metrics[`mean_${horizon}`])}</td><td class="${valueClass(metrics.diff_60)}">${pct(metrics.diff_60)}</td><td>${pctUnsigned(metrics.hit_60, 0)}</td><td>${pctUnsigned(metrics.vol_60)}</td><td class="${valueClass(metrics.mdd_60)}">${pct(metrics.mdd_60)}</td></tr>`;
     }).join("");
     return `<div class="detail-block result-summary-block"><h3>적합 / 홀드아웃 요약 · ${number(horizon, 0)}일 평균 선택</h3><div class="research-table-wrap"><table class="research-table"><thead><tr><th>구간</th><th>n</th><th>${number(horizon, 0)}일 평균</th><th>60일 기준 대비</th><th>상승확률</th><th>변동성</th><th>최대낙폭</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
   }
@@ -409,11 +435,31 @@
     syncExperimentControls();
   }
 
-  const crisisState = { payload: null, revealed: false, preset: "tlt" };
+  const holdoutViewState = { persistent: 0, session: 0 };
+
+  function updateHoldoutCounters(payload = {}) {
+    if (finite(payload.persistent_views)) holdoutViewState.persistent = Math.max(holdoutViewState.persistent, Number(payload.persistent_views));
+    if (finite(payload.session_views)) holdoutViewState.session = Number(payload.session_views);
+    const text = `홀드아웃 열람 ${number(holdoutViewState.persistent, 0)}회 (이 세션 ${number(holdoutViewState.session, 0)}회)`;
+    if ($("crisis-view-count")) $("crisis-view-count").textContent = text;
+    if ($("compound-view-count")) $("compound-view-count").textContent = text;
+  }
+
+  const crisisState = { payload: null, revealed: false, preset: "tlt", basis: "hold_start" };
   const crisisPalette = ["#315f8a", "#8a6a2f", "#4d7c59", "#76558a", "#2b7a78", "#9a5b45", "#5d6d7e", "#8f7b52", "#41729f", "#6f8f72", "#695b8f", "#3c7f86", "#936b55", "#58718a"];
 
   function crisisMode() {
     return (document.querySelector('input[name="crisis-mode"]:checked') || {}).value || "asset";
+  }
+
+  function crisisBasis() {
+    return ($("crisis-basis") || {}).value || crisisState.basis;
+  }
+
+  function crisisBasisLabel() {
+    const basis = crisisBasis();
+    const row = (((crisisState.payload || {}).normalisations) || []).find((item) => item.id === basis);
+    return (row || {}).label || (basis === "signal" ? "신호일 = 100" : "보유시작 = 100");
   }
 
   function crisisMedian(paths) {
@@ -449,7 +495,7 @@
     const hidden = episodes.filter((episode) => !crisisState.revealed && episode.is_holdout).map((episode) => `${episode.label} · 숨김`);
     const specs = [];
     if (crisisState.preset === "ladder") {
-      const item = (((payload.ladder || {}).KR || {}).KOSPI) || {};
+      const item = (((((payload.ladder || {})[crisisBasis()] || {}).KR || {}).KOSPI)) || {};
       const signalDates = item.signal_dates || {};
       const cycles = Object.keys(signalDates);
       const shown = cycles.filter((cycle) => crisisState.revealed || String(signalDates[cycle]) < "2016-01-01");
@@ -477,7 +523,7 @@
     if (crisisState.preset === "equity-yield") {
       visible.forEach((episode, index) => {
         const color = crisisPalette[index % crisisPalette.length];
-        specs.push({ label: `${episode.label} · 주식`, values: ((payload.series || {})[episode.id] || {}).equity_reference || [], dates: (payload.dates || {})[episode.id] || [], color, width: 1.35 });
+        specs.push({ label: `${episode.label} · 주식`, values: ((((payload.series || {})[crisisBasis()] || {})[episode.id] || {}).equity_reference) || [], dates: (payload.dates || {})[episode.id] || [], color, width: 1.35 });
         specs.push({ label: `${episode.label} · 10Y`, values: (payload.yields || {})[episode.id] || [], dates: (payload.dates || {})[episode.id] || [], color, width: 1.1, dash: "5 3", axis: "right", unit: "%" });
       });
       return { specs, hidden, rightAxis: true, title: "주식 100 기준 / 10년 금리(우축)" };
@@ -490,7 +536,7 @@
       (payload.assets || []).forEach((asset, index) => {
         const equity = asset.id === "equity_reference";
         specs.push({
-          label: asset.label, values: ((payload.series || {})[episode.id] || {})[asset.id] || [],
+          label: asset.label, values: ((((payload.series || {})[crisisBasis()] || {})[episode.id] || {})[asset.id]) || [],
           dates: (payload.dates || {})[episode.id] || [],
           color: equity ? "#171612" : crisisPalette[index % crisisPalette.length], width: equity ? 3.2 : 1.15,
         });
@@ -500,7 +546,7 @@
     const assetId = $("crisis-asset").value;
     const asset = (payload.assets || []).find((item) => item.id === assetId) || {};
     const candidates = visible.map((episode) => ({
-      episode, path: (((payload.series || {})[episode.id] || {})[assetId]) || [],
+      episode, path: (((((payload.series || {})[crisisBasis()] || {})[episode.id] || {})[assetId])) || [],
       mark: ((((payload.signal_values || {})[episode.id]) || {})[assetId]),
     })).filter((item) => item.path.some(finite));
     const worst = candidates.filter((item) => finite(item.mark)).reduce((winner, item) => !winner || Number(item.mark) < Number(winner.mark) ? item : winner, null);
@@ -525,7 +571,7 @@
       host.innerHTML = '<div class="unavailable">표시할 경로가 없습니다. 홀드아웃 위기는 먼저 열람 기록을 남겨야 합니다.</div>';
       return;
     }
-    const width = 1000, height = 390, left = 58, right = lineSet.rightAxis ? 64 : 22, top = 24, bottom = 38;
+    const width = 1000, height = 390, left = 74, right = lineSet.rightAxis ? 64 : 22, top = 24, bottom = 38;
     const plotW = width - left - right, plotH = height - top - bottom;
     const start = Number((crisisState.payload || {}).offset_start ?? -60);
     const end = Number((crisisState.payload || {}).offset_end ?? 250);
@@ -551,6 +597,7 @@
       <line class="crisis-base-line" x1="${left}" x2="${width - right}" y1="${y(100)}" y2="${y(100)}"></line>
       <line class="crisis-signal-line" x1="${xOffset(0)}" x2="${xOffset(0)}" y1="${top}" y2="${height - bottom}"></line>
       <line class="crisis-axis" x1="${left}" x2="${left}" y1="${top}" y2="${height - bottom}"></line><line class="crisis-axis" x1="${left}" x2="${width - right}" y1="${height - bottom}" y2="${height - bottom}"></line>
+      <text class="crisis-axis-label crisis-y-title" x="${-(top + plotH / 2)}" y="14" transform="rotate(-90)" text-anchor="middle">${esc(lineSet.yAxisLabel)}</text>
       ${xTicks.map((value) => `<text class="crisis-axis-label" x="${xOffset(value)}" y="${height - 12}" text-anchor="middle">${value > 0 ? "+" : ""}${value}</text>`).join("")}
       <text class="crisis-axis-label" x="${xOffset(20)}" y="${top + 11}" text-anchor="middle">+20</text><text class="crisis-axis-label" x="${xOffset(60)}" y="${top + 11}" text-anchor="middle">+60</text>
       ${lineSet.rightAxis ? `<line class="crisis-axis" x1="${width - right}" x2="${width - right}" y1="${top}" y2="${height - bottom}"></line>${rTicks.map((value) => `<text class="crisis-axis-label" x="${width - right + 7}" y="${ry(value) + 3}" text-anchor="start">${value.toFixed(lineSet.rightDomain ? 1 : 1)}${esc(lineSet.rightUnit || "%")}</text>`).join("")}` : ""}
@@ -580,7 +627,13 @@
     $("crisis-episode-field").hidden = mode !== "episode" || crisisState.preset === "ladder" || crisisState.preset === "equity-yield";
     document.querySelectorAll("[data-crisis-preset]").forEach((button) => button.classList.toggle("active", button.dataset.crisisPreset === crisisState.preset));
     const lineSet = crisisLineSet();
-    $("crisis-status").textContent = `${lineSet.title} · −60~+250 세션 · 신호일=100`;
+    const basisLabel = crisisBasisLabel();
+    lineSet.title = `${lineSet.title} · ${basisLabel}`;
+    lineSet.yAxisLabel = basisLabel;
+    $("crisis-status").textContent = `${lineSet.title} · −60~+250 세션`;
+    $("crisis-basis-caption").textContent = crisisBasis() === "hold_start"
+      ? "보유시작 = 100 · 핵심 실탄 표의 valuation 열(T−60 또는 마지막 level-0일부터)과 일치합니다."
+      : "신호일 = 100 · 기존 위기 겹쳐보기의 신호일 재기준화 값과 일치합니다.";
     renderCrisisChart(lineSet);
   }
 
@@ -605,7 +658,7 @@
       if (!response.ok) throw new Error(await readError(response));
       const payload = await response.json();
       crisisState.revealed = true;
-      $("crisis-view-count").textContent = `홀드아웃 열람 ${number(payload.persistent_views, 0)}회 (이 세션 ${number(payload.session_views, 0)}회)`;
+      updateHoldoutCounters(payload);
       button.textContent = "홀드아웃 표시 중";
       renderCrisis();
     } catch (error) {
@@ -616,7 +669,8 @@
 
   async function initCrisisOverlay() {
     if (!$("crisis-overlay")) return;
-    $("crisis-command").textContent = "python scripts/research/run_crisis_overlay.py --project-root .";
+    $("crisis-command").textContent = ".venv\\Scripts\\python.exe scripts/research/run_crisis_overlay.py --project-root .";
+    $("crisis-basis").addEventListener("change", () => { crisisState.basis = crisisBasis(); renderCrisis(); });
     document.querySelectorAll('[name="crisis-mode"]').forEach((input) => input.addEventListener("change", () => { crisisState.preset = ""; renderCrisis(); }));
     $("crisis-asset").addEventListener("change", () => { crisisState.preset = ""; renderCrisis(); });
     $("crisis-episode").addEventListener("change", () => { crisisState.preset = ""; renderCrisis(); });
@@ -628,7 +682,7 @@
       crisisState.payload = await response.json();
       $("crisis-asset").innerHTML = (crisisState.payload.assets || []).map((asset) => `<option value="${esc(asset.id)}">${esc(asset.label)}</option>`).join("");
       $("crisis-episode").innerHTML = (crisisState.payload.episodes || []).map((episode) => `<option value="${esc(episode.id)}">${esc(episode.label)}${episode.is_holdout ? " · 홀드아웃" : ""}</option>`).join("");
-      $("crisis-view-count").textContent = `홀드아웃 열람 ${number(crisisState.payload.holdout_views || 0, 0)}회 (이 세션 0회)`;
+      updateHoldoutCounters({ persistent_views: crisisState.payload.holdout_views || 0 });
       if ((crisisState.payload.assets || []).some((asset) => asset.id === "tlt")) $("crisis-asset").value = "tlt";
       setCrisisPreset("tlt");
     } catch (error) {
@@ -707,6 +761,10 @@
 
   function multipleText(value, digits = 2) {
     return finite(value) ? `${Number(value).toFixed(digits)}배` : "—";
+  }
+
+  function compoundProductLabel(variant) {
+    return ({ index_1x: "지수 1x", synthetic_2x: "합성 2x", synthetic_3x: "합성 3x", actual_adjusted: "실제 상품 보정" })[variant] || variant;
   }
 
   function renderCompoundCurve(row, fit, variant) {
@@ -806,7 +864,7 @@
     const relative = Number(fit.relative_to_baseline);
     $("compound-headline").innerHTML = `<span>FIT · ${esc(fit.start || "—")}~${esc(fit.end || "2015")}</span><b>기준선 ${multipleText(fit.baseline_final_wealth_multiple)} · 내 규칙 ${multipleText(fit.final_wealth_multiple)} · ${pct(relative - 1, 0)}</b>`;
     $("compound-fit-metrics").innerHTML = `<div class="compound-metric"><span>최종 금액 / 기준선</span><b>${multipleText(relative)}</b></div><div class="compound-metric"><span>CAGR</span><b>${pct(fit.cagr)}</b></div><div class="compound-metric"><span>최대낙폭</span><b>${pct(fit.max_drawdown)}</b></div>`;
-    $("compound-knob-note").textContent = `${row.underlying || combination.product} · cached row · 요청 경로 계산 없음`;
+    $("compound-knob-note").textContent = `${row.underlying || combination.product} · ${compoundProductLabel(combination.product_variant)} · ${combination.cost_enabled ? "거래비용 포함" : "거래비용 제외"} · cached row`;
     if (compoundState.holdoutVisible) renderCompoundHoldout(row, combination);
     else $("compound-holdout-output").hidden = true;
     renderCompoundCurve(row, fit, combination.product_variant);
@@ -892,7 +950,7 @@
       const payload = await response.json();
       compoundState.holdoutVisible = true;
       compoundState.sessionViews = payload.session_views;
-      $("compound-view-count").textContent = `홀드아웃 열람 ${number(payload.persistent_views, 0)}회 (이 세션 ${number(payload.session_views, 0)}회)`;
+      updateHoldoutCounters(payload);
       renderCompoundHoldout(row, combination);
     } catch (error) {
       compoundToast(error.message || "홀드아웃 열람을 기록하지 못했습니다.", true);
@@ -927,6 +985,7 @@
     const baskets = [...document.querySelectorAll('input[name="compound-run-basket"]:checked')].map((input) => input.value);
     return {
       baskets, product: $("compound-run-product").value,
+      cost_enabled: $("compound-cost").checked,
       ranges: {
         drawdown_threshold: $("compound-run-drawdowns").value.trim(),
         disp60_threshold: $("compound-run-disp60").value.trim(),
@@ -938,15 +997,13 @@
 
   function compoundCommand() {
     const payload = compoundRunPayload();
-    const overrides = Object.values(payload.ranges).some(Boolean);
-    if (!overrides) return `.venv\\Scripts\\python.exe scripts\\research\\run_compound_backtest.py --project-root . --baskets ${payload.baskets.join(",") || "KR"}`;
     const values = (value, fallback, integer = false) => value ? value.split(",").map((item) => integer ? Number.parseInt(item.trim(), 10) : Number(item.trim())) : fallback;
     const grid = {
       drawdown_threshold: values(payload.ranges.drawdown_threshold, compoundDefaults.drawdown_threshold),
       disp60_threshold: values(payload.ranges.disp60_threshold, compoundDefaults.disp60_threshold),
       levels: values(payload.ranges.levels, compoundDefaults.levels, true),
       leverage_multiple: values(payload.ranges.leverage_multiple, compoundDefaults.leverage_multiple, true),
-      base_exposure: [0, 1], exit: compoundDefaults.exit, cost_enabled: [false, true],
+      base_exposure: [0, 1], exit: compoundDefaults.exit, cost_enabled: [payload.cost_enabled],
     };
     const pyValue = (value) => typeof value === "string" ? `'${value}'` : typeof value === "boolean" ? (value ? "True" : "False") : String(value);
     const pyTuple = (items) => `(${items.map(pyValue).join(",")}${items.length === 1 ? "," : ""})`;
@@ -999,8 +1056,9 @@
 
   function bindCompound() {
     ["compound-drawdown", "compound-disp60"].forEach((id) => $(id).addEventListener("input", () => scheduleCompoundRender()));
-    ["compound-levels", "compound-exit", "compound-cost", "compound-heatmap-axes"].forEach((id) => $(id).addEventListener("change", () => scheduleCompoundRender()));
-    $("compound-product").addEventListener("change", () => { syncCompoundProduct(); scheduleCompoundRender(); });
+    ["compound-levels", "compound-exit", "compound-heatmap-axes"].forEach((id) => $(id).addEventListener("change", () => scheduleCompoundRender()));
+    $("compound-cost").addEventListener("change", () => { scheduleCompoundRender(); updateCompoundCommand(); });
+    $("compound-product").addEventListener("change", () => { syncCompoundProduct(); scheduleCompoundRender(); updateCompoundCommand(); });
     $("compound-multiple").addEventListener("change", () => {
       if ($("compound-product").value !== "actual_adjusted") {
         $("compound-product").value = ({ 1: "index_1x", 2: "synthetic_2x", 3: "synthetic_3x" })[$("compound-multiple").value];
@@ -1025,7 +1083,7 @@
       compoundState.catalog = catalog.catalog || [];
       $("compound-basket").innerHTML = compoundState.catalog.map((item) => `<option value="${esc(`${item.basket}|${item.product}`)}">${esc(item.label)}</option>`).join("");
       const views = Number(catalog.holdout_views || 0);
-      $("compound-view-count").textContent = `홀드아웃 열람 ${number(views, 0)}회 (이 세션 0회)`;
+      updateHoldoutCounters({ persistent_views: views });
       if (!compoundState.catalog.length) throw new Error("미계산 조합 · compound grid가 없습니다.");
       updateCompoundCommand();
       await Promise.all([loadCompoundGrid(), pollCompoundRun()]);

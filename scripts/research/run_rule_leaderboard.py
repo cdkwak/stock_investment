@@ -20,6 +20,7 @@ def main(argv: list[str] | None = None) -> int:
     latest, dated, payload = run_rule_leaderboard(args.project_root)
     print(json.dumps({
         "status": "PASS",
+        "schema_version": payload["schema_version"],
         "latest": str(latest),
         "dated": str(dated),
         "rules_version": payload["rules_version"],

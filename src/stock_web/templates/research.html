@@ -62,7 +62,7 @@
       <div><span class="section-index">00·AXIS</span><b id="crisis-overlay-title">위기 정렬 겹쳐보기</b></div>
       <div class="crisis-holdout-actions"><button type="button" id="crisis-holdout">홀드아웃 위기 보기</button><span id="crisis-view-count">홀드아웃 열람 0회</span></div>
     </div>
-    <p class="crisis-intro">각 위기의 첫 2단계 신호를 <b>x = 0</b>에 맞추고, 자산 경로는 그날을 <b>100</b>으로 다시 표시합니다. WORST@T는 핵심 실탄 표의 기존 보유시작 기준값으로 판정합니다.</p>
+    <p class="crisis-intro">각 독립 2단계 신호를 <b>x = 0</b>에 맞춥니다. 기본값은 핵심 실탄 표와 같은 보유시작 기준이며, 신호일 기준으로도 바꿔 볼 수 있습니다. WORST@T는 항상 보유시작 기준값으로 판정합니다.</p>
     <div class="crisis-presets" aria-label="위기 겹쳐보기 프리셋">
       <button type="button" data-crisis-preset="equity-yield">주식 vs 10년 금리</button>
       <button type="button" data-crisis-preset="tlt">TLT 위기별</button>
@@ -71,6 +71,7 @@
     </div>
     <div class="crisis-controls">
       <fieldset><legend>보기</legend><label><input type="radio" name="crisis-mode" value="asset" checked> 한 자산 × 여러 위기</label><label><input type="radio" name="crisis-mode" value="episode"> 한 위기 × 여러 자산</label></fieldset>
+      <label><span>정규화 기준</span><select id="crisis-basis" aria-label="위기 차트 정규화 기준"><option value="hold_start" selected>보유시작 = 100</option><option value="signal">신호일 = 100</option></select></label>
       <label id="crisis-asset-field"><span>자산</span><select id="crisis-asset" aria-label="겹쳐볼 자산"></select></label>
       <label id="crisis-episode-field" hidden><span>위기</span><select id="crisis-episode" aria-label="겹쳐볼 위기"></select></label>
       <span class="crisis-status" id="crisis-status" role="status">overlay를 불러오는 중…</span>
@@ -79,7 +80,8 @@
       <div id="crisis-chart" class="crisis-chart" aria-live="polite"></div>
       <div id="crisis-legend" class="crisis-legend" aria-label="차트 범례"></div>
     </div>
-    <div class="crisis-command"><span>미계산이면 저장소 루트에서 실행</span><code id="crisis-command">python scripts/research/run_crisis_overlay.py --project-root .</code></div>
+    <p class="crisis-basis-caption" id="crisis-basis-caption">보유시작 = 100 · 핵심 실탄 표의 valuation 열과 일치합니다.</p>
+    <div class="crisis-command"><span>미계산이면 저장소 루트에서 실행</span><code id="crisis-command">.venv\Scripts\python.exe scripts/research/run_crisis_overlay.py --project-root .</code></div>
   </section>
 
   <section class="card compound-lab-card" id="compound-lab" aria-labelledby="compound-lab-title">
@@ -168,10 +170,11 @@
     </div>
     <div class="research-table-wrap">
       <table class="research-table leaderboard-table">
-        <thead><tr><th>규칙</th><th>홀드아웃 n</th><th>60일 평균 (기준 대비)</th><th>측</th><th>바스켓</th><th>상태</th><th>상승확률</th><th>변동성</th><th>최대낙폭</th><th>적합 60일 차이</th><th><span class="sr-only">경고</span>⚠</th></tr></thead>
+        <thead><tr><th>규칙</th><th>홀드아웃 표본</th><th>60일 평균 (기준 대비)</th><th>최종금액/기준선 (홀드아웃)</th><th>고원 판정</th><th>측</th><th>바스켓</th><th>상태</th><th>상승확률</th><th>변동성</th><th>최대낙폭</th><th>적합 60일 차이</th><th><span class="sr-only">경고</span>⚠</th></tr></thead>
         <tbody id="leaderboard-body"></tbody>
       </table>
     </div>
+    <p class="leaderboard-wealth-note">60일 평균 우위와 최종금액은 다른 질문에 답합니다 — 채택 판단은 최종금액 열을 우선 보세요. 최종금액/기준선은 합성 2배 · 출구 a · 거래비용 포함 · 기본 노출 1.0 조합의 홀드아웃 값이며 바스켓의 지수를 모두 보여줍니다(KR = KOSPI·KOSPI200). 독립 사건 = 90일 이상 떨어진 신호 묶음 수(바스켓 합산).</p>
   </section>
 
   <section class="card research-detail-card" id="research-detail" aria-labelledby="detail-title">

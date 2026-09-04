@@ -20,7 +20,10 @@
 기록된다. 후보 등록은 기존 후보 등록 경로를 사용한다. UI 요청 정의에는 선택한
 분할 수를 유지하되, 기존 포워드 레인의 “조건 수 = levels” 계약에는 두 진입
 조건으로 변환한다. 선택한 분할 수는 등록 이유에 남고 출구·배율·비용은
-`compound_ladder_ui` 메타데이터로 함께 보존된다.
+`compound_ladder_ui` 메타데이터로 함께 보존된다. 결과 상태 줄은 지수, 선택한
+상품 기준(지수 1x/합성 2x/합성 3x/실제 상품 보정), 거래비용 포함 여부, cached
+row 여부를 함께 밝힌다. 후보 메타데이터와 화면의 재현 CLI도 같은 비용 플래그를
+보존한다.
 
 `계산 실행`은 loopback 및 private mode에서만 사용할 수 있다. 한 번에 한 작업만
 `artifacts/research/compound_ladder/run.lock`을 소유하며, 진행 상태는 `run.log`에
@@ -34,11 +37,15 @@ grid와 summary를 원자적으로 갱신한다. 공급자 API와 주문 경로�
 
 ## 위기 정렬 겹쳐보기
 
-`위기 정렬 겹쳐보기`는 첫 2단계 신호일을 `x=0`으로 맞춘 −60~+250 시장
-세션을 표시한다. 자산 경로는 신호일을 100으로 다시 기준화하지만,
-`WORST@T` 선택에는 핵심 실탄 표와 같은 보유시작 기준 valuation 값을 쓴다.
-따라서 T/+20/+60 체크포인트는 `core_ammunition`의 as-of 및 duration/cash
-계산과 일치한다. `주식 vs 10년 금리`는 주식 100 기준선을 왼쪽 축, 원시
+`위기 정렬 겹쳐보기`는 핵심 실탄 표의 사전 정의 사이클에 속한 독립 2단계
+에피소드를 `x=0`으로 맞춘 −60~+250 시장 세션으로 표시한다. schema v2
+`overlay.json`은 `보유시작 = 100`과 `신호일 = 100` 경로를 모두 선계산하며,
+기본값은 실탄 관점인 보유시작 기준이다. 보유시작은 핵심 실탄 표와 똑같이
+T−60 또는 그 이후 마지막 level-0일이다. 따라서 KR 2022-09-30 TLT의 T 값
+88.11처럼 T/+20/+60 체크포인트가 `core_ammunition` 표의 as-of 및
+duration/cash 계산과 일치한다. `WORST@T`는 표시 기준과 무관하게 이 보유시작
+valuation으로 판정한다. 차트 제목, 왼쪽 y축, 아래 캡션은 현재 기준과 일치하는
+표를 항상 명시한다. `주식 vs 10년 금리`는 정규화 자산값을 왼쪽 축, 원시
 `dgs10` 금리 수준(%p)을 오른쪽 축에 놓는다.
 `낙폭 사다리` 프리셋은 같은 KOSPI 사이클의 100 기준 가격과 관측 LEVEL
 (0/1/2) 계단 경로를 함께 표시한다.
@@ -47,7 +54,7 @@ grid와 summary를 원자적으로 갱신한다. 공급자 API와 주문 경로�
 않는다. 산출물이 없으면 `미계산`과 아래 명령을 표시한다.
 
 ```powershell
-python scripts/research/run_crisis_overlay.py --project-root .
+.venv\Scripts\python.exe scripts/research/run_crisis_overlay.py --project-root .
 ```
 
 생성기는 retained Parquet만 읽고 결과를 원자적으로 교체한다. 2016-01-01 이후
@@ -55,3 +62,5 @@ python scripts/research/run_crisis_overlay.py --project-root .
 `POST /api/research/compound/holdout-view`에 `kind=crisis_overlay`를 보내 동일한
 시도 이력과 세션 카운터를 증가시킨 뒤 공개한다. 공개/게스트 모드에서는 패널과
 `GET /api/research/crisis-overlay`가 모두 HTTP 404로 숨겨진다.
+두 패널 중 어느 쪽에서 홀드아웃을 열어도 응답의 영구/세션 카운터를 두 패널에
+동시에 반영한다.

@@ -26,6 +26,7 @@ def _root() -> Path:
 def _metric(*, n: int, mean: float, diff: float, warn: bool = False) -> dict[str, object]:
     return {
         "n": n, "mean_20": mean / 2, "mean_60": mean, "mean_90": mean * 1.2,
+        "independent_events": 3, "cycles_with_signal": 2, "signals_outside_cycles": 1,
         "median_60": mean * .8, "hit_60": .6, "baseline_60": mean - diff,
         "diff_60": diff, "vol_60": .2, "mdd_60": -.1,
         "warn_small_sample": warn,
@@ -514,20 +515,32 @@ def _write_compound_fixture(root: Path) -> None:
 
 def _write_crisis_overlay_fixture(root: Path) -> dict[str, object]:
     payload = {
+        "schema_version": 2,
         "generated_at": "2026-09-05T00:00:00+00:00",
         "offset_start": -60, "offset_end": 250,
         "episodes": [{
             "id": "KR_2008-01-22", "market": "KR", "cycle": "2008–09 금융위기",
             "label": "2008 · KR", "type": "recession-type",
-            "signal_date": "2008-01-22", "is_holdout": False,
+            "signal_date": "2008-01-22", "hold_start_date": "2008-01-08",
+            "hold_start_offset": -1, "is_holdout": False,
         }],
         "assets": [{"id": "equity_reference", "label": "주식 기준"}],
-        "series": {"KR_2008-01-22": {"equity_reference": [100.0, 101.0]}},
+        "normalisations": [
+            {"id": "hold_start", "label": "보유시작 = 100"},
+            {"id": "signal", "label": "신호일 = 100"},
+        ],
+        "series": {
+            "hold_start": {"KR_2008-01-22": {"equity_reference": [100.0, 88.11]}},
+            "signal": {"KR_2008-01-22": {"equity_reference": [99.0, 100.0]}},
+        },
         "signal_values": {"KR_2008-01-22": {"equity_reference": 80.0}},
         "dates": {"KR_2008-01-22": ["2008-01-22", "2008-01-23"]},
         "yields": {"KR_2008-01-22": [4.0, 3.9]},
         "levels": {"KR_2008-01-22": [2, 2]},
-        "ladder": {"KR": {"KOSPI": {"median": [100.0, 101.0], "worst": "2008"}}},
+        "ladder": {
+            "hold_start": {"KR": {"KOSPI": {"median": [100.0, 101.0], "worst": "2008"}}},
+            "signal": {"KR": {"KOSPI": {"median": [100.0, 101.0], "worst": "2008"}}},
+        },
     }
     path = root / research_page.CRISIS_OVERLAY_RELATIVE
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -549,6 +562,7 @@ def test_crisis_overlay_endpoint_returns_fixture_and_missing_is_korean_404(
     assert response.status_code == 200
     assert response.json()["episodes"] == expected["episodes"]
     assert response.json()["series"] == expected["series"]
+    assert response.json()["schema_version"] == 2
     assert response.json()["holdout_views"] == 0
 
 
@@ -667,9 +681,21 @@ def test_compound_registration_builds_forward_definition_and_metadata() -> None:
     }
     assert payload["metadata"] == {
         "exit": "c", "multiple": 3, "cost": False,
+        "product_basis": "synthetic_2x",
         "source": "compound_ladder_ui",
     }
     assert payload["_registry_definition"]["levels"] == 2
+
+
+def test_compound_run_cost_flag_is_preserved_in_grid_and_cli_hint() -> None:
+    spec = research_page.normalise_compound_run({
+        "baskets": ["KR"], "product": "synthetic_2x", "cost_enabled": False,
+        "ranges": {"levels": "2"},
+    })
+
+    assert spec["grid"]["cost_enabled"] == (False,)
+    command = research_page._compound_command(spec)
+    assert "cost_enabled" in command and "False" in command
 
 
 def test_compound_registration_posts_through_existing_candidate_endpoint(
@@ -700,6 +726,7 @@ def test_compound_registration_posts_through_existing_candidate_endpoint(
     ]
     assert candidate["definition"]["levels"] == 2
     assert '"exit":"d"' in candidate["reason"]
+    assert '"product_basis":"synthetic_2x"' in candidate["reason"]
     assert '"source":"compound_ladder_ui"' in candidate["reason"]
 
 
@@ -788,6 +815,12 @@ def test_compound_panel_static_contract_uses_cached_frame_render_and_existing_ch
     assert "window.SIChart.renderLineChart" in script
     assert "setTimeout(pollCompoundRun, 2000)" in script
     assert 'fetch("/api/research/candidates"' in script
+    assert "compound.underlyings" in script
+    assert "item.holdout_relative_to_baseline" in script
+    assert "item.holdout_baseline_final_wealth_multiple" in script
+    assert '"거래비용 포함" : "거래비용 제외"' in script
+    assert 'product_basis' in Path(__file__).parents[3].joinpath("src/stock_web/api/research_page.py").read_text(encoding="utf-8")
+    assert "cost_enabled: [payload.cost_enabled]" in script
     assert ".compound-lab-grid { display: grid; grid-template-columns:" in style
     assert ".compound-lab-grid { grid-template-columns: 1fr; }" in style
 
@@ -802,9 +835,14 @@ def test_crisis_overlay_panel_declares_alignment_presets_and_holdout_gate() -> N
     assert "한 자산 × 여러 위기" in template and "한 위기 × 여러 자산" in template
     for label in ("주식 vs 10년 금리", "TLT 위기별", "리츠 위기별", "낙폭 사다리: KOSPI 5개 사이클"):
         assert label in template
-    assert "python scripts/research/run_crisis_overlay.py --project-root ." in template
+    assert ".venv\\Scripts\\python.exe scripts/research/run_crisis_overlay.py --project-root ." in template
+    assert 'id="crisis-basis"' in template and "보유시작 = 100" in template
     assert 'fetch("/api/research/crisis-overlay")' in script
     assert 'kind: "crisis_overlay"' in script
     assert "signal_values" in script and "crisis-signal-line" in script
+    assert '(payload.series || {})[crisisBasis()]' in script
+    assert "crisis-y-title" in script and "crisis-basis-caption" in template
+    assert "updateHoldoutCounters(payload);" in script
+    assert 'if ($("crisis-view-count"))' in script and 'if ($("compound-view-count"))' in script
     assert "crisis-check-band" in script and "row.date || \"중앙\"" in script
     assert ".crisis-chart-shell" in style and ".crisis-tooltip" in style

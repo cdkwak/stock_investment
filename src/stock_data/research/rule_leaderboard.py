@@ -5,6 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import datetime, timezone
 import json
+import math
 from pathlib import Path
 import threading
 from typing import Any, Mapping, Sequence
@@ -41,16 +42,33 @@ PRIMARY_SERIES: dict[str, tuple[str, ...]] = {
     "POOLED": ("KOSPI200", "KOSPI", "NASDAQ100", "SOX"),
 }
 CYCLES: tuple[dict[str, str | None], ...] = (
-    {"id": "dotcom_2000", "label": "2000 닷컴", "start": "2000-03-01", "end": "2002-10-31"},
-    {"id": "gfc_2008", "label": "2008 금융위기", "start": "2007-10-01", "end": "2009-03-31"},
-    {"id": "covid_2020", "label": "2020 코로나", "start": "2020-02-01", "end": "2020-06-30"},
-    {"id": "bear_2022", "label": "2022 약세장", "start": "2022-01-01", "end": "2022-12-31"},
-    {"id": "recent_2025", "label": "2025-26", "start": "2025-01-01", "end": None},
+    {"id": "kr_fx_1997", "label": "1997–98 외환위기 (KR)", "start": "1997-01-01", "end": "1998-12-31"},
+    {"id": "dotcom_2000", "label": "2000–02 닷컴", "start": "2000-01-01", "end": "2002-12-31"},
+    {"id": "gfc_2008", "label": "2008–09 금융위기", "start": "2008-01-01", "end": "2009-12-31"},
+    {"id": "credit_2011", "label": "2011 (EU/미국 신용등급)", "start": "2011-01-01", "end": "2011-12-31"},
+    {"id": "slowdown_2015", "label": "2015–16", "start": "2015-01-01", "end": "2016-12-31"},
+    {"id": "selloff_2018", "label": "2018", "start": "2018-01-01", "end": "2018-12-31"},
+    {"id": "covid_2020", "label": "2020 코로나", "start": "2020-01-01", "end": "2020-12-31"},
+    {"id": "bear_2022", "label": "2022 인플레", "start": "2022-01-01", "end": "2022-12-31"},
+    {"id": "recent_2025", "label": "2025–26", "start": "2025-01-01", "end": "2026-12-31"},
 )
 RESULT_KEYS = (
-    "n", "mean_20", "mean_60", "mean_90", "median_60", "hit_60",
+    "n", "independent_events", "cycles_with_signal", "signals_outside_cycles",
+    "mean_20", "mean_60", "mean_90", "median_60", "hit_60",
     "baseline_60", "diff_60", "vol_60", "mdd_60", "warn_small_sample",
 )
+# Signal dates closer than this (calendar days, roughly 60 trading sessions = the 60-day
+# return horizon) belong to the same episode: their forward windows overlap, so they are
+# not independent observations. Dates are pooled across the basket's series first, so
+# KOSPI and KOSPI200 signalling on the same crash count once.
+EPISODE_GAP_DAYS = 90
+COMPOUND_UNDERLYINGS: dict[str, tuple[str, ...]] = {
+    "KR": ("KOSPI", "KOSPI200"), "US_TECH": ("NASDAQ100",), "SEMIS": ("SOX",),
+}
+COMPOUND_REFERENCE_COMBINATION = {
+    "leverage_multiple": 2, "base_exposure": 1.0, "exit": "a", "cost_enabled": True,
+}
+COMPOUND_REFERENCE_LABEL = "합성 2배 · 출구 a · 거래비용 포함 · 기본 노출 1.0"
 
 _CACHE_LOCK = threading.RLock()
 _INDICATOR_FRAME_CACHE: dict[
@@ -292,6 +310,19 @@ def _adjusted(
     return values if candidate["definition"]["type"] == "ladder" else values * state["exposure"]
 
 
+def _independent_episodes(signal_dates: pd.Series) -> int:
+    """Count signal episodes: pooled dates split wherever the gap exceeds EPISODE_GAP_DAYS."""
+
+    dates = pd.to_datetime(signal_dates, errors="coerce").dropna().drop_duplicates().sort_values()
+    episodes = 0
+    previous: pd.Timestamp | None = None
+    for date in dates:
+        if previous is None or (date - previous).days > EPISODE_GAP_DAYS:
+            episodes += 1
+        previous = date
+    return episodes
+
+
 def _stats(
     frame: pd.DataFrame,
     state: pd.DataFrame,
@@ -320,8 +351,22 @@ def _stats(
     ).loc[selected].dropna()
     mean_60 = float(return_60.mean()) if not return_60.empty else np.nan
     baseline_60 = float(baseline.mean()) if not baseline.empty else np.nan
+    observation = pd.to_datetime(frame["observation_date"], errors="raise")
+    event_signals = period_mask & state["signal"] & state["exposure"].notna()
+    episodes = _independent_episodes(observation.loc[event_signals])
+    cycles_with_signal = 0
+    inside_any = pd.Series(False, index=frame.index)
+    for cycle in CYCLES:
+        inside = observation.ge(pd.Timestamp(str(cycle["start"])))
+        if cycle["end"] is not None:
+            inside &= observation.le(pd.Timestamp(str(cycle["end"])))
+        cycles_with_signal += int(bool((event_signals & inside).any()))
+        inside_any |= inside
     result = {
         "n": int(return_60.size) if not zero_exposure_n else zero_exposure_n,
+        "independent_events": episodes,
+        "cycles_with_signal": cycles_with_signal,
+        "signals_outside_cycles": int((event_signals & ~inside_any).sum()),
         "mean_20": float(return_20.mean()) if not return_20.empty else np.nan,
         "mean_60": mean_60,
         "mean_90": float(return_90.mean()) if not return_90.empty else np.nan,
@@ -437,8 +482,150 @@ def _json_value(value: Any) -> Any:
     return value
 
 
+def _compound_definition(candidate: Mapping[str, Any]) -> tuple[float, float, int] | None:
+    definition = candidate.get("definition")
+    if not isinstance(definition, Mapping) or definition.get("type") != "ladder":
+        return None
+    indicators = definition.get("indicators")
+    if not isinstance(indicators, list) or len(indicators) != 2:
+        return None
+    by_key = {
+        str(item.get("key")): item
+        for item in indicators if isinstance(item, Mapping) and item.get("op") == "<="
+    }
+    if set(by_key) != {"drawdown252", "disp60"}:
+        return None
+    try:
+        return (
+            float(by_key["drawdown252"]["threshold"]),
+            float(by_key["disp60"]["threshold"]),
+            int(definition["levels"]),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _read_compound_references(project_root: Path) -> dict[str, dict[str, Any]]:
+    """Read the existing compound-ladder summary and grids without recomputation."""
+
+    output = project_root.resolve() / "artifacts/research/compound_ladder"
+    try:
+        summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return {}
+    baskets = summary.get("baskets") if isinstance(summary, Mapping) else None
+    if not isinstance(baskets, Mapping):
+        return {}
+    references: dict[str, list[dict[str, Any]]] = {}
+    for basket, underlyings in COMPOUND_UNDERLYINGS.items():
+        entries = baskets.get(basket)
+        if not isinstance(entries, list):
+            continue
+        for underlying in underlyings:
+            entry = next((
+                item for item in entries
+                if isinstance(item, Mapping) and item.get("underlying") == underlying
+            ), None)
+            if entry is None or not isinstance(entry.get("grid_path"), str):
+                continue
+            grid_path = (project_root.resolve() / str(entry["grid_path"])).resolve()
+            if not grid_path.is_relative_to(output) or grid_path.suffix != ".json":
+                continue
+            try:
+                rows = json.loads(grid_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                continue
+            plateau_rows = entry.get("plateau")
+            plateau = next((
+                item for item in plateau_rows
+                if isinstance(item, Mapping) and item.get("surface") == "threshold_x_levels"
+            ), None) if isinstance(plateau_rows, list) else None
+            if not isinstance(rows, list) or not isinstance(plateau, Mapping):
+                continue
+            references.setdefault(basket, []).append({
+                "underlying": underlying,
+                "rows": [dict(row) for row in rows if isinstance(row, Mapping)],
+                "plateau": dict(plateau),
+            })
+    return references
+
+
+def _compound_cross_reference(
+    candidate: Mapping[str, Any], references: Mapping[str, Sequence[Mapping[str, Any]]] | None,
+) -> dict[str, Any]:
+    """Cross-reference every underlying of the candidate's basket (KR = KOSPI and KOSPI200).
+
+    The leaderboard pools a basket's series, so showing a single underlying would hide
+    the weaker one. The combination is fixed (COMPOUND_REFERENCE_COMBINATION) and
+    labelled in the payload so the UI never implies a different product or exit.
+    """
+
+    unavailable = {"status": "unavailable"}
+    definition = _compound_definition(candidate)
+    basket = str(candidate.get("basket") or "")
+    entries = references.get(basket) if references else None
+    if definition is None or not isinstance(entries, Sequence) or not entries:
+        return unavailable
+    drawdown, disp60, levels = definition
+
+    def same_number(value: object, expected: float) -> bool:
+        try:
+            return math.isclose(float(value), expected, abs_tol=1e-12)
+        except (TypeError, ValueError):
+            return False
+
+    underlyings: list[dict[str, Any]] = []
+    for reference in entries:
+        rows = reference.get("rows")
+        plateau = reference.get("plateau")
+        if not isinstance(rows, list) or not isinstance(plateau, Mapping):
+            continue
+        matched = next((
+            row for row in rows
+            if isinstance(row, Mapping)
+            and row.get("row_kind") == "strategy"
+            and same_number(row.get("drawdown_threshold"), drawdown)
+            and same_number(row.get("disp60_threshold"), disp60)
+            and row.get("levels") == levels
+            and all(row.get(key) == value for key, value in COMPOUND_REFERENCE_COMBINATION.items())
+        ), None)
+        holdout = matched.get("holdout") if isinstance(matched, Mapping) else None
+        best = plateau.get("best_fit_relative_to_baseline")
+        neighbour = plateau.get("neighbourhood_mean")
+        if (
+            not isinstance(holdout, Mapping)
+            or not isinstance(best, (int, float)) or not isinstance(neighbour, (int, float))
+        ):
+            continue
+        verdict = "뾰족한 봉우리" if plateau.get("sharp_peak") else "넓은 고원"
+        underlyings.append({
+            "underlying": reference.get("underlying"),
+            "holdout_final_wealth_multiple": holdout.get("final_wealth_multiple"),
+            "holdout_baseline_final_wealth_multiple": holdout.get("baseline_final_wealth_multiple"),
+            "holdout_relative_to_baseline": holdout.get("relative_to_baseline"),
+            "plateau_verdict": f"{verdict} · 최적 {float(best):.2f}배 / 이웃 {float(neighbour):.2f}배",
+        })
+    if not underlyings:
+        return unavailable
+    first = underlyings[0]
+    return {
+        "status": "matched",
+        "product_basis": "synthetic_2x",
+        "cost_enabled": True,
+        "combination_label": COMPOUND_REFERENCE_LABEL,
+        "underlyings": underlyings,
+        # Backward-compatible scalar view = first underlying.
+        "underlying": first["underlying"],
+        "holdout_final_wealth_multiple": first["holdout_final_wealth_multiple"],
+        "holdout_baseline_final_wealth_multiple": first["holdout_baseline_final_wealth_multiple"],
+        "holdout_relative_to_baseline": first["holdout_relative_to_baseline"],
+        "plateau_verdict": first["plateau_verdict"],
+    }
+
+
 def _evaluate_candidate(
-    evaluation_frame: pd.DataFrame, candidate: Mapping[str, Any]
+    evaluation_frame: pd.DataFrame, candidate: Mapping[str, Any],
+    compound_references: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     frame = _scope(evaluation_frame, str(candidate["basket"]))
     state = score_candidate(frame, candidate)
@@ -452,6 +639,7 @@ def _evaluate_candidate(
         "levels": _levels(frame, state, candidate, masks),
         "cycles": _cycle_results(frame, state, candidate),
         "current": _current(frame, state, candidate),
+        "compound_ladder": _compound_cross_reference(candidate, compound_references),
     }
 
 
@@ -507,15 +695,16 @@ def build_leaderboard(
     *,
     version: str,
     generated_at: str,
+    compound_references: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
 ) -> dict[str, Any]:
-    """Build the exact schema-v1 web-consumer contract in registry order."""
+    """Build the schema-v2 web-consumer contract in registry order."""
 
     validated = validate_registry(registry)
     candidates: list[dict[str, Any]] = []
     for candidate in validated["candidates"]:
-        candidates.append(_evaluate_candidate(evaluation_frame, candidate))
+        candidates.append(_evaluate_candidate(evaluation_frame, candidate, compound_references))
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_at": generated_at,
         "rules_version": version,
         "attempt_count": validated["attempt_count"],
@@ -556,6 +745,7 @@ def run_rule_leaderboard(
         registry,
         version=rules_version(root),
         generated_at=timestamp.isoformat(),
+        compound_references=_read_compound_references(root),
     )
     output = root / "artifacts/research/rule_leaderboard"
     latest = output / "latest.json"

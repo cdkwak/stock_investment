@@ -63,7 +63,7 @@ def run(project_root: Path) -> tuple[Path, dict[str, Any], int]:
     if size >= 3_000_000:
         raise ValueError(f"overlay JSON exceeds 3 MB: {size} bytes")
     print(
-        f"DONE crisis-overlay/v1 episodes={len(payload['episodes'])} "
+        f"DONE crisis-overlay/v2 episodes={len(payload['episodes'])} "
         f"assets={len(payload['assets'])} bytes={size} output={output}"
     )
     return output, payload, size

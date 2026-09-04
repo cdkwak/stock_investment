@@ -66,7 +66,7 @@
 .crisis-intro { margin: 0 0 10px; color: #4d4944; font-size: 10px; line-height: 1.55; }
 .crisis-presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 .crisis-presets button:hover, .crisis-presets button.active { border-color: var(--amber); background: #fffaf2; }
-.crisis-controls { display: grid; grid-template-columns: minmax(330px, auto) minmax(210px, 330px) 1fr; gap: 12px; align-items: end; padding: 10px 12px; border: 1px solid var(--grid); border-radius: 4px; background: #fbfaf7; }
+.crisis-controls { display: grid; grid-template-columns: minmax(300px, auto) minmax(155px, 220px) minmax(180px, 280px) 1fr; gap: 12px; align-items: end; padding: 10px 12px; border: 1px solid var(--grid); border-radius: 4px; background: #fbfaf7; }
 .crisis-controls fieldset { display: flex; flex-wrap: wrap; gap: 12px; border: 0; padding: 0; margin: 0; font-size: 10px; }
 .crisis-controls legend { float: left; margin-right: 10px; color: var(--muted); }
 .crisis-controls > label { display: grid; gap: 4px; color: var(--muted); font-size: 10px; }
@@ -75,6 +75,7 @@
 .crisis-chart-shell { display: grid; grid-template-columns: minmax(0, 1fr) minmax(150px, 220px); gap: 10px; margin-top: 10px; min-width: 0; }
 .crisis-chart { position: relative; min-height: 390px; border: 1px solid var(--grid); border-radius: 4px; background: #fff; overflow: hidden; }
 .crisis-chart svg { display: block; width: 100%; height: auto; min-height: 360px; }
+.crisis-basis-caption, .leaderboard-wealth-note { margin: 8px 2px 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .crisis-grid { stroke: #e9e5de; stroke-width: 1; }
 .crisis-axis { stroke: #9f9990; stroke-width: 1; }
 .crisis-axis-label { fill: #6e6962; font-size: 10px; font-variant-numeric: tabular-nums; }
@@ -165,7 +166,7 @@
 .research-table th:first-child, .research-table td:first-child { text-align: left; }
 .research-table td { text-align: right; padding: 8px; border-bottom: 1px solid #ece8e1; white-space: nowrap; }
 .research-table tbody tr:last-child td { border-bottom: 0; }
-.leaderboard-table { min-width: 1040px; }
+.leaderboard-table { min-width: 1320px; }
 .leaderboard-table tbody tr { cursor: pointer; transition: background-color 120ms ease; }
 .leaderboard-table tbody tr:hover, .leaderboard-table tbody tr:focus-visible { background: #f8f5ef; outline: none; }
 .leaderboard-table tbody tr.selected { background: #f0ece4; box-shadow: inset 3px 0 var(--ink); }

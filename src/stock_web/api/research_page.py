@@ -462,7 +462,7 @@ def build_research_payload(project_root: Path) -> dict[str, object]:
     history.sort(key=lambda item: str(item.get("date") or ""), reverse=True)
 
     document = _read_json(leaderboard_path)
-    if not document or document.get("schema_version") != 1:
+    if not document or document.get("schema_version") not in {1, 2}:
         payload = _empty_research(history)
         _RESEARCH_CACHE[key] = (signature, payload)
         return deepcopy(payload)
@@ -504,7 +504,7 @@ def build_research_payload(project_root: Path) -> dict[str, object]:
     warnings = document.get("warnings")
     warning_rows = [str(item) for item in warnings] if isinstance(warnings, list) else []
     payload = {
-        "schema_version": 1,
+        "schema_version": document.get("schema_version"),
         "status": "READY",
         "message": "",
         "generated_at": document.get("generated_at"),
@@ -609,7 +609,7 @@ def register_experiment_candidate(
         raise ResearchInputError("후보 등록 이유는 500자 이하여야 합니다.")
     metadata = body.get("metadata")
     if isinstance(metadata, Mapping) and metadata.get("source") == "compound_ladder_ui":
-        allowed = {"exit", "multiple", "cost", "source"}
+        allowed = {"exit", "multiple", "cost", "product_basis", "source"}
         clean_metadata = {str(key): metadata[key] for key in metadata if key in allowed}
         suffix = json.dumps(
             clean_metadata, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
@@ -758,8 +758,11 @@ def build_crisis_overlay_payload(project_root: Path) -> dict[str, object]:
 
     path = Path(project_root).resolve() / CRISIS_OVERLAY_RELATIVE
     payload = _read_json(path)
-    required = {"generated_at", "episodes", "assets", "series", "yields", "ladder"}
-    if not payload or required.difference(payload):
+    required = {
+        "schema_version", "generated_at", "episodes", "assets", "normalisations",
+        "series", "yields", "ladder",
+    }
+    if not payload or payload.get("schema_version") != 2 or required.difference(payload):
         raise CrisisOverlayNotFound(
             "미계산 · python scripts/research/run_crisis_overlay.py --project-root ."
         )
@@ -882,6 +885,7 @@ def build_compound_candidate_registration(body: Mapping[str, object]) -> dict[st
             "exit": combination["exit"],
             "multiple": combination["leverage_multiple"],
             "cost": combination["cost_enabled"],
+            "product_basis": combination["product_variant"],
             "source": "compound_ladder_ui",
         },
     }
@@ -1006,6 +1010,11 @@ def normalise_compound_run(body: object) -> dict[str, object]:
         )
         if parsed is not None:
             grid[key] = parsed
+    cost_enabled = body.get("cost_enabled")
+    if cost_enabled is not None:
+        if not isinstance(cost_enabled, bool):
+            raise ResearchInputError("거래비용 포함 여부는 참/거짓이어야 합니다.")
+        grid["cost_enabled"] = (cost_enabled,)
     return {"baskets": baskets, "product": product, "grid": grid}
 
 

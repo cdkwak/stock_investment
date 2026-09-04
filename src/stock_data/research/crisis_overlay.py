@@ -25,6 +25,11 @@ OFFSET_END = 250
 OFFSETS = tuple(range(OFFSET_START, OFFSET_END + 1))
 HOLDOUT_START = pd.Timestamp("2016-01-01")
 EQUITY_ASSET_ID = "equity_reference"
+SCHEMA_VERSION = 2
+NORMALISATION_LABELS = {
+    "hold_start": "보유시작 = 100",
+    "signal": "신호일 = 100",
+}
 LADDER_SERIES: dict[str, tuple[str, ...]] = {
     "KR": ("KOSPI", "KOSPI200", "KOSPI200_IT"),
     "US_TECH": ("NASDAQ100",),
@@ -76,15 +81,19 @@ def aligned_core_path(
     session_dates: Iterable[Any],
     *,
     offsets: Sequence[int] = OFFSETS,
+    basis: str = "signal",
 ) -> tuple[list[float | None], list[str | None], float | None]:
-    """Rebase core-ammunition valuation marks to 100 at the signal session.
+    """Align core-ammunition marks on either signal-day or hold-start basis.
 
     T, +20, and +60 are obtained through ``measure_asset_horizons`` so those
     checkpoints retain the exact as-of and valuation semantics of the core
     ammunition tables.  Other offsets use the same retained as-of rule.
-    Dividing the hold-start marks by their T mark only changes the chart base.
+    ``hold_start`` preserves the table valuation exactly; ``signal`` divides
+    those marks by their T value so the signal session is 100.
     """
 
+    if basis not in NORMALISATION_LABELS:
+        raise ValueError(f"unsupported normalisation basis: {basis}")
     clean_offsets = tuple(int(offset) for offset in offsets)
     if len(clean_offsets) != len(set(clean_offsets)):
         raise ValueError("offsets must be unique")
@@ -100,6 +109,7 @@ def aligned_core_path(
     signal_mark = measured.get("value_t") if positive else None
     signal_mark = float(signal_mark) if signal_mark is not None else None
     signal_value = _asof(values, episode.signal_date)
+    hold_start_value = _asof(values, episode.hold_start_date)
     output: list[float | None] = []
     real_dates: list[str | None] = []
     for offset in clean_offsets:
@@ -110,15 +120,16 @@ def aligned_core_path(
             label = "t" if offset == 0 else str(offset)
             mark = measured.get(f"value_{label}")
             output.append(
+                float(mark) if basis == "hold_start" and mark is not None else
                 100.0 * float(mark) / signal_mark
-                if mark is not None and signal_mark not in (None, 0.0)
-                else None
+                if mark is not None and signal_mark not in (None, 0.0) else None
             )
         else:
             target_value = _asof(values, target_date)
+            base_value = hold_start_value if basis == "hold_start" else signal_value
             output.append(
-                100.0 * target_value / signal_value
-                if target_value is not None and signal_value not in (None, 0.0)
+                100.0 * target_value / base_value
+                if target_value is not None and base_value not in (None, 0.0)
                 else None
             )
     return output, real_dates, signal_mark
@@ -202,7 +213,7 @@ def _episode_type(episode: Episode) -> str:
 
 
 def build_ladder_overlay(
-    universe: pd.DataFrame, cycle_buckets: Sequence[str],
+    universe: pd.DataFrame, cycle_buckets: Sequence[str], *, basis: str = "signal",
 ) -> dict[str, dict[str, dict[str, Any]]]:
     """Build per-index cycle paths with the same two-condition ladder levels."""
 
@@ -231,7 +242,7 @@ def build_ladder_overlay(
             signal_dates: dict[str, str] = {}
             for episode in episodes:
                 path, dates, _mark = aligned_core_path(
-                    equity, episode, equity, frame["date"],
+                    equity, episode, equity, frame["date"], basis=basis,
                 )
                 paths[episode.cycle] = path
                 level_paths[episode.cycle] = aligned_level_path(ladder, episode)
@@ -244,6 +255,10 @@ def build_ladder_overlay(
                 "signal_dates": signal_dates,
                 "dates": cycle_dates,
                 "levels": level_paths,
+                "hold_start_offsets": {
+                    episode.cycle: episode.hold_start_index - episode.signal_index
+                    for episode in episodes
+                },
             })
             basket_payload[series_id] = payload
         output[basket] = basket_payload
@@ -263,14 +278,25 @@ def build_overlay_payload(
 ) -> dict[str, Any]:
     """Build the complete crisis-overlay document without provider calls."""
 
-    selected = select_first_cycle_episodes(episodes, cycle_buckets)
+    allowed = set(cycle_buckets)
+    cycle_order = {cycle: index for index, cycle in enumerate(cycle_buckets)}
+    market_order = {"KR": 0, "US": 1, "US_TECH": 1, "SEMIS": 2}
+    selected = sorted(
+        (episode for episode in episodes if episode.cycle in allowed),
+        key=lambda episode: (
+            cycle_order[episode.cycle], market_order.get(episode.market, 99),
+            episode.signal_date,
+        ),
+    )
     asset_rows = [{"id": EQUITY_ASSET_ID, "label": "주식 기준 (KOSPI / NASDAQ100)"}]
     asset_rows.extend(
         {"id": asset_id, "label": str(metadata["label"])}
         for asset_id, metadata in assets.items()
     )
     episode_rows: list[dict[str, Any]] = []
-    series: dict[str, dict[str, list[float | None]]] = {}
+    series: dict[str, dict[str, dict[str, list[float | None]]]] = {
+        basis: {} for basis in NORMALISATION_LABELS
+    }
     signal_values: dict[str, dict[str, float | None]] = {}
     dates: dict[str, list[str | None]] = {}
     yields: dict[str, list[float | None]] = {}
@@ -285,22 +311,34 @@ def build_overlay_payload(
             "label": f"{_short_cycle(episode.cycle)} · {episode.market}",
             "type": _episode_type(episode),
             "signal_date": episode.signal_date.strftime("%Y-%m-%d"),
+            "hold_start_date": episode.hold_start_date.strftime("%Y-%m-%d"),
+            "hold_start_offset": episode.hold_start_index - episode.signal_index,
             "is_holdout": bool(episode.signal_date >= HOLDOUT_START),
         })
-        episode_series: dict[str, list[float | None]] = {}
+        episode_series = {basis: {} for basis in NORMALISATION_LABELS}
         episode_marks: dict[str, float | None] = {}
-        equity_path, real_dates, equity_mark = aligned_core_path(
-            equity, episode, equity, market_frame["date"],
-        )
-        episode_series[EQUITY_ASSET_ID] = equity_path
+        real_dates: list[str | None] = []
+        equity_mark: float | None = None
+        for basis in NORMALISATION_LABELS:
+            equity_path, basis_dates, basis_mark = aligned_core_path(
+                equity, episode, equity, market_frame["date"], basis=basis,
+            )
+            episode_series[basis][EQUITY_ASSET_ID] = equity_path
+            real_dates = basis_dates
+            equity_mark = basis_mark
         episode_marks[EQUITY_ASSET_ID] = equity_mark
         for asset_id, metadata in assets.items():
-            path, _dates, signal_mark = aligned_core_path(
-                metadata["values"], episode, equity, market_frame["date"],
-            )
-            episode_series[asset_id] = path
+            signal_mark: float | None = None
+            for basis in NORMALISATION_LABELS:
+                path, _dates, basis_mark = aligned_core_path(
+                    metadata["values"], episode, equity, market_frame["date"],
+                    basis=basis,
+                )
+                episode_series[basis][asset_id] = path
+                signal_mark = basis_mark
             episode_marks[asset_id] = signal_mark
-        series[episode.episode_id] = episode_series
+        for basis in NORMALISATION_LABELS:
+            series[basis][episode.episode_id] = episode_series[basis]
         signal_values[episode.episode_id] = episode_marks
         dates[episode.episode_id] = real_dates
         yields[episode.episode_id] = aligned_raw_path(
@@ -308,17 +346,25 @@ def build_overlay_payload(
         )
         levels[episode.episode_id] = aligned_level_path(ladders[episode.market], episode)
     return {
+        "schema_version": SCHEMA_VERSION,
         "generated_at": generated_at or datetime.now(timezone.utc).isoformat(),
         "offset_start": OFFSET_START,
         "offset_end": OFFSET_END,
         "episodes": episode_rows,
         "assets": asset_rows,
+        "normalisations": [
+            {"id": basis, "label": label}
+            for basis, label in NORMALISATION_LABELS.items()
+        ],
         "series": series,
         "signal_values": signal_values,
         "dates": dates,
         "yields": yields,
         "levels": levels,
-        "ladder": build_ladder_overlay(ladder_universe, cycle_buckets),
+        "ladder": {
+            basis: build_ladder_overlay(ladder_universe, cycle_buckets, basis=basis)
+            for basis in NORMALISATION_LABELS
+        },
     }
 
 
@@ -347,53 +393,70 @@ def validate_overlay_payload(payload: Mapping[str, Any]) -> None:
     """Fail closed on incomplete path dimensions or inconsistent episode keys."""
 
     required = {
-        "generated_at", "episodes", "assets", "series", "signal_values",
-        "dates", "yields", "levels", "ladder",
+        "schema_version", "generated_at", "episodes", "assets", "normalisations",
+        "series", "signal_values", "dates", "yields", "levels", "ladder",
     }
     missing = required.difference(payload)
     if missing:
         raise ValueError(f"overlay payload is missing keys: {sorted(missing)}")
+    if payload["schema_version"] != SCHEMA_VERSION:
+        raise ValueError(f"overlay schema_version must be {SCHEMA_VERSION}")
     episode_ids = [str(row["id"]) for row in payload["episodes"]]
     asset_ids = [str(row["id"]) for row in payload["assets"]]
+    basis_ids = [str(row["id"]) for row in payload["normalisations"]]
     if not episode_ids or len(episode_ids) != len(set(episode_ids)):
         raise ValueError("episode ids must be present and unique")
     if not asset_ids or len(asset_ids) != len(set(asset_ids)):
         raise ValueError("asset ids must be present and unique")
+    if basis_ids != list(NORMALISATION_LABELS):
+        raise ValueError("normalisation bases are incomplete or out of order")
     expected_length = OFFSET_END - OFFSET_START + 1
     zero_index = -OFFSET_START
+    episode_meta = {str(row["id"]): row for row in payload["episodes"]}
+    for basis in basis_ids:
+        basis_series = payload["series"].get(basis, {})
+        if set(basis_series) != set(episode_ids):
+            raise ValueError(f"episode paths are incomplete for {basis}")
+        for episode_id in episode_ids:
+            if set(basis_series.get(episode_id, {})) != set(asset_ids):
+                raise ValueError(f"asset paths are incomplete for {basis}/{episode_id}")
+            for asset_id, path in basis_series[episode_id].items():
+                if len(path) != expected_length:
+                    raise ValueError(f"path length is invalid: {basis}/{episode_id}/{asset_id}")
+                base_index = zero_index if basis == "signal" else (
+                    zero_index + int(episode_meta[episode_id]["hold_start_offset"])
+                )
+                if path[base_index] is not None and not math.isclose(
+                    float(path[base_index]), 100.0, abs_tol=0.01,
+                ):
+                    raise ValueError(f"{basis} normalization is invalid: {episode_id}/{asset_id}")
     for episode_id in episode_ids:
-        if set(payload["series"].get(episode_id, {})) != set(asset_ids):
-            raise ValueError(f"asset paths are incomplete for {episode_id}")
-        for asset_id, path in payload["series"][episode_id].items():
-            if len(path) != expected_length:
-                raise ValueError(f"path length is invalid: {episode_id}/{asset_id}")
-            if path[zero_index] is not None and not math.isclose(
-                float(path[zero_index]), 100.0, abs_tol=0.01,
-            ):
-                raise ValueError(f"signal normalization is invalid: {episode_id}/{asset_id}")
         for key in ("dates", "yields", "levels"):
             if len(payload[key].get(episode_id, [])) != expected_length:
                 raise ValueError(f"{key} path length is invalid: {episode_id}")
-    for basket in LADDER_SERIES:
-        if basket not in payload["ladder"]:
-            raise ValueError(f"ladder basket is missing: {basket}")
-        for series_id, item in payload["ladder"][basket].items():
-            if len(item.get("median", [])) != expected_length:
-                raise ValueError(f"ladder median length is invalid: {series_id}")
-            cycles = [key for key in item.get("signal_dates", {}) if key in item]
-            if not cycles or any(len(item[cycle]) != expected_length for cycle in cycles):
-                raise ValueError(f"ladder cycle paths are incomplete: {series_id}")
-            if any(len(item.get("levels", {}).get(cycle, [])) != expected_length for cycle in cycles):
-                raise ValueError(f"ladder level paths are incomplete: {series_id}")
+    for basis in basis_ids:
+        for basket in LADDER_SERIES:
+            if basket not in payload["ladder"].get(basis, {}):
+                raise ValueError(f"ladder basket is missing: {basis}/{basket}")
+            for series_id, item in payload["ladder"][basis][basket].items():
+                if len(item.get("median", [])) != expected_length:
+                    raise ValueError(f"ladder median length is invalid: {basis}/{series_id}")
+                cycles = [key for key in item.get("signal_dates", {}) if key in item]
+                if not cycles or any(len(item[cycle]) != expected_length for cycle in cycles):
+                    raise ValueError(f"ladder cycle paths are incomplete: {basis}/{series_id}")
+                if any(len(item.get("levels", {}).get(cycle, [])) != expected_length for cycle in cycles):
+                    raise ValueError(f"ladder level paths are incomplete: {basis}/{series_id}")
 
 
 __all__ = [
     "EQUITY_ASSET_ID",
     "HOLDOUT_START",
     "LADDER_SERIES",
+    "NORMALISATION_LABELS",
     "OFFSET_END",
     "OFFSET_START",
     "OFFSETS",
+    "SCHEMA_VERSION",
     "aligned_core_path",
     "aligned_level_path",
     "aligned_raw_path",
