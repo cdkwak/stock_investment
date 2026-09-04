@@ -289,9 +289,15 @@ def _build_wall(project_root: Path, options_root: Path, target: date, output: Pa
         )
         if len(joined) != 1:
             raise DerivativesDailyLiveError("Wall target-date join differs")
-        if set(prior.columns) != set(joined.columns):
+        missing_in_joined = [column for column in prior.columns if column not in joined.columns]
+        if missing_in_joined:
             raise DerivativesDailyLiveError("prior Wall schema differs")
-        joined = joined.loc[:, prior.columns]
+        # Additive derivation columns (e.g. the near-wall window added on 2026-09-03)
+        # extend the retained artifact; earlier rows keep them empty.
+        added = [column for column in joined.columns if column not in prior.columns]
+        ordered = list(prior.columns) + added
+        prior = prior.reindex(columns=ordered)
+        joined = joined.loc[:, ordered]
         combined = pd.concat(
             [prior.loc[prior["date"].dt.date.ne(target)], joined],
             ignore_index=True,
