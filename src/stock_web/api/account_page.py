@@ -617,14 +617,23 @@ def _latest_kr_prices(
 ) -> dict[str, tuple[float, str]]:
     if not tickers:
         return {}
-    frame = datasets.load(
-        project_root, "data/normalized/kr_equity_price_daily",
-        columns=["date", "symbol", "close"],
-        filter_expr=datasets.field("symbol").isin(sorted(tickers)),
-    )
-    if frame is None or frame.empty:
+    # Manual accounts hold KRX stocks (kr_equity_price_daily) AND KRX ETFs
+    # (kr_etf_price_daily, which the ETF lane extends with every manual-account ETF).
+    frames = []
+    for relative in ("data/normalized/kr_equity_price_daily", "data/normalized/kr_etf_price_daily"):
+        try:
+            frame = datasets.load(
+                project_root, relative,
+                columns=["date", "symbol", "close"],
+                filter_expr=datasets.field("symbol").isin(sorted(tickers)),
+            )
+        except (OSError, PermissionError, TypeError, ValueError, KeyError):
+            frame = None
+        if frame is not None and not frame.empty:
+            frames.append(frame)
+    if not frames:
         return {}
-    work = frame.copy()
+    work = pd.concat(frames, ignore_index=True, sort=False)
     work["date"] = pd.to_datetime(work["date"], errors="coerce")
     work["symbol"] = work["symbol"].astype(str).str.zfill(6)
     work["close"] = pd.to_numeric(work["close"], errors="coerce")
