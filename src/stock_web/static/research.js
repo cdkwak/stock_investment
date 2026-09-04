@@ -445,7 +445,8 @@
     if ($("compound-view-count")) $("compound-view-count").textContent = text;
   }
 
-  const crisisState = { payload: null, revealed: false, preset: "tlt", basis: "hold_start" };
+  // Default = 주식 vs 10년 금리: the only preset whose assets cover every crisis (TLT ETF is retained from 2022 only).
+  const crisisState = { payload: null, revealed: false, preset: "equity-yield", basis: "hold_start" };
   const crisisPalette = ["#315f8a", "#8a6a2f", "#4d7c59", "#76558a", "#2b7a78", "#9a5b45", "#5d6d7e", "#8f7b52", "#41729f", "#6f8f72", "#695b8f", "#3c7f86", "#936b55", "#58718a"];
 
   function crisisMode() {
@@ -641,7 +642,7 @@
     crisisState.preset = name;
     const assetMode = document.querySelector('input[name="crisis-mode"][value="asset"]');
     if (assetMode) assetMode.checked = true;
-    if (name === "tlt") $("crisis-asset").value = "tlt";
+    if (name === "tlt") $("crisis-asset").value = "treasury_30y_proxy";
     if (name === "reit") $("crisis-asset").value = "reit_vnq";
     if (name === "equity-yield") $("crisis-asset").value = "equity_reference";
     renderCrisis();
@@ -680,7 +681,13 @@
       const response = await fetch("/api/research/crisis-overlay");
       if (!response.ok) throw new Error(await readError(response));
       crisisState.payload = await response.json();
-      $("crisis-asset").innerHTML = (crisisState.payload.assets || []).map((asset) => `<option value="${esc(asset.id)}">${esc(asset.label)}</option>`).join("");
+      const coverage = (assetId) => {
+        const payload = crisisState.payload || {};
+        const years = (payload.episodes || []).filter((episode) => ((((payload.series || {}).hold_start || {})[episode.id] || {})[assetId] || []).some((value) => value !== null)).map((episode) => String(episode.signal_date || "").slice(0, 4)).filter(Boolean);
+        const total = (payload.episodes || []).length;
+        return years.length && years.length < total ? ` (${years[0]}~ · 위기 ${years.length}/${total})` : "";
+      };
+      $("crisis-asset").innerHTML = (crisisState.payload.assets || []).map((asset) => `<option value="${esc(asset.id)}">${esc(asset.label)}${esc(coverage(asset.id))}</option>`).join("");
       $("crisis-episode").innerHTML = (crisisState.payload.episodes || []).map((episode) => `<option value="${esc(episode.id)}">${esc(episode.label)}${episode.signal_date ? ` · 신호 ${esc(episode.signal_date)}` : ""}${episode.is_holdout ? " · 홀드아웃" : ""}</option>`).join("");
       updateHoldoutCounters({ persistent_views: crisisState.payload.holdout_views || 0 });
       if ((crisisState.payload.assets || []).some((asset) => asset.id === "tlt")) $("crisis-asset").value = "tlt";
