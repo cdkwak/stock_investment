@@ -12,26 +12,90 @@ from tests.unit.web import new_temp_root
 
 
 @pytest.mark.parametrize(
-    ("rsi", "distance", "volatility", "expected"),
+    ("rsi", "trend_percentile", "volatility", "expected"),
     [
-        (71.0, 5.0, 20.0, 2),
-        (29.0, -5.0, 80.0, -2),
-        (70.0, 4.9, 20.1, 0),
-        (30.0, -4.9, 79.9, 0),
-        (71.0, -5.0, 50.0, 0),
-        (None, 5.0, 20.0, 2),
-        (29.0, None, 20.0, 0),
-        (None, None, 10.0, None),
+        (48.0, 68.0, 11.0, 1),
+        (42.0, 96.0, 15.0, 1),
+        (82.0, 98.0, None, 2),
+        (25.0, 2.0, None, -2),
+        (None, None, 10.0, 1),
+        (None, None, 90.0, -1),
+        (70.0, 90.0, 50.0, 2),
+        (80.0, 50.0, 50.0, 1),
+        (20.0, 50.0, 50.0, -1),
         (None, None, None, None),
     ],
 )
-def test_market_score_arithmetic_and_missing_inputs(
+def test_market_score_thresholds_corroboration_and_missing_inputs(
     rsi: float | None,
-    distance: float | None,
+    trend_percentile: float | None,
     volatility: float | None,
     expected: int | None,
 ) -> None:
-    assert market_score(rsi, distance, volatility) == expected
+    assert market_score(rsi, trend_percentile, volatility) == expected
+
+
+@pytest.mark.parametrize(
+    ("rsi", "trend", "volatility", "expected"),
+    [
+        (80.0, 50.0, 50.0, (2, 0, 0)),
+        (70.0, 97.0, 20.0, (1, 2, 1)),
+        (30.0, 90.0, 80.0, (-1, 1, -1)),
+        (20.0, 10.0, 50.0, (-2, -1, 0)),
+        (50.0, 3.0, 50.0, (0, -2, 0)),
+    ],
+)
+def test_market_score_component_thresholds_are_inclusive(
+    rsi: float, trend: float, volatility: float,
+    expected: tuple[int, int, int],
+) -> None:
+    assert regime._market_score_components(rsi, trend, volatility) == expected
+
+
+def test_market_verdict_records_raw_capped_score_note_and_trend_evidence() -> None:
+    verdict = regime._market_verdict(
+        42.0, 96.0, 15.0, distance_pct=16.0,
+        trend_name="200일선", volatility_name="실현변동성 20일 백분위",
+    )
+
+    assert verdict["market_score_raw"] == 2
+    assert verdict["market_score"] == verdict["score"] == 1
+    assert verdict["score_note"] == "과열은 RSI14와 추세의 서로 다른 두 근거가 필요"
+    assert regime._trend_evidence_value(
+        {"value": 68.0, "distance_pct": 7.1}, "200일선",
+    ) == "200일선 +7.1% (10년 백분위 68%)"
+
+
+def test_volatility_only_records_the_one_point_cap_note() -> None:
+    verdict = regime._market_verdict(
+        None, None, 11.0, distance_pct=None,
+        trend_name="200일선", volatility_name="VIX",
+    )
+
+    assert verdict["market_score_raw"] == verdict["market_score"] == 1
+    assert verdict["score_note"] == "변동성 단독으로는 ±1까지"
+
+
+def test_trend_requires_750_distance_sessions_and_reports_no_data() -> None:
+    # 808 closes yield exactly 749 valid MA60 distances.
+    frame = pd.DataFrame({"close": [100.0 + index * 0.1 for index in range(808)]})
+    metrics = regime._price_regime_metrics(frame, 60)
+    verdict = regime._market_verdict(
+        metrics["rsi"], metrics["trend_percentile"], None,
+        distance_pct=metrics["distance_pct"],
+        trend_name="60일선", volatility_name="VKOSPI",
+    )
+
+    assert metrics["trend_percentile"] is None
+    assert metrics["realized_volatility_percentile"] is not None
+    assert verdict["components"][1]["value"] is None
+    assert regime._trend_evidence_value(verdict["components"][1], "60일선") == "자료 없음"
+
+
+def test_latest_percentile_uses_only_the_last_2520_sessions() -> None:
+    values = pd.Series([10_000.0, *range(2_520)], dtype=float)
+
+    assert regime._latest_percentile(values) == 100.0
 
 
 @pytest.mark.parametrize(
@@ -111,28 +175,39 @@ def test_build_regime_exposes_scores_components_and_us_subscores(
     korea, united_states, global_risk = result["markets"]
 
     assert {
-        key: korea[key]
-        for key in ("score", "score_max", "temperature", "hot", "cold")
+        key: korea[key] for key in (
+            "score", "market_score_raw", "market_score", "score_note",
+            "score_max", "temperature", "hot", "cold",
+        )
     } == {
-        "score": -1,
+        "score": 0,
+        "market_score_raw": 0,
+        "market_score": 0,
+        "score_note": None,
         "score_max": 2,
-        "temperature": "약세",
+        "temperature": "중립",
         "hot": False,
         "cold": False,
     }
     assert korea["components"] == [
         {"name": "RSI14", "value": 48.6, "contribution": 0},
-        {"name": "60일선", "value": pytest.approx(-7.4), "contribution": -1},
+        {
+            "name": "60일선 이격 10년 백분위",
+            "value": None,
+            "distance_pct": 0.0,
+            "contribution": None,
+        },
         {"name": "VKOSPI", "value": 40.0, "contribution": 0},
     ]
     assert korea["evidence"][0]["value"] == "48.6 → 0"
-    assert korea["evidence"][1]["value"] == "−7.4% → −1"
+    assert korea["evidence"][1]["value"] == "자료 없음"
+    assert korea["evidence"][1]["evidence"] is False
 
     assert united_states["score"] == -1
     assert united_states["temperature"] == "약세"
-    assert united_states["subtitle"] == "점수 −1 · 기술 −1 · 반도체 −1 · 자료 3/3"
-    assert united_states["sub_verdicts"]["NASDAQ100"]["score"] == -1
+    assert united_states["subtitle"] == "점수 −1 · 기술 0 · 반도체 0 · 자료 2/3"
+    assert united_states["sub_verdicts"]["NASDAQ100"]["score"] == 0
     assert united_states["sub_verdicts"]["SOX"]["components"][2] == {
-        "name": "VIX", "value": 85.0, "contribution": -1,
+        "name": "실현변동성 20일 백분위", "value": None, "contribution": None,
     }
     assert global_risk["temperature"] == "중립"

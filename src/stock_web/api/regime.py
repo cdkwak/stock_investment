@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import re
+from math import log, sqrt
 from pathlib import Path
 
 import pandas as pd
@@ -16,6 +17,9 @@ DEFAULT_RULES_PATH = Path(
     r"C:\Users\k4545\Desktop\Obsidian\Investing\30_규칙\투자 규칙.md"
 )
 WEB_SETTINGS_RELATIVE = Path("artifacts/local_user/web_settings.json")
+REGIME_HISTORY_SESSIONS = 2_520
+REGIME_MIN_SESSIONS = 750
+REALIZED_VOLATILITY_SESSIONS = 20
 
 
 def resolve_rules_path(project_root: Path | None = None) -> Path:
@@ -64,36 +68,66 @@ def oversold_strength(
 
 def _market_score_components(
     rsi: float | None,
-    moving_average_distance: float | None,
+    trend_percentile: float | None,
     volatility_percentile: float | None,
 ) -> tuple[int | None, int | None, int | None]:
     rsi_component = (
         None if rsi is None or pd.isna(rsi)
-        else 1 if rsi > 70.0 else -1 if rsi < 30.0 else 0
+        else 2 if rsi >= 80.0
+        else 1 if rsi >= 70.0
+        else -2 if rsi <= 20.0
+        else -1 if rsi <= 30.0
+        else 0
     )
-    distance_component = (
-        None if moving_average_distance is None or pd.isna(moving_average_distance)
-        else 1 if moving_average_distance >= 5.0
-        else -1 if moving_average_distance <= -5.0 else 0
+    trend_component = (
+        None if trend_percentile is None or pd.isna(trend_percentile)
+        else 2 if trend_percentile >= 97.0
+        else 1 if trend_percentile >= 90.0
+        else -2 if trend_percentile <= 3.0
+        else -1 if trend_percentile <= 10.0
+        else 0
     )
     volatility_component = (
         None if volatility_percentile is None or pd.isna(volatility_percentile)
         else 1 if volatility_percentile <= 20.0
         else -1 if volatility_percentile >= 80.0 else 0
     )
-    return rsi_component, distance_component, volatility_component
+    return rsi_component, trend_component, volatility_component
+
+
+def _aggregate_market_score(
+    components: tuple[int | None, int | None, int | None],
+) -> tuple[int | None, int | None, str | None]:
+    available = tuple(value for value in components if value is not None)
+    if not available:
+        return None, None, None
+    raw = sum(available)
+    bounded = max(-2, min(2, raw))
+
+    # Volatility modifies the raw score but is not a second directional price
+    # confirmation. This stops low volatility from manufacturing an extreme.
+    rsi_component, trend_component, volatility_component = components
+    directional = (rsi_component, trend_component)
+    if raw >= 2 and sum(value is not None and value > 0 for value in directional) < 2:
+        return raw, 1, "과열은 RSI14와 추세의 서로 다른 두 근거가 필요"
+    if raw <= -2 and sum(value is not None and value < 0 for value in directional) < 2:
+        return raw, -1, "침체는 RSI14와 추세의 서로 다른 두 근거가 필요"
+    if (
+        volatility_component not in (None, 0)
+        and all(value in (None, 0) for value in directional)
+    ):
+        return raw, bounded, "변동성 단독으로는 ±1까지"
+    return raw, bounded, None
 
 
 def market_score(
     rsi: float | None,
-    distance_pct: float | None,
+    trend_percentile: float | None,
     vol_percentile: float | None,
 ) -> int | None:
-    """Return a bounded market score from available momentum, trend, and fear inputs."""
-    components = _market_score_components(rsi, distance_pct, vol_percentile)
-    if components[0] is None and components[1] is None:
-        return None
-    return max(-2, min(2, sum(value for value in components if value is not None)))
+    """Return a corroboration-capped score from momentum, trend, and volatility."""
+    components = _market_score_components(rsi, trend_percentile, vol_percentile)
+    return _aggregate_market_score(components)[1]
 
 
 def score_label(score: int | None) -> str:
@@ -116,9 +150,15 @@ def temperature_label(
     moving_average_distance: float | None,
     volatility_percentile: float | None = None,
 ) -> str:
-    """Compatibility wrapper around the graded market score."""
+    """Compatibility wrapper for callers that still pass an absolute MA distance."""
+    trend_percentile = (
+        None if moving_average_distance is None or pd.isna(moving_average_distance)
+        else 90.0 if moving_average_distance >= 5.0
+        else 10.0 if moving_average_distance <= -5.0
+        else 50.0
+    )
     return score_label(market_score(
-        rsi, moving_average_distance, volatility_percentile,
+        rsi, trend_percentile, volatility_percentile,
     ))
 
 
@@ -170,6 +210,52 @@ def _percentile(frame: pd.DataFrame, column: str, rows: int) -> float | None:
     return _number(values.rank(pct=True).iloc[-1] * 100.0) if not values.empty else None
 
 
+def _latest_percentile(
+    values: pd.Series, *, rows: int = REGIME_HISTORY_SESSIONS,
+    minimum: int = REGIME_MIN_SESSIONS,
+) -> float | None:
+    numeric = pd.to_numeric(values, errors="coerce")
+    if numeric.empty or pd.isna(numeric.iloc[-1]):
+        return None
+    retained = numeric.dropna().tail(rows)
+    if len(retained) < minimum:
+        return None
+    return _number(retained.rank(pct=True).iloc[-1] * 100.0)
+
+
+def _price_regime_metrics(
+    frame: pd.DataFrame, moving_average_days: int,
+) -> dict[str, float | None]:
+    """Calculate regime inputs from one retained price history without I/O."""
+    empty = {
+        "rsi": None, "distance_pct": None, "trend_percentile": None,
+        "realized_volatility": None, "realized_volatility_percentile": None,
+    }
+    if frame.empty or "close" not in frame:
+        return empty
+    close = pd.to_numeric(frame["close"], errors="coerce").dropna()
+    if close.empty:
+        return empty
+    moving_average = close.rolling(
+        moving_average_days, min_periods=moving_average_days,
+    ).mean()
+    distances = (close / moving_average - 1.0) * 100.0
+    log_returns = close.where(close > 0.0).map(log).diff()
+    realized_volatility = (
+        log_returns.rolling(
+            REALIZED_VOLATILITY_SESSIONS,
+            min_periods=REALIZED_VOLATILITY_SESSIONS,
+        ).std(ddof=1) * sqrt(252.0) * 100.0
+    )
+    return {
+        "rsi": rsi_latest(close),
+        "distance_pct": _number(distances.iloc[-1]),
+        "trend_percentile": _latest_percentile(distances),
+        "realized_volatility": _number(realized_volatility.iloc[-1]),
+        "realized_volatility_percentile": _latest_percentile(realized_volatility),
+    }
+
+
 def _change(frame: pd.DataFrame, column: str, periods: int, *, percent: bool) -> float | None:
     if frame.empty or column not in frame:
         return None
@@ -198,27 +284,36 @@ def _score_text(score: int | None) -> str:
 
 def _market_verdict(
     rsi: float | None,
-    distance_pct: float | None,
+    trend_percentile: float | None,
     volatility_percentile: float | None,
     *,
+    distance_pct: float | None,
     trend_name: str,
     volatility_name: str,
 ) -> dict[str, object]:
     values = tuple(
         None if value is None or pd.isna(value) else float(value)
-        for value in (rsi, distance_pct, volatility_percentile)
+        for value in (rsi, trend_percentile, volatility_percentile)
     )
     contributions = _market_score_components(*values)
-    score = market_score(*values)
+    raw_score, score, score_note = _aggregate_market_score(contributions)
     return {
         "score": score,
+        "market_score_raw": raw_score,
+        "market_score": score,
+        "score_note": score_note,
         "score_max": 2,
         "temperature": score_label(score),
         "hot": score is not None and score >= 2,
         "cold": score is not None and score <= -2,
         "components": [
             {"name": "RSI14", "value": values[0], "contribution": contributions[0]},
-            {"name": trend_name, "value": values[1], "contribution": contributions[1]},
+            {
+                "name": f"{trend_name} 이격 10년 백분위",
+                "value": values[1],
+                "distance_pct": _number(distance_pct),
+                "contribution": contributions[1],
+            },
             {
                 "name": volatility_name,
                 "value": values[2],
@@ -226,6 +321,18 @@ def _market_verdict(
             },
         ],
     }
+
+
+def _trend_evidence_value(component: dict[str, object], trend_name: str) -> str:
+    percentile = _number(component.get("value"))
+    distance = _number(component.get("distance_pct"))
+    if percentile is None or distance is None:
+        return "자료 없음"
+    sign = "+" if distance >= 0.0 else "−"
+    return (
+        f"{trend_name} {sign}{abs(distance):.1f}% "
+        f"(10년 백분위 {percentile:.0f}%)"
+    )
 
 
 def _component_evidence_value(
@@ -241,7 +348,9 @@ def _component_evidence_value(
     return f"{display} → {_score_text(contribution if isinstance(contribution, int) else None)}"
 
 
-_NO_EVIDENCE_VALUES = frozenset({"근거 없음", "표시 불가", "수집 추가 필요", ""})
+_NO_EVIDENCE_VALUES = frozenset(
+    {"근거 없음", "자료 없음", "표시 불가", "수집 추가 필요", ""}
+)
 
 
 def _evidence_row(
@@ -342,8 +451,10 @@ def build_rules(
     }
 
 
-def _index_rsi_and_ma200_distance(service: object, symbol: str) -> tuple[float | None, float | None]:
-    """RSI14 and distance to the 200-day mean for one retained global index (dashboard asset key or symbol)."""
+def _index_regime_metrics(
+    service: object, symbol: str, moving_average_days: int,
+) -> dict[str, float | None]:
+    """Read one retained index history and calculate its provider-free inputs."""
     from stock_data.gui.services import DASHBOARD_ASSETS
 
     key = next(
@@ -352,25 +463,10 @@ def _index_rsi_and_ma200_distance(service: object, symbol: str) -> tuple[float |
         symbol,
     )
     try:
-        frame = service.index.asset_series(key, "1Y")
+        frame = service.index.asset_series(key, "MAX")
     except (KeyError, OSError, PermissionError, TypeError, ValueError):
-        return None, None
-    if frame.empty or "close" not in frame:
-        return None, None
-    close = pd.to_numeric(frame["close"], errors="coerce").dropna()
-    rsi = rsi_latest(close)
-    ma200 = close.rolling(200).mean().iloc[-1] if len(close) >= 200 else float("nan")
-    distance = (
-        (float(close.iloc[-1]) / float(ma200) - 1.0) * 100.0
-        if pd.notna(ma200) and ma200 else None
-    )
-    return rsi, distance
-
-
-def _pair_fmt(rsi: float | None, distance: float | None) -> str | None:
-    if rsi is None and distance is None:
-        return None
-    return f"{_fmt(rsi, '{:.1f}') or '—'} · {_fmt(distance, '{:+.1f}%') or '—'}"
+        frame = pd.DataFrame()
+    return _price_regime_metrics(frame, moving_average_days)
 
 
 def build_regime(project_root: Path, account: dict[str, object]) -> dict[str, object]:
@@ -378,27 +474,22 @@ def build_regime(project_root: Path, account: dict[str, object]) -> dict[str, ob
     query = service.query
 
     try:
-        kospi = service.index.series("KOSPI", "1Y")
+        kospi = service.index.series("KOSPI", "MAX")
     except (KeyError, OSError, PermissionError, TypeError, ValueError):
         kospi = pd.DataFrame()
-    kr_rsi = rsi_latest(kospi["close"]) if "close" in kospi else None
-    kr_disparity = _last(kospi, "disparity60")
-    kr_distance = kr_disparity - 100.0 if kr_disparity is not None else None
+    kr_metrics = _price_regime_metrics(kospi, 60)
+    kr_rsi = kr_metrics["rsi"]
+    kr_distance = kr_metrics["distance_pct"]
+    kr_trend_pct = kr_metrics["trend_percentile"]
 
     try:
-        sp500 = service.index.asset_series("SP500", "1Y")
+        sp500 = service.index.asset_series("SP500", "MAX")
     except (KeyError, OSError, PermissionError, TypeError, ValueError):
         sp500 = pd.DataFrame()
-    us_rsi = rsi_latest(sp500["close"]) if "close" in sp500 else None
-    if not sp500.empty and "close" in sp500:
-        close = pd.to_numeric(sp500["close"], errors="coerce").dropna()
-        ma200 = close.rolling(200).mean().iloc[-1] if len(close) >= 200 else float("nan")
-        us_distance = (
-            (float(close.iloc[-1]) / float(ma200) - 1.0) * 100.0
-            if pd.notna(ma200) and ma200 else None
-        )
-    else:
-        us_distance = None
+    us_metrics = _price_regime_metrics(sp500, 200)
+    us_rsi = us_metrics["rsi"]
+    us_distance = us_metrics["distance_pct"]
+    us_trend_pct = us_metrics["trend_percentile"]
 
     try:
         volatility = service.volatility(days=250)
@@ -430,7 +521,7 @@ def build_regime(project_root: Path, account: dict[str, object]) -> dict[str, ob
         foreign_streak = None
 
     kr_verdict = _market_verdict(
-        kr_rsi, kr_distance, vk_pct,
+        kr_rsi, kr_trend_pct, vk_pct, distance_pct=kr_distance,
         trend_name="60일선", volatility_name="VKOSPI",
     )
     kr_available = sum(
@@ -443,7 +534,7 @@ def build_regime(project_root: Path, account: dict[str, object]) -> dict[str, ob
             "KOSPI RSI14", _component_evidence_value(kr_components[0], "{:.1f}"),
         ),
         _evidence_row(
-            "60일선 대비", _component_evidence_value(kr_components[1], "{:+.1f}%"),
+            "추세", _trend_evidence_value(kr_components[1], "60일선"),
         ),
         _evidence_row(
             "VKOSPI 250일 백분위",
@@ -469,7 +560,7 @@ def build_regime(project_root: Path, account: dict[str, object]) -> dict[str, ob
     ]
 
     us_verdict = _market_verdict(
-        us_rsi, us_distance, vix_pct,
+        us_rsi, us_trend_pct, vix_pct, distance_pct=us_distance,
         trend_name="200일선", volatility_name="VIX",
     )
     us_available = sum(
@@ -479,28 +570,56 @@ def build_regime(project_root: Path, account: dict[str, object]) -> dict[str, ob
     us_components = us_verdict["components"]
     # The user's US exposure is technology/semiconductors (TQQQ, SOXL, SKHY), so the
     # US card carries sub-verdicts for NASDAQ-100 and the SOX index next to the S&P 500.
-    tech_rsi, tech_distance = _index_rsi_and_ma200_distance(service, "NASDAQ100")
-    semis_rsi, semis_distance = _index_rsi_and_ma200_distance(service, "SOX")
+    tech_metrics = _index_regime_metrics(service, "NASDAQ100", 200)
+    semis_metrics = _index_regime_metrics(service, "SOX", 200)
     tech_verdict = _market_verdict(
-        tech_rsi, tech_distance, vix_pct,
-        trend_name="200일선", volatility_name="VIX",
+        tech_metrics["rsi"], tech_metrics["trend_percentile"],
+        tech_metrics["realized_volatility_percentile"],
+        distance_pct=tech_metrics["distance_pct"],
+        trend_name="200일선", volatility_name="실현변동성 20일 백분위",
     )
     semis_verdict = _market_verdict(
-        semis_rsi, semis_distance, vix_pct,
-        trend_name="200일선", volatility_name="VIX",
+        semis_metrics["rsi"], semis_metrics["trend_percentile"],
+        semis_metrics["realized_volatility_percentile"],
+        distance_pct=semis_metrics["distance_pct"],
+        trend_name="200일선", volatility_name="실현변동성 20일 백분위",
     )
     us_evidence = [
         _evidence_row(
             "S&P 500 RSI14", _component_evidence_value(us_components[0], "{:.1f}"),
         ),
         _evidence_row(
-            "200일선 대비", _component_evidence_value(us_components[1], "{:+.1f}%"),
+            "추세", _trend_evidence_value(us_components[1], "200일선"),
         ),
-        _evidence_row("NASDAQ100 RSI14 · 200일선", _pair_fmt(tech_rsi, tech_distance)),
-        _evidence_row("SOX RSI14 · 200일선", _pair_fmt(semis_rsi, semis_distance)),
         _evidence_row(
             "VIX 250일 백분위",
             _component_evidence_value(us_components[2], "{:.0f}%"),
+            hint="낮을수록 안정",
+        ),
+        _evidence_row(
+            "NASDAQ-100 RSI14",
+            _component_evidence_value(tech_verdict["components"][0], "{:.1f}"),
+        ),
+        _evidence_row(
+            "NASDAQ-100 추세",
+            _trend_evidence_value(tech_verdict["components"][1], "200일선"),
+        ),
+        _evidence_row(
+            "NASDAQ-100 실현변동성 20일 백분위 (VXN 미보존)",
+            _component_evidence_value(tech_verdict["components"][2], "{:.0f}%"),
+            hint="낮을수록 안정",
+        ),
+        _evidence_row(
+            "SOX RSI14",
+            _component_evidence_value(semis_verdict["components"][0], "{:.1f}"),
+        ),
+        _evidence_row(
+            "SOX 추세",
+            _trend_evidence_value(semis_verdict["components"][1], "200일선"),
+        ),
+        _evidence_row(
+            "SOX 실현변동성 20일 백분위",
+            _component_evidence_value(semis_verdict["components"][2], "{:.0f}%"),
             hint="낮을수록 안정",
         ),
         _evidence_row(
