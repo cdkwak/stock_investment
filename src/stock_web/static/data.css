@@ -31,6 +31,37 @@
 .freshness-cell.failed { color: var(--up); font-weight: 600; }
 .freshness-cell.preserved { color: var(--muted); }
 .freshness-cell.reference { color: #456986; font-weight: 600; }
+.freshness-cell > span,
+.freshness-cell .collection-hint { display: block; }
+.freshness-cell .collection-hint {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 9.5px;
+  font-weight: 400;
+}
+.freshness-cell .collection-hint.pending { color: #a8621a; font-weight: 600; }
+
+.age-summary {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--muted);
+  font-size: 10.5px;
+  text-align: right;
+}
+.age-badge {
+  display: inline-block;
+  margin-left: 6px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 1px 5px;
+  font-family: "IBM Plex Sans KR", system-ui, sans-serif;
+  font-size: 9px;
+  font-weight: 600;
+}
+.age-badge.age-neutral { color: var(--muted); }
+.age-badge.age-amber { color: #a8621a; }
+.age-badge.age-red { color: #c0392b; }
+.filter-chips button.chip { font: inherit; cursor: pointer; }
 
 .data-page .card-head b { white-space: nowrap; }
 .data-page .data-table-wrap { max-width: 100%; overflow-x: auto; }

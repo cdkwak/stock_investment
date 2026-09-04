@@ -10,6 +10,10 @@ from stock_data.gui.health_service import (
     DailyHealthArtifactService,
     summarize_health_artifact,
 )
+from stock_data.orchestration.exchange_calendar import (
+    ExchangeMarket,
+    ExchangeTradingCalendar,
+)
 from stock_web.api.fmt import format_kst
 
 FILTERS = ("OPERATIONAL", "DAILY", "BLOCKED", "ALL")
@@ -18,7 +22,7 @@ FILTER_LABELS = {
     "ALL": "전체", "UNKNOWN": "미확인",
 }
 FRESHNESS = {
-    "CURRENT": ("정상", "current"),
+    "CURRENT": ("정시", "current"),
     "LATE": ("지연", "late"),
     "FAILED": ("실패", "failed"),
     "PRESERVED": ("수동/보존", "preserved"),
@@ -63,6 +67,21 @@ WEB_PRESERVED_DATASETS = {
     "research_target_price_consensus": "종목 상세 화면에서 보존 참고값으로 사용",
 }
 
+_CALENDAR_MARKETS = {
+    "XKRX": ExchangeMarket.KR,
+    "XNYS": ExchangeMarket.US,
+}
+_WEEKDAY_CALENDARS = frozenset({
+    "BOK_ECOS_PROVIDER_WEEKDAY",
+    "PROVIDER_BUSINESS_DAY",
+    "PROVIDER_PUBLICATION",
+})
+_FIXED_LANE_TIMES = {
+    "FRED_DAILY": "06:00",
+    "GLOBAL_ETF_DAILY": "06:10",
+    "GLOBAL_INDEX_DAILY": "06:20",
+}
+
 
 def _enum(raw: object, labels: dict[str, str]) -> dict[str, str]:
     value = str(raw or "UNKNOWN")
@@ -105,26 +124,136 @@ def _dataset_subject(dataset: str, role: str) -> str:
     return ROLE.get(role, role)
 
 
-def _health_row(row: object) -> dict[str, object]:
+def _age_sessions(
+    latest: object, *, today: date, calendar_name: object,
+) -> int | None:
+    """Count source-calendar sessions after ``latest`` through ``today``."""
+    if latest in {None, "N/A"}:
+        return None
+    latest_date = date.fromisoformat(str(latest))
+    if latest_date >= today:
+        return 0
+    start = latest_date + timedelta(days=1)
+    calendar_key = str(calendar_name or "")
+    if calendar_key in _CALENDAR_MARKETS:
+        calendar = ExchangeTradingCalendar(_CALENDAR_MARKETS[calendar_key])
+        return len(calendar.sessions_in_range(start, today))
+    if calendar_key in _WEEKDAY_CALENDARS:
+        return sum(
+            1
+            for offset in range((today - start).days + 1)
+            if (start + timedelta(days=offset)).weekday() < 5
+        )
+    # Some manual, snapshot, event, and weekly rows intentionally have no
+    # asserted trading calendar. Calendar-day age is still more honest than
+    # hiding their retained date.
+    return (today - latest_date).days
+
+
+def _age_badge(age_sessions: int | None) -> tuple[str, str] | None:
+    if age_sessions is None:
+        return None
+    label = (
+        "오늘" if age_sessions == 0
+        else "1일 전" if age_sessions == 1
+        else f"{age_sessions}일 전"
+    )
+    css_class = (
+        "age-neutral" if age_sessions <= 1
+        else "age-amber" if age_sessions <= 3
+        else "age-red"
+    )
+    return label, css_class
+
+
+def _next_collection_hint(metadata: dict[str, object]) -> str:
+    policy = str(metadata.get("provider_availability_policy") or "")
+    lane = str(metadata.get("scheduler_lane") or "")
+    if policy == "FRED_H10_WEEKLY_1615_ET":
+        return "매주 월 06:00"
+    if (
+        policy in {"MANUAL_OBSERVATION", "NOT_APPLICABLE"}
+        or metadata.get("automation_enabled") is False
+        or (
+            lane in {"", "NO_SCHEDULER_LANE", "BROKER_SNAPSHOT"}
+            and not (metadata.get("due_at") or metadata.get("pending_until"))
+        )
+    ):
+        return "수동"
+    if policy == "KRX_POST_CLOSE_2030":
+        return "20:30 수집 예정"
+    if policy == "KRX_NEXT_TRADING_DAY_0910":
+        return "09:10 수집 예정"
+    if lane == "KR_FUNDAMENTALS_WEEKLY":
+        return "주 마지막 거래일 20:30 수집 예정"
+    if lane in _FIXED_LANE_TIMES:
+        return f"{_FIXED_LANE_TIMES[lane]} 수집 예정"
+    due_at = metadata.get("due_at")
+    if isinstance(due_at, str):
+        try:
+            due = datetime.fromisoformat(due_at)
+        except ValueError:
+            pass
+        else:
+            if due.tzinfo is not None and due.utcoffset() is not None:
+                return f"{(due - timedelta(minutes=15)):%H:%M} 수집 예정"
+    pending_until = metadata.get("pending_until")
+    if isinstance(pending_until, str):
+        try:
+            pending = datetime.strptime(pending_until, "%H:%M") - timedelta(minutes=15)
+        except ValueError:
+            pass
+        else:
+            return f"{pending:%H:%M} 수집 예정"
+    return "수동"
+
+
+def _is_pending_collection(
+    metadata: dict[str, object], *, age_sessions: int | None, now: datetime,
+) -> bool:
+    due_at = metadata.get("due_at")
+    if not isinstance(due_at, str) or age_sessions is None or age_sessions < 1:
+        return False
+    try:
+        due = datetime.fromisoformat(due_at)
+    except ValueError:
+        return False
+    if due.tzinfo is None or due.utcoffset() is None:
+        return False
+    return now.astimezone(timezone.utc) < due.astimezone(timezone.utc)
+
+
+def _health_row(
+    row: object, *, metadata: dict[str, object], today: date, now: datetime,
+) -> dict[str, object]:
     freshness_raw = str(getattr(row, "display_status"))
     freshness_label, freshness_class = FRESHNESS.get(
         freshness_raw, (freshness_raw, "unknown"),
     )
-    pending_until = getattr(row, "pending_until", None)
-    if freshness_raw == "CURRENT" and pending_until:
-        freshness_label = f"대기 {pending_until}"
     cadence = str(getattr(row, "cadence"))
     role = str(getattr(row, "role"))
     dataset = str(getattr(row, "dataset"))
+    age_sessions = _age_sessions(
+        getattr(row, "latest"), today=today, calendar_name=metadata.get("calendar"),
+    )
+    age_badge = _age_badge(age_sessions)
     return {
         "dataset": dataset,
         "description": f"{CADENCE.get(cadence, cadence)} · {_dataset_subject(dataset, role)}",
         "latest": _display_date(getattr(row, "latest")),
         "expected": _display_date(getattr(row, "expected")),
+        "age_sessions": age_sessions,
+        "age_label": age_badge[0] if age_badge else None,
+        "age_class": age_badge[1] if age_badge else None,
         "freshness": {"raw": freshness_raw, "label": freshness_label, "class": freshness_class},
+        "next_collection": _next_collection_hint(metadata),
+        "collection_pending": _is_pending_collection(
+            metadata, age_sessions=age_sessions, now=now,
+        ),
         "operational": _enum(getattr(row, "operational"), OPERATIONAL),
         "blocker": _enum(getattr(row, "blocker"), BLOCKERS),
         "automation": _automation(getattr(row, "automation")),
+        "automated": str(getattr(row, "automation")).endswith(" / ENABLED"),
         "display_reason": str(getattr(row, "display_reason")),
     }
 
@@ -261,7 +390,26 @@ def load_credential_expiries(project_root: Path, *, today: date | None = None) -
     return rows
 
 
-def build_data_page_context(project_root: Path, status_filter: str) -> dict[str, object]:
+def _load_health_metadata(path: Path) -> dict[str, dict[str, object]]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        datasets = payload.get("datasets", []) if isinstance(payload, dict) else []
+        return {
+            str(item["dataset"]): item
+            for item in datasets
+            if isinstance(item, dict) and isinstance(item.get("dataset"), str)
+        }
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return {}
+
+
+def build_data_page_context(
+    project_root: Path, status_filter: str, *, now: datetime | None = None,
+) -> dict[str, object]:
+    reference = now or datetime.now(ZoneInfo("Asia/Seoul"))
+    if reference.tzinfo is None or reference.utcoffset() is None:
+        raise ValueError("now must be timezone-aware")
+    reference = reference.astimezone(ZoneInfo("Asia/Seoul"))
     latest_artifact = project_root / "artifacts/daily_health/universe_data_v2_latest.json"
     service = DailyHealthArtifactService(
         project_root, latest_artifact if latest_artifact.is_file() else None,
@@ -269,10 +417,28 @@ def build_data_page_context(project_root: Path, status_filter: str) -> dict[str,
     view = service.load()
     selected = status_filter if status_filter in FILTERS else "OPERATIONAL"
     selected_rows = service.filter_rows(view.rows, selected) if view.artifact_state == "READY" else ()
-    projected = tuple(_health_row(row) for row in selected_rows)
+    metadata = _load_health_metadata(service.artifact_path)
+    all_projected = tuple(
+        _health_row(
+            row,
+            metadata=metadata.get(str(row.dataset), {}),
+            today=reference.date(),
+            now=reference,
+        )
+        for row in view.rows
+    )
+    selected_ids = {row.dataset for row in selected_rows}
+    projected = tuple(row for row in all_projected if row["dataset"] in selected_ids)
     groups = []
     for raw, (label, css_class) in FRESHNESS.items():
-        grouped = tuple(row for row in projected if row["freshness"]["raw"] == raw)
+        grouped = tuple(sorted(
+            (row for row in projected if row["freshness"]["raw"] == raw),
+            key=lambda row: (
+                row["age_sessions"] is None,
+                -(row["age_sessions"] if row["age_sessions"] is not None else 0),
+                row["dataset"],
+            ),
+        ))
         if grouped:
             groups.append({"raw": raw, "label": label, "class": css_class, "rows": grouped})
     freshness_counts = [
@@ -282,6 +448,15 @@ def build_data_page_context(project_root: Path, status_filter: str) -> dict[str,
     ]
     receipts = load_scheduler_receipts(project_root)
     show_result_code = sum(bool(row["has_result_code"]) for row in receipts) >= 2
+    automated_ages = tuple(
+        int(row["age_sessions"])
+        for row in all_projected
+        if (
+            row["dataset"] in metadata
+            and row["automated"]
+            and row["age_sessions"] is not None
+        )
+    )
     return {
         "filters": FILTERS,
         "filter_labels": FILTER_LABELS,
@@ -290,6 +465,11 @@ def build_data_page_context(project_root: Path, status_filter: str) -> dict[str,
         "health_warning": view.warning,
         "unregistered_dataset_ids": view.unregistered_dataset_ids,
         "health_summary": summarize_health_artifact(view),
+        "age_summary": {
+            "today": automated_ages.count(0),
+            "yesterday": automated_ages.count(1),
+            "older": sum(age >= 2 for age in automated_ages),
+        },
         "freshness_counts": freshness_counts,
         "health_groups": groups,
         "receipts": tuple(row for row in receipts if not row["older_than_7_days"]),

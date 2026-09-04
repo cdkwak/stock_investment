@@ -80,6 +80,7 @@ def test_home_payload_is_json_clean_and_missing_sections_explain_why(
         "note": "일정 출처 없음 · 브리핑의 오늘 밤 항목만 표시",
     }
     assert sections["health"]["current"] >= 1
+    assert sections["health"]["labels"]["current"] == "정시"
     assert len(sections["regime"]["markets"]) == 3
     assert sections["regime"]["rules"] is None
     assert "brief" not in sections

@@ -545,7 +545,7 @@ def build_health(project_root: Path) -> dict[str, object]:
         as_of = payload.get("as_of") or payload.get("generated_at")
     except (OSError, UnicodeError, json.JSONDecodeError):
         pass
-    # Same classes as the 데이터 page: 정상 / 지연 / 실패 (수동·보존·참고 rows are not counted).
+    # Same classes as the 데이터 page: 정시 / 지연 / 실패 (수동·보존·참고 rows are not counted).
     from stock_data.gui.health_service import _effective_display_status
 
     statuses = [_effective_display_status(row) for row in view.rows]
@@ -555,6 +555,7 @@ def build_health(project_root: Path) -> dict[str, object]:
         "fail": statuses.count("FAILED"),
         "preserved": statuses.count("PRESERVED"),
         "reference": statuses.count("REFERENCE"),
+        "labels": {"current": "정시", "late": "지연", "failed": "실패"},
         "as_of": format_kst(as_of),
         "overall": summary.get("overall", "UNKNOWN"),
     }

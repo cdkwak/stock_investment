@@ -8,7 +8,7 @@ Health V2는 보존 데이터의 존재와 자동화 장애를 분리해 표시�
 
 | 상태 | 기준 |
 |---|---|
-| `CURRENT` / 정상 | `latest >= expected`, 또는 표시 전용 수집 예정 시각 전이다. 후자는 원본 `freshness=STALE`을 유지하면서 `display_status=CURRENT`, `pending_until`로 `대기 HH:MM`을 표시하고 정상에 집계한다. |
+| `CURRENT` / 정시 | `latest >= expected`, 또는 표시 전용 수집 예정 시각 전이다. 후자는 원본 `freshness=STALE`을 유지하면서 `display_status=CURRENT`에 집계하되, 화면에는 실제 최신일의 연령과 다음 수집 시각을 함께 표시한다. `정시`는 데이터가 오늘 값이라는 뜻이 아니라 정책상 예정된 최신 날짜와 일치한다는 뜻이다. |
 | `LATE` / 지연 | 스케줄러 lane과 자동화가 활성화되어 있고 `latest < expected`이다. |
 | `FAILED` / 실패 | 마지막 실행이 실패했다. |
 | `PRESERVED` / 수동·보존 | lane이 없거나 자동화 대상이 아니며, 최신 보존일은 정보로만 표시한다. |
@@ -35,7 +35,21 @@ FRED `VIXCLS`는 다음 미국 영업일 약 08:40 CT에 공개된다. 06:00 KST
 `due_at`·`pending_until`·`display_status`는 Health/데이터 페이지 표시 전용이다.
 `freshness`·`expected_market_date`·`expected_available_observation`·
 `collection_required`와 스케줄러 phase target을 변경하지 않는다. `latest < expected`
-이고 `as_of < due_at`인 한 대상 차이만 `대기`로 표시하며, 그 밖의 미수집은 `지연`이다.
+이고 `as_of < due_at`인 한 대상 차이만 `display_status=CURRENT`로 유지하며 수집 예정
+힌트를 강조한다. 그 밖의 미수집은 `지연`이다.
+
+데이터 페이지의 연령 배지는 `latest` 다음 날부터 조회 당일까지 해당 행의 XKRX/XNYS
+거래 세션 수를 센다. 거래 캘린더가 계약되지 않은 수동·스냅샷·이벤트·주별 행도
+연령을 숨기지 않고 달력 날짜 경과로 표시한다. `0~1`세션은 중립, `2~3`세션은
+amber `#a8621a`, `4`세션 이상은 red `#c0392b`다. 요약의
+`오늘 · 어제 · 그 이전`은 자동화 활성 행 중 날짜가 있는 행만 센다.
+
+다음 수집 힌트는 artifact의 `scheduler_lane`, `provider_availability_policy`,
+`due_at`을 사용한다. KRX 묶음은 09:10·14:10·20:30, 글로벌 ETF/지수는
+06:10·06:20, FRED는 06:00으로 표시한다. FRED H.10 주별 정책은
+`매주 월 06:00`, 수동 정책은 `수동`으로 표시한다. `latest`가 오늘 거래 세션보다
+뒤처지고 현재 시각이 `due_at` 전이면 상태 칸에서 해당 수집 힌트를 강조한다.
+화면 그룹 안에서는 연령이 큰 행부터 정렬하며 `오늘 데이터만` 필터를 제공한다.
 
 ## 호환성과 경고
 

@@ -19,7 +19,7 @@
   {% else %}
   <div class="topbar-right">
     <span class="muted">로컬 보존 데이터</span>
-    <span class="chip{% if health_summary.display_late or health_summary.display_failed %} dashed{% endif %}">정상 {{ health_summary.display_current }} · 지연 {{ health_summary.display_late }} · 실패 {{ health_summary.display_failed }} · 수동/보존 {{ health_summary.display_preserved }} · 참고 {{ health_summary.display_reference }}{% if health_summary.unregistered_count %} · 미등록 {{ health_summary.unregistered_count }}{% endif %}</span>
+    <span class="chip{% if health_summary.display_late or health_summary.display_failed %} dashed{% endif %}">정시 {{ health_summary.display_current }} · 지연 {{ health_summary.display_late }} · 실패 {{ health_summary.display_failed }} · 수동/보존 {{ health_summary.display_preserved }} · 참고 {{ health_summary.display_reference }}{% if health_summary.unregistered_count %} · 미등록 {{ health_summary.unregistered_count }}{% endif %}</span>
   </div>
   {% endif %}
 </header>
@@ -38,8 +38,9 @@
     {% for item in freshness_counts %}
       <div class="freshness-summary-item {{ item.class }}" title="{{ item.raw }}"><span>{{ item.label }}</span><b class="num">{{ item.count }}</b></div>
     {% endfor %}
+    <p class="age-summary">오늘 {{ age_summary.today }} · 어제 {{ age_summary.yesterday }} · 그 이전 {{ age_summary.older }}</p>
   </section>
-  <p class="health-legend">정상: 최신 ≥ 예상 · 대기: 수집 예정 시각 전 · 지연: 활성 자동화가 예상보다 늦음 · 실패: 마지막 실행 실패 · 수동/보존: 자동 갱신 대상 아님 · 참고: 이벤트·분기 기준일</p>
+  <p class="health-legend">정시 = 정책상 예정된 최신 날짜와 일치 · 연령 배지는 실제 보존 데이터 날짜 기준 · 지연: 활성 자동화가 예상보다 늦음 · 실패: 마지막 실행 실패 · 수동/보존: 자동 갱신 대상 아님 · 참고: 이벤트·분기 기준일</p>
 
   <section class="card">
     <div class="card-head">
@@ -49,6 +50,7 @@
     <div class="data-controls">
       <nav class="filter-chips" aria-label="데이터 상태 필터">
         {% for item in filters %}<a class="chip{% if item == selected_filter %} on{% endif %}" href="/data?status={{ item }}">{{ filter_labels[item] }}</a>{% endfor %}
+        <button type="button" class="chip" id="today-data-filter" aria-pressed="false">오늘 데이터만</button>
       </nav>
       <label class="data-text-filter"><span class="sr-only">데이터셋 검색</span><input id="data-text-filter" type="search" placeholder="데이터셋·상태 검색" autocomplete="off"></label>
     </div>
@@ -64,10 +66,10 @@
           {% for group in health_groups %}
             <tr class="data-group-row" data-group="{{ group.raw }}"><th colspan="8"><span class="freshness-dot {{ group.class }}"></span>{{ group.label }} <small class="num">{{ group.rows|length }}</small></th></tr>
             {% for row in group.rows %}
-              <tr class="data-health-row" data-group-member="{{ group.raw }}" data-search="{{ row.dataset }} {{ row.description }} {{ row.freshness.label }} {{ row.operational.label }} {{ row.blocker.label }} {{ row.automation.label }}">
+              <tr class="data-health-row" data-group-member="{{ group.raw }}" data-age-sessions="{{ row.age_sessions if row.age_sessions is not none else '' }}" data-search="{{ row.dataset }} {{ row.description }} {{ row.freshness.label }} {{ row.age_label or '' }} {{ row.next_collection }} {{ row.operational.label }} {{ row.blocker.label }} {{ row.automation.label }}">
                 <td data-label="데이터셋"><b>{{ row.dataset }}</b><small>{{ row.description }}</small></td>
-                <td data-label="상태" class="freshness-cell {{ row.freshness.class }}">{{ row.freshness.label }}</td>
-                <td data-label="최신" class="num">{{ row.latest }}</td>
+                <td data-label="상태" class="freshness-cell {{ row.freshness.class }}"><span>{{ row.freshness.label }}</span><small class="collection-hint{% if row.collection_pending %} pending{% endif %}">{{ row.next_collection }}</small></td>
+                <td data-label="최신" class="num">{{ row.latest }}{% if row.age_label %}<span class="age-badge {{ row.age_class }}">{{ row.age_label }}</span>{% endif %}</td>
                 <td data-label="예상" class="num">{{ row.expected }}</td>
                 <td data-label="분류 사유">{{ row.display_reason }}</td>
                 <td data-label="운영 상태">{{ row.operational.label }}</td>
@@ -149,16 +151,28 @@
   (() => {
     const input = document.getElementById("data-text-filter");
     if (!input) return;
+    const todayButton = document.getElementById("today-data-filter");
     const rows = [...document.querySelectorAll(".data-health-row")];
     const groups = [...document.querySelectorAll(".data-group-row")];
     const empty = document.getElementById("data-filter-empty");
-    input.addEventListener("input", () => {
+    let todayOnly = false;
+    const applyFilters = () => {
       const query = input.value.trim().toLocaleLowerCase("ko-KR");
-      rows.forEach((row) => { row.hidden = !row.dataset.search.toLocaleLowerCase("ko-KR").includes(query); });
+      rows.forEach((row) => {
+        const matchesText = row.dataset.search.toLocaleLowerCase("ko-KR").includes(query);
+        row.hidden = !matchesText || (todayOnly && row.dataset.ageSessions !== "0");
+      });
       groups.forEach((group) => {
         group.hidden = !rows.some((row) => row.dataset.groupMember === group.dataset.group && !row.hidden);
       });
       empty.hidden = rows.some((row) => !row.hidden);
+    };
+    input.addEventListener("input", applyFilters);
+    todayButton.addEventListener("click", () => {
+      todayOnly = !todayOnly;
+      todayButton.classList.toggle("on", todayOnly);
+      todayButton.setAttribute("aria-pressed", String(todayOnly));
+      applyFilters();
     });
   })();
 </script>
