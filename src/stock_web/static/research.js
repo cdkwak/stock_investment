@@ -907,8 +907,8 @@
     const showHoldout = compoundState.holdoutVisible;
     // 1x hold baseline on the same lines: "레버리지가 낙폭을 얼마나 키웠나" is only visible
     // against the plain hold's own MDD (grid rows of row_kind "baseline").
-    const baselineRow = ((compoundState.payload || {}).rows || []).find((item) => item.row_kind === "baseline"
-      && item.underlying === (compoundRow(combination) || {}).underlying) || null;
+    // The grid payload carries the 1x hold separately as `baseline` (rows hold strategies only).
+    const baselineRow = (compoundState.payload || {}).baseline || null;
     const baselineFit = baselineRow ? (baselineRow.fit || null) : null;
     const baselineHoldout = baselineRow && showHoldout ? (baselineRow.holdout || null) : null;
     const baselineLine = baselineRow
