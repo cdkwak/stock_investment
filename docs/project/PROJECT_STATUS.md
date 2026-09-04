@@ -10,7 +10,7 @@ runbook, checkpoint, or retained evidence.
 | Field | Current value |
 |---|---|
 | Selected domain | `DATA_PRIMARY / PARALLEL_ENGINEERING_ACTIVE` |
-| Current phase | `RECOVERY_PROMOTED / WEB_DASHBOARD_PRIMARY / PYSIDE6_PARITY_BRIDGE / AUTONOMOUS_DATA_AND_READONLY_ACCOUNT_OPERATIONS / GUI_BACKTEST_FEATURE_ENGINEERING_ACTIVE / FINAL_HOLDOUT_SEALED / FINANCIAL_MUTATIONS_DISABLED` |
+| Current phase | `RECOVERY_PROMOTED / WEB_DASHBOARD_ONLY / PYSIDE6_RETIRED / AUTONOMOUS_DATA_AND_READONLY_ACCOUNT_OPERATIONS / GUI_BACKTEST_FEATURE_ENGINEERING_ACTIVE / FINAL_HOLDOUT_SEALED / FINANCIAL_MUTATIONS_DISABLED` |
 | Next domain | No phase handoff required for ordinary in-scope engineering |
 | Exact next action | Human-run the provider-free `LIQUIDITY_CREDIT_DAILY --dry-run`, then the live lane; if credit fallback reports `REVISED/COMPLETE`, run the lane once more for two-pass promotion and verify Health shows the real Normalized latest date. |
 | Real external blockers | Exact future provider publication/session windows, unavailable secret/entitlement, rejected protected-resource escalation, or a user-only financial/legal/access action |
@@ -32,7 +32,7 @@ authority.
   `artifacts/local_user/watch_conditions.json`,
   `artifacts/local_user/cash_flows.json`, and
   `artifacts/local_user/trade_journal_manual.json`.
-- PySide6 status: **유지 (웹 parity 이후 퇴역 예정, 4단계)**.
+- PySide6 status: **퇴역 완료**. The FastAPI dashboard is the only supported display runtime; web-imported read-only services remain under `src/stock_data/gui/`.
 - Cleanup phase 3 scope and decisions are retained in the
   [repository cleanup inventory](REPO_CLEANUP_INVENTORY_20260903.md).
 

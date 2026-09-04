@@ -1,8 +1,7 @@
-"""Bounded, provider-free release readiness checks for the local desktop app.
+"""Bounded, provider-free release readiness checks for the local web app.
 
 This module never calls collectors, providers, schedulers, or mutation entry
-points.  It reports retained local state and verifies that the GUI keeps typed
-stale/unknown values suppressed.
+points. It reports retained local state and probes the FastAPI dashboard in-process.
 """
 
 from __future__ import annotations
@@ -20,7 +19,6 @@ import subprocess
 import tempfile
 import time
 from typing import Any
-from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -201,25 +199,12 @@ EXACT_USER_DATA_PATTERNS = (
     "data/local/**/*",
     "data/normalized/toss_account_snapshot/**/*",
 )
-EXPECTED_GUI_PAGES = (
-    "오늘",
-    "시장",
-    "종목",
-    "관심종목",
-    "계좌",
-    "판단 근거",
-    "데이터 상태",
-    "리서치",
-    "백테스트",
-    "미국 ETF",
-)
-EXPECTED_GUI_WORKERS = (
-    "account",
-    "current_observation",
-    "equity",
-    "us_etf",
-    "backtest",
-    "detached",
+EXPECTED_WEB_ROUTES = (
+    "/api/home",
+    "/api/market",
+    "/api/account",
+    "/data",
+    "/research",
 )
 
 EXPECTED_YAHOO_TERMINAL_ROUTES = (
@@ -245,21 +230,6 @@ EXPECTED_TOSS_ELIGIBLE_OUTCOME_SLOTS = frozenset({
     "DOMESTIC_ROUTE_3", "DOMESTIC_ROUTE_4",
 })
 EXPECTED_TOSS_INELIGIBLE_OUTCOME_SLOTS = frozenset({"OPERATION"})
-NATIVE_GUI_QUIESCENCE_TIMEOUT_MS = 30_000
-NATIVE_GUI_QUIESCENCE_POLL_MS = 50
-NATIVE_GUI_HEALTH_TIMEOUT_MS = 30_000
-
-
-@dataclass(frozen=True)
-class NativeGuiQuiescence:
-    """Typed outcome from a bounded managed-worker event drain."""
-
-    state: str
-    polls: int
-    waited_ms: int
-    active_threads: int
-
-
 @dataclass(frozen=True, slots=True)
 class SmokeCheck:
     check_id: str
@@ -1762,505 +1732,91 @@ def verify_isolated_update_preservation(project_root: Path) -> SmokeCheck:
     )
 
 
-def _page_has_horizontal_overflow(page: object, qt_widgets: object) -> bool:
-    """Return whether one visible page root needs more horizontal space."""
+def run_web_readiness_probe(project_root: Path) -> dict[str, object]:
+    """Create the FastAPI app in-process and probe every release route."""
 
-    if isinstance(page, qt_widgets.QScrollArea):
-        return page.horizontalScrollBar().maximum() > 0
-    if not isinstance(page, qt_widgets.QWidget):
-        return True
-    layout = page.layout()
-    if layout is None:
-        return False
-    available_width = page.contentsRect().width()
-    return bool(
-        available_width > 0
-        and layout.minimumSize().width() > available_width
-    )
+    from fastapi.testclient import TestClient
+    from stock_web.app import create_app
 
-
-def _market_chart_smoke_state(dashboard: object) -> str:
-    """Classify a native chart without weakening its typed freshness gate."""
-
-    frame = getattr(dashboard, "_market_frame", None)
-    if frame is not None and len(frame):
-        return "RENDERED"
-    if getattr(dashboard, "_market_frame_issue", None):
-        return "RENDER_FAILED"
-    selector = getattr(dashboard, "market_asset", None)
-    selected = selector.currentText() if selector is not None else None
-    chart_metrics = getattr(dashboard, "CHART_METRICS", {})
-    metrics = getattr(dashboard, "_metrics", {})
-    metric = metrics.get(chart_metrics.get(selected, selected)) if selected else None
-    if (
-        metric is not None
-        and getattr(metric, "freshness", None) == "STALE"
-        and getattr(metric, "displays_value", None) is False
-    ):
-        return "INTENTIONAL_UNAVAILABLE"
-    return "RENDER_FAILED"
-
-
-def _stage_native_gui_user_data(
-    project_root: Path, isolated_root: Path,
-) -> dict[str, object]:
-    """Copy GUI user inputs to disposable paths before opening MainWindow.
-
-    The native smoke intentionally exercises the real retained market-data
-    routes, but no component with a persistence API should receive a canonical
-    account or net-worth path.  Invalid, missing, or symlinked inputs are left
-    absent so the GUI renders its typed unavailable state instead of relaxing
-    the read-only boundary.
-    """
-
-    project_root = Path(project_root).resolve()
-    isolated_root = Path(isolated_root).resolve()
-
-    def copy_regular(relative: str) -> Path:
-        source = project_root / relative
-        target = isolated_root / relative
-        try:
-            absolute = Path(os.path.abspath(source))
-            if source.is_symlink():
-                return target
-            resolved = source.resolve(strict=True)
-            resolved.relative_to(project_root)
-            if resolved != absolute or not resolved.is_file():
-                return target
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(resolved, target)
-        except (FileNotFoundError, OSError, ValueError):
-            pass
-        return target
-
-    toss_snapshot = copy_regular(
-        "data/normalized/toss_account_snapshot/latest.json"
-    )
-    kb_snapshot = copy_regular("data/local/account_snapshots/kb_self.json")
-    family_snapshot = copy_regular(
-        "data/local/account_snapshots/family_mirae_etf.json"
-    )
-    watchlist = copy_regular("artifacts/local_user/watchlists.json")
-    net_worth_source = project_root / "data/local/net_worth_history"
-    try:
-        net_worth_records = tuple(net_worth_source.glob("record-*.json"))
-    except OSError:
-        net_worth_records = ()
-    for source in net_worth_records:
-        try:
-            relative = source.relative_to(project_root).as_posix()
-        except ValueError:
-            continue
-        copy_regular(relative)
-
+    status_codes: dict[str, int] = {}
+    payload_sizes: dict[str, int] = {}
+    elapsed_ms: dict[str, float] = {}
+    started = time.perf_counter()
+    with TestClient(create_app(Path(project_root).resolve())) as client:
+        for route in EXPECTED_WEB_ROUTES:
+            route_started = time.perf_counter()
+            response = client.get(route)
+            elapsed_ms[route] = round(
+                (time.perf_counter() - route_started) * 1_000, 3,
+            )
+            status_codes[route] = response.status_code
+            payload_sizes[route] = len(response.content)
     return {
-        "account_snapshot_path": toss_snapshot,
-        "kb_account_snapshot_path": kb_snapshot,
-        "family_account_snapshot_path": family_snapshot,
-        "watchlist_path": watchlist,
-        "net_worth_history_root": isolated_root / "data/local/net_worth_history",
-        "dashboard_preferences_path": (
-            isolated_root / "artifacts/local_user/dashboard_preferences.json"
+        "pages": EXPECTED_WEB_ROUTES,
+        "page_states": {
+            route: status_codes[route] == 200 for route in EXPECTED_WEB_ROUTES
+        },
+        "web_probe_status_codes": status_codes,
+        "web_probe_payload_sizes": payload_sizes,
+        "web_probe_elapsed_ms": elapsed_ms,
+        "web_probe_total_elapsed_ms": round(
+            (time.perf_counter() - started) * 1_000, 3,
         ),
-        "toss_runtime_enabled": False,
+        "web_probe_all_200": all(
+            status_codes[route] == 200 for route in EXPECTED_WEB_ROUTES
+        ),
+        "read_files": (),
     }
 
 
-def _teardown_native_gui(app: object, window: object | None, qt_core: object, *, created_app: bool) -> None:
-    """Drain deferred Qt objects and stop only an application created here."""
+def assess_web_readiness_probe(result: Mapping[str, object]) -> SmokeCheck:
+    """Fail closed unless every required FastAPI route returns HTTP 200."""
 
-    if window is not None:
-        window.close()
-        window.deleteLater()
-    app.processEvents()
-    qt_core.QCoreApplication.sendPostedEvents(None, qt_core.QEvent.DeferredDelete)
-    app.processEvents()
-    if created_app:
-        app.closeAllWindows()
-        app.quit()
-        qt_core.QCoreApplication.sendPostedEvents(None, qt_core.QEvent.DeferredDelete)
-        app.processEvents()
-
-
-def _wait_for_managed_gui_quiescence(
-    window: object,
-    app: object,
-    qt_core: object,
-    *,
-    timeout_ms: int = NATIVE_GUI_QUIESCENCE_TIMEOUT_MS,
-    poll_interval_ms: int = NATIVE_GUI_QUIESCENCE_POLL_MS,
-    sleep_ms: Callable[[int], None] | None = None,
-) -> NativeGuiQuiescence:
-    """Drain Qt events until every MainWindow-managed thread is released.
-
-    The elapsed budget advances only through the bounded ``qWait`` calls. A
-    final event drain at the exact deadline allows a just-finished worker's
-    ``destroyed`` slot to clear the corresponding MainWindow references.
-    """
-
-    if timeout_ms < 0:
-        raise ValueError("timeout_ms must be non-negative")
-    if poll_interval_ms <= 0:
-        raise ValueError("poll_interval_ms must be positive")
-    sleeper = sleep_ms or (lambda wait_ms: time.sleep(wait_ms / 1_000))
-
-    polls = 0
-    waited_ms = 0
-    while True:
-        app.processEvents()
-        qt_core.QCoreApplication.sendPostedEvents(
-            None, qt_core.QEvent.DeferredDelete,
-        )
-        app.processEvents()
-        threads = tuple(window._managed_worker_threads())
-        stopped_threads = tuple(
-            thread for thread in threads
-            if thread is not None
-            and callable(getattr(thread, "isRunning", None))
-            and not thread.isRunning()
-        )
-        for thread in stopped_threads:
-            # MainWindow has already queued retirement from QThread.finished.
-            # A receiver-specific flush is required inside nested event drains.
-            qt_core.QCoreApplication.sendPostedEvents(
-                thread, qt_core.QEvent.DeferredDelete,
-            )
-        if stopped_threads:
-            app.processEvents()
-            threads = tuple(window._managed_worker_threads())
-        polls += 1
-        active_threads = sum(
-            thread is not None for thread in threads
-        )
-        if active_threads == 0:
-            return NativeGuiQuiescence(
-                state="QUIESCENT",
-                polls=polls,
-                waited_ms=waited_ms,
-                active_threads=0,
-            )
-        if waited_ms >= timeout_ms:
-            return NativeGuiQuiescence(
-                state="TIMEOUT",
-                polls=polls,
-                waited_ms=waited_ms,
-                active_threads=active_threads,
-            )
-        wait_ms = min(poll_interval_ms, timeout_ms - waited_ms)
-        # Python workers own the retained local reads. A Python sleep releases
-        # the GIL; QTest.qWait can keep reacquiring it while driving a nested
-        # loop and starve those workers despite continuing to pump GUI events.
-        sleeper(wait_ms)
-        waited_ms += wait_ms
-
-
-def run_native_gui_smoke(project_root: Path) -> dict[str, object]:
-    """Open one native window, visit required pages, and close every worker."""
-
-    from PySide6 import QtCore, QtWidgets
-    from stock_data.gui.account_snapshot_service import build_account_portfolio_presentation
-    from stock_data.gui.font_policy import configure_application_font
-    from stock_data.gui import main_window as gui_main_window
-
-    existing_app = QtWidgets.QApplication.instance()
-    created_app = existing_app is None
-    app = existing_app or QtWidgets.QApplication([])
-    font_policy = configure_application_font(app)
-    window = None
-    try:
-        with tempfile.TemporaryDirectory(prefix="stock_release_gui_") as directory:
-            isolated_root = Path(directory)
-            isolated_user_paths = _stage_native_gui_user_data(
-                Path(project_root), isolated_root,
-            )
-            watchlist_path = isolated_user_paths.pop("watchlist_path")
-            isolated_paths = (
-                watchlist_path,
-                *(value for value in isolated_user_paths.values() if isinstance(value, Path)),
-            )
-            gui_user_data_isolation = (
-                "FULLY_ISOLATED"
-                if (
-                    isolated_user_paths.get("toss_runtime_enabled") is False
-                    and all(
-                        path.resolve().is_relative_to(isolated_root.resolve())
-                        for path in isolated_paths
-                    )
-                )
-                else "UNVERIFIED"
-            )
-            watchlist_service = gui_main_window.LocalWatchlistService
-            with patch.object(
-                gui_main_window,
-                "LocalWatchlistService",
-                new=lambda _canonical_path: watchlist_service(watchlist_path),
-            ):
-                health_start = time.monotonic()
-                window = gui_main_window.MainWindow(
-                    Path(project_root), **isolated_user_paths,
-                )
-            watchlist_isolated = bool(
-                window.watchlist_service.path.resolve() == watchlist_path.resolve()
-                and watchlist_path.resolve().is_relative_to(isolated_root.resolve())
-            )
-            window.showNormal()
-            window.resize(1600, 900)
-            window.show()
-            app.processEvents()
-            time.sleep(0.5)
-            app.processEvents()
-            # MainWindow startup already queues the provider-free Dashboard,
-            # index, Backtest, account, and net-worth reads. Re-enqueuing the
-            # same reads here makes the single local-read lane process a
-            # duplicate Dashboard plus pending index/chart work before close.
-            startup_quiescence = _wait_for_managed_gui_quiescence(
-                window, app, QtCore,
-            )
-            health_render_elapsed_ms = round((time.monotonic() - health_start) * 1000)
-
-            registered = tuple(
-                (window.tabs.tabText(index), window.tabs.widget(index))
-                for index in range(window.tabs.count())
-            )
-            page_states: dict[str, bool] = {}
-            clipped = []
-            for name, page in registered:
-                window.tabs.setCurrentWidget(page)
-                app.processEvents()
-                page_states[name] = bool(
-                    window.tabs.currentWidget() is page and page.isVisible()
-                )
-                if _page_has_horizontal_overflow(page, QtWidgets):
-                    clipped.append(name)
-            backtest_runnable = bool(window.backtest_page.run_button.isEnabled())
-            window.tabs.setCurrentWidget(window.dashboard)
-            app.processEvents()
-            # Visiting a lazily loaded page may start a provider-free worker
-            # (for example the Research Workspace candidate scan). Drain that
-            # work before attempting to close the window; otherwise Qt can
-            # reject close and later destroy a still-running QThread.
-            post_page_quiescence = _wait_for_managed_gui_quiescence(
-                window, app, QtCore,
-            )
-            quiescence = NativeGuiQuiescence(
-                state=(
-                    "QUIESCENT"
-                    if (
-                        startup_quiescence.state == "QUIESCENT"
-                        and post_page_quiescence.state == "QUIESCENT"
-                    )
-                    else "TIMEOUT"
-                ),
-                polls=(
-                    startup_quiescence.polls + post_page_quiescence.polls
-                ),
-                waited_ms=(
-                    startup_quiescence.waited_ms
-                    + post_page_quiescence.waited_ms
-                ),
-                active_threads=max(
-                    startup_quiescence.active_threads,
-                    post_page_quiescence.active_threads,
-                ),
-            )
-            screen = window.screen() or app.primaryScreen()
-            available = screen.availableGeometry() if screen is not None else None
-            baseline_supported = bool(
-                available is not None
-                and available.width() >= 1600
-                and available.height() >= 900
-            )
-            dashboard_loaded = bool(window.dashboard._metrics)
-            dashboard_card_overlaps: list[str] = []
-            for card_id, card in window.dashboard.market_cards.items():
-                visible_widgets = tuple(
-                    widget for widget in (
-                        card.title, card.body, card.meta,
-                        card.comparison, card.sparkline,
-                    )
-                    if widget.isVisible()
-                )
-                for upper, lower in zip(visible_widgets, visible_widgets[1:]):
-                    if upper.geometry().bottom() >= lower.geometry().top():
-                        dashboard_card_overlaps.append(
-                            f"{card_id}:{upper.objectName() or type(upper).__name__}"
-                            f"->{lower.objectName() or type(lower).__name__}"
-                        )
-            health_rows = tuple(window.data_status_page._report_rows)
-            health_loaded = bool(health_rows)
-            health_managed_rows = tuple(
-                row for row in health_rows
-                if getattr(row, "automation", "").endswith(" / ENABLED")
-            )
-            health_managed_freshness = Counter(
-                getattr(row, "freshness", "UNKNOWN") for row in health_managed_rows
-            )
-            health_managed_acceptable = (
-                health_managed_freshness["CURRENT"]
-                + health_managed_freshness["EXPECTED_LAG"]
-            )
-            index_rendered = bool(
-                window.index_page._index_view is not None
-                and (
-                    len(window.index_page._frame)
-                    or window.index_page._index_view.unavailable_reason
-                )
-            )
-            market_chart_state = _market_chart_smoke_state(window.dashboard)
-            market_chart_rendered = market_chart_state in {
-                "RENDERED", "INTENTIONAL_UNAVAILABLE",
-            }
-            account_available = build_account_portfolio_presentation(
-                window.account_page._portfolio
-            ).available
-            net_worth_available = window.net_worth_page._view is not None
-            read_files = tuple({
-                *window.service.query.files_read,
-                window.backtest_service.result_path,
-            })
-            window.close()
-            app.processEvents()
-            worker_states = {
-                "account": (
-                    window._account_thread is None
-                    and window._account_worker is None
-                    and window._account_pending_trigger is None
-                ),
-                "current_observation": (
-                    window._current_observation_thread is None
-                    and window._current_observation_worker is None
-                ),
-                "equity": (
-                    window._equity_thread is None
-                    and window._equity_worker is None
-                    and window._equity_pending is None
-                    and window._candidate_scan_pending is False
-                ),
-                "us_etf": (
-                    window._us_etf_thread is None
-                    and window._us_etf_worker is None
-                    and window._us_etf_pending is None
-                ),
-                "backtest": (
-                    window._backtest_thread is None
-                    and window._backtest_worker is None
-                    and window._backtest_action is None
-                ),
-                "detached": not window._detached_windows,
-            }
-            workers_closed = bool(not window.isVisible() and all(worker_states.values()))
-            result = {
-                "baseline_supported": baseline_supported,
-                "pages": tuple(name for name, _page in registered),
-                "page_states": page_states,
-                "clipped_pages": tuple(clipped),
-                "dashboard_loaded": dashboard_loaded,
-                "dashboard_card_overlaps": tuple(dashboard_card_overlaps),
-                "font_family": font_policy.family,
-                "font_glyphs_supported": font_policy.glyphs_supported,
-                "health_loaded": health_loaded,
-                "health_row_count": len(health_rows),
-                "health_managed_total": len(health_managed_rows),
-                "health_managed_current": health_managed_freshness["CURRENT"],
-                "health_managed_expected_lag": health_managed_freshness["EXPECTED_LAG"],
-                "health_managed_acceptable": health_managed_acceptable,
-                "health_render_elapsed_ms": health_render_elapsed_ms,
-                "health_render_timeout_ms": NATIVE_GUI_HEALTH_TIMEOUT_MS,
-                "index_rendered": index_rendered,
-                "market_chart_rendered": market_chart_rendered,
-                "market_chart_state": market_chart_state,
-                "watchlist_isolated": watchlist_isolated,
-                "gui_user_data_isolation": gui_user_data_isolation,
-                "account_state": "AVAILABLE" if account_available else "INTENTIONAL_EMPTY_OR_UNAVAILABLE",
-                "net_worth_state": "AVAILABLE" if net_worth_available else "INTENTIONAL_EMPTY_OR_UNAVAILABLE",
-                "backtest_runnable": backtest_runnable,
-                "worker_states": worker_states,
-                "workers_closed": workers_closed,
-                "worker_quiescence_state": quiescence.state,
-                "worker_quiescence_polls": quiescence.polls,
-                "worker_quiescence_waited_ms": quiescence.waited_ms,
-                "worker_quiescence_active_threads": quiescence.active_threads,
-                "read_files": read_files,
-            }
-    finally:
-        _teardown_native_gui(app, window, QtCore, created_app=created_app)
-    return result
-
-
-def assess_native_gui(result: Mapping[str, object]) -> SmokeCheck:
-    required_flags = (
-        "dashboard_loaded", "health_loaded", "index_rendered",
-        "market_chart_rendered", "watchlist_isolated", "backtest_runnable",
-        "workers_closed",
-    )
-    failed = [item for item in required_flags if not result.get(item)]
-    market_chart_state = result.get("market_chart_state")
-    accepted_market_chart_states = {"RENDERED", "INTENTIONAL_UNAVAILABLE"}
-    market_chart_contract_ok = bool(
-        market_chart_state in accepted_market_chart_states
-        and result.get("market_chart_rendered") is True
-    )
-    isolation = result.get("gui_user_data_isolation")
-    isolation_contract_ok = isolation == "FULLY_ISOLATED"
-    health_rows = result.get("health_row_count")
-    health_managed = result.get("health_managed_total")
-    health_acceptable = result.get("health_managed_acceptable")
-    health_elapsed = result.get("health_render_elapsed_ms")
-    health_bound = result.get("health_render_timeout_ms", NATIVE_GUI_HEALTH_TIMEOUT_MS)
-    health_contract_ok = bool(
-        type(health_rows) is int and health_rows > 0
-        and type(health_managed) is int and health_managed > 0
-        and type(health_acceptable) is int and health_acceptable == health_managed
-        and type(health_elapsed) is int
-        and type(health_bound) is int and health_bound == NATIVE_GUI_HEALTH_TIMEOUT_MS
-        and health_elapsed <= health_bound
-    )
-    pages = tuple(result.get("pages", ()))
+    routes = tuple(result.get("pages", ()))
     page_states = result.get("page_states")
-    page_contract_ok = bool(
-        pages == EXPECTED_GUI_PAGES
-        and isinstance(page_states, Mapping)
-        and tuple(page_states) == EXPECTED_GUI_PAGES
-        and all(page_states.get(name) is True for name in EXPECTED_GUI_PAGES)
+    status_codes = result.get("web_probe_status_codes")
+    payload_sizes = result.get("web_probe_payload_sizes")
+    elapsed_ms = result.get("web_probe_elapsed_ms")
+    total_elapsed_ms = result.get("web_probe_total_elapsed_ms")
+    maps_match = all(
+        isinstance(value, Mapping) and tuple(value) == EXPECTED_WEB_ROUTES
+        for value in (page_states, status_codes, payload_sizes, elapsed_ms)
     )
-    worker_states = result.get("worker_states")
-    worker_contract_ok = bool(
-        isinstance(worker_states, Mapping)
-        and tuple(worker_states) == EXPECTED_GUI_WORKERS
-        and all(worker_states.get(name) is True for name in EXPECTED_GUI_WORKERS)
+    status_contract = bool(
+        maps_match
+        and routes == EXPECTED_WEB_ROUTES
+        and all(status_codes.get(route) == 200 for route in EXPECTED_WEB_ROUTES)
+        and all(page_states.get(route) is True for route in EXPECTED_WEB_ROUTES)
+        and result.get("web_probe_all_200") is True
     )
-    quiescence_state = result.get("worker_quiescence_state", "QUIESCENT")
-    quiescence_ok = quiescence_state == "QUIESCENT"
-    clipped = tuple(result.get("clipped_pages", ()))
-    dashboard_card_overlaps = tuple(result.get("dashboard_card_overlaps", ()))
-    font_glyphs_supported = result.get("font_glyphs_supported") is True
-    baseline = bool(result.get("baseline_supported"))
-    status = (
-        "FAIL"
-        if (
-            failed or clipped or dashboard_card_overlaps
-            or not font_glyphs_supported
-            or not page_contract_ok or not worker_contract_ok
-            or not quiescence_ok
-            or not market_chart_contract_ok or not isolation_contract_ok
-            or not health_contract_ok
+    measurements_valid = bool(
+        maps_match
+        and all(
+            type(payload_sizes.get(route)) is int
+            and payload_sizes.get(route) >= 0
+            and type(elapsed_ms.get(route)) in {int, float}
+            and elapsed_ms.get(route) >= 0
+            for route in EXPECTED_WEB_ROUTES
         )
-        else "PASS" if baseline else "DEGRADED"
+        and type(total_elapsed_ms) in {int, float}
+        and total_elapsed_ms >= 0
+    )
+    status = "PASS" if status_contract and measurements_valid else "FAIL"
+    codes = (
+        ",".join(f"{route}={status_codes.get(route)}" for route in EXPECTED_WEB_ROUTES)
+        if isinstance(status_codes, Mapping)
+        else "unavailable"
+    )
+    sizes = (
+        sum(value for value in payload_sizes.values() if type(value) is int)
+        if isinstance(payload_sizes, Mapping)
+        else 0
     )
     return SmokeCheck(
-        "NATIVE_GUI_1600X900", status,
-        f"pages={len(pages)} page_contract={page_contract_ok} failed={len(failed)} "
-        f"clipped={len(clipped)} card_overlaps={len(dashboard_card_overlaps)} "
-        f"font_glyphs={font_glyphs_supported} worker_contract={worker_contract_ok} "
-        f"worker_quiescence={quiescence_state} "
-        f"market_chart_state={market_chart_state} "
-        f"market_chart_contract={market_chart_contract_ok} "
-        f"health_rows={health_rows} health_managed={health_managed} "
-        f"health_acceptable={health_acceptable} health_elapsed_ms={health_elapsed} "
-        f"health_bound_ms={health_bound} health_contract={health_contract_ok} "
-        f"user_data_isolation={isolation} isolation_contract={isolation_contract_ok} "
-        f"screen_baseline_supported={baseline} workers_closed={bool(result.get('workers_closed'))} "
-        f"account={result.get('account_state')} net_worth={result.get('net_worth_state')}",
+        "WEB_DASHBOARD_ASGI",
+        status,
+        f"routes={len(routes)} status_codes={codes} payload_bytes={sizes} "
+        f"elapsed_ms={total_elapsed_ms} measurements_valid={measurements_valid}",
         "gui",
     )
 
@@ -2285,7 +1841,7 @@ def run_release_readiness(
     *,
     scheduler_probe: Callable[[], Iterable[Mapping[str, object]]] | None = None,
     service_runner: Callable[[Path], Mapping[str, object]] = run_local_service_smoke,
-    gui_runner: Callable[[Path], Mapping[str, object]] = run_native_gui_smoke,
+    web_runner: Callable[[Path], Mapping[str, object]] = run_web_readiness_probe,
     now: datetime | None = None,
 ) -> dict[str, object]:
     project_root = Path(project_root).resolve()
@@ -2305,7 +1861,7 @@ def run_release_readiness(
     backtest_check_index = len(checks) - 1
     conditions: tuple[str, ...] = ()
     read_files: list[Path] = [backtest_path]
-    gui_user_data_isolation = "UNVERIFIED"
+    web_probe: dict[str, object] = {}
 
     health = DailyHealthArtifactService(project_root).load()
     health_check, conditions = assess_health(health)
@@ -2339,16 +1895,13 @@ def run_release_readiness(
     checks.append(assess_due_scheduler_outcomes(project_root, now=clock))
     checks.append(verify_isolated_update_preservation(project_root))
     try:
-        gui = dict(gui_runner(project_root))
-        gui_user_data_isolation = str(
-            gui.get("gui_user_data_isolation", "UNVERIFIED")
-        )
-        checks.append(assess_native_gui(gui))
-        read_files.extend(gui.get("read_files", ()))
+        web_probe = dict(web_runner(project_root))
+        checks.append(assess_web_readiness_probe(web_probe))
+        read_files.extend(web_probe.get("read_files", ()))
     except Exception as error:
         checks.append(SmokeCheck(
-            "NATIVE_GUI_1600X900", "FAIL",
-            f"native GUI smoke failed: {type(error).__name__}", "gui",
+            "WEB_DASHBOARD_ASGI", "FAIL",
+            f"web readiness probe failed: {type(error).__name__}", "gui",
         ))
 
     after = tree_metadata_identity(project_root)
@@ -2365,12 +1918,9 @@ def run_release_readiness(
     protected_unchanged = before == after
     exact_user_unchanged = user_before == user_after
     unchanged = protected_unchanged and exact_user_unchanged
-    if exact_user_unchanged:
-        user_data_change_attribution = "UNCHANGED"
-    elif gui_user_data_isolation == "FULLY_ISOLATED":
-        user_data_change_attribution = "CONCURRENT_EXTERNAL_DRIFT"
-    else:
-        user_data_change_attribution = "IN_PROCESS_MUTATION_NOT_EXCLUDED"
+    user_data_change_attribution = (
+        "UNCHANGED" if exact_user_unchanged else "CHANGE_DURING_WEB_PROBE"
+    )
     checks.append(SmokeCheck(
         "USER_DATA_BYTE_IDENTITY", "PASS" if unchanged else "FAIL",
         f"exact_user_files={user_after.file_count} exact_user_bytes={user_after.total_bytes} "
@@ -2407,7 +1957,9 @@ def run_release_readiness(
         "expected_conditions": list(conditions),
         "external_calls": 0,
         "scheduler_mutations": 0,
-        "gui_user_data_isolation": gui_user_data_isolation,
+        "web_probe": {
+            key: value for key, value in web_probe.items() if key != "read_files"
+        },
         "user_data_change_attribution": user_data_change_attribution,
         "data_mutations": (
             0 if unchanged else user_data_change_attribution
@@ -2418,15 +1970,16 @@ def run_release_readiness(
 
 
 __all__ = [
-    "EXPECTED_GUI_PAGES", "EXPECTED_GUI_WORKERS", "EXPECTED_SCHEDULED_TASKS",
-    "KR_MARKET_DAILY_SLOT_TASKS",
-    "REPORT_SCHEMA_VERSION", "SCHEDULER_TASK_HAS_NOT_RUN", "SmokeCheck",
-    "TreeIdentity", "assess_due_scheduler_outcomes", "assess_health",
-    "assess_health_consistency", "assess_local_service", "assess_native_gui",
-    "assess_scheduler", "assess_scheduler_results", "check_health_schema_version",
-    "check_required_roots", "code_identity",
-    "check_backtest_gui_bundle",
-    "query_windows_scheduler", "run_local_service_smoke", "run_native_gui_smoke",
-    "run_release_readiness", "tree_metadata_identity", "user_data_content_identity",
+    "EXPECTED_SCHEDULED_TASKS", "EXPECTED_WEB_ROUTES",
+    "KR_MARKET_DAILY_SLOT_TASKS", "REPORT_SCHEMA_VERSION",
+    "SCHEDULER_TASK_HAS_NOT_RUN", "SmokeCheck", "TreeIdentity",
+    "assess_due_scheduler_outcomes", "assess_health",
+    "assess_health_consistency", "assess_local_service",
+    "assess_scheduler", "assess_scheduler_results",
+    "assess_web_readiness_probe", "check_health_schema_version",
+    "check_required_roots", "code_identity", "check_backtest_gui_bundle",
+    "query_windows_scheduler", "run_local_service_smoke",
+    "run_release_readiness", "run_web_readiness_probe",
+    "tree_metadata_identity", "user_data_content_identity",
     "verify_isolated_update_preservation",
 ]

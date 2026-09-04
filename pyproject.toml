@@ -17,8 +17,6 @@ dependencies = [
     "requests>=2.32",
     "scikit-learn>=1.6,<2",
     "optuna>=4,<5",
-    "PySide6>=6.8",
-    "pyqtgraph>=0.13.7",
     "yfinance==1.6.0",
 ]
 

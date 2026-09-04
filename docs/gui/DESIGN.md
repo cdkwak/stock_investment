@@ -1,5 +1,7 @@
 # GUI Design Contract
 
+> The PySide6 desktop implementation is retired; this contract now applies to the FastAPI web dashboard in `src/stock_web`.
+
 역할: 이 문서는 표시 설계 계약이며, 현재 런타임·우선순위·퇴역 상태의 권위는 [GUI Status](GUI_STATUS.md)다.
 
 ## 0. Research Log
@@ -118,7 +120,7 @@
 - Status is communicated through label plus color/icon.
 - Financial numbers preserve unit, source, as-of, freshness, and supported meaning. Stale, invalid, mismatched, or unsupported input remains numeric-free.
 - Account identifiers, credentials, raw provider payloads, and order controls never enter presentation state.
-- Accepted first-pass debt: no mobile layout; this remains a native desktop application validated at 900×640, 1366×768, and 2560×1440.
+- Accepted first-pass debt: mobile layout remains incomplete; the supported runtime is the FastAPI web dashboard.
 
 ## First implementation slice
 

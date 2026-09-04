@@ -2156,14 +2156,14 @@ def _write_us_etf_price(root: Path, symbol: str = "SPY") -> pd.DataFrame:
     return frame
 
 
-def test_us_etf_catalog_has_exact_sixteen_fund_identities_and_official_references():
+def test_us_etf_catalog_has_exact_nineteen_fund_identities_and_official_references():
     by_symbol = {identity.symbol: identity for identity in US_ETF_CHART_IDENTITIES}
 
     assert tuple(by_symbol) == (
         "SOXL", "TQQQ", "QLD", "KORU", "EWY", "TLT", "TLTW", "QQQ", "SPY",
-        "QQQI", "QDVO", "GPIQ", "JEPQ", "JEPI", "SGOV", "VGLT",
+        "QQQI", "QDVO", "GPIQ", "JEPQ", "JEPI", "SGOV", "VGLT", "VNQ", "IEF", "SHY",
     )
-    assert len({identity.key for identity in by_symbol.values()}) == 16
+    assert len({identity.key for identity in by_symbol.values()}) == 19
     assert all(identity.is_us_etf and identity.currency == "USD" for identity in by_symbol.values())
     assert all(identity.issuer and identity.exposure and identity.listing_date for identity in by_symbol.values())
     assert all((identity.identity_source or "").startswith("https://") for identity in by_symbol.values())

@@ -344,6 +344,8 @@ git branch backup/repo-cleanup-phase3-20260903 HEAD
 
 ### 4단계 — PySide6 퇴역(웹 parity 이후만)
 
+> 2026-09-05 update: the Qt runtime boundary and dependencies were retired; web-imported read-only services remain under `src/stock_data/gui/` pending any later neutral-package rename.
+
 먼저 웹이 직접 import하는 공유 서비스를 중립 패키지로 이동하고 import/test를 바꾼다.
 그 다음 아래 Qt 경계를 퇴역한다. `src/stock_data/gui/` 전체 삭제는 서비스 분리 전 금지다.
 

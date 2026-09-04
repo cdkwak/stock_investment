@@ -34,12 +34,9 @@ The primary display is the local FastAPI web app (`src/stock_web`) with 홈,
 Runtime logs are under `artifacts/runtime_logs/web/`; settings are stored in
 `artifacts/local_user/web_settings.json`.
 
-The PySide6/PyQtGraph app is secondary: **유지 (웹 parity 이후 퇴역 예정,
-4단계)**. Run it with:
-
-```powershell
-.\.venv\Scripts\python.exe .\app.py
-```
+The former PySide6/PyQtGraph desktop GUI is retired; `src/stock_web` is the
+only supported display runtime. Shared read-only services remain under
+`src/stock_data/gui/` for compatibility with the web app.
 
 Display-layer code does not promote market data; provider transport and
 canonical promotion remain Data-owned. Each card retains its own source,
@@ -47,16 +44,17 @@ market-date/freshness, and semantic/PIT status.
 
 ## Daily offline release smoke
 
-Use the supported provider-free smoke after installation or an update. It opens
-and closes the native 1600x900 application, visits the Dashboard, Index, Data
-Status, Account, and Net Worth pages, checks retained schema/freshness/chart and
+Use the supported provider-free smoke after installation or an update. It
+creates the FastAPI app in-process, probes `/api/home`, `/api/market`,
+`/api/account`, `/data`, and `/research`, checks retained schema/freshness and
 read-only scheduler state, and verifies user data was not changed.
 
 ```powershell
 .\.venv\Scripts\python.exe .\scripts\maintenance\run_release_readiness_smoke.py --output artifacts\release_readiness\release_readiness_latest.json
 ```
 
-The JSON report records exact code and retained-input identities. Exit status is
+The JSON report records each route's status code, payload size and elapsed time,
+plus exact code and retained-input identities. Exit status is
 `0` for `PASS`, `2` for `DEGRADED`, and `1` for `FAIL`. `EXPECTED_LAG` is listed
 separately; stale, unknown, blocked, unavailable, or unverified scheduler state
 is never reported as a clean pass. The command never loads `.env`, calls a

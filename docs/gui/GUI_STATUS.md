@@ -7,7 +7,7 @@ retained under `docs/archive/gui/status_history/`.
 
 ## Current phase
 
-`AUTONOMOUS_GUI_ENGINEERING_ACTIVE / WEB_DASHBOARD_PRIMARY / PYSIDE6_PARITY_BRIDGE / PROVIDER_ISOLATED / OTHER_COVERAGE_INCOMPLETE`
+`AUTONOMOUS_GUI_ENGINEERING_ACTIVE / WEB_DASHBOARD_ONLY / PYSIDE6_RETIRED / PROVIDER_ISOLATED / OTHER_COVERAGE_INCOMPLETE`
 
 GUI and application-service work may proceed in parallel with Data and
 Backtest. Presentation remains local and read-only; provider transport,
@@ -24,7 +24,7 @@ canonical promotion, and scheduler execution remain Data-owned.
   `artifacts/local_user/watch_conditions.json`,
   `artifacts/local_user/cash_flows.json`, and
   `artifacts/local_user/trade_journal_manual.json`.
-- PySide6 status: **유지 (웹 parity 이후 퇴역 예정, 4단계)**.
+- PySide6 status: **퇴역 완료**. Web-imported read-only services remain under the historical `stock_data.gui` package boundary.
 
 ## Current state
 
@@ -40,8 +40,8 @@ canonical promotion, and scheduler execution remain Data-owned.
 | Research | Provider-free Research Workspace, local watchlists, chart coverage, layout presets, and `Ctrl+K` exact-identity symbol switching are implemented. The [practical partial-axis scanner](STOCK_EXPLORATORY_SCANNER_CONTRACT.md) starts asynchronously on first tab use and shows extreme original-price candidates at RSI14 <= 30 or close/SMA60 <= 80%. Exact-date, hash-bound KRX current PER/PBR is displayed independently when present and never changes inclusion/order; Forward EPS and strict relative-value judgment remain `N/A`. Activating a row revalidates it through the exact local catalog before opening the chart. |
 | Accounts | Toss and KB views are read-only and sanitized. Verified holding fields include average/current price, correctly scaled provider returns, ordinary/after-cost/daily P/L and source-time detail. Unsupported cash, realized P/L and cross-currency totals remain absent. The natural 2026-09-02 07:10 KB task failed closed after one supplier call and preserved the prior snapshot; a separately keyed manual read-only refresh then succeeded with one call. GUI state receives neither failed provider detail nor any direct identifier, and the failed scheduled receipt is not rewritten. |
 | Backtest | GUI consumes validated typed local result bundles and contains no Feature, Model, strategy, fill, risk, or accounting logic. |
-| Release readiness | GUI startup/provider isolation, account-environment allowlisting, cockpit readability, and the exact ten-page contract pass focused coverage. The fresh 09:50 KST offline gate passed native GUI, file identity, schema, cache, freshness, and required scheduler-result checks with zero external calls/mutations, but full release remains `FAIL` on Health-receipt reconciliation, three retained nonzero scheduler results, and 9/10 due groups. The inaccessible derivatives dataset is a separate retained-audit gate. |
-| PySide6 | **유지 (웹 parity 이후 퇴역 예정, 4단계)**. It remains the secondary local display while web parity is completed; it is not the primary run route. Its verified consumer-first Today page grouped market summary, Korean/US flow, accounts, and evidence links with typed unavailable states; the retained 1366x768 and 900x640 checks had zero horizontal scroll or overlap, correct Korean glyphs, a visible analysis entry point, and WCAG-AA secondary text on the checked backgrounds. |
+| Release readiness | The provider-free release probe creates the FastAPI app in-process and records status code, payload size, and elapsed milliseconds for `/api/home`, `/api/market`, `/api/account`, `/data`, and `/research`; any non-200 response fails the release gate. Retained Health, scheduler, file-identity, and user-data mutation checks remain independent gates. |
+| PySide6 | **퇴역 완료**. `main_window.py`, `font_policy.py`, Qt-only tests, and PySide6/PyQtGraph dependencies were removed; shared web-imported services remain in place. |
 
 ## Owning contracts and maps
 
@@ -68,9 +68,8 @@ GUI documents.
 
 - The primary entry is the always-on `STOCK_WEB_DASHBOARD` task serving
   <http://127.0.0.1:8787>; use `scripts/restart_web.cmd` to restart it.
-- `app.py` starts the secondary PySide6 application. Its status is **유지 (웹
-  parity 이후 퇴역 예정, 4단계)**; shared services must be separated before
-  retirement.
+- The PySide6 desktop runtime is retired. The FastAPI app under `src/stock_web`
+  is the only supported display entry point.
 - Startup and rendering are provider-free and local-read-only by default.
 - A GUI action may request an allowlisted asynchronous Data-owned read-only
   operation through a typed service. Secrets and provider parameters never
@@ -99,13 +98,13 @@ GUI documents.
 | Daily summary input/runtime unavailable | The closed contract is concise and source-bound, but registry revision 1 intentionally yields `NO_OUTPUT` because no accepted `MARKET_STATE` result is selected; no Telegram runtime exists | GUI; a later reviewed task must bind the exact local result before implementing the provider-free composer |
 | Failed KB scheduled receipt and one inaccessible Data dataset | Full release cannot pass even though GUI-local checks and the 09:10 KR task pass | Data; preserve the failed receipt, and repair only the exact ACL after explicit approval before rerunning the full gate |
 | Unmanaged retained-data gaps | Health remains visibly degraded outside the managed SLO | Data; fix each dataset through its own contract rather than masking the row |
-| PySide6 parity retirement | The web app is primary, but some shared services and parity coverage still live under the Qt-era package boundary | GUI; move shared services to a neutral package and retire PySide6 only in phase 4 after parity |
+| Historical package boundary | Web-imported read-only services still live under `stock_data.gui` | GUI; a later neutral-package move may rename imports without reviving Qt |
 
 ## Exact next GUI actions
 
 1. Keep the local web Dashboard stable at <http://127.0.0.1:8787>, use
    `scripts/restart_web.cmd` for restarts, and preserve the typed local-only
-   boundary while web parity is completed.
+   boundary.
 2. Preserve the closed
    [Daily Market Summary Contract](DAILY_MARKET_SUMMARY_CONTRACT.md): its default
    projection is normally 3–4 lines and hard-limited to 6 lines/480 code points.
@@ -122,8 +121,8 @@ GUI documents.
 - Changes to visible financial semantics, account/privacy behavior, refresh
   status, or shared contracts require independent review under the queue rules.
 - Ordinary layout/document routing changes use focused automated checks.
-- Provider-free unit/service tests and an offscreen render are required for
-  visible GUI behavior changes. Live API calls do not belong in GUI tests.
+- Provider-free unit/service and in-process ASGI tests are required for visible
+  dashboard behavior changes. Live API calls do not belong in GUI tests.
 - Historical acceptance evidence for the phase-2 retired subsystem is preserved
   only on `backup/repo-cleanup-phase2-20260903`; it is not a current GUI
   validation route.

@@ -69,26 +69,23 @@ def _scheduler_rows(project_root: Path | None = None) -> tuple[dict[str, object]
     return tuple(rows)
 
 
-def _gui_result() -> dict[str, object]:
+def _web_result() -> dict[str, object]:
     return {
-        "baseline_supported": True,
-        "font_glyphs_supported": True,
-        "dashboard_card_overlaps": (),
-        "pages": subject.EXPECTED_GUI_PAGES,
-        "page_states": {name: True for name in subject.EXPECTED_GUI_PAGES},
-        "clipped_pages": (), "dashboard_loaded": True, "health_loaded": True,
-        "health_row_count": 80, "health_managed_total": 20,
-        "health_managed_current": 8, "health_managed_expected_lag": 12,
-        "health_managed_acceptable": 20, "health_render_elapsed_ms": 2_000,
-        "health_render_timeout_ms": subject.NATIVE_GUI_HEALTH_TIMEOUT_MS,
-        "index_rendered": True, "market_chart_rendered": True,
-        "market_chart_state": "RENDERED", "watchlist_isolated": True,
-        "gui_user_data_isolation": "FULLY_ISOLATED", "backtest_runnable": True,
-        "worker_states": {name: True for name in subject.EXPECTED_GUI_WORKERS},
-        "workers_closed": True, "account_state": "AVAILABLE",
-        "net_worth_state": "INTENTIONAL_EMPTY_OR_UNAVAILABLE", "read_files": (),
+        "pages": subject.EXPECTED_WEB_ROUTES,
+        "page_states": {route: True for route in subject.EXPECTED_WEB_ROUTES},
+        "web_probe_status_codes": {
+            route: 200 for route in subject.EXPECTED_WEB_ROUTES
+        },
+        "web_probe_payload_sizes": {
+            route: 100 for route in subject.EXPECTED_WEB_ROUTES
+        },
+        "web_probe_elapsed_ms": {
+            route: 1.0 for route in subject.EXPECTED_WEB_ROUTES
+        },
+        "web_probe_total_elapsed_ms": 5.0,
+        "web_probe_all_200": True,
+        "read_files": (),
     }
-
 
 def _backtest_payload() -> dict[str, object]:
     return {
@@ -1407,350 +1404,63 @@ def test_kr_scheduler_result_requires_exact_terminal_occurrence_evidence(
     assert check.status == "FAIL" and "failed=1" in check.summary
 
 
-def test_native_gui_requires_pages_charts_no_clipping_and_worker_cleanup() -> None:
-    assert subject.EXPECTED_GUI_PAGES == (
-        "오늘", "시장", "종목", "관심종목", "계좌",
-        "판단 근거", "데이터 상태", "리서치", "백테스트", "미국 ETF",
+def test_web_probe_requires_exact_routes_and_http_200() -> None:
+    assert subject.EXPECTED_WEB_ROUTES == (
+        "/api/home", "/api/market", "/api/account", "/data", "/research",
     )
-    result = _gui_result()
-    assert subject.assess_native_gui(result).status == "PASS"
-    result["clipped_pages"] = ("Dashboard",)
-    assert subject.assess_native_gui(result).status == "FAIL"
+    result = _web_result()
+    assert subject.assess_web_readiness_probe(result).status == "PASS"
+
+
+@pytest.mark.parametrize("route", subject.EXPECTED_WEB_ROUTES)
+def test_web_probe_fails_closed_for_each_non_200_route(route: str) -> None:
+    result = _web_result()
+    result["web_probe_status_codes"][route] = 503
+    result["page_states"][route] = False
+    result["web_probe_all_200"] = False
+
+    check = subject.assess_web_readiness_probe(result)
+
+    assert check.status == "FAIL"
+    assert f"{route}=503" in check.summary
 
 
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("health_row_count", 0),
-        ("health_managed_total", 0),
-        ("health_managed_acceptable", 19),
-        ("health_render_elapsed_ms", subject.NATIVE_GUI_HEALTH_TIMEOUT_MS + 1),
-        ("health_render_timeout_ms", subject.NATIVE_GUI_HEALTH_TIMEOUT_MS + 1),
+        ("web_probe_payload_sizes", {route: -1 for route in subject.EXPECTED_WEB_ROUTES}),
+        ("web_probe_elapsed_ms", {route: -1.0 for route in subject.EXPECTED_WEB_ROUTES}),
+        ("web_probe_total_elapsed_ms", -1.0),
     ],
 )
-def test_native_gui_fails_closed_on_empty_unmanaged_or_late_health(
-    field: str, value: int,
-) -> None:
-    result = _gui_result()
+def test_web_probe_rejects_invalid_measurements(field: str, value: object) -> None:
+    result = _web_result()
     result[field] = value
-    check = subject.assess_native_gui(result)
-    assert check.status == "FAIL"
-    assert "health_contract=False" in check.summary
 
-
-@pytest.mark.parametrize("page", subject.EXPECTED_GUI_PAGES)
-def test_native_gui_rejects_each_missing_or_failed_registered_page(page: str) -> None:
-    result = {
-        "baseline_supported": True,
-        "font_glyphs_supported": True,
-        "dashboard_card_overlaps": (),
-        "pages": subject.EXPECTED_GUI_PAGES,
-        "page_states": {name: True for name in subject.EXPECTED_GUI_PAGES},
-        "clipped_pages": (), "dashboard_loaded": True, "health_loaded": True,
-        "index_rendered": True, "market_chart_rendered": True,
-        "market_chart_state": "RENDERED", "watchlist_isolated": True,
-        "gui_user_data_isolation": "FULLY_ISOLATED",
-        "backtest_runnable": True,
-        "worker_states": {name: True for name in subject.EXPECTED_GUI_WORKERS},
-        "workers_closed": True,
-    }
-    result["page_states"][page] = False
-    assert subject.assess_native_gui(result).status == "FAIL"
-    result["page_states"][page] = True
-    result["pages"] = tuple(name for name in subject.EXPECTED_GUI_PAGES if name != page)
-    assert subject.assess_native_gui(result).status == "FAIL"
-
-
-@pytest.mark.parametrize("worker", subject.EXPECTED_GUI_WORKERS)
-def test_native_gui_rejects_each_missing_or_live_worker(worker: str) -> None:
-    result = {
-        "baseline_supported": True,
-        "font_glyphs_supported": True,
-        "dashboard_card_overlaps": (),
-        "pages": subject.EXPECTED_GUI_PAGES,
-        "page_states": {name: True for name in subject.EXPECTED_GUI_PAGES},
-        "clipped_pages": (), "dashboard_loaded": True, "health_loaded": True,
-        "index_rendered": True, "market_chart_rendered": True,
-        "market_chart_state": "RENDERED", "watchlist_isolated": True,
-        "gui_user_data_isolation": "FULLY_ISOLATED",
-        "backtest_runnable": True,
-        "worker_states": {name: True for name in subject.EXPECTED_GUI_WORKERS},
-        "workers_closed": True,
-    }
-    result["worker_states"][worker] = False
-    assert subject.assess_native_gui(result).status == "FAIL"
-    result["worker_states"].pop(worker)
-    assert subject.assess_native_gui(result).status == "FAIL"
-
-
-def test_qwidget_horizontal_overflow_is_detected() -> None:
-    class Size:
-        def __init__(self, width: int):
-            self._width = width
-
-        def width(self) -> int:
-            return self._width
-
-    class Widget:
-        def contentsRect(self):
-            return Size(200)
-
-        def layout(self):
-            return SimpleNamespace(
-                minimumSize=lambda: Size(500), sizeHint=lambda: Size(500),
-            )
-
-    class ScrollArea(Widget):
-        pass
-
-    qt_widgets = SimpleNamespace(QWidget=Widget, QScrollArea=ScrollArea)
-    assert subject._page_has_horizontal_overflow(Widget(), qt_widgets) is True
-
-
-def test_market_chart_smoke_accepts_only_typed_stale_intentional_unavailable() -> None:
-    metric = SimpleNamespace(freshness="STALE", displays_value=False)
-    dashboard = SimpleNamespace(
-        _market_frame=(), _market_frame_issue=None,
-        market_asset=SimpleNamespace(currentText=lambda: "KOSPI"),
-        CHART_METRICS={"KOSPI": "KOSPI"}, _metrics={"KOSPI": metric},
-    )
-
-    assert subject._market_chart_smoke_state(dashboard) == "INTENTIONAL_UNAVAILABLE"
-    dashboard._metrics = {}
-    assert subject._market_chart_smoke_state(dashboard) == "RENDER_FAILED"
-    dashboard._metrics = {"KOSPI": SimpleNamespace(freshness="STALE")}
-    assert subject._market_chart_smoke_state(dashboard) == "RENDER_FAILED"
-    dashboard._metrics = {"KOSPI": metric}
-    dashboard._market_frame_issue = "invalid retained frame"
-    assert subject._market_chart_smoke_state(dashboard) == "RENDER_FAILED"
-
-
-def test_native_gui_accepts_intentional_unavailable_chart_compatibility_flag() -> None:
-    result = _gui_result()
-    result["market_chart_state"] = "INTENTIONAL_UNAVAILABLE"
-    assert subject.assess_native_gui(result).status == "PASS"
-    result["watchlist_isolated"] = False
-    assert subject.assess_native_gui(result).status == "FAIL"
-    result["watchlist_isolated"] = True
-    result["market_chart_rendered"] = False
-    result["market_chart_state"] = "RENDER_FAILED"
-    assert subject.assess_native_gui(result).status == "FAIL"
-    result["market_chart_rendered"] = True
-    assert subject.assess_native_gui(result).status == "FAIL"
-    result["market_chart_state"] = "INTENTIONAL_UNAVAILABLE"
-    result["market_chart_rendered"] = False
-    assert subject.assess_native_gui(result).status == "FAIL"
-    result["market_chart_rendered"] = True
-    result["gui_user_data_isolation"] = "UNVERIFIED"
-    assert subject.assess_native_gui(result).status == "FAIL"
-
-
-def test_native_gui_rejects_missing_glyphs_and_internal_card_overlap() -> None:
-    result = _gui_result()
-    result["font_glyphs_supported"] = False
-    check = subject.assess_native_gui(result)
-    assert check.status == "FAIL"
-    assert "font_glyphs=False" in check.summary
-
-    result["font_glyphs_supported"] = True
-    result["dashboard_card_overlaps"] = ("KOSPI:compactValue->compactMeta",)
-    check = subject.assess_native_gui(result)
-    assert check.status == "FAIL"
-    assert "card_overlaps=1" in check.summary
-
-
-def test_native_gui_teardown_quits_only_a_locally_created_application() -> None:
-    events: list[str] = []
-
-    class Window:
-        def close(self) -> None:
-            events.append("window.close")
-
-        def deleteLater(self) -> None:
-            events.append("window.deleteLater")
-
-    class App:
-        def processEvents(self) -> None:
-            events.append("app.processEvents")
-
-        def closeAllWindows(self) -> None:
-            events.append("app.closeAllWindows")
-
-        def quit(self) -> None:
-            events.append("app.quit")
-
-    class CoreApplication:
-        @staticmethod
-        def sendPostedEvents(_receiver, event_type) -> None:
-            events.append(f"sendPostedEvents:{event_type}")
-
-    qt_core = SimpleNamespace(
-        QCoreApplication=CoreApplication,
-        QEvent=SimpleNamespace(DeferredDelete="DeferredDelete"),
-    )
-    subject._teardown_native_gui(App(), Window(), qt_core, created_app=True)
-    assert events.count("window.close") == 1
-    assert events.count("window.deleteLater") == 1
-    assert events.count("sendPostedEvents:DeferredDelete") == 2
-    assert events[-3:] == [
-        "app.quit", "sendPostedEvents:DeferredDelete", "app.processEvents",
-    ]
-
-    events.clear()
-    subject._teardown_native_gui(App(), Window(), qt_core, created_app=False)
-    assert "app.closeAllWindows" not in events
-    assert "app.quit" not in events
-    assert events.count("sendPostedEvents:DeferredDelete") == 1
-
-
-def test_native_gui_quiescence_drains_events_until_delayed_worker_releases() -> None:
-    waits: list[int] = []
-
-    class Window:
-        thread = object()
-
-        def _managed_worker_threads(self):
-            return (self.thread,)
-
-    window = Window()
-
-    class App:
-        def processEvents(self) -> None:
-            pass
-
-    class CoreApplication:
-        @staticmethod
-        def sendPostedEvents(_receiver, _event_type) -> None:
-            pass
-
-    class QTest:
-        @staticmethod
-        def qWait(wait_ms: int) -> None:
-            waits.append(wait_ms)
-            if len(waits) == 3:
-                window.thread = None
-
-    qt_core = SimpleNamespace(
-        QCoreApplication=CoreApplication,
-        QEvent=SimpleNamespace(DeferredDelete="DeferredDelete"),
-    )
-    result = subject._wait_for_managed_gui_quiescence(
-        window, App(), qt_core,
-        timeout_ms=500, poll_interval_ms=100, sleep_ms=QTest.qWait,
-    )
-
-    assert result == subject.NativeGuiQuiescence(
-        state="QUIESCENT", polls=4, waited_ms=300, active_threads=0,
-    )
-    assert waits == [100, 100, 100]
-
-
-def test_native_gui_quiescence_reports_exact_bounded_timeout() -> None:
-    waits: list[int] = []
-
-    class Window:
-        def _managed_worker_threads(self):
-            return (object(), None)
-
-    class App:
-        def processEvents(self) -> None:
-            pass
-
-    class CoreApplication:
-        @staticmethod
-        def sendPostedEvents(_receiver, _event_type) -> None:
-            pass
-
-    class QTest:
-        @staticmethod
-        def qWait(wait_ms: int) -> None:
-            waits.append(wait_ms)
-
-    qt_core = SimpleNamespace(
-        QCoreApplication=CoreApplication,
-        QEvent=SimpleNamespace(DeferredDelete="DeferredDelete"),
-    )
-    result = subject._wait_for_managed_gui_quiescence(
-        Window(), App(), qt_core,
-        timeout_ms=250, poll_interval_ms=100, sleep_ms=QTest.qWait,
-    )
-
-    assert result == subject.NativeGuiQuiescence(
-        state="TIMEOUT", polls=4, waited_ms=250, active_threads=1,
-    )
-    assert waits == [100, 100, 50]
-
-
-def test_native_gui_assessment_rejects_worker_quiescence_timeout() -> None:
-    result = {
-        "baseline_supported": True,
-        "font_glyphs_supported": True,
-        "dashboard_card_overlaps": (),
-        "pages": subject.EXPECTED_GUI_PAGES,
-        "page_states": {name: True for name in subject.EXPECTED_GUI_PAGES},
-        "clipped_pages": (), "dashboard_loaded": True, "health_loaded": True,
-        "index_rendered": True, "market_chart_rendered": True,
-        "market_chart_state": "RENDERED", "watchlist_isolated": True,
-        "gui_user_data_isolation": "FULLY_ISOLATED",
-        "backtest_runnable": True,
-        "worker_states": {name: True for name in subject.EXPECTED_GUI_WORKERS},
-        "workers_closed": True,
-        "worker_quiescence_state": "TIMEOUT",
-    }
-
-    check = subject.assess_native_gui(result)
+    check = subject.assess_web_readiness_probe(result)
 
     assert check.status == "FAIL"
-    assert "worker_quiescence=TIMEOUT" in check.summary
+    assert "measurements_valid=False" in check.summary
 
 
-def test_native_gui_user_data_is_staged_away_from_canonical_paths(
+def test_web_probe_creates_app_in_process_and_records_route_measurements(
     tmp_path: Path,
 ) -> None:
-    project_root = tmp_path / "project"
-    isolated_root = tmp_path / "isolated"
-    inputs = {
-        "data/normalized/toss_account_snapshot/latest.json": b'{"toss":1}\n',
-        "data/local/account_snapshots/kb_self.json": b'{"kb":1}\n',
-        "data/local/account_snapshots/family_mirae_etf.json": b'{"family":1}\n',
-        "data/local/net_worth_history/record-00000000-safe.json": b'{"net":1}\n',
-        "artifacts/local_user/watchlists.json": b'{"watchlists":1}\n',
+    result = subject.run_web_readiness_probe(tmp_path)
+
+    assert result["pages"] == subject.EXPECTED_WEB_ROUTES
+    assert result["web_probe_status_codes"] == {
+        route: 200 for route in subject.EXPECTED_WEB_ROUTES
     }
-    for relative, body in inputs.items():
-        path = project_root / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(body)
-
-    options = subject._stage_native_gui_user_data(project_root, isolated_root)
-
-    expected = {
-        "account_snapshot_path": "data/normalized/toss_account_snapshot/latest.json",
-        "kb_account_snapshot_path": "data/local/account_snapshots/kb_self.json",
-        "family_account_snapshot_path": "data/local/account_snapshots/family_mirae_etf.json",
-    }
-    for option, relative in expected.items():
-        staged = options[option]
-        assert staged == isolated_root / relative
-        assert staged.read_bytes() == inputs[relative]
-        staged.write_bytes(b"changed only in isolation")
-        assert (project_root / relative).read_bytes() == inputs[relative]
-
-    staged_net_worth = (
-        options["net_worth_history_root"] / "record-00000000-safe.json"
+    assert all(
+        result["web_probe_payload_sizes"][route] > 0
+        for route in subject.EXPECTED_WEB_ROUTES
     )
-    assert staged_net_worth.read_bytes() == inputs[
-        "data/local/net_worth_history/record-00000000-safe.json"
-    ]
-    assert options["dashboard_preferences_path"].is_relative_to(isolated_root)
-    assert options["watchlist_path"].is_relative_to(isolated_root)
-    assert options["watchlist_path"].read_bytes() == inputs[
-        "artifacts/local_user/watchlists.json"
-    ]
-    options["watchlist_path"].write_bytes(b"changed only in isolation")
-    assert (project_root / "artifacts/local_user/watchlists.json").read_bytes() == inputs[
-        "artifacts/local_user/watchlists.json"
-    ]
-    assert options["toss_runtime_enabled"] is False
+    assert all(
+        result["web_probe_elapsed_ms"][route] >= 0
+        for route in subject.EXPECTED_WEB_ROUTES
+    )
+    assert subject.assess_web_readiness_probe(result).status == "PASS"
 
 
 def test_protected_tree_identity_detects_a_user_data_change(tmp_path: Path) -> None:
@@ -1798,10 +1508,10 @@ def test_full_report_is_secret_safe_and_passes_only_complete_release_gates(
         "freshness_leaks": (), "current_unavailable": (), "read_files": (),
         "snapshot_digest": "snapshot", "chart_digest": "chart",
     }
-    gui = lambda _root: _gui_result()
+    web = lambda _root: _web_result()
     report = subject.run_release_readiness(
         tmp_path, scheduler_probe=lambda: _scheduler_rows(tmp_path),
-        service_runner=service, gui_runner=gui, now=clock,
+        service_runner=service, web_runner=web, now=clock,
     )
     body = json.dumps(report, sort_keys=True).lower()
     assert report["status"] == "PASS"
@@ -1813,7 +1523,7 @@ def test_full_report_is_secret_safe_and_passes_only_complete_release_gates(
     ))
     assert report["data_identity"]["protected_before"] == report["data_identity"]["protected_after"]
     assert report["data_identity"]["exact_user_data_before"] == report["data_identity"]["exact_user_data_after"]
-    assert report["gui_user_data_isolation"] == "FULLY_ISOLATED"
+    assert report["web_probe"]["web_probe_all_200"] is True
     assert report["user_data_change_attribution"] == "UNCHANGED"
     checks = {row["check_id"]: row for row in report["checks"]}
     assert checks["BACKTEST_GUI_BUNDLE"]["status"] == "PASS"
@@ -1825,40 +1535,25 @@ def test_full_report_is_secret_safe_and_passes_only_complete_release_gates(
     exact_user_path.parent.mkdir(parents=True, exist_ok=True)
     exact_user_path.write_bytes(b"before")
 
-    def externally_drifting_gui(root):
+    def externally_drifting_web(root):
         exact_user_path.write_bytes(b"external change")
-        return gui(root)
+        return web(root)
 
     external_drift = subject.run_release_readiness(
         tmp_path, scheduler_probe=lambda: _scheduler_rows(tmp_path),
-        service_runner=service, gui_runner=externally_drifting_gui, now=clock,
+        service_runner=service, web_runner=externally_drifting_web, now=clock,
     )
     external_checks = {row["check_id"]: row for row in external_drift["checks"]}
     assert external_checks["USER_DATA_BYTE_IDENTITY"]["status"] == "FAIL"
-    assert external_drift["user_data_change_attribution"] == "CONCURRENT_EXTERNAL_DRIFT"
-    assert external_drift["data_mutations"] == "CONCURRENT_EXTERNAL_DRIFT"
+    assert external_drift["user_data_change_attribution"] == "CHANGE_DURING_WEB_PROBE"
+    assert external_drift["data_mutations"] == "CHANGE_DURING_WEB_PROBE"
 
     exact_user_path.write_bytes(b"before")
-
-    def unverified_drifting_gui(root):
-        exact_user_path.write_bytes(b"unattributed change")
-        result = gui(root)
-        result["gui_user_data_isolation"] = "UNVERIFIED"
-        return result
-
-    unverified_drift = subject.run_release_readiness(
-        tmp_path, scheduler_probe=lambda: _scheduler_rows(tmp_path),
-        service_runner=service, gui_runner=unverified_drifting_gui, now=clock,
-    )
-    assert unverified_drift["user_data_change_attribution"] == (
-        "IN_PROCESS_MUTATION_NOT_EXCLUDED"
-    )
-    assert unverified_drift["data_mutations"] == "IN_PROCESS_MUTATION_NOT_EXCLUDED"
 
     _write_backtest_result(tmp_path, indent=4)
     changed = subject.run_release_readiness(
         tmp_path, scheduler_probe=lambda: _scheduler_rows(tmp_path),
-        service_runner=service, gui_runner=gui, now=clock,
+        service_runner=service, web_runner=web, now=clock,
     )
     assert changed["status"] == "FAIL"
     assert "BACKTEST_GUI_BUNDLE" in changed["release_blockers"]
@@ -1870,7 +1565,7 @@ def test_full_report_is_secret_safe_and_passes_only_complete_release_gates(
     _write_backtest_result(tmp_path, invalid)
     blocked = subject.run_release_readiness(
         tmp_path, scheduler_probe=lambda: _scheduler_rows(tmp_path),
-        service_runner=service, gui_runner=gui, now=clock,
+        service_runner=service, web_runner=web, now=clock,
     )
     assert blocked["status"] == "FAIL"
     assert "BACKTEST_GUI_BUNDLE" in blocked["release_blockers"]
@@ -1883,7 +1578,7 @@ def test_full_report_is_secret_safe_and_passes_only_complete_release_gates(
 
     tampered = subject.run_release_readiness(
         tmp_path, scheduler_probe=lambda: _scheduler_rows(tmp_path),
-        service_runner=tampering_service, gui_runner=gui, now=clock,
+        service_runner=tampering_service, web_runner=web, now=clock,
     )
     assert tampered["status"] == "FAIL"
     assert "BACKTEST_GUI_BUNDLE" in tampered["release_blockers"]

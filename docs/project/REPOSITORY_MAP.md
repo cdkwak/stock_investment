@@ -11,7 +11,7 @@ stock_investment_rev1/
 |-- AGENTS.md                         agent entry rules and evidence priority
 |-- README.md                         setup and control-document links
 |-- pyproject.toml                    Python package and test configuration
-|-- app.py                            executable local GUI entry point
+|-- app.py                            retired PySide6 entry-point stub (unsupported)
 |-- .agents/skills/                   repository-local agent procedures
 |-- artifacts/
 |   |-- request_queue/                canonical file-backed work queue and Board
@@ -27,7 +27,7 @@ stock_investment_rev1/
 |   |-- orchestration/                bounded workflow coordination
 |   |-- audit/                        read-only evidence builders
 |   |-- migrations/                   explicit schema/data migrations
-|   `-- gui/                          local read-only queries, services, and windows
+|   `-- gui/                          retained web-imported read-only services
 |-- src/market_features/              deterministic PIT feature contracts/builders
 |-- src/market_backtest/              offline labels, splits, signals, diagnostics
 |-- src/runtime_diagnostics/          strict local GUI/Backtest diagnostic events/store
@@ -106,10 +106,11 @@ and `.worktrees/` are deliberately omitted from the working tree above.
 | `src/runtime_diagnostics/`, `scripts/maintenance/inspect_runtime_failures.py` | Strict versioned application events, bounded atomic local store, and read-only inspection | Project/GUI/Backtest owners | Agents and local operators | No Data UpdateEvent dependency, raw exception text, private values, external telemetry, or workflow-outcome changes | ACTIVE TOOLING | [Runtime log contract](../../artifacts/runtime_logs/README.md) |
 | `src/stock_data/{storage,validation,audit}/` | Shared persistence and verification | Data infrastructure | All Data workflows | Focused changes; broad regression risk | ACTIVE SOURCE | [Data Status](../data/DATA_STATUS.md) |
 | `src/stock_data/orchestration/{daily_operations,dataset_universe}.py` | 37-row executable health/operations registry and 80-row orthogonal multi-axis, non-executable full-universe catalog | Data orchestration | Health, scheduler planning, inventory reconciliation, future GUI filters | Universe membership never grants operation authority; deprecated `primary_classification` is compatibility-only and automation remains an explicit separate gate | ACTIVE SOURCE | [Dataset Index](../data/DATASET_INDEX.md) |
-| `app.py`, `src/stock_data/gui/` | Executable local Dashboard/Index MVP and read-only query/services | GUI owner | Local desktop user | No provider calls or Data mutation; future Backtest/Model results enter only through stable services | ACTIVE SOURCE | [GUI Status](../gui/GUI_STATUS.md) |
+| `src/stock_data/gui/` | Historical package boundary for web-imported read-only query/services | GUI owner | `src/stock_web` | Keep surviving service imports stable; no provider calls or Data mutation | ACTIVE SOURCE | [GUI Status](../gui/GUI_STATUS.md) |
+| `app.py` | Retired PySide6 entry-point stub | None | Historical reference only | Unsupported; do not restore Qt dependencies | RETIRED SOURCE | [GUI Status](../gui/GUI_STATUS.md) |
 | `scripts/run_data_v1.py` | Supported regular Data entry point | Maintainer/operator | Data pipeline | Normal public/existing-credential Data operations use standing authorization and the current contract/runbook | ACTIVE ENTRYPOINT | [README](../../README.md) |
 | `scripts/run_overnight_ml.py`, `src/market_backtest/overnight_ml.py` | At-most-eight-hour, resumable development-only ML study | Backtest owner | Local research operator | Frozen input only; source sliced before holdout; no provider, GUI, portfolio, account, or order authority | ACTIVE BACKTEST TOOLING | [Overnight ML Runbook](../backtest/OVERNIGHT_ML_RUNBOOK.md) |
-| `scripts/maintenance/run_release_readiness_smoke.py` | Supported offline daily release-readiness entry point | Maintainer/operator | Local GUI, typed Health, scheduler status, release report | Read-only by default; optional report only under `artifacts/release_readiness/`; no providers or scheduler mutation | ACTIVE TOOLING | [README](../../README.md) |
+| `scripts/maintenance/run_release_readiness_smoke.py` | Supported offline daily release-readiness entry point | Maintainer/operator | FastAPI web routes, typed Health, scheduler status, release report | Read-only by default; optional report only under `artifacts/release_readiness/`; no providers or scheduler mutation | ACTIVE TOOLING | [README](../../README.md) |
 | `scripts/maintenance/run_toss_account_snapshot.py` | Supported noninteractive daily Toss read-only account snapshot entry point | Data owner/operator | Windows Task Scheduler and local operator | May mutate only the sanitized account Landing/Normalized/state/occurrence and last-result paths selected by its active runbook; exact selector stays in memory; no discovery, raw response, identifier, cross-currency total, order, transfer, or broker mutation | ACTIVE DATA ENTRYPOINT | [Toss account runbook](../data/operations/TOSS_ACCOUNT_SNAPSHOT_READONLY.md) |
 | `scripts/maintenance/telegram_agent_bridge.py`, `.codex/hooks.json` | Sanitized Telegram agent-stop alerts, allowlisted status, agent-interpreted Inbox discovery, and sourced market briefs | Local maintainer | User-owned private Telegram chat | Intake/report agents are read-only and ephemeral; intake may call only canonical queue `discover`; reports use current web research without Data/provider/canonical writes; no arbitrary execution, triage/claim, or workflow-outcome changes | ACTIVE TOOLING | [Codex non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode) |
 | `scripts/manual/` | Diagnostics, pilots, migrations, backfills | Authorized operator | Retained evidence/data | Tools may run or be modernized under current Status/runbook; filenames and old approval gates are not authority | BOUNDED TOOLING | [Active runbooks](../data/operations/) |

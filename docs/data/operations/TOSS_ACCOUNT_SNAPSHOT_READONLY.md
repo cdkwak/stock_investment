@@ -55,7 +55,7 @@ Implementation:
 - runtime and daily occurrence coordinator: `orchestration/toss_account_runtime.py`
 - supported scheduler CLI: `scripts/maintenance/run_toss_account_snapshot.py`
 - local GUI projection: `gui/account_snapshot_service.py`
-- GUI background worker: `gui/main_window.py`
+- web projection: `src/stock_web/api/account_page.py` using retained `gui/account_snapshot_service.py`; the former PySide6 background worker is retired
 
 Credentials, token responses, authorization headers, account numbers,
 `accountSeq`, and registered-person identity remain in memory and must never be
