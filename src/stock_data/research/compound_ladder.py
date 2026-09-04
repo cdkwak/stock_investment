@@ -1,8 +1,8 @@
-"""Continuous-account drawdown ladder simulation.
+"""Continuous-account core-equity drawdown ladder simulation.
 
 Signals are observed at index close T and can first change the account at the
-next retained session's close.  The implementation is provider-free, long/cash
-only, and intentionally separate from broker/order code.
+next retained session's close.  The implementation is provider-free, long-only,
+and intentionally separate from broker/order code.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ GRID_REQUIRED_FIELDS: tuple[str, ...] = (
     "disp60_threshold",
     "levels",
     "leverage_multiple",
+    "base_exposure",
     "exit",
     "cost_enabled",
     "fit",
@@ -39,7 +40,7 @@ class LadderSpec:
     drawdown_threshold: float = -0.20
     disp60_threshold: float = -0.10
     levels: int = 2
-    base_weight: float = 0.0
+    base_exposure: float = 1.0
 
     def __post_init__(self) -> None:
         if self.levels not in (1, 2, 3, 4):
@@ -48,8 +49,8 @@ class LadderSpec:
             raise ValueError("drawdown threshold must be between -1 and 0")
         if not -1.0 < self.disp60_threshold < 0.0:
             raise ValueError("disp60 threshold must be between -1 and 0")
-        if not 0.0 <= self.base_weight <= 1.0:
-            raise ValueError("base_weight must be in [0, 1]")
+        if self.base_exposure not in (0.0, 1.0):
+            raise ValueError("base_exposure must be 0.0 or 1.0")
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,11 +88,85 @@ def ladder_levels(signals: pd.DataFrame, spec: LadderSpec) -> pd.DataFrame:
     frame["raw_score"] = pd.Series(raw, dtype="Int64").where(valid, pd.NA)
     frame["observed_level"] = observed
     frame["executable_level"] = executable
-    frame["target_weight"] = (
-        spec.base_weight
-        + (1.0 - spec.base_weight) * frame["executable_level"].astype("float64") / spec.levels
-    )
+    frame["target_weight"] = frame["executable_level"].astype("float64") / spec.levels
     return frame
+
+
+def _target_allocation(
+    overlay_fraction: float,
+    *,
+    base_exposure: float,
+    leverage_multiple: int,
+) -> tuple[float, float, float]:
+    """Return core weight, product weight, and effective market exposure."""
+
+    overlay = min(max(float(overlay_fraction), 0.0), 1.0)
+    if base_exposure == 1.0:
+        if leverage_multiple == 1:
+            return 1.0, 0.0, 1.0
+        core_weight = 1.0 - overlay
+        product_weight = overlay
+        exposure = core_weight + leverage_multiple * product_weight
+        return core_weight, product_weight, exposure
+    product_weight = overlay
+    return 0.0, product_weight, leverage_multiple * product_weight
+
+
+def _rebalance_assets(
+    cash: float,
+    core_units: float,
+    product_units: float,
+    core_price: float,
+    product_price: float,
+    target_core_weight: float,
+    target_product_weight: float,
+    cost_rate: float,
+) -> tuple[float, float, float, float, float]:
+    """Self-finance a two-asset rebalance and charge each traded leg."""
+
+    core_value = core_units * core_price
+    product_value = product_units * product_price
+    wealth = cash + core_value + product_value
+    if wealth <= 0.0:
+        return cash, core_units, product_units, 0.0, 0.0
+    if core_price <= 0.0:
+        raise ValueError("core price must stay positive")
+    if product_price <= 0.0 and target_product_weight > 0.0:
+        target_core_weight = 1.0 if target_core_weight > 0.0 else 0.0
+        target_product_weight = 0.0
+    if (
+        target_core_weight < 0.0
+        or target_product_weight < 0.0
+        or target_core_weight + target_product_weight > 1.0 + 1e-14
+    ):
+        raise ValueError("target asset weights must be non-negative and sum to at most 1")
+
+    post_wealth = wealth
+    for _ in range(32):
+        target_core = target_core_weight * post_wealth
+        target_product = target_product_weight * post_wealth
+        notional = abs(target_core - core_value) + abs(target_product - product_value)
+        updated = wealth - cost_rate * notional
+        if abs(updated - post_wealth) <= 1e-15 * max(wealth, 1.0):
+            post_wealth = updated
+            break
+        post_wealth = updated
+    target_core = target_core_weight * post_wealth
+    target_product = target_product_weight * post_wealth
+    core_notional = abs(target_core - core_value)
+    product_notional = abs(target_product - product_value)
+    notional = core_notional + product_notional
+    cost = cost_rate * notional
+    cash_after = wealth - cost - target_core - target_product
+    if abs(cash_after) <= 1e-14 * max(wealth, 1.0):
+        cash_after = 0.0
+    return (
+        cash_after,
+        target_core / core_price,
+        target_product / product_price if product_price > 0.0 else 0.0,
+        notional,
+        cost,
+    )
 
 
 def _rebalance(
@@ -259,44 +334,40 @@ def _target_events(
     if exit_variant == "a":
         changes = np.r_[0, np.flatnonzero(np.diff(levels) != 0) + 1]
         for i in changes:
-            target = spec.base_weight + (1.0 - spec.base_weight) * int(levels[i]) / spec.levels
+            target = int(levels[i]) / spec.levels
             if target > 0 or int(i) > 0:
                 events.append((int(i), target))
     elif exit_variant in ("b60", "b120"):
         holding = 60 if exit_variant == "b60" else 120
-        expiries: dict[int, int] = {}
         prior_level = 0
-        prior_target = -1
+        expiry: int | None = None
         for i, level in enumerate(levels):
-            for rung in [rung for rung, expiry in expiries.items() if expiry <= i]:
-                del expiries[rung]
-            if level > prior_level:
-                for rung in range(prior_level + 1, int(level) + 1):
-                    expiries.setdefault(rung, i + holding)
+            if expiry is not None and i >= expiry:
+                events.append((i, 0.0))
+                expiry = None
+            if int(level) > 0 and prior_level == 0 and expiry is None:
+                events.append((i, 1.0))
+                expiry = i + holding
             prior_level = int(level)
-            target_level = min(len(expiries), spec.levels)
-            if target_level != prior_target:
-                target = spec.base_weight + (1.0 - spec.base_weight) * target_level / spec.levels
-                if target > 0 or prior_target >= 0:
-                    events.append((i, target))
-                prior_target = target_level
     elif exit_variant == "d":
         hits = np.flatnonzero(levels >= 1)
         if len(hits):
             events.append((int(hits[0]), 1.0))
     else:
         raise ValueError("target events support a, b60, b120, and d")
-    if spec.base_weight > 0 and (not events or events[0][0] != 0):
-        events.insert(0, (0, spec.base_weight))
+    if spec.base_exposure > 0 and (not events or events[0][0] != 0):
+        events.insert(0, (0, 0.0))
     return events
 
 
 def _simulate_target_events_fast(
     calendar: pd.DatetimeIndex,
-    prices: np.ndarray,
+    core_prices: np.ndarray,
+    product_prices: np.ndarray,
     executable: np.ndarray,
     *,
     spec: LadderSpec,
+    leverage_multiple: int,
     exit_variant: ExitVariant,
     transaction_cost: float,
     cash_yield: float,
@@ -308,7 +379,8 @@ def _simulate_target_events_fast(
     costs = np.zeros(n, dtype="float64")
     daily_cash_factor = (1.0 + cash_yield) ** (1.0 / TRADING_DAYS)
     cash = 1.0
-    units = 0.0
+    core_units = 0.0
+    product_units = 0.0
     anchor = 0
     wealth[0] = 1.0
 
@@ -318,22 +390,46 @@ def _simulate_target_events_fast(
             return
         offsets = np.arange(end - anchor + 1, dtype="float64")
         cash_path = cash * np.power(daily_cash_factor, offsets)
-        wealth[anchor : end + 1] = cash_path + units * prices[anchor : end + 1]
+        wealth[anchor : end + 1] = (
+            cash_path
+            + core_units * core_prices[anchor : end + 1]
+            + product_units * product_prices[anchor : end + 1]
+        )
         cash = float(cash_path[-1])
         anchor = end
 
-    for index, target in events:
+    for index, overlay_fraction in events:
         fill_through(index)
-        cash, units, notional, cost = _rebalance(cash, units, prices[index], target, transaction_cost)
+        core_weight, product_weight, _ = _target_allocation(
+            overlay_fraction,
+            base_exposure=spec.base_exposure,
+            leverage_multiple=leverage_multiple,
+        )
+        cash, core_units, product_units, notional, cost = _rebalance_assets(
+            cash,
+            core_units,
+            product_units,
+            core_prices[index],
+            product_prices[index],
+            core_weight,
+            product_weight,
+            transaction_cost,
+        )
         notionals[index] += notional
         costs[index] += cost
-        wealth[index] = cash + units * prices[index]
+        wealth[index] = (
+            cash + core_units * core_prices[index] + product_units * product_prices[index]
+        )
     if anchor < n - 1:
         anchor += 1
         cash *= daily_cash_factor
         offsets = np.arange(n - anchor, dtype="float64")
         cash_path = cash * np.power(daily_cash_factor, offsets)
-        wealth[anchor:] = cash_path + units * prices[anchor:]
+        wealth[anchor:] = (
+            cash_path
+            + core_units * core_prices[anchor:]
+            + product_units * product_prices[anchor:]
+        )
         cash = float(cash_path[-1])
         anchor = n - 1
     elif not events:
@@ -356,7 +452,8 @@ def _profit_event_plan(levels: np.ndarray, prices: np.ndarray, split_count: int)
             search_start = int(entry) + 1
             for third in (1, 2, 3):
                 candidates = np.flatnonzero(
-                    prices[search_start:] >= entry_price * (1.0 + 0.30 * third)
+                    prices[search_start:] + 1e-14
+                    >= entry_price * (1.0 + 0.30 * third)
                 )
                 if not len(candidates):
                     break
@@ -367,30 +464,40 @@ def _profit_event_plan(levels: np.ndarray, prices: np.ndarray, split_count: int)
 
 def _simulate_profit_events_fast(
     calendar: pd.DatetimeIndex,
-    prices: np.ndarray,
+    core_prices: np.ndarray,
+    product_prices: np.ndarray,
     executable: np.ndarray,
     *,
     spec: LadderSpec,
+    leverage_multiple: int,
     transaction_cost: float,
     cash_yield: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     levels = _filled_levels(executable)
-    events = _profit_event_plan(levels, prices, spec.levels)
+    events = _profit_event_plan(levels, product_prices, spec.levels)
     n = len(calendar)
     wealth = np.empty(n, dtype="float64")
     notionals = np.zeros(n, dtype="float64")
     costs = np.zeros(n, dtype="float64")
     daily_cash_factor = (1.0 + cash_yield) ** (1.0 / TRADING_DAYS)
     cash = 1.0
-    base_units = 0.0
+    core_units = 0.0
+    product_units = 0.0
     tranche_units: dict[int, tuple[float, float]] = {}
-    total_units = 0.0
     anchor = 0
     wealth[0] = 1.0
 
-    if spec.base_weight > 0:
-        cash, base_units, notional, cost = _rebalance(cash, 0.0, prices[0], spec.base_weight, transaction_cost)
-        total_units = base_units
+    if spec.base_exposure > 0:
+        cash, core_units, product_units, notional, cost = _rebalance_assets(
+            cash,
+            0.0,
+            0.0,
+            core_prices[0],
+            product_prices[0],
+            1.0,
+            0.0,
+            transaction_cost,
+        )
         notionals[0] += notional
         costs[0] += cost
 
@@ -398,7 +505,11 @@ def _simulate_profit_events_fast(
         if index >= anchor:
             offsets = np.arange(index - anchor + 1, dtype="float64")
             cash_path = cash * np.power(daily_cash_factor, offsets)
-            wealth[anchor : index + 1] = cash_path + total_units * prices[anchor : index + 1]
+            wealth[anchor : index + 1] = (
+                cash_path
+                + core_units * core_prices[anchor : index + 1]
+                + product_units * product_prices[anchor : index + 1]
+            )
             cash = float(cash_path[-1])
             anchor = index
         day_events = sorted(events[index], key=lambda item: 0 if item[0] == "sell" else 1)
@@ -409,36 +520,76 @@ def _simulate_profit_events_fast(
                     continue
                 original, remaining = stored
                 sell_units = min(original / 3.0, remaining)
-                notional = sell_units * prices[index]
-                cost = transaction_cost * notional
-                cash += notional - cost
+                product_notional = sell_units * product_prices[index]
+                sale_cost = transaction_cost * product_notional
+                cash += product_notional - sale_cost
                 remaining -= sell_units
-                total_units -= sell_units
+                product_units -= sell_units
                 tranche_units[tranche_id] = (original, remaining)
+                notional = product_notional
+                cost = sale_cost
+                if spec.base_exposure > 0 and product_notional > 0.0:
+                    core_notional = (product_notional - sale_cost) / (1.0 + transaction_cost)
+                    buy_cost = transaction_cost * core_notional
+                    cash -= core_notional + buy_cost
+                    core_units += core_notional / core_prices[index]
+                    notional += core_notional
+                    cost += buy_cost
             else:
-                if prices[index] <= 0.0:
+                if product_prices[index] <= 0.0:
                     continue
-                current_wealth = cash + total_units * prices[index]
-                desired = (1.0 - spec.base_weight) * current_wealth / spec.levels
-                notional = min(desired, cash / (1.0 + transaction_cost))
-                cost = transaction_cost * notional
-                if notional > 0:
-                    cash -= notional + cost
-                    bought_units = notional / prices[index]
+                current_wealth = (
+                    cash
+                    + core_units * core_prices[index]
+                    + product_units * product_prices[index]
+                )
+                current_product_weight = (
+                    product_units * product_prices[index] / current_wealth
+                    if current_wealth > 0.0
+                    else 0.0
+                )
+                target_overlay = min(1.0, current_product_weight + 1.0 / spec.levels)
+                core_weight, product_weight, _ = _target_allocation(
+                    target_overlay,
+                    base_exposure=spec.base_exposure,
+                    leverage_multiple=leverage_multiple,
+                )
+                prior_product_units = product_units
+                cash, core_units, product_units, notional, cost = _rebalance_assets(
+                    cash,
+                    core_units,
+                    product_units,
+                    core_prices[index],
+                    product_prices[index],
+                    core_weight,
+                    product_weight,
+                    transaction_cost,
+                )
+                bought_units = max(0.0, product_units - prior_product_units)
+                if bought_units > 0.0:
                     tranche_units[tranche_id] = (bought_units, bought_units)
-                    total_units += bought_units
             notionals[index] += notional
             costs[index] += cost
-        wealth[index] = cash + total_units * prices[index]
+        wealth[index] = (
+            cash + core_units * core_prices[index] + product_units * product_prices[index]
+        )
     if anchor < n - 1:
         anchor += 1
         cash *= daily_cash_factor
         offsets = np.arange(n - anchor, dtype="float64")
         cash_path = cash * np.power(daily_cash_factor, offsets)
-        wealth[anchor:] = cash_path + total_units * prices[anchor:]
+        wealth[anchor:] = (
+            cash_path
+            + core_units * core_prices[anchor:]
+            + product_units * product_prices[anchor:]
+        )
     elif not events:
         offsets = np.arange(n, dtype="float64")
-        wealth[:] = cash * np.power(daily_cash_factor, offsets) + total_units * prices
+        wealth[:] = (
+            cash * np.power(daily_cash_factor, offsets)
+            + core_units * core_prices
+            + product_units * product_prices
+        )
     return wealth, notionals, costs
 
 
@@ -447,29 +598,49 @@ def simulate_grid_metrics(
     product_returns: pd.Series,
     executable_levels: pd.Series,
     *,
+    underlying_returns: pd.Series,
     spec: LadderSpec,
+    leverage_multiple: int,
     exit_variant: ExitVariant,
     transaction_cost: float,
     cash_yield: float = 0.0,
 ) -> dict[str, dict[str, float | int | str | None]]:
     """Fast metric-only equivalent used by the exhaustive sensitivity grid."""
 
-    calendar, _, executable, prices = _aligned_inputs(dates, product_returns, executable_levels)
+    if spec.base_exposure == 1.0 and leverage_multiple == 1:
+        return simulate_baseline(
+            dates,
+            underlying_returns,
+            transaction_cost=transaction_cost,
+        ).metrics
+
+    (
+        calendar,
+        _,
+        _,
+        executable,
+        core_prices,
+        product_prices,
+    ) = _aligned_inputs(dates, product_returns, underlying_returns, executable_levels)
     if exit_variant == "c":
         wealth, notionals, costs = _simulate_profit_events_fast(
             calendar,
-            prices,
+            core_prices,
+            product_prices,
             executable,
             spec=spec,
+            leverage_multiple=leverage_multiple,
             transaction_cost=transaction_cost,
             cash_yield=cash_yield,
         )
     else:
         wealth, notionals, costs = _simulate_target_events_fast(
             calendar,
-            prices,
+            core_prices,
+            product_prices,
             executable,
             spec=spec,
+            leverage_multiple=leverage_multiple,
             exit_variant=exit_variant,
             transaction_cost=transaction_cost,
             cash_yield=cash_yield,
@@ -484,6 +655,7 @@ def _trade_row(
     notional: float,
     cost: float,
     target_weight: float | None,
+    target_exposure: float | None = None,
 ) -> dict[str, Any]:
     return {
         "date": date,
@@ -492,112 +664,126 @@ def _trade_row(
         "notional": float(notional),
         "cost": float(cost),
         "target_weight": target_weight,
+        "target_exposure": target_exposure,
     }
 
 
 def _aligned_inputs(
     dates: pd.Series,
     product_returns: pd.Series,
+    underlying_returns: pd.Series,
     levels: pd.Series,
-) -> tuple[pd.DatetimeIndex, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[pd.DatetimeIndex, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     calendar = pd.DatetimeIndex(pd.to_datetime(dates, errors="raise")).normalize()
     if calendar.has_duplicates or not calendar.is_monotonic_increasing:
         raise ValueError("dates must be unique and increasing")
-    returns = pd.to_numeric(product_returns, errors="raise").to_numpy(dtype="float64")
+    product = pd.to_numeric(product_returns, errors="raise").to_numpy(dtype="float64")
+    underlying = pd.to_numeric(underlying_returns, errors="raise").to_numpy(dtype="float64")
     executable = pd.to_numeric(levels, errors="coerce").to_numpy(dtype="float64")
-    if len(calendar) != len(returns) or len(calendar) != len(executable):
-        raise ValueError("dates, returns, and levels must have equal length")
-    if len(calendar) < 2 or not np.isfinite(returns).all() or np.any(returns < -1.0):
-        raise ValueError("product returns must be finite, at least -100%, and have two rows")
-    prices = np.cumprod(1.0 + returns)
-    return calendar, returns, executable, prices
+    if len({len(calendar), len(product), len(underlying), len(executable)}) != 1:
+        raise ValueError("dates, product returns, underlying returns, and levels must have equal length")
+    if len(calendar) < 2:
+        raise ValueError("account inputs must have at least two rows")
+    if not np.isfinite(product).all() or np.any(product < -1.0):
+        raise ValueError("product returns must be finite and at least -100%")
+    if not np.isfinite(underlying).all() or np.any(underlying < -1.0):
+        raise ValueError("underlying returns must be finite and at least -100%")
+    product_prices = np.cumprod(1.0 + product)
+    core_prices = np.cumprod(1.0 + underlying)
+    return calendar, product, underlying, executable, core_prices, product_prices
 
 
 def _simulate_target_account(
     calendar: pd.DatetimeIndex,
-    returns: np.ndarray,
+    product_returns: np.ndarray,
+    underlying_returns: np.ndarray,
     executable: np.ndarray,
-    prices: np.ndarray,
+    core_prices: np.ndarray,
+    product_prices: np.ndarray,
     *,
     spec: LadderSpec,
+    leverage_multiple: int,
     exit_variant: ExitVariant,
     transaction_cost: float,
     cash_yield: float,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     n = len(calendar)
     cash = 1.0
-    units = 0.0
+    core_units = 0.0
+    product_units = 0.0
     daily_cash = (1.0 + cash_yield) ** (1.0 / TRADING_DAYS) - 1.0
     rows: list[dict[str, Any]] = []
     trade_rows: list[dict[str, Any]] = []
-    last_signal_level = 0
-    last_target_level: int | None = None
-    expiries: dict[int, int] = {}
-    bought_forever = False
+    events = {index: overlay for index, overlay in _target_events(
+        executable,
+        spec=spec,
+        exit_variant=exit_variant,
+    )}
+    action = {
+        "a": "ladder_rebalance",
+        "b60": "fixed_period_rebalance",
+        "b120": "fixed_period_rebalance",
+        "d": "buy_and_hold_rebalance",
+    }[exit_variant]
     for i in range(n):
         if i > 0:
             cash *= 1.0 + daily_cash
-        asset = units * prices[i]
-        wealth_before = cash + asset
+        core_value = core_units * core_prices[i]
+        product_value = product_units * product_prices[i]
+        wealth_before = cash + core_value + product_value
         level_value = executable[i]
         level = None if not np.isfinite(level_value) else int(level_value)
         notional = 0.0
         cost = 0.0
-        action = ""
-        target: float | None = None
+        target_product_weight: float | None = None
+        target_exposure: float | None = None
+        if i in events:
+            core_weight, target_product_weight, target_exposure = _target_allocation(
+                events[i],
+                base_exposure=spec.base_exposure,
+                leverage_multiple=leverage_multiple,
+            )
+            cash, core_units, product_units, notional, cost = _rebalance_assets(
+                cash,
+                core_units,
+                product_units,
+                core_prices[i],
+                product_prices[i],
+                core_weight,
+                target_product_weight,
+                transaction_cost,
+            )
 
-        if exit_variant == "a":
-            if level is not None:
-                target = spec.base_weight + (1.0 - spec.base_weight) * level / spec.levels
-                if last_target_level != level or (i == 0 and spec.base_weight > 0):
-                    cash, units, notional, cost = _rebalance(
-                        cash, units, prices[i], target, transaction_cost
-                    )
-                    action = "ladder_rebalance"
-                    last_target_level = level
-        elif exit_variant in ("b60", "b120"):
-            holding = 60 if exit_variant == "b60" else 120
-            expired = [rung for rung, expiry in expiries.items() if expiry <= i]
-            for rung in expired:
-                del expiries[rung]
-            if level is not None:
-                if level > last_signal_level:
-                    for rung in range(last_signal_level + 1, level + 1):
-                        if rung not in expiries:
-                            expiries[rung] = i + holding
-                last_signal_level = level
-            target_level = min(len(expiries), spec.levels)
-            target = spec.base_weight + (1.0 - spec.base_weight) * target_level / spec.levels
-            if target_level != last_target_level or (i == 0 and spec.base_weight > 0):
-                cash, units, notional, cost = _rebalance(
-                    cash, units, prices[i], target, transaction_cost
-                )
-                action = "fixed_period_rebalance"
-                last_target_level = target_level
-        elif exit_variant == "d":
-            if not bought_forever and level is not None and level >= 1:
-                cash, units, notional, cost = _rebalance(
-                    cash, units, prices[i], 1.0, transaction_cost
-                )
-                action = "buy_and_hold_entry"
-                target = 1.0
-                bought_forever = True
-        else:
-            raise ValueError("target-account simulator supports exits a, b60, b120, and d")
-
-        asset = units * prices[i]
-        wealth = cash + asset
-        weight = asset / wealth if wealth > 0 else 0.0
+        core_value = core_units * core_prices[i]
+        product_value = product_units * product_prices[i]
+        wealth = cash + core_value + product_value
+        core_weight = core_value / wealth if wealth > 0 else 0.0
+        product_weight = product_value / wealth if wealth > 0 else 0.0
+        exposure = core_weight + leverage_multiple * product_weight
         if notional > 0:
-            trade_rows.append(_trade_row(calendar[i], action, level, notional, cost, target))
+            trade_rows.append(_trade_row(
+                calendar[i],
+                action,
+                level,
+                notional,
+                cost,
+                target_product_weight,
+                target_exposure,
+            ))
         rows.append({
             "date": calendar[i],
             "wealth": wealth,
             "cash": cash,
-            "asset_value": asset,
-            "weight": weight,
+            "asset_value": core_value + product_value,
+            "core_value": core_value,
+            "product_value": product_value,
+            "core_weight": core_weight,
+            "product_weight": product_weight,
+            "weight": product_weight,
+            "exposure": exposure,
             "executable_level": level,
-            "product_return": returns[i],
+            "underlying_return": underlying_returns[i],
+            "product_return": product_returns[i],
             "trade_notional": notional,
             "transaction_cost": cost,
             "wealth_before_trade": wealth_before,
@@ -607,98 +793,152 @@ def _simulate_target_account(
 
 def _simulate_profit_account(
     calendar: pd.DatetimeIndex,
-    returns: np.ndarray,
+    product_returns: np.ndarray,
+    underlying_returns: np.ndarray,
     executable: np.ndarray,
-    prices: np.ndarray,
+    core_prices: np.ndarray,
+    product_prices: np.ndarray,
     *,
     spec: LadderSpec,
+    leverage_multiple: int,
     transaction_cost: float,
     cash_yield: float,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Buy equal rungs and sell one original third at +30/+60/+90%."""
+    """Shift equal overlay rungs back to the 1x core at +30/+60/+90%."""
 
     cash = 1.0
-    base_units = 0.0
-    tranches: list[dict[str, float | int]] = []
-    armed = {rung: True for rung in range(1, spec.levels + 1)}
-    last_level = 0
+    core_units = 0.0
+    product_units = 0.0
+    tranche_units: dict[int, tuple[float, float]] = {}
+    levels = _filled_levels(executable)
+    events = _profit_event_plan(levels, product_prices, spec.levels)
     daily_cash = (1.0 + cash_yield) ** (1.0 / TRADING_DAYS) - 1.0
     rows: list[dict[str, Any]] = []
     trade_rows: list[dict[str, Any]] = []
-    if spec.base_weight > 0:
-        cash, base_units, notional, cost = _rebalance(cash, 0.0, prices[0], spec.base_weight, transaction_cost)
+    initial_notional = 0.0
+    initial_cost = 0.0
+    if spec.base_exposure > 0:
+        cash, core_units, product_units, notional, cost = _rebalance_assets(
+            cash,
+            0.0,
+            0.0,
+            core_prices[0],
+            product_prices[0],
+            1.0,
+            0.0,
+            transaction_cost,
+        )
+        initial_notional = notional
+        initial_cost = cost
         if notional > 0:
-            trade_rows.append(_trade_row(calendar[0], "base_entry", None, notional, cost, spec.base_weight))
+            trade_rows.append(_trade_row(calendar[0], "base_entry", None, notional, cost, 0.0, 1.0))
     for i, date in enumerate(calendar):
         if i > 0:
             cash *= 1.0 + daily_cash
         level_value = executable[i]
         level = None if not np.isfinite(level_value) else int(level_value)
-        day_notional = 0.0
-        day_cost = 0.0
+        day_notional = initial_notional if i == 0 else 0.0
+        day_cost = initial_cost if i == 0 else 0.0
+        wealth_before = 1.0 if i == 0 else (
+            cash + core_units * core_prices[i] + product_units * product_prices[i]
+        )
 
-        # A large close jump may clear more than one predeclared profit rung.
-        for tranche in tranches:
-            while int(tranche["sold_thirds"]) < 3:
-                next_third = int(tranche["sold_thirds"]) + 1
-                trigger = float(tranche["entry_price"]) * (1.0 + 0.30 * next_third)
-                if prices[i] + 1e-14 < trigger:
-                    break
-                sell_units = min(float(tranche["original_units"]) / 3.0, float(tranche["units"]))
-                notional = sell_units * prices[i]
-                cost = transaction_cost * notional
-                cash += notional - cost
-                tranche["units"] = float(tranche["units"]) - sell_units
-                tranche["sold_thirds"] = next_third
-                day_notional += notional
-                day_cost += cost
-                trade_rows.append(_trade_row(date, f"profit_take_{next_third}", int(tranche["rung"]), notional, cost, None))
+        for kind, tranche_id, marker in sorted(
+            events.get(i, []), key=lambda item: 0 if item[0] == "sell" else 1
+        ):
+            if kind == "sell":
+                stored = tranche_units.get(tranche_id)
+                if stored is None:
+                    continue
+                original, remaining = stored
+                sell_units = min(original / 3.0, remaining)
+                product_notional = sell_units * product_prices[i]
+                sale_cost = transaction_cost * product_notional
+                cash += product_notional - sale_cost
+                product_units -= sell_units
+                remaining -= sell_units
+                tranche_units[tranche_id] = (original, remaining)
+                notional = product_notional
+                cost = sale_cost
+                if spec.base_exposure > 0 and product_notional > 0.0:
+                    core_notional = (product_notional - sale_cost) / (1.0 + transaction_cost)
+                    buy_cost = transaction_cost * core_notional
+                    cash -= core_notional + buy_cost
+                    core_units += core_notional / core_prices[i]
+                    notional += core_notional
+                    cost += buy_cost
+                action = f"profit_take_{marker}"
+            else:
+                current_wealth = (
+                    cash + core_units * core_prices[i] + product_units * product_prices[i]
+                )
+                current_product_weight = (
+                    product_units * product_prices[i] / current_wealth
+                    if current_wealth > 0.0
+                    else 0.0
+                )
+                target_overlay = min(1.0, current_product_weight + 1.0 / spec.levels)
+                core_weight, product_weight, target_exposure = _target_allocation(
+                    target_overlay,
+                    base_exposure=spec.base_exposure,
+                    leverage_multiple=leverage_multiple,
+                )
+                prior_product_units = product_units
+                cash, core_units, product_units, notional, cost = _rebalance_assets(
+                    cash,
+                    core_units,
+                    product_units,
+                    core_prices[i],
+                    product_prices[i],
+                    core_weight,
+                    product_weight,
+                    transaction_cost,
+                )
+                bought_units = max(0.0, product_units - prior_product_units)
+                if bought_units > 0.0:
+                    tranche_units[tranche_id] = (bought_units, bought_units)
+                action = "profit_entry"
+            day_notional += notional
+            day_cost += cost
+            if notional > 0.0:
+                core_value = core_units * core_prices[i]
+                product_value = product_units * product_prices[i]
+                wealth = cash + core_value + product_value
+                exposure = (
+                    core_value + leverage_multiple * product_value
+                ) / wealth if wealth > 0.0 else 0.0
+                trade_rows.append(_trade_row(
+                    date,
+                    action,
+                    marker if kind == "buy" else None,
+                    notional,
+                    cost,
+                    product_value / wealth if wealth > 0.0 else 0.0,
+                    exposure,
+                ))
 
-        if level is not None:
-            for rung in range(level + 1, spec.levels + 1):
-                armed[rung] = True
-            if level > last_level:
-                for rung in range(last_level + 1, level + 1):
-                    if not armed[rung] or cash <= 0:
-                        continue
-                    if prices[i] <= 0.0:
-                        continue
-                    total_units = base_units + sum(float(item["units"]) for item in tranches)
-                    wealth = cash + total_units * prices[i]
-                    desired = (1.0 - spec.base_weight) * wealth / spec.levels
-                    notional = min(desired, cash / (1.0 + transaction_cost))
-                    if notional <= 0:
-                        continue
-                    cost = transaction_cost * notional
-                    cash -= notional + cost
-                    units = notional / prices[i]
-                    tranches.append({
-                        "rung": rung,
-                        "entry_price": prices[i],
-                        "original_units": units,
-                        "units": units,
-                        "sold_thirds": 0,
-                    })
-                    armed[rung] = False
-                    day_notional += notional
-                    day_cost += cost
-                    trade_rows.append(_trade_row(date, "profit_entry", rung, notional, cost, None))
-            last_level = level
-
-        units = base_units + sum(float(item["units"]) for item in tranches)
-        asset = units * prices[i]
-        wealth = cash + asset
+        core_value = core_units * core_prices[i]
+        product_value = product_units * product_prices[i]
+        wealth = cash + core_value + product_value
+        core_weight = core_value / wealth if wealth > 0.0 else 0.0
+        product_weight = product_value / wealth if wealth > 0.0 else 0.0
         rows.append({
             "date": date,
             "wealth": wealth,
             "cash": cash,
-            "asset_value": asset,
-            "weight": asset / wealth if wealth > 0 else 0.0,
+            "asset_value": core_value + product_value,
+            "core_value": core_value,
+            "product_value": product_value,
+            "core_weight": core_weight,
+            "product_weight": product_weight,
+            "weight": product_weight,
+            "exposure": core_weight + leverage_multiple * product_weight,
             "executable_level": level,
-            "product_return": returns[i],
+            "underlying_return": underlying_returns[i],
+            "product_return": product_returns[i],
             "trade_notional": day_notional,
             "transaction_cost": day_cost,
-            "wealth_before_trade": wealth + day_cost,
+            "wealth_before_trade": wealth_before,
         })
     return pd.DataFrame(rows), pd.DataFrame(trade_rows)
 
@@ -708,7 +948,7 @@ def _episode_rows(
     trades: pd.DataFrame,
     *,
     baseline_curve: pd.DataFrame | None,
-    base_weight: float,
+    base_exposure: float,
 ) -> pd.DataFrame:
     executable = pd.to_numeric(curve["executable_level"], errors="coerce").ffill().fillna(0).astype(int)
     positive = executable.gt(0)
@@ -721,7 +961,7 @@ def _episode_rows(
         entry_wealth = float(curve.loc[max(start - 1, 0), "wealth"])
         actual_exit: int | None = None
         for idx in range(signal_end + 1, len(curve)):
-            if float(curve.loc[idx, "weight"]) <= base_weight + 1e-8:
+            if float(curve.loc[idx, "product_weight"]) <= 1e-8:
                 actual_exit = idx
                 break
         measurement_end = actual_exit if actual_exit is not None else signal_end
@@ -752,7 +992,9 @@ def simulate_account(
     product_returns: pd.Series,
     executable_levels: pd.Series,
     *,
+    underlying_returns: pd.Series,
     spec: LadderSpec,
+    leverage_multiple: int,
     exit_variant: ExitVariant = "a",
     transaction_cost: float = 0.001,
     cash_yield: float = 0.0,
@@ -762,33 +1004,59 @@ def simulate_account(
 
     if exit_variant not in {"a", "b60", "b120", "c", "d"}:
         raise ValueError("unsupported exit variant")
+    if leverage_multiple not in (1, 2, 3):
+        raise ValueError("leverage_multiple must be 1, 2, or 3")
     if not 0.0 <= transaction_cost < 1.0:
         raise ValueError("transaction_cost must be in [0, 1)")
     if cash_yield <= -1.0:
         raise ValueError("cash_yield must be greater than -100%")
-    calendar, returns, executable, prices = _aligned_inputs(dates, product_returns, executable_levels)
+    if spec.base_exposure == 1.0 and leverage_multiple == 1:
+        return simulate_baseline(
+            dates,
+            underlying_returns,
+            transaction_cost=transaction_cost,
+        )
+    (
+        calendar,
+        product,
+        underlying,
+        executable,
+        core_prices,
+        product_prices,
+    ) = _aligned_inputs(dates, product_returns, underlying_returns, executable_levels)
     if exit_variant == "c":
         curve, trades = _simulate_profit_account(
             calendar,
-            returns,
+            product,
+            underlying,
             executable,
-            prices,
+            core_prices,
+            product_prices,
             spec=spec,
+            leverage_multiple=leverage_multiple,
             transaction_cost=transaction_cost,
             cash_yield=cash_yield,
         )
     else:
         curve, trades = _simulate_target_account(
             calendar,
-            returns,
+            product,
+            underlying,
             executable,
-            prices,
+            core_prices,
+            product_prices,
             spec=spec,
+            leverage_multiple=leverage_multiple,
             exit_variant=exit_variant,
             transaction_cost=transaction_cost,
             cash_yield=cash_yield,
         )
-    cycles = _episode_rows(curve, trades, baseline_curve=baseline_curve, base_weight=spec.base_weight)
+    cycles = _episode_rows(
+        curve,
+        trades,
+        baseline_curve=baseline_curve,
+        base_exposure=spec.base_exposure,
+    )
     return SimulationResult(curve, trades, cycles, performance_metrics(curve))
 
 
@@ -800,8 +1068,9 @@ def simulate_baseline(
 ) -> SimulationResult:
     """Buy 100% at the first retained close and never sell."""
 
-    calendar, returns, _, prices = _aligned_inputs(
+    calendar, returns, _, _, prices, _ = _aligned_inputs(
         dates,
+        product_returns,
         product_returns,
         pd.Series(np.zeros(len(product_returns))),
     )
@@ -814,15 +1083,21 @@ def simulate_baseline(
             "wealth": cash + asset,
             "cash": cash,
             "asset_value": asset,
-            "weight": asset / (cash + asset) if cash + asset > 0 else 0.0,
+            "core_value": asset,
+            "product_value": 0.0,
+            "core_weight": asset / (cash + asset) if cash + asset > 0 else 0.0,
+            "product_weight": 0.0,
+            "weight": 0.0,
+            "exposure": asset / (cash + asset) if cash + asset > 0 else 0.0,
             "executable_level": 0,
+            "underlying_return": returns[i],
             "product_return": returns[i],
             "trade_notional": notional if i == 0 else 0.0,
             "transaction_cost": cost if i == 0 else 0.0,
             "wealth_before_trade": 1.0 if i == 0 else cash + asset,
         })
     curve = pd.DataFrame(rows)
-    trades = pd.DataFrame([_trade_row(calendar[0], "baseline_entry", None, notional, cost, 1.0)])
+    trades = pd.DataFrame([_trade_row(calendar[0], "baseline_entry", None, notional, cost, 0.0, 1.0)])
     return SimulationResult(curve, trades, pd.DataFrame(), performance_metrics(curve))
 
 
@@ -867,6 +1142,8 @@ def validate_grid_row(row: dict[str, Any]) -> None:
         raise ValueError(f"grid row is missing fields: {sorted(missing)}")
     if row["row_kind"] not in {"strategy", "baseline"}:
         raise ValueError("grid row_kind must be strategy or baseline")
+    if row["base_exposure"] not in (0.0, 1.0):
+        raise ValueError("grid base_exposure must be 0.0 or 1.0")
     for period in ("fit", "holdout", "full"):
         metrics = row[period]
         required = {"final_wealth_multiple", "cagr", "max_drawdown"}

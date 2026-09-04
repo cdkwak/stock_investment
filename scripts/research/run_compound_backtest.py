@@ -56,6 +56,7 @@ FULL_GRID = {
     "disp60_threshold": (-0.05, -0.10, -0.15),
     "levels": (1, 2, 3, 4),
     "leverage_multiple": (1, 2, 3),
+    "base_exposure": (0.0, 1.0),
     "exit": ("a", "b60", "b120", "c", "d"),
     "cost_enabled": (False, True),
 }
@@ -64,6 +65,7 @@ QUICK_GRID = {
     "disp60_threshold": (-0.10,),
     "levels": (2,),
     "leverage_multiple": (1, 2),
+    "base_exposure": (0.0, 1.0),
     "exit": ("a", "d"),
     "cost_enabled": (True,),
 }
@@ -73,6 +75,7 @@ CURRENT = {
     "disp60_threshold": -0.10,
     "levels": 2,
     "leverage_multiple": 2,
+    "base_exposure": 1.0,
     "exit": "a",
     "cost_enabled": True,
 }
@@ -124,15 +127,7 @@ def _baseline_metrics(
     *,
     transaction_cost: float,
 ) -> dict[str, dict[str, Any]]:
-    levels = pd.Series(np.ones(len(dates)), index=dates.index)
-    return simulate_grid_metrics(
-        dates,
-        returns,
-        levels,
-        spec=LadderSpec(levels=1),
-        exit_variant="d",
-        transaction_cost=transaction_cost,
-    )
+    return simulate_baseline(dates, returns, transaction_cost=transaction_cost).metrics
 
 
 def _is_current(row: dict[str, Any]) -> bool:
@@ -145,6 +140,7 @@ def _strategy_key(row: dict[str, Any]) -> tuple[Any, ...]:
         "disp60_threshold",
         "levels",
         "leverage_multiple",
+        "base_exposure",
         "exit",
         "cost_enabled",
     ))
@@ -153,22 +149,26 @@ def _strategy_key(row: dict[str, Any]) -> tuple[Any, ...]:
 def _build_detailed(
     frame: pd.DataFrame,
     signals: pd.DataFrame,
-    returns: pd.Series,
+    product_returns: pd.Series,
+    underlying_returns: pd.Series,
     row: dict[str, Any],
 ) -> tuple[Any, Any]:
     spec = LadderSpec(
         drawdown_threshold=float(row["drawdown_threshold"]),
         disp60_threshold=float(row["disp60_threshold"]),
         levels=int(row["levels"]),
+        base_exposure=float(row["base_exposure"]),
     )
     levels = ladder_levels(signals, spec)["executable_level"]
     cost = TRANSACTION_COST if row["cost_enabled"] else 0.0
-    baseline = simulate_baseline(frame["date"], returns, transaction_cost=cost)
+    baseline = simulate_baseline(frame["date"], underlying_returns, transaction_cost=cost)
     strategy = simulate_account(
         frame["date"],
-        returns,
+        product_returns,
         levels,
+        underlying_returns=underlying_returns,
         spec=spec,
+        leverage_multiple=int(row["leverage_multiple"]),
         exit_variant=str(row["exit"]),
         transaction_cost=cost,
         baseline_curve=baseline.curve,
@@ -177,7 +177,10 @@ def _build_detailed(
 
 
 def _plateau(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    strategy = [row for row in rows if row["row_kind"] == "strategy"]
+    strategy = [
+        row for row in rows
+        if row["row_kind"] == "strategy" and row["base_exposure"] == 1.0
+    ]
     definitions = (
         (
             "threshold_x_levels",
@@ -251,6 +254,7 @@ def _grid_for_series(
     grid: dict[str, tuple[Any, ...]],
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     signals = compute_signals(frame)
+    underlying_returns = frame["close"].pct_change(fill_method=None).fillna(0.0)
     short_rate = load_short_rate(root, frame["date"])
     rate_for_returns = pd.Series(short_rate.annual_rate.to_numpy(), index=frame.index)
     gaps: dict[int, Any] = {}
@@ -284,84 +288,104 @@ def _grid_for_series(
                 annual_tracking_drag=calibrated_drag,
             )
 
-    baseline_cache: dict[tuple[int, bool, float], dict[str, dict[str, Any]]] = {}
+    baseline_cache: dict[bool, dict[str, dict[str, Any]]] = {}
     level_cache: dict[tuple[float, float, int], pd.Series] = {}
     rows: list[dict[str, Any]] = []
     current_detail: tuple[Any, Any] | None = None
     for dd in grid["drawdown_threshold"]:
         for disp in grid["disp60_threshold"]:
             for levels_count in grid["levels"]:
-                spec = LadderSpec(float(dd), float(disp), int(levels_count))
+                signal_spec = LadderSpec(float(dd), float(disp), int(levels_count))
                 cache_key = (float(dd), float(disp), int(levels_count))
                 levels = level_cache.setdefault(
-                    cache_key, ladder_levels(signals, spec)["executable_level"]
+                    cache_key, ladder_levels(signals, signal_spec)["executable_level"]
                 )
                 for multiple in grid["leverage_multiple"]:
                     returns = returns_by_variant[(int(multiple), 0.0)]
-                    for exit_variant in grid["exit"]:
-                        for cost_enabled in grid["cost_enabled"]:
-                            cost = TRANSACTION_COST if cost_enabled else 0.0
-                            baseline_key = (int(multiple), bool(cost_enabled), 0.0)
-                            baseline = baseline_cache.setdefault(
-                                baseline_key,
-                                _baseline_metrics(frame["date"], returns, transaction_cost=cost),
-                            )
-                            metrics = simulate_grid_metrics(
-                                frame["date"],
-                                returns,
-                                levels,
-                                spec=spec,
-                                exit_variant=str(exit_variant),
-                                transaction_cost=cost,
-                            )
-                            row: dict[str, Any] = {
-                                "row_kind": "strategy",
-                                "basket": basket,
-                                "underlying": underlying,
-                                "drawdown_threshold": float(dd),
-                                "disp60_threshold": float(disp),
-                                "levels": int(levels_count),
-                                "leverage_multiple": int(multiple),
-                                "exit": str(exit_variant),
-                                "cost_enabled": bool(cost_enabled),
-                                "transaction_cost_one_way": cost,
-                                "cash_yield": 0.0,
-                                "product_variant": "synthetic",
-                                **with_baseline_comparison(metrics, baseline),
-                                "actual_product_basis": None,
-                                "curve_tags": [],
-                                "equity_curve_weekly": None,
-                                "cycles": None,
-                            }
-                            gap = gaps.get(int(multiple))
-                            if gap is not None:
-                                calibrated_drag = gap.calibrated_extra_drag
-                                calibrated_returns = returns_by_variant.get((int(multiple), calibrated_drag), returns)
-                                actual_baseline_key = (int(multiple), bool(cost_enabled), calibrated_drag)
-                                actual_baseline = baseline_cache.setdefault(
-                                    actual_baseline_key,
-                                    _baseline_metrics(frame["date"], calibrated_returns, transaction_cost=cost),
+                    for base_exposure in grid["base_exposure"]:
+                        spec = LadderSpec(
+                            float(dd),
+                            float(disp),
+                            int(levels_count),
+                            float(base_exposure),
+                        )
+                        for exit_variant in grid["exit"]:
+                            for cost_enabled in grid["cost_enabled"]:
+                                cost = TRANSACTION_COST if cost_enabled else 0.0
+                                baseline = baseline_cache.setdefault(
+                                    bool(cost_enabled),
+                                    _baseline_metrics(
+                                        frame["date"], underlying_returns, transaction_cost=cost
+                                    ),
                                 )
-                                actual_metrics = simulate_grid_metrics(
-                                    frame["date"],
-                                    calibrated_returns,
-                                    levels,
-                                    spec=spec,
-                                    exit_variant=str(exit_variant),
-                                    transaction_cost=cost,
+                                metrics = (
+                                    baseline
+                                    if spec.base_exposure == 1.0 and int(multiple) == 1
+                                    else simulate_grid_metrics(
+                                        frame["date"],
+                                        returns,
+                                        levels,
+                                        underlying_returns=underlying_returns,
+                                        spec=spec,
+                                        leverage_multiple=int(multiple),
+                                        exit_variant=str(exit_variant),
+                                        transaction_cost=cost,
+                                    )
                                 )
-                                row["actual_product_basis"] = {
-                                    "product_symbol": gap.product_symbol,
-                                    "annualized_gap": gap.annualized_gap,
-                                    "calibrated_extra_drag": calibrated_drag,
-                                    "fit": with_baseline_comparison(actual_metrics, actual_baseline)["fit"],
-                                    "holdout": with_baseline_comparison(actual_metrics, actual_baseline)["holdout"],
-                                    "full": with_baseline_comparison(actual_metrics, actual_baseline)["full"],
+                                row: dict[str, Any] = {
+                                    "row_kind": "strategy",
+                                    "basket": basket,
+                                    "underlying": underlying,
+                                    "drawdown_threshold": float(dd),
+                                    "disp60_threshold": float(disp),
+                                    "levels": int(levels_count),
+                                    "leverage_multiple": int(multiple),
+                                    "base_exposure": float(base_exposure),
+                                    "exit": str(exit_variant),
+                                    "cost_enabled": bool(cost_enabled),
+                                    "transaction_cost_one_way": cost,
+                                    "cash_yield": 0.0,
+                                    "product_variant": "synthetic",
+                                    **with_baseline_comparison(metrics, baseline),
+                                    "actual_product_basis": None,
+                                    "curve_tags": [],
+                                    "equity_curve_weekly": None,
+                                    "cycles": None,
                                 }
-                            validate_grid_row(row)
-                            rows.append(row)
+                                gap = gaps.get(int(multiple))
+                                if gap is not None:
+                                    calibrated_drag = gap.calibrated_extra_drag
+                                    calibrated_returns = returns_by_variant.get(
+                                        (int(multiple), calibrated_drag), returns
+                                    )
+                                    actual_metrics = simulate_grid_metrics(
+                                        frame["date"],
+                                        calibrated_returns,
+                                        levels,
+                                        underlying_returns=underlying_returns,
+                                        spec=spec,
+                                        leverage_multiple=int(multiple),
+                                        exit_variant=str(exit_variant),
+                                        transaction_cost=cost,
+                                    )
+                                    actual_comparison = with_baseline_comparison(
+                                        actual_metrics, baseline
+                                    )
+                                    row["actual_product_basis"] = {
+                                        "product_symbol": gap.product_symbol,
+                                        "annualized_gap": gap.annualized_gap,
+                                        "calibrated_extra_drag": calibrated_drag,
+                                        "fit": actual_comparison["fit"],
+                                        "holdout": actual_comparison["holdout"],
+                                        "full": actual_comparison["full"],
+                                    }
+                                validate_grid_row(row)
+                                rows.append(row)
 
-    candidates = [row for row in rows if row["row_kind"] == "strategy"]
+    candidates = [
+        row for row in rows
+        if row["row_kind"] == "strategy" and row["base_exposure"] == 1.0
+    ]
     best = max(
         candidates,
         key=lambda row: (
@@ -379,7 +403,9 @@ def _grid_for_series(
     for tag, selected in (("current_rule", current), ("best_fit_exploratory", best)):
         multiple = int(selected["leverage_multiple"])
         returns = returns_by_variant[(multiple, 0.0)]
-        strategy, baseline_detail = _build_detailed(frame, signals, returns, selected)
+        strategy, baseline_detail = _build_detailed(
+            frame, signals, returns, underlying_returns, selected
+        )
         selected["curve_tags"].append(tag)
         selected["equity_curve_weekly"] = weekly_curve(strategy.curve)
         selected["cycles"] = _json_value(strategy.cycles.to_dict("records"))
@@ -387,9 +413,8 @@ def _grid_for_series(
             current_detail = (strategy, baseline_detail)
     assert current_detail is not None
     current_strategy, current_baseline = current_detail
-    current_spec = LadderSpec(-0.20, -0.10, 2)
+    current_spec = LadderSpec(-0.20, -0.10, 2, 1.0)
     current_levels = level_cache[(-0.20, -0.10, 2)]
-    underlying_returns = frame["close"].pct_change(fill_method=None).fillna(0.0)
     underlying_baseline_metrics = _baseline_metrics(
         frame["date"], underlying_returns, transaction_cost=TRANSACTION_COST
     )
@@ -397,7 +422,9 @@ def _grid_for_series(
         frame["date"],
         underlying_returns,
         current_levels,
+        underlying_returns=underlying_returns,
         spec=current_spec,
+        leverage_multiple=2,
         exit_variant="a",
         transaction_cost=TRANSACTION_COST,
     )
@@ -408,12 +435,13 @@ def _grid_for_series(
         "drawdown_threshold": None,
         "disp60_threshold": None,
         "levels": None,
-        "leverage_multiple": 2,
+        "leverage_multiple": 1,
+        "base_exposure": 1.0,
         "exit": None,
         "cost_enabled": True,
         "transaction_cost_one_way": TRANSACTION_COST,
         "cash_yield": 0.0,
-        "product_variant": "synthetic",
+        "product_variant": "underlying_1x",
         "fit": current_baseline.metrics["fit"],
         "holdout": current_baseline.metrics["holdout"],
         "full": current_baseline.metrics["full"],
@@ -458,40 +486,48 @@ def _table(headers: Iterable[str], rows: Iterable[Iterable[Any]]) -> str:
     return "\n".join(lines)
 
 
-def _results_markdown(summary: dict[str, Any]) -> str:
+def _results_markdown(
+    summary: dict[str, Any],
+    rows_by_underlying: dict[str, list[dict[str, Any]]],
+) -> str:
     headlines = [row for rows in summary["baskets"].values() for row in rows]
-    foreign = summary["baskets"].get("FOREIGN", [])
-    q1_rows = []
-    for item in foreign:
-        metric = item["headline"]["holdout"]
-        q1_rows.append((
-            item["underlying"],
-            _fmt_multiple(metric["final_wealth_multiple"]),
-            _fmt_multiple(metric["baseline_final_wealth_multiple"]),
-            "예" if metric["relative_to_baseline"] > 1 else "아니오",
-        ))
-    if not q1_rows:
-        q1_rows = [(symbol, "N/A", "N/A", "retained symbol 없음") for symbol in FOREIGN_SYMBOLS]
+    q1_rows = [
+        (symbol, "N/A", "N/A", "별도 시험(foreign_transfer)로 이관")
+        for symbol in FOREIGN_SYMBOLS
+    ]
 
     q2_rows = []
-    for item in headlines:
-        for product_row in item["real_product_rows"]:
-            actual = product_row["actual_product_basis"]
-            metric = actual["holdout"]
-            relative_edge_pct = (metric["relative_to_baseline"] - 1.0) * 100
-            surviving_edge = max(0.0, relative_edge_pct)
+    for item in summary["baskets"].get("KR", []):
+        eligible = [
+            row for row in rows_by_underlying[item["underlying"]]
+            if row["row_kind"] == "strategy"
+            and row["drawdown_threshold"] == -0.20
+            and row["disp60_threshold"] == -0.10
+            and row["levels"] == 2
+            and row["leverage_multiple"] == 2
+            and row["base_exposure"] == 1.0
+            and row["exit"] == "a"
+        ]
+        without_cost = next(
+            (row for row in eligible if row["cost_enabled"] is False), None
+        )
+        with_cost = next(
+            (row for row in eligible if row["cost_enabled"] is True), None
+        )
+        if without_cost is None or with_cost is None:
+            continue
+        actual_without_cost = without_cost["actual_product_basis"]
+        actual_with_cost = with_cost["actual_product_basis"]
+        if actual_without_cost is not None and actual_with_cost is not None:
             q2_rows.append((
                 item["underlying"],
-                f"{actual['product_symbol']} ({product_row['leverage_multiple']}x)",
-                f"{actual['annualized_gap'] * 100:.2f}%",
-                _fmt_multiple(metric["final_wealth_multiple"]),
-                _fmt_multiple(metric["baseline_final_wealth_multiple"]),
-                f"{metric['final_wealth_edge']:+.3f}x",
-                f"{relative_edge_pct:+.1f}%",
-                f"{surviving_edge / 12.4 * 100:.0f}%" if surviving_edge > 0 else "0%",
+                actual_without_cost["product_symbol"],
+                _fmt_multiple(without_cost["holdout"]["relative_to_baseline"]),
+                _fmt_multiple(actual_without_cost["holdout"]["relative_to_baseline"]),
+                _fmt_multiple(actual_with_cost["holdout"]["relative_to_baseline"]),
             ))
     if not q2_rows:
-        q2_rows = [("N/A", "N/A", "N/A", "N/A", "N/A", "N/A", "N/A", "N/A")]
+        q2_rows = [("N/A", "N/A", "N/A", "N/A", "N/A")]
 
     q3_rows = []
     for item in headlines:
@@ -583,13 +619,13 @@ def _results_markdown(summary: dict[str, Any]) -> str:
         "",
         _table(("지수", "hold-out 최종배수", "항상보유", "baseline 초과"), q1_rows),
         "",
-        "결론: 같은 -20% 낙폭/-10% 이격도 숫자를 그대로 썼으며, 표의 `예`인 지수에서만 hold-out 최종 부가 항상보유를 넘었습니다.",
+        "결론: FOREIGN은 이 실행에서 계산하지 않았고 사용자가 지정한 별도 `foreign_transfer` 시험으로 이관했습니다.",
         "",
-        "## 2) 실제 상품 비용을 넣으면 +12.4%p 중 얼마나 남는가",
+        "## 2) KR 2x overlay에 추적갭과 거래비용을 순서대로 넣으면",
         "",
-        _table(("기초지수", "실상품", "연환산 추적갭", "전략 최종배수", "항상보유", "최종부 차이", "baseline 대비 edge", "양(+) edge/12.4"), q2_rows),
+        _table(("기초지수", "실상품", "synthetic / baseline", "추적갭 반영 / baseline", "추적갭+비용 / baseline"), q2_rows),
         "",
-        "결론: 현재 표의 실제상품 기준 전략은 모두 baseline을 못 넘어, +12.4%p 가운데 FINAL WEALTH 기준으로 생존한 양(+) edge는 0%였습니다. 12.4%p는 기존 60-session 평균수익률 차이라 단위가 다른 두 수치를 직접 동등시하지 않습니다.",
+        "결론: 세 열은 모두 hold-out 최종부의 전략/1x 항상보유 배수이며, synthetic 무비용 → 보정 추적갭 무비용 → 보정 추적갭과 양방향 rebalance 비용 순서입니다.",
         "",
         "## 3) 임계값 주변은 plateau인가 peak인가",
         "",
@@ -663,6 +699,7 @@ def _surface_summary(basket_items: list[dict[str, Any]], all_rows: dict[str, lis
                         and row["disp60_threshold"] == -0.10
                         and row["levels"] == levels_count
                         and row["leverage_multiple"] == multiple
+                        and row["base_exposure"] == 1.0
                         and row["exit"] == "a"
                         and row["cost_enabled"] is True
                     ):
@@ -711,13 +748,18 @@ def run(project_root: Path, baskets: tuple[str, ...], *, quick: bool) -> dict[st
                 and row["disp60_threshold"] == -0.10
                 and row["levels"] == 2
                 and row["leverage_multiple"] == 2
+                and row["base_exposure"] == 1.0
                 and row["cost_enabled"] is True
             ]
             ranking = []
             for row in exit_candidates:
                 actual = row.get("actual_product_basis")
                 metric = actual["holdout"] if actual is not None else row["holdout"]
-                ranking.append({"exit": row["exit"], **metric})
+                ranking.append({
+                    "exit": row["exit"],
+                    "base_exposure": row["base_exposure"],
+                    **metric,
+                })
             ranking.sort(key=lambda item: -math.inf if item["final_wealth_multiple"] is None else float(item["final_wealth_multiple"]), reverse=True)
             real_product_rows = [
                 {
@@ -729,6 +771,7 @@ def run(project_root: Path, baskets: tuple[str, ...], *, quick: bool) -> dict[st
                 and row["drawdown_threshold"] == -0.20
                 and row["disp60_threshold"] == -0.10
                 and row["levels"] == 2
+                and row["base_exposure"] == 1.0
                 and row["exit"] == "a"
                 and row["cost_enabled"] is True
                 and row["actual_product_basis"] is not None
@@ -739,7 +782,7 @@ def run(project_root: Path, baskets: tuple[str, ...], *, quick: bool) -> dict[st
                 "exploratory_best_fit": {
                     key: metadata["exploratory_best_fit"][key]
                     for key in (
-                        "drawdown_threshold", "disp60_threshold", "levels", "leverage_multiple", "exit", "cost_enabled", "fit", "holdout", "full"
+                        "drawdown_threshold", "disp60_threshold", "levels", "leverage_multiple", "base_exposure", "exit", "cost_enabled", "fit", "holdout", "full"
                     )
                 },
                 "plateau": metadata["plateau"],
@@ -770,7 +813,7 @@ def run(project_root: Path, baskets: tuple[str, ...], *, quick: bool) -> dict[st
     short_sources = sorted({item["short_rate_source"] for items in summary_baskets.values() for item in items})
     summary = {
         "schema_version": 1,
-        "experiment": "compound-ladder/v1",
+        "experiment": "compound-ladder/v2",
         "development_only": True,
         "api_calls": 0,
         "quick": quick,
@@ -788,7 +831,10 @@ def run(project_root: Path, baskets: tuple[str, ...], *, quick: bool) -> dict[st
         "runtime_seconds": time.perf_counter() - started,
     }
     _write_json(output / "summary.json", summary)
-    _write_text(root / "docs/research/RESULTS_20260905_compound_ladder.md", _results_markdown(_json_value(summary)))
+    _write_text(
+        root / "docs/research/RESULTS_20260905_compound_ladder.md",
+        _results_markdown(_json_value(summary), _json_value(rows_by_underlying)),
+    )
     return _json_value(summary)
 
 
@@ -797,7 +843,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--project-root", type=Path, default=ROOT)
     parser.add_argument(
         "--baskets",
-        default="KR,US_TECH,SEMIS,FOREIGN",
+        default="KR,US_TECH,SEMIS",
         help="Comma-separated subset of KR,US_TECH,SEMIS,FOREIGN",
     )
     parser.add_argument("--quick", action="store_true", help="Run the reduced deterministic smoke grid")

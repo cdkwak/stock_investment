@@ -40,7 +40,13 @@ def test_execution_at_next_close_earns_only_following_return() -> None:
     returns = pd.Series([0.0, 0.10, 0.10, 0.0])
     levels = pd.Series([np.nan, 1.0, 1.0, 0.0])
     result = simulate_account(
-        _dates(4), returns, levels, spec=LadderSpec(levels=1), transaction_cost=0.0
+        _dates(4),
+        returns,
+        levels,
+        underlying_returns=pd.Series(np.zeros(4)),
+        spec=LadderSpec(levels=1, base_exposure=0.0),
+        leverage_multiple=1,
+        transaction_cost=0.0,
     )
     assert result.curve["wealth"].tolist() == pytest.approx([1.0, 1.0, 1.1, 1.1])
     assert result.trades["date"].tolist() == [_dates(4).iloc[1], _dates(4).iloc[3]]
@@ -50,7 +56,13 @@ def test_exit_a_reverse_score_partially_sells() -> None:
     returns = pd.Series([0.0, 0.0, 0.10, 0.10])
     levels = pd.Series([np.nan, 2.0, 1.0, 0.0])
     result = simulate_account(
-        _dates(4), returns, levels, spec=LadderSpec(levels=2), transaction_cost=0.0
+        _dates(4),
+        returns,
+        levels,
+        underlying_returns=pd.Series(np.zeros(4)),
+        spec=LadderSpec(levels=2, base_exposure=0.0),
+        leverage_multiple=1,
+        transaction_cost=0.0,
     )
     # Full exposure earns +10%, then half exposure earns the next +10%.
     assert result.curve["wealth"].iloc[-1] == pytest.approx(1.155)
@@ -65,13 +77,31 @@ def test_fixed_period_exit_returns_to_base_after_n_sessions(variant: str, holdin
         _dates(n),
         pd.Series(np.zeros(n)),
         levels,
-        spec=LadderSpec(levels=1),
+        underlying_returns=pd.Series(np.zeros(n)),
+        spec=LadderSpec(levels=1, base_exposure=0.0),
+        leverage_multiple=1,
         exit_variant=variant,
         transaction_cost=0.0,
     )
     assert result.trades.iloc[0]["target_weight"] == 1.0
     assert result.trades.iloc[1]["target_weight"] == 0.0
     assert result.trades.iloc[1]["date"] == _dates(n).iloc[holding + 1]
+
+
+def test_fixed_period_core_uses_max_exposure_then_returns_to_one() -> None:
+    n = 64
+    result = simulate_account(
+        _dates(n),
+        pd.Series(np.zeros(n)),
+        pd.Series([np.nan, 1.0] + [1.0] * (n - 2)),
+        underlying_returns=pd.Series(np.zeros(n)),
+        spec=LadderSpec(levels=2, base_exposure=1.0),
+        leverage_multiple=3,
+        exit_variant="b60",
+        transaction_cost=0.0,
+    )
+    assert result.curve["exposure"].iloc[1:61].tolist() == pytest.approx([3.0] * 60)
+    assert result.curve["exposure"].iloc[61] == pytest.approx(1.0)
 
 
 def test_profit_exit_sells_original_thirds_at_each_30_percent_gain() -> None:
@@ -82,7 +112,9 @@ def test_profit_exit_sells_original_thirds_at_each_30_percent_gain() -> None:
         _dates(5),
         returns,
         levels,
-        spec=LadderSpec(levels=1),
+        underlying_returns=pd.Series(np.zeros(5)),
+        spec=LadderSpec(levels=1, base_exposure=0.0),
+        leverage_multiple=1,
         exit_variant="c",
         transaction_cost=0.0,
     )
@@ -103,7 +135,9 @@ def test_never_sell_enters_once_and_holds_forever() -> None:
         _dates(5),
         returns,
         levels,
-        spec=LadderSpec(levels=2),
+        underlying_returns=pd.Series(np.zeros(5)),
+        spec=LadderSpec(levels=2, base_exposure=0.0),
+        leverage_multiple=1,
         exit_variant="d",
         transaction_cost=0.0,
     )
@@ -119,20 +153,69 @@ def test_transaction_cost_is_paid_on_each_one_way_trade() -> None:
         _dates(3),
         pd.Series([0.0, 0.0, 0.0]),
         pd.Series([np.nan, 1.0, 0.0]),
-        spec=LadderSpec(levels=1),
+        underlying_returns=pd.Series(np.zeros(3)),
+        spec=LadderSpec(levels=1, base_exposure=1.0),
+        leverage_multiple=2,
         transaction_cost=0.001,
     )
-    assert strategy.metrics["full"]["transaction_cost"] > 0.0019
+    # Each core/product switch contains a core sell and a product buy (or vice versa).
+    assert strategy.trades.iloc[1]["cost"] > 0.0019
+    assert strategy.metrics["full"]["transaction_cost"] > 0.0048
 
 
 def test_chaining_reinvests_cash_from_first_episode() -> None:
     returns = pd.Series([0.0, 0.0, 0.10, 0.0, 0.10, 0.0])
     levels = pd.Series([np.nan, 1.0, 0.0, 1.0, 0.0, 0.0])
     result = simulate_account(
-        _dates(6), returns, levels, spec=LadderSpec(levels=1), transaction_cost=0.0
+        _dates(6),
+        returns,
+        levels,
+        underlying_returns=pd.Series(np.zeros(6)),
+        spec=LadderSpec(levels=1, base_exposure=0.0),
+        leverage_multiple=1,
+        transaction_cost=0.0,
     )
     assert result.curve["wealth"].iloc[-1] == pytest.approx(1.21)
     assert len(result.cycles) == 2
+
+
+@pytest.mark.parametrize("variant", ["a", "b60", "b120", "c", "d"])
+def test_k1_core_strategy_is_exactly_the_baseline(variant: str) -> None:
+    underlying = pd.Series([0.0, 0.10, -0.05, 0.02, 0.01])
+    deliberately_different_product = pd.Series([0.0, 0.30, -0.20, 0.15, -0.10])
+    levels = pd.Series([np.nan, 1.0, 2.0, 0.0, 1.0])
+    baseline = simulate_baseline(_dates(5), underlying, transaction_cost=0.001)
+    strategy = simulate_account(
+        _dates(5),
+        deliberately_different_product,
+        levels,
+        underlying_returns=underlying,
+        spec=LadderSpec(levels=2, base_exposure=1.0),
+        leverage_multiple=1,
+        exit_variant=variant,
+        transaction_cost=0.001,
+    )
+    pd.testing.assert_frame_equal(strategy.curve, baseline.curve)
+    assert strategy.metrics["holdout"] == baseline.metrics["holdout"]
+    assert strategy.metrics["full"] == baseline.metrics["full"]
+
+
+def test_two_level_core_overlay_has_hand_computed_wealth_and_exposure() -> None:
+    underlying = pd.Series([0.0, 0.0, 0.10, 0.10, 0.0])
+    product = pd.Series([0.0, 0.0, 0.20, 0.20, 0.0])
+    levels = pd.Series([np.nan, 1.0, 2.0, 1.0, 0.0])
+    result = simulate_account(
+        _dates(5),
+        product,
+        levels,
+        underlying_returns=underlying,
+        spec=LadderSpec(levels=2, base_exposure=1.0),
+        leverage_multiple=2,
+        exit_variant="a",
+        transaction_cost=0.0,
+    )
+    assert result.curve["wealth"].tolist() == pytest.approx([1.0, 1.0, 1.15, 1.38, 1.38])
+    assert result.curve["exposure"].tolist() == pytest.approx([1.0, 1.5, 2.0, 1.5, 1.0])
 
 
 def test_daily_reset_two_x_path_is_point_nine_six_not_point_nine_nine() -> None:
@@ -147,6 +230,23 @@ def test_daily_reset_two_x_path_is_point_nine_six_not_point_nine_nine() -> None:
     assert close.iloc[-1] / close.iloc[0] == pytest.approx(0.99)
 
 
+def test_retained_negative_short_rate_keeps_the_financing_formula() -> None:
+    close = pd.Series([100.0, 100.0])
+    zero_rate = synthetic_daily_returns(
+        close,
+        leverage_multiple=2,
+        annual_expense_ratio=0.0,
+        annual_short_rate=0.0,
+    )
+    negative_rate = synthetic_daily_returns(
+        close,
+        leverage_multiple=2,
+        annual_expense_ratio=0.0,
+        annual_short_rate=-0.0005,
+    )
+    assert negative_rate.iloc[1] - zero_rate.iloc[1] == pytest.approx(0.0005 / 252)
+
+
 def test_zero_nav_is_terminal_and_never_divides_by_zero() -> None:
     dates = _dates(4)
     returns = pd.Series([0.0, -1.0, 0.0, 0.0])
@@ -157,7 +257,9 @@ def test_zero_nav_is_terminal_and_never_divides_by_zero() -> None:
         dates,
         returns,
         pd.Series([np.nan, 1.0, 0.0, 1.0]),
-        spec=LadderSpec(levels=1),
+        underlying_returns=pd.Series(np.zeros(4)),
+        spec=LadderSpec(levels=1, base_exposure=0.0),
+        leverage_multiple=1,
         transaction_cost=0.0,
     )
     assert strategy.curve["wealth"].tolist() == pytest.approx([1.0, 1.0, 1.0, 1.0])
@@ -165,7 +267,9 @@ def test_zero_nav_is_terminal_and_never_divides_by_zero() -> None:
         dates,
         returns,
         pd.Series([np.nan, 1.0, 0.0, 1.0]),
-        spec=LadderSpec(levels=1),
+        underlying_returns=pd.Series(np.zeros(4)),
+        spec=LadderSpec(levels=1, base_exposure=0.0),
+        leverage_multiple=1,
         exit_variant="c",
         transaction_cost=0.0,
     )
@@ -190,6 +294,7 @@ def test_grid_row_schema_and_baseline_comparison() -> None:
         "disp60_threshold": -0.10,
         "levels": 2,
         "leverage_multiple": 2,
+        "base_exposure": 1.0,
         "exit": "a",
         "cost_enabled": True,
         **compared,
@@ -205,13 +310,16 @@ def test_grid_row_schema_and_baseline_comparison() -> None:
 @pytest.mark.parametrize("variant", ["a", "b60", "b120", "c", "d"])
 def test_fast_grid_metrics_match_detailed_account(variant: str) -> None:
     returns = pd.Series([0.0, 0.0, 0.10, 0.20, -0.05, 0.30, 0.0])
+    underlying = pd.Series([0.0, 0.0, 0.05, 0.10, -0.025, 0.15, 0.0])
     levels = pd.Series([np.nan, 2.0, 1.0, 0.0, 2.0, 1.0, 0.0])
     spec = LadderSpec(levels=2)
     detailed = simulate_account(
         _dates(len(returns)),
         returns,
         levels,
+        underlying_returns=underlying,
         spec=spec,
+        leverage_multiple=2,
         exit_variant=variant,
         transaction_cost=0.001,
     )
@@ -219,7 +327,9 @@ def test_fast_grid_metrics_match_detailed_account(variant: str) -> None:
         _dates(len(returns)),
         returns,
         levels,
+        underlying_returns=underlying,
         spec=spec,
+        leverage_multiple=2,
         exit_variant=variant,
         transaction_cost=0.001,
     )

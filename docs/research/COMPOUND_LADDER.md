@@ -2,7 +2,9 @@
 
 ## 목적과 경계
 
-`compound-ladder/v1`은 여러 drawdown cycle을 하나의 계좌로 이어 붙이고, 매도한 현금을 다음 진입에 다시 쓰는 개발용 시뮬레이션이다. 모든 판단 기준은 같은 상품을 첫날 100% 매수해 끝까지 보유한 baseline 대비 **FINAL WEALTH**다. 투자 추천, 실현 가능한 체결, 사용자 적합성 또는 실계좌 성과를 뜻하지 않는다.
+`compound-ladder/v2`는 여러 drawdown cycle을 하나의 계좌로 이어 붙이는 개발용 시뮬레이션이다. 계좌는 평상시에도 기초지수 1x core를 항상 보유하고 drawdown level이 올라갈 때 core 일부를 일일 재설정 k배 상품으로 옮긴다. 모든 판단 기준은 기초지수 1x를 첫날 100% 매수해 끝까지 보유한 baseline 대비 **FINAL WEALTH**다. 투자 추천, 실현 가능한 체결, 사용자 적합성 또는 실계좌 성과를 뜻하지 않는다.
+
+v2 변경점은 v1의 기본 현금비중 100% 모델을 1x core 상시 보유 모델로 바로잡은 것이다. v1 방식은 `base_exposure=0.0`인 **현금 대기형** 보조 실험으로만 남기고, 헤드라인·탐색 winner·plateau·exit 순위·분할×multiple 표는 모두 `base_exposure=1.0`만 사용한다.
 
 실행은 retained Parquet만 읽으며 API 호출, provider import, 계좌 접근, 주문 경로가 없다. 결과는 입력 Parquet의 경로·크기·SHA-256을 묶은 manifest digest와 함께 저장한다.
 
@@ -13,20 +15,20 @@
 - `drawdown252 <= -0.20`
 - `disp60 <= -0.10`
 
-각 행의 두 조건 점수는 0, 1, 2다. 기본 2분할에서는 목표 비중이 각각 0%, 50%, 100%다. 민감도 분석의 분할 수 `n=1..4`는 `ceil(score / 2 × n)`개의 동일 크기 tranche로 비례 변환한다. 따라서 두 조건이 모두 참이면 모든 `n`에서 100%에 도달하며, 2분할은 등록 규칙과 정확히 같다. 기본 비중 `w0=0`이며 설정 가능하고 나머지는 현금이다.
+각 행의 두 조건 점수는 0, 1, 2다. 민감도 분석의 분할 수 `n=1..4`는 `ceil(score / 2 × n)`개의 동일 크기 level로 비례 변환한다. Core형의 목표 노출은 `e(L) = 1 + (k-1) × L/n`이다. 이 노출을 만들기 위해 계좌의 `f(L) = (e(L)-1)/(k-1) = L/n`을 1x core에서 k배 상품으로 옮긴다. 최대 level에서는 k배 상품 100%, level 0에서는 1x core 100%다. `k=1`이면 모든 level의 노출이 1이고 어떤 exit에서도 baseline과 정확히 같다. 현금 대기형은 예전처럼 `L/n`만 k배 상품에 넣고 나머지를 현금으로 둔다.
 
 신호는 종가 T까지의 값만 사용한다. T에서 관측한 level은 다음 retained session의 종가에서 실행하며 새 비중은 그 다음 close-to-close 수익부터 얻는다. 결측 신호는 거짓으로 바꾸거나 새 주문을 만들지 않고 직전 실행 상태를 유지한다. 이 계산 시계는 미래 가격을 신호에 넣지 않지만, retained 지수 종가의 원천 빈티지·당시 공개시각 자체가 역사적으로 PIT-safe였다고 주장하지 않는다.
 
 ## 연속 계좌와 exit
 
-계좌는 처음부터 끝까지 하나이며 외부 현금 흐름이 없다. 현금 수익률 기본값은 0%다. 목표 비중 변경 때 매수·매도 notional에 편도 0.10% 비용을 적용한다. 목표 비중과 거래비용을 동시에 만족하도록 self-financing 잔액을 계산한다.
+계좌는 처음부터 끝까지 하나이며 외부 현금 흐름이 없다. 현금 수익률 기본값은 0%다. 목표 비중 변경 때 매수·매도 각 leg의 notional에 편도 0.10% 비용을 적용한다. 따라서 core를 팔아 overlay를 사거나 overlay를 팔아 core를 사는 rebalance는 양쪽 leg 모두 비용을 낸다. 목표 비중과 거래비용을 동시에 만족하도록 self-financing 잔액을 계산한다.
 
-- `a 점수 역주행`: level이 2→1→0으로 내려가면 목표 비중도 자동으로 내려간다.
-- `b60`, `b120 고정 기간`: 상승 crossing에서 들어온 각 tranche를 각각 60 또는 120 retained sessions 뒤 기본 비중으로 되돌린다.
-- `c 목표 수익 분할`: 각 tranche 진입가격 대비 +30%, +60%, +90%에서 최초 수량의 1/3씩 판다. level 하락만으로는 팔지 않는다.
-- `d 안 팔고 보유`: 첫 `level>=1`에서 100% 진입하고 다시 팔지 않는다.
+- `a 점수 역주행`: 노출 `e`가 실행 level을 따라 오르내린다.
+- `b60`, `b120 고정 기간`: episode 진입 때 즉시 최대 노출 `e(level_max)=k`로 올리고 60 또는 120 retained sessions를 유지한 뒤 core형은 1.0, 현금 대기형은 0으로 한 번에 복귀한다.
+- `c 목표 수익 분할`: 각 overlay tranche 진입가격 대비 +30%, +60%, +90%에서 최초 overlay 수량의 1/3씩 팔아 core형은 1x로, 현금 대기형은 현금으로 옮긴다. level 하락만으로는 팔지 않는다.
+- `d 안 팔고 보유`: 첫 `level>=1`에서 최대 노출로 올린 뒤 끝까지 de-lever하지 않는다.
 
-Baseline은 같은 상품을 첫 retained close에 100% 매수하고 끝까지 보유한다. 전략과 baseline 모두 비용 on일 때 최초 매수비용을 낸다. Cycle 표는 실행 level이 0에서 양수로 바뀐 구간을 episode로 정의하고 entry, 최대 level, 신호 종료, 실제 기본비중 복귀일(없으면 null), 계좌 wealth 기여와 같은 날짜의 baseline 기여를 기록한다.
+Baseline은 기초지수 1x를 첫 retained close에 100% 매수하고 끝까지 보유한다. Core형 전략과 baseline 모두 비용 on일 때 최초 1x 매수비용을 낸다. Cycle 표는 실행 level이 0에서 양수로 바뀐 구간을 episode로 정의하고 entry, 최대 level, 신호 종료, overlay가 0으로 돌아온 실제 de-lever일(없으면 null), 계좌 wealth 기여와 같은 날짜의 baseline 기여를 기록한다.
 
 ## 상품 수익률
 
@@ -42,7 +44,7 @@ Real ETF와 기초지수의 공통 날짜에서 `real log return − synthetic l
 
 ## 기간, grid, plateau
 
-한 연속 equity curve에서 fit은 2015-12-31까지, hold-out은 2016-01-01부터, full은 전 기간이다. 기간 배수는 해당 구간 첫 wealth 대비 마지막 wealth이므로 split 경계의 보유 상태를 그대로 이어받는다.
+한 연속 equity curve에서 fit은 2015-12-31까지, hold-out은 2016-01-01부터, full은 전 기간이다. 이 `hold-out`은 compound-ladder가 미리 고정한 설명용 시간 분할이며 프로젝트 Phase-1의 2021-08-17 시작 sealed final holdout을 열거나 재사용한 것이 아니다. 기간 배수는 해당 구간 첫 wealth 대비 마지막 wealth이므로 split 경계의 보유 상태를 그대로 이어받는다.
 
 Full grid는 아래 Cartesian product다.
 
@@ -50,18 +52,19 @@ Full grid는 아래 Cartesian product다.
 - disp60: `-0.05, -0.10, -0.15`
 - 분할 수: `1, 2, 3, 4`
 - multiple: `1, 2, 3`
+- base exposure: `0.0`(현금 대기형), `1.0`(1x core형)
 - exit: `a, b60, b120, c, d`
 - cost: off/on
 
-각 row는 fit/hold-out/full의 최종배수, CAGR, MDD, 거래 수·회전·비용, 같은 상품 baseline, baseline 대비 배수와 최종부 차이를 가진다. Weekly equity curve는 current rule, fit-grid winner(명시적으로 exploratory), current 2x baseline에만 넣는다.
+각 row는 fit/hold-out/full의 최종배수, CAGR, MDD, 거래 수·회전·비용, 1x baseline, baseline 대비 배수와 최종부 차이를 가진다. Weekly equity curve는 core형 current rule, core형 fit-grid winner(명시적으로 exploratory), 1x baseline에만 넣는다.
 
-Plateau는 `threshold×levels`, `levels×multiple`, `threshold×multiple` 세 surface에서 나머지를 current 값과 `exit=a`, cost on으로 고정한다. Fit 최적 셀의 인접 grid index 최대 8개 평균을 계산한다. 최적 셀이 이 평균을 `0.25 × (최적 셀의 baseline 초과 edge)`보다 더 크게 이길 때만 `sharp peak`다.
+Plateau는 `base_exposure=1.0`에서 `threshold×levels`, `levels×multiple`, `threshold×multiple` 세 surface의 나머지를 current 값과 `exit=a`, cost on으로 고정한다. Fit 최적 셀의 인접 grid index 최대 8개 평균을 계산한다. 최적 셀이 이 평균을 `0.25 × (최적 셀의 baseline 초과 edge)`보다 더 크게 이길 때만 `sharp peak`다.
 
 ## 산출물과 재현
 
 ```text
-.venv\Scripts\python.exe scripts\research\run_compound_backtest.py --project-root .
-.venv\Scripts\python.exe scripts\research\run_compound_backtest.py --project-root . --baskets KR,US_TECH,SEMIS,FOREIGN --quick
+.venv\Scripts\python.exe scripts\research\run_compound_backtest.py --project-root . --baskets KR,US_TECH,SEMIS
+.venv\Scripts\python.exe scripts\research\run_compound_backtest.py --project-root . --baskets KR,US_TECH,SEMIS --quick
 ```
 
-`artifacts/research/compound_ladder/grid_<basket>_<product>.json`은 UI용 row list이고 `summary.json`은 basket별 headline, 탐색 winner, plateau, 추적 gap과 입력 manifest를 모은다. 없는 FOREIGN symbol은 실패로 위장하지 않고 CLI와 summary에 명시적으로 skip한다. 결과 문서는 `RESULTS_20260905_compound_ladder.md`다.
+`artifacts/research/compound_ladder/grid_<basket>_<product>.json`은 UI용 row list이고 `summary.json`은 basket별 headline, 탐색 winner, plateau, 추적 gap과 입력 manifest를 모은다. FOREIGN 숫자는 이 실험에서 산출하지 않고 별도 `foreign_transfer` 시험으로 이관한다. 결과 문서는 `RESULTS_20260905_compound_ladder.md`다.

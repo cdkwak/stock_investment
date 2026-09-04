@@ -161,8 +161,8 @@ def synthetic_daily_returns(
             raise ValueError("short-rate series must cover every index session")
     else:
         short_rate = pd.Series(float(annual_short_rate), index=close.index)
-    if not np.isfinite(short_rate).all() or short_rate.lt(0).any():
-        raise ValueError("short rate must be finite and non-negative")
+    if not np.isfinite(short_rate).all() or short_rate.le(-1.0).any():
+        raise ValueError("short rate must be finite and greater than -100%")
     index_return = close.pct_change(fill_method=None).fillna(0.0)
     daily_cost = (expense + (leverage_multiple - 1) * short_rate + annual_tracking_drag) / TRADING_DAYS
     result = leverage_multiple * index_return - daily_cost
