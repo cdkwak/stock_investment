@@ -6,6 +6,7 @@ from stock_data.contracts.global_etf import (
     global_etf_leverage_multiple,
 )
 from stock_data.contracts.kr_etf import infer_kr_etf_leverage_multiple
+from stock_data.providers.yahoo import GLOBAL_MARKET_60M_REGISTRY
 
 
 def test_contract_registry_has_unique_names_and_layer_formats() -> None:
@@ -49,6 +50,41 @@ def test_global_daily_contracts_keep_symbol_identity_and_futures_semantics() -> 
     )
     assert {"source_ticker", "asset", "ohlc_status"} <= set(futures.column_names)
     assert "dollar-index continuous futures" in futures.description
+
+
+def test_yahoo_current_30m_registry_has_four_new_exact_identities() -> None:
+    assert {
+        series_id: {
+            "provider_symbol": spec["provider_symbol"],
+            "market": spec["market"],
+            "instrument_type": spec["instrument_type"],
+            "expected_currency": spec["expected_currency"],
+            "accepted_yahoo_exchanges": spec["accepted_yahoo_exchanges"],
+        }
+        for series_id, spec in GLOBAL_MARKET_60M_REGISTRY.items()
+        if series_id in {
+            "SP500_FUTURES_CURRENT_60M", "DOW_FUTURES_CURRENT_60M",
+            "SOX_CURRENT_60M", "DOLLAR_INDEX_CURRENT_60M",
+        }
+    } == {
+        "SP500_FUTURES_CURRENT_60M": {
+            "provider_symbol": "ES=F", "market": "CME", "instrument_type": "FUTURE",
+            "expected_currency": "USD", "accepted_yahoo_exchanges": ("CME",),
+        },
+        "DOW_FUTURES_CURRENT_60M": {
+            "provider_symbol": "YM=F", "market": "CBOT", "instrument_type": "FUTURE",
+            "expected_currency": "USD", "accepted_yahoo_exchanges": ("CBT", "CBOT"),
+        },
+        "SOX_CURRENT_60M": {
+            "provider_symbol": "^SOX", "market": "XNAS", "instrument_type": "INDEX",
+            "expected_currency": "USD",
+            "accepted_yahoo_exchanges": ("NIM", "NGM", "NMS", "NASDAQ"),
+        },
+        "DOLLAR_INDEX_CURRENT_60M": {
+            "provider_symbol": "DX-Y.NYB", "market": "ICE", "instrument_type": "INDEX",
+            "expected_currency": "USD", "accepted_yahoo_exchanges": ("NYB", "ICE"),
+        },
+    }
 
 
 def test_global_etf_registry_is_contract_owned_and_exposure_explicit() -> None:

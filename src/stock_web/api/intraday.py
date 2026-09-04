@@ -39,6 +39,22 @@ _GLOBAL_SPECS = {
         "NQ_FUTURES_CURRENT_60M", "NQ_FUTURES_CURRENT_60M", "NQ=F",
         "nq_futures_current_60m", "Yahoo 완료 30분봉 · NQ=F", "futures", "24h 선물",
     ),
+    "S&P 500 선물": _YahooSpec(
+        "SP500_FUTURES_CURRENT_60M", "SP500_FUTURES_CURRENT_60M", "ES=F",
+        "sp500_futures_current_60m", "Yahoo 완료 30분봉 · ES=F", "futures", "24h 선물",
+    ),
+    "다우 선물": _YahooSpec(
+        "DOW_FUTURES_CURRENT_60M", "DOW_FUTURES_CURRENT_60M", "YM=F",
+        "dow_futures_current_60m", "Yahoo 완료 30분봉 · YM=F", "futures", "24h 선물",
+    ),
+    "필라델피아 반도체": _YahooSpec(
+        "SOX_CURRENT_60M", "SOX_CURRENT_60M", "^SOX",
+        "sox_current_60m", "Yahoo 완료 30분봉 · ^SOX", "us_cash", "최근 24h",
+    ),
+    "달러 인덱스": _YahooSpec(
+        "DOLLAR_INDEX_CURRENT_60M", "DOLLAR_INDEX_CURRENT_60M", "DX-Y.NYB",
+        "dollar_index_current_60m", "Yahoo 완료 30분봉 · DX-Y.NYB", "futures", "최근 24h",
+    ),
     "WTI": _YahooSpec(
         "WTI_CURRENT_60M", "WTI_CURRENT_60M", "CL=F",
         "wti_current_60m", "Yahoo 완료 30분봉 · CL=F", "futures", "24h 선물",

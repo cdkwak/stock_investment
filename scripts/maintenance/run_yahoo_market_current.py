@@ -11,7 +11,11 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from stock_data.orchestration.yahoo_market_current import run_yahoo_market_current
+from stock_data.orchestration.yahoo_market_current import (
+    describe_yahoo_market_current,
+    replay_yahoo_market_current,
+    run_yahoo_market_current,
+)
 from stock_data.orchestration.update_event_log import (
     CommitResult,
     DEFAULT_RUNTIME_LOG_ROOT,
@@ -66,8 +70,18 @@ def main(argv: list[str] | None = None) -> int:
         description="Run the unified Yahoo current operation (30m polling)."
     )
     parser.add_argument("--project-root", type=Path, default=ROOT)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--dry-run", action="store_true")
+    mode.add_argument("--replay", action="store_true")
     args = parser.parse_args(argv)
     project_root = args.project_root.resolve()
+    if args.dry_run:
+        print(json.dumps(describe_yahoo_market_current(), ensure_ascii=False, sort_keys=True))
+        return 0
+    if args.replay:
+        report = replay_yahoo_market_current(project_root)
+        print(json.dumps(report, ensure_ascii=False, sort_keys=True))
+        return _report_exit_code(report)
     started_at = datetime.now(timezone.utc)
     started = UpdateEvent.started(
         run_id=new_run_id("yahoo-market-current", now=started_at),

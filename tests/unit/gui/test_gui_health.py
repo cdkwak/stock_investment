@@ -63,6 +63,8 @@ def _complete_yahoo_receipt():
             'SP500_CURRENT_60M', 'NASDAQ_CURRENT_60M', 'NQ_FUTURES_CURRENT_60M',
             'SOXX_CURRENT_60M', 'GOLD_CURRENT_60M', 'WTI_CURRENT_60M',
             'BITCOIN_CURRENT_60M',
+            'SP500_FUTURES_CURRENT_60M', 'DOW_FUTURES_CURRENT_60M',
+            'SOX_CURRENT_60M', 'DOLLAR_INDEX_CURRENT_60M',
         )),
         *(('NATIVE_15M', item) for item in ('^VIX', '^FVX', '^TNX', '^TYX')),
     )
@@ -79,8 +81,8 @@ def _complete_yahoo_receipt():
     ]
     return {
         "status": "PASS", "finished_at_utc": "2026-08-26T07:02:14+00:00",
-        "run_id": "yahoo-market-current-safe", "accepted": 17,
-        "failed": 0, "api_calls": 17, "max_api_calls": 17,
+        "run_id": "yahoo-market-current-safe", "accepted": len(routes),
+        "failed": 0, "api_calls": len(routes), "max_api_calls": len(routes),
         "preserved": 0, "series_terminal_outcomes": outcomes,
     }
 

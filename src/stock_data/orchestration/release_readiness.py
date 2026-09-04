@@ -32,8 +32,10 @@ from stock_data.gui.health_service import (
     summarize_health_artifact,
 )
 from stock_data.gui.services import DashboardDisplayState, DashboardService
-from stock_data.orchestration.global_market_60m import CURRENT_SERIES_IDS
-from stock_data.orchestration.yahoo_market_current import NATIVE_15M_SERIES
+from stock_data.orchestration.yahoo_market_current import (
+    NATIVE_15M_SERIES,
+    YAHOO_CURRENT_30M_SERIES_IDS,
+)
 
 
 REPORT_SCHEMA_VERSION = 1
@@ -221,7 +223,7 @@ EXPECTED_GUI_WORKERS = (
 )
 
 EXPECTED_YAHOO_TERMINAL_ROUTES = (
-    *(("GLOBAL_30M", series_id) for series_id in CURRENT_SERIES_IDS),
+    *(("GLOBAL_30M", series_id) for series_id in YAHOO_CURRENT_30M_SERIES_IDS),
     *(("NATIVE_15M", series_id) for series_id in NATIVE_15M_SERIES),
 )
 YAHOO_TERMINAL_OUTCOMES_BY_LANE = {

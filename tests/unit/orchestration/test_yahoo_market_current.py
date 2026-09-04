@@ -11,11 +11,13 @@ import pytest
 from scripts.maintenance import run_yahoo_market_current as yahoo_runner
 import stock_data.orchestration.yahoo_market_current as yahoo_current_module
 from stock_data.orchestration.automatic_fallback import FallbackInvariantError
-from stock_data.orchestration.global_market_60m import CURRENT_SERIES_IDS
 from stock_data.orchestration.exchange_calendar import ExchangeMarket, ExchangeTradingCalendar
 from stock_data.orchestration.yahoo_market_current import (
     NATIVE_15M_SERIES,
+    YAHOO_CURRENT_30M_SERIES_IDS,
+    describe_yahoo_market_current,
     fetch_global_market_30m_current,
+    replay_yahoo_market_current,
     run_yahoo_market_current,
 )
 from stock_data.providers.yahoo import GLOBAL_MARKET_60M_REGISTRY
@@ -84,11 +86,14 @@ def _native_response(
 FUTURES_30M_SERIES = (
     "UST2_FUTURES_60M", "UST10_FUTURES_60M", "UST30_FUTURES_60M",
     "NQ_FUTURES_CURRENT_60M", "GOLD_CURRENT_60M", "WTI_CURRENT_60M",
+    "SP500_FUTURES_CURRENT_60M", "DOW_FUTURES_CURRENT_60M",
 )
+YAHOO_ROUTE_COUNT = len(YAHOO_CURRENT_30M_SERIES_IDS) + len(NATIVE_15M_SERIES)
 
 
 def _global_response(
     series_id: str, *, newest_ohlc: tuple[float | None, ...],
+    meta_updates: dict[str, object] | None = None,
 ) -> SimpleNamespace:
     spec = GLOBAL_MARKET_60M_REGISTRY[series_id]
     starts = (
@@ -99,12 +104,18 @@ def _global_response(
     first = (99.0, 101.0, 98.0, 100.0)
     quote = (123.0, 124.0, 122.0, 123.5)
     rows = (first, newest_ohlc, quote)
-    body = {"chart": {"error": None, "result": [{
-        "meta": {
+    meta = {
             "symbol": spec["provider_symbol"], "dataGranularity": "30m",
             "instrumentType": spec["instrument_type"],
             "regularMarketTime": int(pd.Timestamp("2026-08-22T02:10:00Z").timestamp()),
-        },
+    }
+    if spec.get("expected_currency") is not None:
+        meta["currency"] = spec["expected_currency"]
+    if spec.get("accepted_yahoo_exchanges"):
+        meta["exchangeName"] = spec["accepted_yahoo_exchanges"][0]
+    meta.update(meta_updates or {})
+    body = {"chart": {"error": None, "result": [{
+        "meta": meta,
         "timestamp": [int(value.timestamp()) for value in starts],
         "indicators": {"quote": [{
             "open": [row[0] for row in rows],
@@ -116,6 +127,47 @@ def _global_response(
     }]}}
     response = SimpleNamespace(json=lambda: body, raise_for_status=lambda: None)
     return SimpleNamespace(get=lambda *_args, **_kwargs: response)
+
+
+@pytest.mark.parametrize(
+    "series_id",
+    (
+        "SP500_FUTURES_CURRENT_60M", "DOW_FUTURES_CURRENT_60M",
+        "SOX_CURRENT_60M", "DOLLAR_INDEX_CURRENT_60M",
+    ),
+)
+@pytest.mark.parametrize(
+    ("meta_updates", "message"),
+    [
+        ({"currency": "KRW"}, "currency identity differs"),
+        ({"exchangeName": "WRONG"}, "exchange identity differs"),
+    ],
+)
+def test_new_global_30m_routes_fail_closed_on_currency_or_exchange_identity(
+    series_id: str, meta_updates: dict[str, object], message: str,
+) -> None:
+    with pytest.raises(RuntimeError, match=message):
+        fetch_global_market_30m_current(
+            series_id,
+            start=datetime(2026, 8, 22, 0, tzinfo=timezone.utc),
+            end=datetime(2026, 8, 22, 3, tzinfo=timezone.utc),
+            retrieved_at=datetime(2026, 8, 22, 2, 10, tzinfo=timezone.utc),
+            session=_global_response(
+                series_id, newest_ohlc=(100.0, 102.0, 99.0, 101.0),
+                meta_updates=meta_updates,
+            ),
+        )
+
+
+def test_yahoo_current_dry_run_lists_new_symbols_and_21_call_budget() -> None:
+    report = describe_yahoo_market_current()
+
+    assert report["status"] == "DRY_RUN_PASS"
+    assert report["api_calls"] == 0
+    assert report["max_api_calls"] == YAHOO_ROUTE_COUNT == 21
+    assert {
+        row["provider_symbol"] for row in report["routes"]
+    } >= {"ES=F", "YM=F", "^SOX", "DX-Y.NYB"}
 
 
 @pytest.mark.parametrize(
@@ -235,9 +287,9 @@ def test_unified_yahoo_types_completed_grid_null_by_exact_prior_presence(
         for row in retained["series_terminal_outcomes"]
     }
     assert retained["status"] == "PARTIAL_FAILURE"
-    assert retained["accepted"] == 11
+    assert retained["accepted"] == YAHOO_ROUTE_COUNT - len(FUTURES_30M_SERIES)
     assert retained["failed"] == len(FUTURES_30M_SERIES)
-    assert retained["preserved"] == 17
+    assert retained["preserved"] == YAHOO_ROUTE_COUNT
     assert all(
         retained_outcomes[series_id]
         == "FAIL_COMPLETED_GRID_OHLC_UNAVAILABLE_PRIOR_VALUE_PRESERVED"
@@ -326,10 +378,10 @@ def test_unified_yahoo_operation_projects_30m_and_native_15m_under_one_report(tm
     )
 
     assert report["status"] == "PASS"
-    assert report["api_calls"] == report["max_api_calls"] == 17
+    assert report["api_calls"] == report["max_api_calls"] == YAHOO_ROUTE_COUNT
     assert report["schedule_interval"] == report["global_bar_interval"] == "30m"
     assert report["native_bar_interval"] == "15m" and report["history_writes"] == 0
-    for series_id in CURRENT_SERIES_IDS:
+    for series_id in YAHOO_CURRENT_30M_SERIES_IDS:
         payload = json.loads((
             tmp_path / "data/state/current_observations/global60m_current"
             / f"{series_id.lower()}.json"
@@ -344,6 +396,11 @@ def test_unified_yahoo_operation_projects_30m_and_native_15m_under_one_report(tm
     coverage = DashboardService(tmp_path).current_observation_coverage(now_utc=clock)
     assert coverage["NQ_FUTURES_CURRENT_60M"].interval == "30m"
     assert coverage["NQ_FUTURES_CURRENT_60M"].freshness == "CURRENT_COMPLETED_30M"
+
+    replay = replay_yahoo_market_current(tmp_path)
+    assert replay["status"] == "PASS"
+    assert replay["api_calls"] == replay["max_api_calls"] == 0
+    assert replay["replayed"] == YAHOO_ROUTE_COUNT and replay["missing"] == 0
 
 
 def test_unified_yahoo_operation_preserves_other_lanes_when_one_identity_fails(tmp_path) -> None:
@@ -362,7 +419,7 @@ def test_unified_yahoo_operation_preserves_other_lanes_when_one_identity_fails(t
     )
 
     assert report["status"] == "PARTIAL_FAILURE"
-    assert report["accepted"] == 16 and report["failed"] == 1
+    assert report["accepted"] == YAHOO_ROUTE_COUNT - 1 and report["failed"] == 1
     assert not (tmp_path / "data/state/current_observations/yahoo_native15m_current/idxtnx.json").exists()
     assert (tmp_path / "data/state/current_observations/yahoo_native15m_current/idxvix.json").exists()
 
@@ -421,7 +478,8 @@ def test_unified_yahoo_operation_preserves_unchanged_completed_bars_as_success(t
     )
 
     assert first["status"] == second["status"] == "PASS"
-    assert second["accepted"] == second["preserved"] == 17 and second["failed"] == 0
+    assert second["accepted"] == second["preserved"] == YAHOO_ROUTE_COUNT
+    assert second["failed"] == 0
     assert all(row["outcome"].endswith("PRESERVED") for row in second["series_terminal_outcomes"])
     assert {path: path.read_bytes() for path in before} == before
 
@@ -723,7 +781,7 @@ def test_preservation_disposition_rejects_naive_or_future_candidate_time(
 @pytest.mark.parametrize(
     ("report", "expected"),
     [
-        ({"status": "PASS", "failed": 0, "preserved": 17}, 0),
+        ({"status": "PASS", "failed": 0, "preserved": YAHOO_ROUTE_COUNT}, 0),
         ({"status": "PARTIAL_FAILURE", "failed": 1}, 1),
         ({"status": "PASS"}, 1),
     ],
@@ -741,8 +799,8 @@ def test_yahoo_runner_emits_one_bound_started_and_terminal_event(
     tmp_path, monkeypatch, capsys,
 ) -> None:
     report = {
-        "status": "PASS", "failed": 0, "accepted": 17,
-        "preserved": 2, "api_calls": 17,
+        "status": "PASS", "failed": 0, "accepted": YAHOO_ROUTE_COUNT,
+        "preserved": 2, "api_calls": YAHOO_ROUTE_COUNT,
     }
     monkeypatch.setattr(yahoo_runner, "run_yahoo_market_current", lambda _root: report)
 
@@ -753,7 +811,7 @@ def test_yahoo_runner_emits_one_bound_started_and_terminal_event(
     ).read_events()
     assert [event.state for event in events] == [EventState.STARTED, EventState.SUCCEEDED]
     assert len({event.run_id for event in events}) == 1
-    assert events[-1].provider_call_count == 17
+    assert events[-1].provider_call_count == YAHOO_ROUTE_COUNT
     encoded = json.dumps([event.to_dict() for event in events], ensure_ascii=False)
     assert "http://" not in encoded and "https://" not in encoded
     assert "api_key" not in encoded.lower() and "payload" not in encoded.lower()
@@ -781,7 +839,7 @@ def test_yahoo_runner_failure_is_typed_and_logger_failure_is_non_authoritative(
         def append(self, _event):
             raise OSError("logger unavailable")
 
-    report = {"status": "PASS", "failed": 0, "api_calls": 17}
+    report = {"status": "PASS", "failed": 0, "api_calls": YAHOO_ROUTE_COUNT}
     monkeypatch.setattr(yahoo_runner, "run_yahoo_market_current", lambda _root: report)
     monkeypatch.setattr(yahoo_runner, "LocalUpdateEventLog", lambda _path: FailingLog())
     assert yahoo_runner.main(["--project-root", str(tmp_path / "logger")]) == 0

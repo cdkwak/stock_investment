@@ -3,19 +3,20 @@
 Status: AUTOMATION_ACTIVE_UNIFIED_YAHOO_30M_20260822
 
 This operation owns only the display projection for the exact Yahoo identities
-`^KS11`, `^KQ11`, `KRW=X`, `ZT=F`, `ZN=F`, `ZB=F`, `^GSPC`, `^IXIC`, `NQ=F`, `SOXX`,
-`GC=F`, `CL=F`, and `BTC-USD`, plus native-15m `^VIX`, `^FVX`, `^TNX`, and
-`^TYX`. SPY is excluded. It never writes Normalized,
+`^KS11`, `^KQ11`, `KRW=X`, `ZT=F`, `ZN=F`, `ZB=F`, `^GSPC`, `^IXIC`, `NQ=F`,
+`ES=F`, `YM=F`, `^SOX`, `DX-Y.NYB`, `SOXX`, `GC=F`, `CL=F`, and `BTC-USD`,
+plus native-15m `^VIX`, `^FVX`, `^TNX`, and `^TYX`. SPY is excluded. It never
+writes Normalized,
 Canonical, Published, or Backtest data.
 
 ## Fixed boundary
 
 - supported command: `scripts/maintenance/run_yahoo_market_current.py`
-- serial request cap: seventeen GETs, one per exact identity
+- serial request cap: twenty-one GETs, one per exact identity
 - timeout: provider adapter default 30 seconds
 - current implementation retry/fallback: zero; agents may add finite transient
   retry/backoff or a verified identity-preserving fallback without fresh
-  approval while retaining the 17 logical-identity cap per cycle
+  approval while retaining the 21 logical-identity cap per cycle
 - Landing capture: `data/landing/yahoo_market_current/<run_id>/`
 - projection: `data/state/current_observations/global60m_current/<series>.json`
 - session trace: `data/state/current_observations/global60m_current/<series>.session.json`
@@ -45,15 +46,15 @@ Standing authorization covers changing the global current bars from completed
 60m to completed 30m, polling both Yahoo lanes every 30 minutes, and merging
 their Windows tasks into one `STOCK_DATA_YAHOO_MARKET_30M` task. The single
 process executes identities serially and preserves each prior valid projection
-when another identity fails. The operation retains exactly
-ten visible Dashboard rows: KOSPI (`^KS11`) and KOSDAQ (`^KQ11`) first, then
-Nasdaq-100 continuous futures (`NQ=F`), Nasdaq
-Composite (`^IXIC`), S&P 500 (`^GSPC`), SOXX (`SOXX`), Gold continuous futures
-(`GC=F`), WTI continuous futures (`CL=F`), Bitcoin (`BTC-USD`), and USD/KRW
-(`KRW=X`) last. The operation also retains the three approved non-card
-Treasury-futures rows, for thirteen
-exact identities total. SPY is not called. Historical and Backtest writes remain
-zero. Before expansion verification, hash the existing
+when another identity fails. The operation retains seventeen completed-30m
+routes. The four added home-tile identities are S&P 500 continuous futures
+(`ES=F`), Dow continuous futures (`YM=F`), the Philadelphia Semiconductor Index
+(`^SOX`), and the ICE U.S. Dollar Index (`DX-Y.NYB`). They use exact symbol,
+instrument type, USD currency, and exchange-code allowlists (`CME`, `CBT`/`CBOT`,
+Nasdaq `NIM`/`NGM`/`NMS`/`NASDAQ`, and `NYB`/`ICE`). The operation also retains
+the four provider-native 15m routes, for twenty-one exact identities total. SPY
+is not called. Historical and Backtest writes remain zero. Before expansion
+verification, hash the existing
 Normalized 60-minute dataset and Backtest roots. After the operation, verify
 those hashes are unchanged and read back every independently accepted current
 projection and the result log. The new task runs every 30 minutes at minute
@@ -82,6 +83,29 @@ completed 60-minute path from 09:00 KST, but they cannot replace the official
 headline close. Every top-card trace is display-only, contains at least two
 completed bars, and is cut to its reviewed cash, futures-provider, or UTC-day
 session rather than falling back to multi-day daily history.
+
+## Provider-free preflight and replay
+
+Run these from the repository root with Python 3.13. Neither command constructs
+Yahoo transport or modifies the Windows task:
+
+```powershell
+$env:PYTHONIOENCODING='utf-8'
+.\.venv\Scripts\python.exe scripts\maintenance\run_yahoo_market_current.py --dry-run
+.\.venv\Scripts\python.exe scripts\maintenance\run_yahoo_market_current.py --replay
+```
+
+The dry-run must report all 21 exact routes, `api_calls=0`, and
+`max_api_calls=21`. Replay reads only retained current-observation envelopes and
+must report `api_calls=0`; missing newly added routes remain explicit until the
+first live occurrence accepts them.
+
+Human-only live command (21 serial GETs maximum, retry zero):
+
+```powershell
+$env:PYTHONIOENCODING='utf-8'
+.\.venv\Scripts\python.exe scripts\maintenance\run_yahoo_market_current.py
+```
 
 ## Thirteen-route session-trace result
 

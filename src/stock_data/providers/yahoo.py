@@ -114,6 +114,27 @@ GLOBAL_MARKET_60M_REGISTRY = {
         "provider_symbol": "NQ=F", "market": "CME", "asset_type": "FUTURE_CONTINUOUS",
         "timezone": "America/New_York", "instrument_type": "FUTURE",
     },
+    "SP500_FUTURES_CURRENT_60M": {
+        "provider_symbol": "ES=F", "market": "CME", "asset_type": "FUTURE_CONTINUOUS",
+        "timezone": "America/New_York", "instrument_type": "FUTURE",
+        "expected_currency": "USD", "accepted_yahoo_exchanges": ("CME",),
+    },
+    "DOW_FUTURES_CURRENT_60M": {
+        "provider_symbol": "YM=F", "market": "CBOT", "asset_type": "FUTURE_CONTINUOUS",
+        "timezone": "America/New_York", "instrument_type": "FUTURE",
+        "expected_currency": "USD", "accepted_yahoo_exchanges": ("CBT", "CBOT"),
+    },
+    "SOX_CURRENT_60M": {
+        "provider_symbol": "^SOX", "market": "XNAS", "asset_type": "INDEX",
+        "timezone": "America/New_York", "instrument_type": "INDEX",
+        "regular_session_close": "16:00", "expected_currency": "USD",
+        "accepted_yahoo_exchanges": ("NIM", "NGM", "NMS", "NASDAQ"),
+    },
+    "DOLLAR_INDEX_CURRENT_60M": {
+        "provider_symbol": "DX-Y.NYB", "market": "ICE", "asset_type": "INDEX",
+        "timezone": "America/New_York", "instrument_type": "INDEX",
+        "expected_currency": "USD", "accepted_yahoo_exchanges": ("NYB", "ICE"),
+    },
     "SOXX_CURRENT_60M": {
         "provider_symbol": "SOXX", "market": "XNAS", "asset_type": "ETF",
         "timezone": "America/New_York", "instrument_type": "ETF",

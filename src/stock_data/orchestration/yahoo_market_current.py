@@ -37,13 +37,18 @@ from stock_data.orchestration.global_market_60m import (
 )
 from stock_data.providers.public_http_capture import capture_public_response
 from stock_data.providers.yahoo import GLOBAL_MARKET_60M_REGISTRY
-from stock_data.providers.yahoo_15m import fetch_market_15m
+from stock_data.providers.yahoo_15m import YAHOO_15M_REGISTRY, fetch_market_15m
 
 
 NATIVE_15M_SERIES = ("^VIX", "^FVX", "^TNX", "^TYX")
+YAHOO_CURRENT_30M_SERIES_IDS = CURRENT_SERIES_IDS + (
+    "SP500_FUTURES_CURRENT_60M", "DOW_FUTURES_CURRENT_60M",
+    "SOX_CURRENT_60M", "DOLLAR_INDEX_CURRENT_60M",
+)
 FUTURES_30M_SERIES = frozenset({
     "UST2_FUTURES_60M", "UST10_FUTURES_60M", "UST30_FUTURES_60M",
     "NQ_FUTURES_CURRENT_60M", "GOLD_CURRENT_60M", "WTI_CURRENT_60M",
+    "SP500_FUTURES_CURRENT_60M", "DOW_FUTURES_CURRENT_60M",
 })
 NATIVE_15M_UNITS = {
     "^VIX": "index points",
@@ -60,6 +65,7 @@ _GLOBAL_CASH_MARKETS = {
     "SP500_CURRENT_60M": ExchangeMarket.US,
     "NASDAQ_CURRENT_60M": ExchangeMarket.US,
     "SOXX_CURRENT_60M": ExchangeMarket.US,
+    "SOX_CURRENT_60M": ExchangeMarket.US,
 }
 _NATIVE_CASH_MARKETS = {series_id: ExchangeMarket.US for series_id in NATIVE_15M_SERIES}
 
@@ -163,6 +169,13 @@ def fetch_global_market_30m_current(
         raise RuntimeError("Yahoo current 30m identity or granularity differs")
     if str(meta.get("instrumentType")) != str(spec["instrument_type"]):
         raise RuntimeError("Yahoo current 30m instrument type differs")
+    expected_currency = spec.get("expected_currency")
+    if expected_currency is not None and str(meta.get("currency")) != str(expected_currency):
+        raise RuntimeError("Yahoo current 30m currency identity differs")
+    accepted_exchanges = tuple(spec.get("accepted_yahoo_exchanges") or ())
+    exchange = str(meta.get("exchangeName") or meta.get("fullExchangeName") or "")
+    if accepted_exchanges and exchange not in accepted_exchanges:
+        raise RuntimeError("Yahoo current 30m exchange identity differs")
     timestamps = item.get("timestamp") or []
     quote_rows = ((item.get("indicators") or {}).get("quote") or [])
     if not timestamps or len(quote_rows) != 1:
@@ -339,8 +352,90 @@ def _project(
         primary_attempt=lambda: source,
         fallback_attempt=lambda: (_ for _ in ()).throw(AssertionError("no fallback")),
     )
-    if refreshed.observation != observation or coordinator.replay(route).observation != observation:
+    replay = coordinator.replay(route)
+    if (
+        refreshed.observation != observation
+        or replay.observation != observation
+        or replay.api_calls != 0
+    ):
         raise RuntimeError("current projection readback mismatch")
+
+
+def describe_yahoo_market_current() -> dict[str, object]:
+    """Return the exact provider-free lane plan and logical call budget."""
+    routes = [
+        {
+            "lane": "GLOBAL_30M",
+            "series_id": series_id,
+            "provider_symbol": str(GLOBAL_MARKET_60M_REGISTRY[series_id]["provider_symbol"]),
+        }
+        for series_id in YAHOO_CURRENT_30M_SERIES_IDS
+    ] + [
+        {"lane": "NATIVE_15M", "series_id": series_id, "provider_symbol": series_id}
+        for series_id in NATIVE_15M_SERIES
+    ]
+    return {
+        "status": "DRY_RUN_PASS",
+        "api_calls": 0,
+        "max_api_calls": len(routes),
+        "retry_count": 0,
+        "history_writes": 0,
+        "routes": routes,
+    }
+
+
+def replay_yahoo_market_current(project_root: Path) -> dict[str, object]:
+    """Replay exact retained projections without constructing provider transport."""
+    root = Path(project_root).resolve()
+    outcomes: list[dict[str, str]] = []
+    api_calls = 0
+    for series_id in YAHOO_CURRENT_30M_SERIES_IDS:
+        spec = GLOBAL_MARKET_60M_REGISTRY[series_id]
+        output = (
+            root / "data/state/current_observations/global60m_current"
+            / f"{series_id.lower()}.json"
+        )
+        route = _current_route(
+            market=str(spec["market"]),
+            provider_symbol=str(spec["provider_symbol"]),
+            interval=ObservationInterval.MINUTES_30,
+        )
+        replay = CurrentObservationCoordinator(CurrentObservationFileStore(output)).replay(route)
+        api_calls += replay.api_calls
+        outcomes.append({
+            "lane": "GLOBAL_30M",
+            "series_id": series_id,
+            "outcome": "REPLAYED" if replay.observation is not None else "MISSING",
+        })
+    for series_id in NATIVE_15M_SERIES:
+        output = (
+            root / "data/state/current_observations/yahoo_native15m_current"
+            / f"{series_id.replace('^', 'idx').lower()}.json"
+        )
+        route = _current_route(
+            market=str(YAHOO_15M_REGISTRY[series_id]["market"]),
+            provider_symbol=series_id,
+            interval=ObservationInterval.MINUTES_15,
+        )
+        replay = CurrentObservationCoordinator(CurrentObservationFileStore(output)).replay(route)
+        api_calls += replay.api_calls
+        outcomes.append({
+            "lane": "NATIVE_15M",
+            "series_id": series_id,
+            "outcome": "REPLAYED" if replay.observation is not None else "MISSING",
+        })
+    if api_calls != 0:
+        raise RuntimeError("Yahoo retained replay made a provider call")
+    replayed = sum(row["outcome"] == "REPLAYED" for row in outcomes)
+    return {
+        "status": "PASS" if replayed == len(outcomes) else "PARTIAL_FAILURE",
+        "api_calls": 0,
+        "max_api_calls": 0,
+        "replayed": replayed,
+        "missing": len(outcomes) - replayed,
+        "failed": len(outcomes) - replayed,
+        "series_terminal_outcomes": outcomes,
+    }
 
 
 def run_yahoo_market_current(
@@ -359,7 +454,7 @@ def run_yahoo_market_current(
     landing = root / "data/landing/yahoo_market_current" / run_id
     outcomes: list[dict[str, str]] = []
     with DailyRunLock(root / "data/state/provider_scheduler/yahoo_market_current.lock", run_id=run_id, acquired_at=clock):
-        for series_id in CURRENT_SERIES_IDS:
+        for series_id in YAHOO_CURRENT_30M_SERIES_IDS:
             spec = GLOBAL_MARKET_60M_REGISTRY[series_id]
             output = Path("data/state/current_observations/global60m_current") / f"{series_id.lower()}.json"
             try:
@@ -482,6 +577,9 @@ __all__ = [
     "CompletedGridOHLCUnavailableError",
     "FUTURES_30M_SERIES",
     "NATIVE_15M_SERIES",
+    "YAHOO_CURRENT_30M_SERIES_IDS",
+    "describe_yahoo_market_current",
     "fetch_global_market_30m_current",
+    "replay_yahoo_market_current",
     "run_yahoo_market_current",
 ]

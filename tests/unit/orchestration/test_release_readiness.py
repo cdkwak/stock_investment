@@ -914,8 +914,8 @@ def test_release_gate_rejects_null_bar_preservation_for_every_nonfuture_30m_rout
     ("field", "spoof"),
     (
         ("failed", False), ("failed", 0.0),
-        ("accepted", 17.0), ("api_calls", 17.0),
-        ("max_api_calls", 17.0), ("preserved", 17.0),
+        ("accepted", 21.0), ("api_calls", 21.0),
+        ("max_api_calls", 21.0), ("preserved", 21.0),
     ),
 )
 def test_release_gate_rejects_bool_and_integral_float_yahoo_count_spoofs(

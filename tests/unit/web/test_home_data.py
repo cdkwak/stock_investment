@@ -245,6 +245,37 @@ def test_usdkrw_tile_keeps_intraday_value_and_labels_bok_and_fred(
     assert tile["spark_source"] == "Yahoo KRW=X"
 
 
+def test_sp500_futures_tile_uses_intraday_sparkline_when_es_series_is_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = new_temp_root()
+    points = [
+        {"t": "2026-09-04T13:00:00+09:00", "v": 7_700.0},
+        {"t": "2026-09-04T13:30:00+09:00", "v": 7_702.0},
+        {"t": "2026-09-04T14:00:00+09:00", "v": 7_705.0},
+    ]
+
+    def intraday(_root: Path, name: str):
+        if name != "S&P 500 선물":
+            return None
+        return {
+            "source": "Yahoo 완료 30분봉 · ES=F",
+            "window": "24h 선물 · 14:00 KST",
+            "points": points,
+        }
+
+    monkeypatch.setattr(home_data, "load_intraday_series", intraday)
+    tile = next(
+        item for item in home_data.build_tiles(root)
+        if item["name"] == "S&P 500 선물"
+    )
+
+    assert tile["spark_kind"] == "intraday"
+    assert tile["spark"] == points
+    assert tile["window"] == "24h 선물 · 14:00 KST"
+    assert tile["spark_source"] == "Yahoo 완료 30분봉 · ES=F"
+
+
 def test_rate_tile_uses_basis_points_for_change_and_ma_displacement() -> None:
     values = [4.0] * 19 + [4.04]
     tile = home_data._tile_from_series(

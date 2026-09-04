@@ -9,7 +9,9 @@ from stock_data.contracts.registry import CONTRACTS
 def test_etf_raw_contracts_remain_unregistered_until_semantic_gates_close() -> None:
     assert len(KR_ETF_RAW_CONTRACTS) == 2
     for contract in KR_ETF_RAW_CONTRACTS:
-        assert contract.name not in CONTRACTS
+        # The semantic kr_etf_universe_daily contract (contracts/kr_etf.py) is registered and
+        # collected daily; the RAW contract objects themselves must stay out of the registry.
+        assert CONTRACTS.get(contract.name) is not contract
         assert contract.status == (
             "contract_only_raw_finality_revision_delisting_review_required"
         )
