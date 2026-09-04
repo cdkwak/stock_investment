@@ -146,7 +146,10 @@ def test_regime_evidence_is_collapsed_persisted_and_expanded() -> None:
     assert 'replace(/^신호 (?=\\d+\\/3)/, "자료 ")' in script
     for label in ("판정 규칙",):
         assert label in script
-    assert "RSI14 &gt; 70 이고 추세선 위" in script
+    assert "점수 = RSI14(&gt;70 +1 / &lt;30 −1)" in script
+    assert "−2 침체 · −1 약세 · 0 중립 · +1 강세 · +2 과열" in script
+    assert "regime-score-meter" in script
+    assert ".regime-card .regime-verdict.is-cool" in css
     assert "금리차 1개월 −0.25%p" in script
     assert ".regime-evidence-strip[hidden] { display: none; }" in css
     assert 'SK하이닉스(ADR) · NASDAQ · 원주 <a href="/stocks?symbol=000660">000660</a>' in script

@@ -56,8 +56,9 @@ def test_regime_formulas_match_hand_calculations() -> None:
         0.0, (("RSI14", 0.0), ("이격", 0.0), ("변동성", 0.0)),
     )
     assert oversold_strength(None, 0.0, 50.0) is None
-    assert temperature_label(71.0, 0.1) == "과열"
-    assert temperature_label(29.0, -0.1) == "침체"
+    assert temperature_label(71.0, 5.0, 50.0) == "과열"
+    assert temperature_label(29.0, -5.0, 50.0) == "침체"
+    assert temperature_label(71.0, 0.1) == "강세"
     assert temperature_label(50.0, 0.0) == "중립"
     assert global_risk_temperature(-0.1, -0.3, -30.0, 0.0) == "침체"
     assert global_risk_temperature(0.7, 0.3, 0.0, 0.0) == "과열"

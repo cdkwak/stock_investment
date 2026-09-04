@@ -62,16 +62,64 @@ def oversold_strength(
     return round(sum(value for _label, value in components), 1), components
 
 
+def _market_score_components(
+    rsi: float | None,
+    moving_average_distance: float | None,
+    volatility_percentile: float | None,
+) -> tuple[int | None, int | None, int | None]:
+    rsi_component = (
+        None if rsi is None or pd.isna(rsi)
+        else 1 if rsi > 70.0 else -1 if rsi < 30.0 else 0
+    )
+    distance_component = (
+        None if moving_average_distance is None or pd.isna(moving_average_distance)
+        else 1 if moving_average_distance >= 5.0
+        else -1 if moving_average_distance <= -5.0 else 0
+    )
+    volatility_component = (
+        None if volatility_percentile is None or pd.isna(volatility_percentile)
+        else 1 if volatility_percentile <= 20.0
+        else -1 if volatility_percentile >= 80.0 else 0
+    )
+    return rsi_component, distance_component, volatility_component
+
+
+def market_score(
+    rsi: float | None,
+    distance_pct: float | None,
+    vol_percentile: float | None,
+) -> int | None:
+    """Return a bounded market score from available momentum, trend, and fear inputs."""
+    components = _market_score_components(rsi, distance_pct, vol_percentile)
+    if components[0] is None and components[1] is None:
+        return None
+    return max(-2, min(2, sum(value for value in components if value is not None)))
+
+
+def score_label(score: int | None) -> str:
+    """Map the graded market score to its Korean display label."""
+    if score is None:
+        return "자료 없음"
+    if score <= -2:
+        return "침체"
+    if score == -1:
+        return "약세"
+    if score == 0:
+        return "중립"
+    if score == 1:
+        return "강세"
+    return "과열"
+
+
 def temperature_label(
-    rsi: float | None, moving_average_distance: float | None,
+    rsi: float | None,
+    moving_average_distance: float | None,
+    volatility_percentile: float | None = None,
 ) -> str:
-    """Use the Qt summary's corroborated 30/70 and trend-side thresholds."""
-    if rsi is not None and moving_average_distance is not None:
-        if rsi > 70.0 and moving_average_distance > 0.0:
-            return "과열"
-        if rsi < 30.0 and moving_average_distance < 0.0:
-            return "침체"
-    return "중립"
+    """Compatibility wrapper around the graded market score."""
+    return score_label(market_score(
+        rsi, moving_average_distance, volatility_percentile,
+    ))
 
 
 def global_risk_temperature(
@@ -136,6 +184,61 @@ def _change(frame: pd.DataFrame, column: str, periods: int, *, percent: bool) ->
 
 def _fmt(value: float | None, pattern: str) -> str:
     return "표시 불가" if value is None else pattern.format(value)
+
+
+def _score_text(score: int | None) -> str:
+    if score is None:
+        return "—"
+    if score < 0:
+        return f"−{abs(score)}"
+    if score > 0:
+        return f"+{score}"
+    return "0"
+
+
+def _market_verdict(
+    rsi: float | None,
+    distance_pct: float | None,
+    volatility_percentile: float | None,
+    *,
+    trend_name: str,
+    volatility_name: str,
+) -> dict[str, object]:
+    values = tuple(
+        None if value is None or pd.isna(value) else float(value)
+        for value in (rsi, distance_pct, volatility_percentile)
+    )
+    contributions = _market_score_components(*values)
+    score = market_score(*values)
+    return {
+        "score": score,
+        "score_max": 2,
+        "temperature": score_label(score),
+        "hot": score is not None and score >= 2,
+        "cold": score is not None and score <= -2,
+        "components": [
+            {"name": "RSI14", "value": values[0], "contribution": contributions[0]},
+            {"name": trend_name, "value": values[1], "contribution": contributions[1]},
+            {
+                "name": volatility_name,
+                "value": values[2],
+                "contribution": contributions[2],
+            },
+        ],
+    }
+
+
+def _component_evidence_value(
+    component: dict[str, object], pattern: str,
+) -> str | None:
+    value = component.get("value")
+    if value is None:
+        return None
+    display = pattern.format(value)
+    if display.startswith("-"):
+        display = f"−{display[1:]}"
+    contribution = component.get("contribution")
+    return f"{display} → {_score_text(contribution if isinstance(contribution, int) else None)}"
 
 
 _NO_EVIDENCE_VALUES = frozenset({"근거 없음", "표시 불가", "수집 추가 필요", ""})
@@ -326,14 +429,26 @@ def build_regime(project_root: Path, account: dict[str, object]) -> dict[str, ob
     except (KeyError, OSError, PermissionError, TypeError, ValueError):
         foreign_streak = None
 
-    kr_technical = all(value is not None for value in (kr_rsi, kr_distance, vk_pct))
-    kr_axes = int(kr_technical) + int(valuation_pct is not None)
-    kr_score = oversold_strength(kr_rsi, kr_distance, vk_pct)
+    kr_verdict = _market_verdict(
+        kr_rsi, kr_distance, vk_pct,
+        trend_name="60일선", volatility_name="VKOSPI",
+    )
+    kr_available = sum(
+        component["value"] is not None for component in kr_verdict["components"]
+    )
+    kr_oversold = oversold_strength(kr_rsi, kr_distance, vk_pct)
+    kr_components = kr_verdict["components"]
     kr_evidence = [
-        _evidence_row("KOSPI RSI14", _fmt(kr_rsi, "{:.1f}")),
-        _evidence_row("60일선 대비", _fmt(kr_distance, "{:+.1f}%")),
         _evidence_row(
-            "VKOSPI 250일 백분위", _fmt(vk_pct, "{:.0f}%"), hint="낮을수록 안정",
+            "KOSPI RSI14", _component_evidence_value(kr_components[0], "{:.1f}"),
+        ),
+        _evidence_row(
+            "60일선 대비", _component_evidence_value(kr_components[1], "{:+.1f}%"),
+        ),
+        _evidence_row(
+            "VKOSPI 250일 백분위",
+            _component_evidence_value(kr_components[2], "{:.0f}%"),
+            hint="낮을수록 안정",
         ),
         _evidence_row(
             "KRX PER 5년 백분위", _fmt(valuation_pct, "{:.0f}%"), hint="낮을수록 저평가",
@@ -346,37 +461,51 @@ def build_regime(project_root: Path, account: dict[str, object]) -> dict[str, ob
             None if foreign_streak is None else f"{foreign_streak}일",
         ),
         _evidence_row(
-            "과매도 강도", None if kr_score is None else f"{kr_score[0]:.1f}/10",
+            "과매도 강도",
+            None if kr_oversold is None else f"{kr_oversold[0]:.1f}/10",
             hint="높을수록 과매도",
         ),
         _evidence_row("실적 모멘텀", "근거 없음"),
     ]
 
-    us_technical = all(value is not None for value in (us_rsi, us_distance, vix_pct))
-    us_axes = int(us_technical)
-    us_score = oversold_strength(us_rsi, us_distance, vix_pct)
+    us_verdict = _market_verdict(
+        us_rsi, us_distance, vix_pct,
+        trend_name="200일선", volatility_name="VIX",
+    )
+    us_available = sum(
+        component["value"] is not None for component in us_verdict["components"]
+    )
+    us_oversold = oversold_strength(us_rsi, us_distance, vix_pct)
+    us_components = us_verdict["components"]
     # The user's US exposure is technology/semiconductors (TQQQ, SOXL, SKHY), so the
     # US card carries sub-verdicts for NASDAQ-100 and the SOX index next to the S&P 500.
     tech_rsi, tech_distance = _index_rsi_and_ma200_distance(service, "NASDAQ100")
     semis_rsi, semis_distance = _index_rsi_and_ma200_distance(service, "SOX")
-    tech_label = (
-        temperature_label(tech_rsi, tech_distance)
-        if tech_rsi is not None and tech_distance is not None else "자료 없음"
+    tech_verdict = _market_verdict(
+        tech_rsi, tech_distance, vix_pct,
+        trend_name="200일선", volatility_name="VIX",
     )
-    semis_label = (
-        temperature_label(semis_rsi, semis_distance)
-        if semis_rsi is not None and semis_distance is not None else "자료 없음"
+    semis_verdict = _market_verdict(
+        semis_rsi, semis_distance, vix_pct,
+        trend_name="200일선", volatility_name="VIX",
     )
     us_evidence = [
-        _evidence_row("S&P 500 RSI14", _fmt(us_rsi, "{:.1f}")),
-        _evidence_row("200일선 대비", _fmt(us_distance, "{:+.1f}%")),
+        _evidence_row(
+            "S&P 500 RSI14", _component_evidence_value(us_components[0], "{:.1f}"),
+        ),
+        _evidence_row(
+            "200일선 대비", _component_evidence_value(us_components[1], "{:+.1f}%"),
+        ),
         _evidence_row("NASDAQ100 RSI14 · 200일선", _pair_fmt(tech_rsi, tech_distance)),
         _evidence_row("SOX RSI14 · 200일선", _pair_fmt(semis_rsi, semis_distance)),
         _evidence_row(
-            "VIX 250일 백분위", _fmt(vix_pct, "{:.0f}%"), hint="낮을수록 안정",
+            "VIX 250일 백분위",
+            _component_evidence_value(us_components[2], "{:.0f}%"),
+            hint="낮을수록 안정",
         ),
         _evidence_row(
-            "과매도 강도", None if us_score is None else f"{us_score[0]:.1f}/10",
+            "과매도 강도",
+            None if us_oversold is None else f"{us_oversold[0]:.1f}/10",
             hint="높을수록 과매도",
         ),
         _evidence_row("밸류에이션", "수집 추가 필요"),
@@ -418,17 +547,23 @@ def build_regime(project_root: Path, account: dict[str, object]) -> dict[str, ob
     markets: list[dict[str, object]] = [
         {
             "title": "한국장",
-            "temperature": temperature_label(kr_rsi, kr_distance),
-            "hot": temperature_label(kr_rsi, kr_distance) == "과열",
-            "subtitle": f"자료 {kr_axes}/3 · 실적 축 없음",
+            **kr_verdict,
+            "subtitle": f"점수 {_score_text(kr_verdict['score'])} · 자료 {kr_available}/3 · 실적 축 없음",
             "evidence": kr_evidence,
         },
         {
             "title": "미국장",
-            "temperature": temperature_label(us_rsi, us_distance),
-            "hot": temperature_label(us_rsi, us_distance) == "과열",
-            "subtitle": f"기술 {tech_label} · 반도체 {semis_label} · 자료 {us_axes}/3",
-            "sub_verdicts": {"NASDAQ100": tech_label, "SOX": semis_label},
+            **us_verdict,
+            "subtitle": (
+                f"점수 {_score_text(us_verdict['score'])}"
+                f" · 기술 {_score_text(tech_verdict['score'])}"
+                f" · 반도체 {_score_text(semis_verdict['score'])}"
+                f" · 자료 {us_available}/3"
+            ),
+            "sub_verdicts": {
+                "NASDAQ100": tech_verdict,
+                "SOX": semis_verdict,
+            },
             "evidence": us_evidence,
         },
         {
@@ -448,5 +583,5 @@ def build_regime(project_root: Path, account: dict[str, object]) -> dict[str, ob
 
 __all__ = [
     "build_regime", "build_rules", "global_risk_temperature",
-    "oversold_strength", "temperature_label",
+    "market_score", "oversold_strength", "score_label", "temperature_label",
 ]

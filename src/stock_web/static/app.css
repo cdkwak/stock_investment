@@ -38,6 +38,14 @@ a { color: inherit; text-decoration: none; }
 .regime-card .temp { display: flex; align-items: baseline; gap: 10px; }
 .regime-card .temp b { font-size: 26px; font-weight: 700; }
 .regime-card .temp span { font-size: 13px; color: var(--amber-soft); }
+.regime-card .regime-verdict.is-cool { color: #8fb9ec; }
+.regime-card .regime-verdict.is-neutral { color: #c7c3bc; }
+.regime-card .regime-verdict.is-warm { color: var(--amber-soft); }
+.regime-score-meter { display: inline-grid; grid-template-columns: repeat(5, 6px); gap: 2px; align-self: center; }
+.regime-score-meter i { width: 6px; height: 8px; border-radius: 1px; background: #565149; }
+.regime-score-meter.is-cool i.active { background: #8fb9ec; }
+.regime-score-meter.is-neutral i.active { background: #a8a39b; }
+.regime-score-meter.is-warm i.active { background: var(--amber-soft); }
 .regime-card .ev { font-size: 12px; line-height: 1.45; display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
 .regime-card .ev div { display: flex; justify-content: space-between; gap: 8px; }
 .regime-card .ev span:first-child { color: #b5aea4; }

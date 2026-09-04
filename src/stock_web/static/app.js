@@ -168,6 +168,19 @@
 
   // ---- regime -------------------------------------------------------------
   const placeholderEvidence = new Set(["근거 없음", "표시 불가", "수집 추가 필요"]);
+  function regimeScoreView(market) {
+    if (!Number.isInteger(market.score)) {
+      return { tone: market.hot ? "is-warm" : "", meter: "" };
+    }
+    const score = Math.max(-2, Math.min(2, market.score));
+    const tone = score < 0 ? "is-cool" : score > 0 ? "is-warm" : "is-neutral";
+    const scoreText = score < 0 ? `−${Math.abs(score)}` : score > 0 ? `+${score}` : "0";
+    const cells = [-2, -1, 0, 1, 2].map((step) => `<i${step === score ? ' class="active"' : ""}></i>`).join("");
+    return {
+      tone,
+      meter: `<span class="regime-score-meter ${tone}" role="img" aria-label="시장 점수 ${scoreText}, 최저 −2, 최고 +2">${cells}</span>`,
+    };
+  }
   function regimeRow(row) {
     const item = Array.isArray(row) ? { label: row[0], value: row[1], hint: row[2] } : (row || {});
     const value = item.value ?? item.display ?? "—";
@@ -217,20 +230,23 @@
       ? sec.risk.rows : ((markets[2] || {}).evidence || []);
     const evidenceCard = (title, rows) => `<div class="regime-evidence-card"><div class="t">${esc(title)}</div><div class="ev">${regimeRows(rows)}</div></div>`;
     void evidenceCard; void riskRows;
-    host.innerHTML = `<div class="regime-evidence-card regime-rule-card"><div class="t">판정 규칙</div><div class="ev regime-rule-copy"><div>RSI14 &gt; 70 이고 추세선 위 = 과열 · RSI14 &lt; 30 이고 추세선 아래 = 침체 · 그 외 중립</div><div>글로벌 위험: 침체 신호 2개 이상 = 침체, 과열 신호 2개 이상 = 과열 (금리차 역전 · 금리차 1개월 −0.25%p · 10년물 1개월 −25bp · WTI 1개월 −10%)</div></div></div>`;
+    host.innerHTML = `<div class="regime-evidence-card regime-rule-card"><div class="t">판정 규칙</div><div class="ev regime-rule-copy"><div>점수 = RSI14(&gt;70 +1 / &lt;30 −1) + 추세선 대비(±5%) + 변동성 백분위(≤20% +1 / ≥80% −1) → −2 침체 · −1 약세 · 0 중립 · +1 강세 · +2 과열</div><div>글로벌 위험: 침체 신호 2개 이상 = 침체, 과열 신호 2개 이상 = 과열 (금리차 역전 · 금리차 1개월 −0.25%p · 10년물 1개월 −25bp · WTI 1개월 −10%)</div></div></div>`;
   }
   function renderRegime(sec) {
     const host = $("regime-cards");
     if (!sec || !sec.markets) { host.innerHTML = `<div class="regime-card">${unavailable("국면 근거 미계산")}</div>`; return; }
-    host.innerHTML = sec.markets.map((m, index) => `
-      <div class="regime-card">
-        <div class="regime-title-line">
-          <span class="t">${esc(m.title)}</span>
-          <div class="temp"><b style="color:${m.hot ? "var(--amber-soft)" : "#f4f2ee"}">${esc(m.temperature)}</b><span>${esc(String(m.subtitle || "").replace(/^신호 (?=\d+\/3)/, "자료 "))}</span>${index === 0 ? '<button class="regime-toggle" id="regime-toggle" type="button" aria-expanded="false">근거 펼치기 ▾</button>' : ""}</div>
-        </div>
-        <div class="ev-compact">${regimeCompact(m.evidence)}</div>
-        <div class="ev">${regimeRows(m.evidence)}</div>
-      </div>`).join("");
+    host.innerHTML = sec.markets.map((m, index) => {
+      const scoreView = regimeScoreView(m);
+      return `
+        <div class="regime-card">
+          <div class="regime-title-line">
+            <span class="t">${esc(m.title)}</span>
+            <div class="temp"><b class="regime-verdict ${scoreView.tone}">${esc(m.temperature)}</b>${scoreView.meter}<span>${esc(String(m.subtitle || "").replace(/^신호 (?=\d+\/3)/, "자료 "))}</span>${index === 0 ? '<button class="regime-toggle" id="regime-toggle" type="button" aria-expanded="false">근거 펼치기 ▾</button>' : ""}</div>
+          </div>
+          <div class="ev-compact">${regimeCompact(m.evidence)}</div>
+          <div class="ev">${regimeRows(m.evidence)}</div>
+        </div>`;
+    }).join("");
     renderRegimeEvidenceStrip(sec);
     const r = sec.rules;
     const researchCurrent = (Array.isArray(sec.research_current) && sec.research_current.length ? sec.research_current : ["규칙 평가 없음"])
