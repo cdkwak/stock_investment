@@ -189,6 +189,69 @@ def test_kr_etf_lane_dry_run_is_registered_and_network_free(
     }
 
 
+def test_equity_investor_flow_dry_run_lists_symbols_and_estimated_calls(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    watchlist = tmp_path / "artifacts/local_user/watchlists.json"
+    watchlist.parent.mkdir(parents=True)
+    watchlist.write_text(json.dumps({
+        "schema_version": 1,
+        "revision": 1,
+        "lists": [{
+            "list_id": "favorites", "name": "관심종목",
+            "items": [
+                {"market": "KOSPI", "symbol": "005930", "name": "삼성전자", "security_type": "보통주"},
+                {"market": "KOSDAQ", "symbol": "000660", "name": "테스트우", "security_type": "우선주"},
+                {"market": "KRX", "symbol": "123320", "name": "ETF", "security_type": "ETF"},
+            ],
+        }],
+    }, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(
+        scheduler, "run_kr_equity_investor_flow_scheduler_lane",
+        lambda *_args, **_kwargs: pytest.fail("dry-run entered investor-flow provider operation"),
+    )
+
+    result = run_lane(
+        tmp_path, "KR_EQUITY_INVESTOR_FLOW_DAILY",
+        as_of=datetime.fromisoformat("2026-09-04T20:30:00+09:00"),
+        dry_run=True,
+    )
+
+    assert result["status"] == "DRY_RUN_PASS"
+    assert result["api_calls"] == 0
+    assert result["symbols"] == ["000660", "005930"]
+    assert result["planned_symbols"] == ["000660", "005930"]
+    assert result["estimated_calls"] == 2
+    assert result["symbol_cap"] == 40
+    assert result["phase_targets"] == {"kr_equity_investor_flow": "2026-09-04"}
+    assert result["provider_availability_policies"] == {
+        "kr_equity_investor_flow": "KRX_POST_CLOSE_2030",
+    }
+
+
+def test_equity_investor_flow_phase_projects_provider_lag_and_call_count(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        scheduler, "run_kr_equity_investor_flow_scheduler_lane",
+        lambda *_args, **_kwargs: {
+            "status": "EXPECTED_PROVIDER_LAG",
+            "api_calls": 2,
+            "symbols": ["000660", "005930"],
+            "planned_symbols": ["000660", "005930"],
+            "estimated_calls": 2,
+        },
+    )
+
+    result = scheduler._run_kr_equity_investor_flow_phase(
+        tmp_path, "kr_equity_investor_flow", date(2026, 9, 4),
+    )
+
+    assert result["status"] == "EXPECTED_PROVIDER_LAG"
+    assert result["http_calls"] == 2
+    assert result["reason"] == "EXPECTED_PROVIDER_LAG"
+
+
 def test_kr_etf_provider_lag_remains_an_expected_lane_outcome(
     tmp_path: Path, monkeypatch,
 ) -> None:

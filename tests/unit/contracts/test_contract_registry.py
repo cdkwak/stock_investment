@@ -83,3 +83,17 @@ def test_korean_etf_contracts_and_name_only_leverage_rule_are_registered() -> No
     assert infer_kr_etf_leverage_multiple("TIGER 200 IT 레버리지") == 2
     assert infer_kr_etf_leverage_multiple("TIGER 인버스2X") == -2
     assert infer_kr_etf_leverage_multiple("TIGER 200") == 1
+
+
+def test_korean_equity_investor_flow_contract_is_registered_at_symbol_date_grain() -> None:
+    contract = CONTRACTS["kr_equity_investor_flow_daily"]
+    assert contract.primary_key == ("date", "symbol")
+    assert contract.partition_by == ("symbol", "year")
+    assert contract.column_names == (
+        "date", "symbol", "foreign_net", "institution_net", "individual_net",
+        "other_corp_net", "total_net", "source", "captured_at",
+    )
+    assert all(
+        column.dtype == "int64" and column.unit == "KRW"
+        for column in contract.columns[2:7]
+    )

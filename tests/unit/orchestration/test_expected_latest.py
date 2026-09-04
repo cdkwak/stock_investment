@@ -320,6 +320,19 @@ def test_provisional_equity_uses_same_session_only_at_2030() -> None:
     assert after.pending_until == "20:45"
 
 
+def test_equity_investor_flow_uses_same_session_at_2030() -> None:
+    result = resolve_expected_latest(
+        dataset="kr_equity_investor_flow_daily",
+        lane="KR_EQUITY_INVESTOR_FLOW_DAILY",
+        retained_latest=date(2026, 9, 3),
+        as_of=datetime.fromisoformat("2026-09-04T20:30:00+09:00"),
+    )
+
+    assert result is not None
+    assert result.expected_available_observation == date(2026, 9, 4)
+    assert result.provider_availability_policy is ProviderAvailabilityPolicy.KRX_POST_CLOSE_2030
+
+
 def test_kr_daily_gap_is_pending_at_1700_and_late_at_2100_kst() -> None:
     before_due = resolve_expected_latest(
         dataset="kr_kospi200_option_pcr_daily",

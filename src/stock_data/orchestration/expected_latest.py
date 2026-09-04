@@ -254,7 +254,7 @@ def policy_for_dataset(dataset: str, lane: str) -> ExpectedLatestPolicy | None:
             ProviderFinality.CONFIRMED,
             ExchangeMarket.KR,
         )
-    if lane == "KR_ETF_PRICE_DAILY":
+    if lane in {"KR_ETF_PRICE_DAILY", "KR_EQUITY_INVESTOR_FLOW_DAILY"}:
         return ExpectedLatestPolicy(
             ObservationCalendar.XKRX,
             ProviderAvailabilityPolicy.KRX_POST_CLOSE_2030,

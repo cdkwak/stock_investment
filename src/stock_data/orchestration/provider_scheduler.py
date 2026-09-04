@@ -45,6 +45,10 @@ from stock_data.orchestration.kr_fundamentals_quarterly import (
     run_weekly_fundamentals_refresh,
 )
 from stock_data.orchestration.kr_etf_daily import run_kr_etf_scheduler_lane
+from stock_data.orchestration.kr_equity_investor_flow_daily import (
+    plan_kr_equity_investor_flow_daily,
+    run_kr_equity_investor_flow_scheduler_lane,
+)
 from stock_data.providers.pykrx.kr_etf import PykrxEtfClient
 from stock_data.orchestration.kr_equity_provisional_daily import (
     run_kr_equity_provisional_daily,
@@ -154,6 +158,17 @@ LANE_SCHEDULES = MappingProxyType({
         dataset_ids=("kr_equity_price_provisional_daily",),
         accepted_source=(
             "KRX/pykrx stock.get_market_ohlcv_by_ticker exact-date KOSPI/KOSDAQ"
+        ),
+    ),
+    "KR_EQUITY_INVESTOR_FLOW_DAILY": LaneSchedule(
+        lane="KR_EQUITY_INVESTOR_FLOW_DAILY",
+        cadence_group="KR_POST_CLOSE_2030",
+        market=ExchangeMarket.KR,
+        phases=("kr_equity_investor_flow",),
+        dataset_ids=("kr_equity_investor_flow_daily",),
+        accepted_source=(
+            "KRX/pykrx per-symbol net-purchase trading value "
+            "(on=순매수, detail=False)"
         ),
     ),
     "BOK_FX_DAILY": LaneSchedule(
@@ -435,6 +450,28 @@ def _run_kr_etf_price_phase(
             if master_refresh is not None else str(result["status"])
         ),
         "master_refresh": master_refresh,
+    }
+
+
+def _run_kr_equity_investor_flow_phase(
+    project_root: Path, phase: str, target: object,
+) -> dict[str, object]:
+    if phase != "kr_equity_investor_flow" or not isinstance(target, date):
+        raise ProviderSchedulerError("invalid Korean equity investor-flow scheduler phase")
+    result = run_kr_equity_investor_flow_scheduler_lane(
+        project_root, target_session=target,
+    )
+    phase_status = {
+        "ALREADY_CURRENT": "NOOP_IDEMPOTENT",
+        "NO_SYMBOLS_CONFIGURED": "NOOP_IDEMPOTENT",
+        "UPDATED": "COMPLETE",
+    }.get(str(result["status"]), str(result["status"]))
+    return {
+        **result,
+        "status": phase_status,
+        "http_calls": int(result.get("api_calls", 0) or 0),
+        "run_id": None,
+        "reason": str(result["status"]),
     }
 
 
@@ -1190,7 +1227,10 @@ def run_lane(
     config = LANE_SCHEDULES[lane]
     readiness = next((item for item in DAILY_LANE_READINESS if item.lane == lane), None)
     if (
-        lane not in {"KR_FUNDAMENTALS_WEEKLY", "RESEARCH_FORWARD_TEST_DAILY"}
+        lane not in {
+            "KR_FUNDAMENTALS_WEEKLY", "RESEARCH_FORWARD_TEST_DAILY",
+            "KR_EQUITY_INVESTOR_FLOW_DAILY",
+        }
         and (readiness is None or not readiness.scheduler_eligible)
     ):
         raise ProviderSchedulerError(f"lane is not scheduler eligible: {lane}")
@@ -1224,6 +1264,7 @@ def run_lane(
         "bok_fx": "bok_ecos_usd_krw_daily",
         "canonical_equity": "kr_equity_canonical_universe_daily",
         "kr_equity_provisional": "kr_equity_price_provisional_daily",
+        "kr_equity_investor_flow": "kr_equity_investor_flow_daily",
         "kr_etf_prices": "kr_etf_price_daily",
         "kospi200_breadth": "kr_kospi200_breadth_daily",
         "detail": "kr_stock_lending_daily",
@@ -1294,6 +1335,17 @@ def run_lane(
             key: value for key, value in plan.items()
             if key not in {"schema_version", "lane", "target_session", "symbols"}
         })
+    if lane == "KR_EQUITY_INVESTOR_FLOW_DAILY":
+        plan = plan_kr_equity_investor_flow_daily(
+            root, target_session=market_target,
+        )
+        base.update({
+            "symbols": list(plan.symbols),
+            "planned_symbols": list(plan.planned_symbols),
+            "window_sessions": [value.isoformat() for value in plan.sessions],
+            "symbol_cap": 40,
+            "estimated_calls": plan.estimated_calls,
+        })
     if scheduled_for is not None:
         base.update({
             "scheduled_for": scheduled_for.isoformat(),
@@ -1311,6 +1363,7 @@ def run_lane(
             "BOK_FX_DAILY": _run_bok_fx_phase,
             "CANONICAL_EQUITY_DAILY": _run_canonical_equity_phase,
             "KR_EQUITY_PROVISIONAL_DAILY": _run_kr_equity_provisional_phase,
+            "KR_EQUITY_INVESTOR_FLOW_DAILY": _run_kr_equity_investor_flow_phase,
             "KR_ETF_PRICE_DAILY": _run_kr_etf_price_phase,
             "KOSPI200_BREADTH_DAILY": _run_kospi200_breadth_phase,
             "LENDING_DAILY": _run_lending_phase,

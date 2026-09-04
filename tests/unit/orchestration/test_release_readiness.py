@@ -814,8 +814,9 @@ def test_kr_scheduler_lane_contract_has_bounded_legacy_cutover(
     tmp_path: Path,
 ) -> None:
     assert "DERIVATIVES_PRICE_DAILY" in subject.KR_MARKET_DAILY_SLOT_LANES["20:30"]
-    assert subject.KR_MARKET_DAILY_SLOT_LANES["20:30"][:3] == (
+    assert subject.KR_MARKET_DAILY_SLOT_LANES["20:30"][:4] == (
         "CANONICAL_EQUITY_DAILY", "KR_EQUITY_PROVISIONAL_DAILY",
+        "KR_EQUITY_INVESTOR_FLOW_DAILY",
         "KR_ETF_PRICE_DAILY",
     )
 

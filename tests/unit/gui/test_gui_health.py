@@ -234,7 +234,7 @@ def test_health_artifact_adapter_maps_legacy_fields_from_registry_and_dates(tmp_
     view = DailyHealthArtifactService(tmp_path).load()
 
     assert view.artifact_state == "READY"
-    assert len(view.rows) == 87  # registry: +kr_etf_master, +kr_etf_price_daily, +2 US ETF, +research target prices, +bok_ecos_usd_krw_daily (2026-09-03)
+    assert len(view.rows) == 88  # registry: +kr_equity_investor_flow_daily (2026-09-04)
     by_id = {row.dataset: row for row in view.rows}
     assert by_id["fred_vix_daily"].role == "SOURCE"
     assert by_id["fred_vix_daily"].pit == "PIT_LIMITED"
@@ -269,7 +269,7 @@ def test_health_ignores_one_unregistered_artifact_row_and_reports_warning(tmp_pa
     view = DailyHealthArtifactService(tmp_path).load()
 
     assert view.artifact_state == "READY"
-    assert len(view.rows) == 87
+    assert len(view.rows) == 88
     assert view.unregistered_dataset_ids == ("future_registry_dataset",)
     assert "future_registry_dataset" in str(view.warning)
     assert next(row for row in view.rows if row.dataset == "kr_index_daily").display_status == "CURRENT"
@@ -317,8 +317,8 @@ def test_current_retained_health_artifact_has_useful_compatibility_view():
     root = Path(__file__).resolve().parents[3]
     view = DailyHealthArtifactService(root).load()
     assert view.artifact_state == "READY"
-    assert len(view.rows) == 87  # registry: +kr_etf_master, +kr_etf_price_daily, +2 US ETF, +research target prices, +bok_ecos_usd_krw_daily (2026-09-03)
-    assert len(DailyHealthArtifactService.filter_rows(view.rows, "DAILY")) == 67
+    assert len(view.rows) == 88  # registry: +kr_equity_investor_flow_daily (2026-09-04)
+    assert len(DailyHealthArtifactService.filter_rows(view.rows, "DAILY")) == 68
     blocked = DailyHealthArtifactService.filter_rows(view.rows, "BLOCKED")
     assert tuple(row.dataset for row in blocked) == tuple(
         dataset for dataset, spec in DATASET_UNIVERSE.items()
@@ -467,7 +467,7 @@ def test_current_retained_health_artifact_managed_automation_regression():
     dataset_keys = [row.dataset for row in view.rows]
 
     assert view.artifact_state == "READY"
-    assert len(view.rows) == 87  # registry: +kr_etf_master, +kr_etf_price_daily, +2 US ETF, +research target prices, +bok_ecos_usd_krw_daily (2026-09-03)
+    assert len(view.rows) == 88  # registry: +kr_equity_investor_flow_daily (2026-09-04)
     assert all(dataset and dataset == dataset.strip() for dataset in dataset_keys)
     assert len(set(dataset_keys)) == len(dataset_keys)
     assert summary["managed_total"] == sum(
@@ -565,19 +565,19 @@ def test_data_status_issue_first_layout_preserves_all_typed_detail_and_filters(t
     assert "PIT=" in page.detail_text.text()
 
     page.status_filter.setCurrentText("전체 데이터")
-    assert page.table.rowCount() == 87
+    assert page.table.rowCount() == 88
     dataset_ids = {
         page.table.item(row, 0).data(QtCore.Qt.UserRole).dataset
         for row in range(page.table.rowCount())
     }
-    assert len(dataset_ids) == 87
+    assert len(dataset_ids) == 88
     assert "자동 운영" in page.overall.body.text()
     assert "갱신 필요" in page.overall.body.text()
     assert "화면 후보" in page.overall.body.text()
     assert "최신 확정" in page.freshness.body.text()
     assert "발행 대기" in page.eligibility.body.text()
     assert "아티팩트 EXPECTED_LAG" in page.eligibility.body.text()
-    assert "전체 87" in page.boundary.body.text()
+    assert "전체 88" in page.boundary.body.text()
 
     expected_research_static = sum(
         row.automation.startswith(("RESEARCH_ONLY", "NO_REFRESH"))
@@ -596,10 +596,10 @@ def test_data_status_issue_first_layout_preserves_all_typed_detail_and_filters(t
     for area in page.AREAS[1:]:
         page.area_filter.setCurrentText(area)
         area_total += page.table.rowCount()
-    assert area_total == 87
+    assert area_total == 88
     page.area_filter.setCurrentText("전체 영역")
     page.status_filter.setCurrentText("일별 데이터")
-    assert page.table.rowCount() == 67
+    assert page.table.rowCount() == 68
 
     page.resize(1600, 900)
     page.show()
@@ -652,8 +652,8 @@ def test_data_status_summary_cards_fit_complete_wrapped_text_at_1600x900(tmp_pat
         assert card.accessibleDescription() == card.body.text().replace("\n", " · ")
 
     assert "자동 운영" in page.overall.body.text()
-    assert "전체 87" in page.boundary.body.text()
-    assert "확인 대상 87" in page.boundary.body.text()
+    assert "전체 88" in page.boundary.body.text()
+    assert "확인 대상 88" in page.boundary.body.text()
     page.close()
     app.processEvents()
 

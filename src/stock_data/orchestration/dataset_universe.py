@@ -454,7 +454,7 @@ class DatasetUniverseRegistry(Mapping[str, DatasetUniverseSpec]):
 _CLASSIFICATION_IDS = {
     DatasetRefreshClass.DAILY_SOURCE: frozenset("""
         kr_index_daily kr_index_fundamental_daily kr_equity_price_daily
-        kr_equity_price_provisional_daily
+        kr_equity_price_provisional_daily kr_equity_investor_flow_daily
         kr_equity_market_cap_daily kr_equity_universe_daily
         kr_etf_master kr_etf_price_daily
         global_index_price_daily global_etf_price_daily global_commodity_futures_daily
@@ -637,6 +637,9 @@ _LANE_GROUPS = {
     "KR_EQUITY_PROVISIONAL_DAILY": frozenset({
         "kr_equity_price_provisional_daily",
     }),
+    "KR_EQUITY_INVESTOR_FLOW_DAILY": frozenset({
+        "kr_equity_investor_flow_daily",
+    }),
     "KR_INDEX_DAILY": frozenset({"kr_index_daily", "kr_kospi200_index_daily"}),
     "KR_FUNDAMENTALS_WEEKLY": frozenset({
         "kr_corp_code_map", "kr_fundamentals_quarterly",
@@ -707,6 +710,7 @@ _ECONOMIC_GROUPS = {
         "kr_equity_price_daily", "kr_equity_price_provisional_daily",
         "kr_kospi200_constituent_price_daily",
     ),
+    "kr_equity_investor_flow": ("kr_equity_investor_flow_daily",),
     "kr_etf_identity_price": ("kr_etf_master", "kr_etf_price_daily"),
     "kr_index_membership": ("kr_index_constituent_daily",),
     "kr_market_breadth": (
@@ -735,6 +739,7 @@ _ECONOMIC_LABELS = {
     "kr_equity_index_level": "Korean equity index levels and OHLCV",
     "global_market_price": "Global market index/symbol prices",
     "kr_equity_price": "Korean equity daily prices",
+    "kr_equity_investor_flow": "Korean per-equity investor net-purchase flow",
     "kr_etf_identity_price": "Korean ETF current identity and daily prices",
     "kr_index_membership": "Korean index exact-date membership",
     "kr_market_breadth": "Korean equity market breadth",
@@ -890,6 +895,7 @@ _FINALITY_GATE_IDS = frozenset({
 _READY_WITH_LIMITS_IDS = frozenset({
     "global_index_price_daily", "global_etf_price_daily", "global_commodity_futures_daily",
     "kr_etf_master", "kr_etf_price_daily", "kr_equity_price_provisional_daily",
+    "kr_equity_investor_flow_daily",
     "fred_treasury_yield_daily", "fred_usd_fx_daily", "fred_vix_daily",
     "bok_ecos_usd_krw_daily",
     "us_treasury_spread_daily", "kr_treasury_yield_daily",
@@ -1003,6 +1009,10 @@ def classify_health_display(
 
 
 _PHYSICAL_OVERRIDES = {
+    "kr_equity_investor_flow_daily": (
+        "landing/kr_equity_investor_flow_daily/<run_id>",
+        "normalized/kr_equity_investor_flow_daily",
+    ),
     "research_target_price_consensus": (
         "landing/research/target_prices/<run_id>",
         "normalized/research_target_price_consensus",
@@ -1163,7 +1173,7 @@ _AUTO_ENABLED_IDS: frozenset[str] = frozenset({
     "kr_vkospi_daily",
     "kr_index_daily", "kr_kospi200_index_daily", "kr_index_fundamental_daily",
     "global_etf_price_daily",
-    "kr_etf_master", "kr_etf_price_daily",
+    "kr_etf_master", "kr_etf_price_daily", "kr_equity_investor_flow_daily",
     "global_index_price_daily", "global_commodity_futures_daily",
     "kr_market_investor_net_purchase_bridge_daily",
     "kr_short_selling_trading_daily",

@@ -54,7 +54,7 @@ from stock_data.providers.pykrx.kr_equity_fundamental_observation import (
 
 
 KR_MARKET_DAILY_BUNDLE = "KR_MARKET_DAILY"
-KR_MARKET_DAILY_LANE_CONTRACT_VERSION = 9
+KR_MARKET_DAILY_LANE_CONTRACT_VERSION = 10
 KR_MARKET_DAILY_TIMEZONE = ZoneInfo("Asia/Seoul")
 KR_MARKET_DAILY_SLOTS = (
     (
@@ -75,6 +75,7 @@ KR_MARKET_DAILY_SLOTS = (
         (
             "CANONICAL_EQUITY_DAILY",
             "KR_EQUITY_PROVISIONAL_DAILY",
+            "KR_EQUITY_INVESTOR_FLOW_DAILY",
             "KR_ETF_PRICE_DAILY",
             "KOSPI200_BREADTH_DAILY",
             "SHORT_SELLING_DAILY",
