@@ -17,6 +17,61 @@ _SYMBOL_INDEX_CACHE: dict[str, tuple[str, dict[str, dict[str, str]]]] = {}
 _SYMBOL_INDEX_LOCK = threading.Lock()
 
 
+def _global_equity_registry() -> Mapping[str, Mapping[str, object]]:
+    """Return the optional Data-owned global-equity identity registry."""
+    try:
+        from stock_data.contracts.global_equity import GLOBAL_EQUITY_REGISTRY
+    except ImportError:
+        GLOBAL_EQUITY_REGISTRY = {}
+    return GLOBAL_EQUITY_REGISTRY if isinstance(GLOBAL_EQUITY_REGISTRY, Mapping) else {}
+
+
+def global_equity_identities() -> tuple[dict[str, object], ...]:
+    """Project registered global equities into the web identity vocabulary."""
+    identities: list[dict[str, object]] = []
+    for raw_symbol, raw_spec in _global_equity_registry().items():
+        if not isinstance(raw_spec, Mapping):
+            continue
+        symbol = _text(raw_symbol).upper()
+        name = _text(raw_spec.get("korean_name"))
+        exchange = _text(raw_spec.get("official_exchange"))
+        currency = _text(raw_spec.get("expected_currency"))
+        underlying = _text(raw_spec.get("underlying_kr_symbol"))
+        if (
+            not re.fullmatch(r"[A-Z][A-Z0-9.-]{0,9}", symbol)
+            or not name or not exchange or currency != "USD"
+        ):
+            continue
+        raw_type = _text(raw_spec.get("security_type"))
+        security_type = "ADR" if raw_type == "DEPOSITARY_RECEIPT" else raw_type
+        if not security_type:
+            continue
+        base_name = re.sub(r"\s*\(ADR\)\s*$", "", name, flags=re.IGNORECASE)
+        aliases = [name, f"{base_name} ADR"]
+        if base_name.upper().startswith("SK") and len(base_name) > 2:
+            aliases.append(f"{base_name[2:]} ADR")
+        identities.append({
+            "market": "US 주식",
+            "symbol": symbol,
+            "name": name,
+            "currency": currency,
+            "security_type": security_type,
+            "source": "global_equity_registry",
+            "exchange": exchange,
+            "underlying_kr_symbol": underlying or None,
+            "aliases": tuple(dict.fromkeys(alias for alias in aliases if alias)),
+        })
+    return tuple(identities)
+
+
+def global_equity_identity(symbol: object) -> dict[str, object] | None:
+    clean_symbol = _text(symbol).upper()
+    return next(
+        (identity for identity in global_equity_identities() if identity["symbol"] == clean_symbol),
+        None,
+    )
+
+
 def _dataset_signature(project_root: Path) -> str:
     """Return the identity datasets' cheap cache signature."""
     root = Path(project_root).resolve()
@@ -206,6 +261,14 @@ def _build_symbol_index(project_root: Path) -> dict[str, dict[str, str]]:
         *_kr_stock_identities(project_root),
         *(universe if universe is not None else _kr_etf_master_identities(project_root)),
         *_us_etf_identities(),
+        *(
+            {
+                key: str(value)
+                for key, value in identity.items()
+                if key in {"market", "symbol", "name", "currency", "security_type", "source"}
+            }
+            for identity in global_equity_identities()
+        ),
     )
     for item in ordered:
         index.setdefault(item["symbol"], item)
@@ -308,4 +371,7 @@ def resolve_local_symbol(
     )
 
 
-__all__ = ["SymbolResolutionError", "resolve_local_symbol", "resolve_symbol_code"]
+__all__ = [
+    "SymbolResolutionError", "global_equity_identities", "global_equity_identity",
+    "resolve_local_symbol", "resolve_symbol_code",
+]

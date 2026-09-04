@@ -21,9 +21,10 @@
 {% if public_mode %}<div class="guest-banner" role="status" style="padding:6px 16px;text-align:center;background:#fff3cd;color:#5f4b00;border-bottom:1px solid #ead58b;font-size:13px">게스트 모드 · 개인 계좌 정보 없음 · 판단 참고용, 투자 조언 아님</div>{% endif %}
 
 <main class="page" id="home-page" data-initial-symbol="{{ initial_symbol }}">
-  <section id="regime" class="regime" data-expanded="auto">
+  <section id="regime" class="regime" data-expanded="false">
     <div class="regime-cards" id="regime-cards"></div>
     <div class="rules" id="rules"></div>
+    <div class="regime-evidence-strip" id="regime-evidence-strip" hidden></div>
   </section>
 
   <section class="tiles" id="tiles"></section>
@@ -81,6 +82,10 @@
       <div class="card brief-card" id="brief-card">
         <section><div class="card-head"><b>오늘 일정</b></div><div id="schedule"></div></section>
         <section><div class="card-head"><b>오늘 브리핑</b><span class="muted" id="brief-meta"></span></div><div id="brief"></div></section>
+        {% if not public_mode %}<section class="journal-note-form">
+          <label for="journal-note"><b>오늘 판단 한 줄</b></label>
+          <div><textarea id="journal-note" rows="2" maxlength="300" placeholder="금액 없이 오늘의 판단만 적습니다."></textarea><button type="button" class="button" id="save-journal-note">저장</button></div>
+        </section>{% endif %}
       </div>
     </aside>
   </section>
@@ -88,6 +93,7 @@
   <div class="card strip" id="summary-strip"></div>
   <div class="card strip" id="scanner"></div>
 </main>
+{% if not public_mode %}<div class="home-toast" id="home-toast" role="status" aria-live="polite" hidden></div>{% endif %}
 
 <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
 <script src="/static/app.js?v={{ static_version }}"></script>

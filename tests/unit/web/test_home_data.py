@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from stock_web.api import account_page, home_data, stocks_page
+from stock_web.api import account_page, datasets, home_data, stocks_page, symbol_resolver
 from stock_web.api.regime import (
     build_rules,
     global_risk_temperature,
@@ -152,6 +152,72 @@ def test_home_watchlist_preserves_investor_flow_from_hive_directory(
     assert investor["foreign_1d"] == 100_000_000
     assert investor["institution_5d"] == -1_000_000_000
     assert investor["individual_20d"] == 300_000_000
+
+
+def test_home_skhy_row_degrades_then_reads_global_equity_and_live_quote(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The repository helper is the ACL-safe tmp_path equivalent on this Windows host.
+    root = new_temp_root()
+    monkeypatch.setattr(symbol_resolver, "_global_equity_registry", lambda: {
+        "SKHY": {
+            "korean_name": "SK하이닉스(ADR)", "official_exchange": "NASDAQ",
+            "security_type": "DEPOSITARY_RECEIPT", "underlying_kr_symbol": "000660",
+            "expected_currency": "USD",
+        },
+    })
+    monkeypatch.setattr(account_page, "build_account_page_data", lambda _root: {
+        "manual_accounts": {"accounts": []},
+    })
+    symbol_resolver._SYMBOL_INDEX_CACHE.clear()
+    stocks_page._SEARCH_INDEX_CACHE.clear()
+    stocks_page.add_watchlist_item(root, {
+        "list_id": "favorites", "market": "US 주식", "symbol": "SKHY",
+    })
+
+    missing = home_data.build_watchlist(root)["rows"][0]
+    assert missing["symbol"] == "SKHY"
+    assert missing["market"] == "US 주식"
+    assert missing["price"] == "자료 없음"
+    assert "investor" not in missing
+
+    dates = pd.date_range("2026-07-24", periods=30, freq="B")
+    close = pd.Series([100.0 + index for index in range(30)])
+    _write_parquet(
+        root, "data/normalized/global_equity_price_daily/symbol=SKHY/year=2026/data.parquet",
+        pd.DataFrame({
+            "date": dates, "symbol": ["SKHY"] * 30, "source_ticker": ["SKHY"] * 30,
+            "open": close - 1, "high": close + 2, "low": close - 2, "close": close,
+            "adjusted_close": close, "volume": [1_000_000] * 30,
+            "currency": ["USD"] * 30, "exchange": ["NASDAQ"] * 30,
+            "provider": ["fixture"] * 30,
+            "retrieved_at": pd.to_datetime(["2026-09-04T00:00:00Z"] * 30),
+            "adjustment_status": ["RAW_AND_ADJUSTED_RETAINED"] * 30,
+        }),
+    )
+    datasets._CACHE.clear()
+    present = home_data.build_watchlist(root)["rows"][0]
+    assert present["price"] == "129.00"
+    assert present["change_pct"] == pytest.approx((129 / 128 - 1) * 100)
+    assert present["drawdown_pct"] == 0.0
+    assert present["rsi14"] == 100.0
+
+    quote_path = root / "artifacts/intraday/tossinvest_us_quotes_latest.json"
+    quote_path.parent.mkdir(parents=True)
+    quote_path.write_text(json.dumps({
+        "as_of_kst": "2026-09-04T21:15:00+09:00", "provider": "tossinvest",
+        "session_hint": "pre_market", "quotes": [{
+            "symbol": "SKHY", "last_price": 132.0, "currency": "USD",
+            "timestamp_kst": "2026-09-04T21:14:58+09:00",
+        }],
+    }), encoding="utf-8")
+    live = home_data.build_watchlist(root)["us_live"]
+
+    assert live["label"] == "밤사이 미국"
+    assert live["session_label"] == "프리마켓"
+    assert live["as_of_label"] == "21:15"
+    assert live["quotes"][0]["change_pct"] == pytest.approx((132 / 129 - 1) * 100)
+    assert "artifact" not in json.dumps(live, ensure_ascii=False).casefold()
 
 
 def test_rules_compare_only_against_user_supplied_limits(
@@ -502,3 +568,27 @@ def test_korean_equity_reader_prefers_canonical_overlap_and_appends_only_newer_p
     ]
     assert payload["as_of"] == "2026-09-03"
     assert payload["provisional_dates"] == ["2026-09-03"]
+
+
+def test_vix_term_structure_rows_from_derived_dataset(tmp_path) -> None:
+    import datetime as dt
+
+    import pandas as pd
+
+    from stock_web.api.home_cards import build_vix_term_structure_rows
+
+    assert build_vix_term_structure_rows(tmp_path) == [["VIX 기간구조", "미표시"]]
+    root = tmp_path / "data/derived/us_vix_term_structure_daily/year=2026"
+    root.mkdir(parents=True)
+    pd.DataFrame({
+        "date": [dt.date(2026, 9, 1), dt.date(2026, 9, 2), dt.date(2026, 9, 3)],
+        "vix": [16.34, 15.20, None], "vix9d": [14.33, 12.57, 11.68],
+        "vix3m": [18.33, 17.73, 17.42], "vix6m": [20.56, 20.36, 19.78],
+        "skew": [149.23, 144.12, 143.09],
+        "ratio_1m_3m": [0.891435, 0.857304, None], "ratio_9d_1m": [0.877, 0.827, None],
+        "regime": ["contango", "contango", None], "pct_rank_252": [0.670635, 0.476190, None],
+    }).to_parquet(root / "data.parquet", index=False)
+    rows = build_vix_term_structure_rows(tmp_path)
+    assert rows[0][0] == "VIX 기간구조"
+    assert rows[0][1] == "콘탱고 · 1M/3M 0.86 · 1년 백분위 48% · 9D 12.6 · 1M 15.2 · 3M 17.7 · 09-02"
+    assert rows[1] == ["SKEW", "143.1 · 09-03"]

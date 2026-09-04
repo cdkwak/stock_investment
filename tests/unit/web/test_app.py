@@ -107,6 +107,42 @@ def test_dashboard_static_polish_contracts_are_present() -> None:
     assert ".data-health-table td::before" in css
 
 
+def test_home_chart_stretches_and_resizes() -> None:
+    root = Path(__file__).parents[3] / "src/stock_web"
+    script = (root / "static/app.js").read_text(encoding="utf-8")
+    css = (root / "static/app.css").read_text(encoding="utf-8")
+
+    assert ".home-dashboard { align-items: stretch; }" in css
+    assert ".chart-card { display: flex; flex: 1 1 auto; flex-direction: column;" in css
+    assert ".chart { width: 100%; flex: 1 1 auto; min-height: 420px; }" in css
+    assert "@media (max-width: 768px)" in css
+    assert ".chart { flex: none; height: 320px; min-height: 320px; }" in css
+    assert "chart.applyOptions({ height })" in script
+    assert "chart.resize(width, height)" in script
+    assert "priceScale(\"vol\").applyOptions" in script
+    assert "rsiPanelSeries.setData" in script
+    assert "rsiOverlaySeries.setData" in script
+
+
+def test_regime_evidence_is_collapsed_persisted_and_expanded() -> None:
+    root = Path(__file__).parents[3] / "src/stock_web"
+    script = (root / "static/app.js").read_text(encoding="utf-8")
+    template = (root / "templates/home.html").read_text(encoding="utf-8")
+    css = (root / "static/app.css").read_text(encoding="utf-8")
+
+    assert 'data-expanded="false"' in template
+    assert 'id="regime-evidence-strip" hidden' in template
+    assert 'const regimeEvidenceStorageKey = "si.regime.evidence"' in script
+    assert 'open ? "open" : "closed"' in script
+    assert 'replace(/^신호 (?=\\d+\\/3)/, "자료 ")' in script
+    for label in ("한국장 근거", "미국장 근거", "글로벌 위험 근거", "판정 규칙"):
+        assert label in script
+    assert "RSI14 &gt; 70 이고 추세선 위" in script
+    assert "금리차 1개월 −0.25%p" in script
+    assert ".regime-evidence-strip[hidden] { display: none; }" in css
+    assert 'SK하이닉스(ADR) · NASDAQ · 원주 <a href="/stocks?symbol=000660">000660</a>' in script
+
+
 def test_private_network_guard_allows_loopback_and_tailscale_only() -> None:
     from tests.unit.web import ASGITestClient, make_project, new_temp_root
 
@@ -157,3 +193,33 @@ def test_tailscale_serve_observed_shape_hop_is_the_peer_address() -> None:
         "/api/watchlist/items", json={"list_id": "favorites", "market": "KRX", "symbol": "123320"},
         client_host="100.86.222.47", headers=relayed,
     ).status_code == 403
+
+
+def test_journal_note_endpoint_is_loopback_only_and_hidden_in_public_mode(monkeypatch) -> None:
+    import json as _json
+
+    from tests.unit.web import ASGITestClient, make_project, new_temp_root
+
+    root = make_project(new_temp_root())
+    journal_dir = root / "vault/일지"
+    journal_dir.mkdir(parents=True, exist_ok=True)
+    settings = root / "artifacts/local_user/web_settings.json"
+    settings.parent.mkdir(parents=True, exist_ok=True)
+    settings.write_text(_json.dumps({"journal_dir": str(journal_dir)}), encoding="utf-8")
+    client = ASGITestClient(create_app(root))
+    assert client.post(
+        "/api/journal/note", json={"text": "반도체 추세 유지, 관망"}, client_host="100.107.40.4",
+    ).status_code == 403
+    assert client.post(
+        "/api/journal/note", json={"text": "총 1,200,000원 매수"}, client_host="127.0.0.1",
+    ).status_code == 400
+    saved = client.post("/api/journal/note", json={"text": "반도체 추세 유지, 관망"}, client_host="127.0.0.1")
+    assert saved.status_code == 200, saved.text
+    body = saved.json()
+    written = (journal_dir / f"{body['date']} 투자.md").read_text(encoding="utf-8")
+    assert "## 오늘 판단" in written and "판단: 반도체 추세 유지, 관망" in written
+    monkeypatch.setenv("STOCK_WEB_PUBLIC_MODE", "1")
+    guest = ASGITestClient(create_app(root))
+    assert guest.post(
+        "/api/journal/note", json={"text": "관망"}, client_host="127.0.0.1",
+    ).status_code == 404

@@ -248,6 +248,27 @@ def build_router(project_root: Path, *, public_mode: bool = False) -> APIRouter:
             error_code="OK", row_counts={"entries": len(ledger.get("entries", []))},
         )
 
+    @router.post("/journal/note")
+    async def save_journal_note(request: Request) -> Response:
+        from stock_web.api.home_cards import JournalNoteError, append_journal_note
+
+        if not loopback(request):
+            return write_response(
+                request, path="/api/journal/note", payload={"error": "로컬 접속에서만 저장할 수 있습니다."},
+                status_code=403, error_code="LOCAL_ONLY",
+            )
+        try:
+            saved = append_journal_note(project_root, await request.json())
+        except JournalNoteError as error:
+            return write_response(
+                request, path="/api/journal/note", payload={"error": str(error)},
+                status_code=400, error_code="VALIDATION_ERROR",
+            )
+        return write_response(
+            request, path="/api/journal/note", payload=saved, status_code=200,
+            error_code="OK", row_counts={"notes": 1},
+        )
+
     @router.delete("/trade-journal/manual")
     async def delete_manual_trade_journal_entry(request: Request) -> Response:
         from stock_web.api.account_page import AccountInputError

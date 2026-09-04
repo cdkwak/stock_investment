@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+import json
+import os
 from pathlib import Path
 import re
 from typing import Mapping
+from uuid import uuid4
 
 import pandas as pd
 import pyarrow.dataset as pads
@@ -19,6 +22,109 @@ _LENDING_LAG_NOTE = "공공데이터포털 대차잔고는 1거래일 뒤 발표
 _EVENT_LINE = re.compile(
     r"^\s*(?:[-*·]\s*)?(?P<time>(?:[01]\d|2[0-3]):[0-5]\d)\s+(?P<text>\S.*)\s*$"
 )
+_JOURNAL_AMOUNT = re.compile(r"(?:[₩$]\s*\d)|(?:\d[\d,.]*\s*(?:원|만원|억|천만|달러|불))")
+_AUTO_MARKER = re.compile(r"<!--\s*auto:(start|end)(?:\s+[^>]*)?-->")
+
+
+class JournalNoteError(ValueError):
+    """A sanitized one-line journal note validation or write failure."""
+
+
+def _journal_directory(project_root: Path) -> Path:
+    settings_path = project_root / "artifacts/local_user/web_settings.json"
+    try:
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise JournalNoteError("투자일지 폴더 설정을 읽을 수 없습니다.") from error
+    raw = settings.get("journal_dir") if isinstance(settings, Mapping) else None
+    if not isinstance(raw, str) or not raw.strip():
+        raise JournalNoteError("투자일지 폴더가 설정되지 않았습니다.")
+    directory = Path(raw).expanduser()
+    if not directory.is_absolute():
+        directory = project_root / directory
+    if not directory.is_dir():
+        raise JournalNoteError("투자일지 폴더를 찾을 수 없습니다.")
+    return directory
+
+
+def _auto_regions(text: str) -> tuple[tuple[int, int], ...]:
+    starts: list[int] = []
+    regions: list[tuple[int, int]] = []
+    for marker in _AUTO_MARKER.finditer(text):
+        if marker.group(1) == "start":
+            starts.append(marker.start())
+        elif not starts:
+            raise JournalNoteError("투자일지 자동 영역 마커가 올바르지 않습니다.")
+        else:
+            regions.append((starts.pop(), marker.end()))
+    if starts:
+        raise JournalNoteError("투자일지 자동 영역 마커가 올바르지 않습니다.")
+    return tuple(regions)
+
+
+def _append_note_text(text: str, line: str) -> str:
+    newline = "\r\n" if "\r\n" in text else "\n"
+    regions = _auto_regions(text)
+    heading_matches = [
+        match for match in re.finditer(r"(?m)^## 오늘 판단\s*$", text)
+        if not any(start <= match.start() < end for start, end in regions)
+    ]
+    if not heading_matches:
+        separator = "" if not text else ("" if text.endswith(("\n", "\r")) else newline)
+        return f"{text}{separator}{newline if text else ''}## 오늘 판단{newline}{newline}{line}{newline}"
+    heading = heading_matches[-1]
+    section_start = heading.end()
+    next_heading = re.search(r"(?m)^##\s+", text[section_start:])
+    section_end = section_start + next_heading.start() if next_heading else len(text)
+    insert_at = section_end
+    while insert_at > section_start and text[insert_at - 1] in "\r\n":
+        insert_at -= 1
+    prefix = text[:insert_at]
+    suffix = text[insert_at:]
+    gap = newline if prefix.endswith(("\n", "\r")) else newline + newline
+    return f"{prefix}{gap}{line}{newline}{suffix}"
+
+
+def append_journal_note(
+    project_root: Path, payload: object, *, now: datetime | None = None,
+) -> dict[str, str]:
+    """Append one amount-free judgment outside all auto-managed journal regions."""
+    if not isinstance(payload, Mapping) or set(payload) != {"text"}:
+        raise JournalNoteError("오늘 판단 요청 형식이 올바르지 않습니다.")
+    note = re.sub(r"\s+", " ", str(payload.get("text") or "")).strip()
+    if not note or len(note) > 300:
+        raise JournalNoteError("오늘 판단은 1~300자로 적어 주세요.")
+    if _JOURNAL_AMOUNT.search(note):
+        raise JournalNoteError("금액은 적지 않습니다")
+    observed = now or datetime.now(KST)
+    if observed.tzinfo is None:
+        observed = observed.replace(tzinfo=KST)
+    observed = observed.astimezone(KST)
+    target = _journal_directory(Path(project_root).resolve()) / f"{observed.date().isoformat()} 투자.md"
+    try:
+        original = target.read_text(encoding="utf-8") if target.is_file() else ""
+        original_regions = tuple(original[start:end] for start, end in _auto_regions(original))
+        updated = _append_note_text(original, f"- {observed:%H:%M} 판단: {note}")
+        updated_regions = tuple(updated[start:end] for start, end in _auto_regions(updated))
+        if original_regions != updated_regions:
+            raise JournalNoteError("투자일지 자동 영역을 보존할 수 없습니다.")
+        temporary = target.with_name(f".{target.name}.{uuid4().hex}.tmp")
+        with temporary.open("w", encoding="utf-8", newline="") as stream:
+            stream.write(updated)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, target)
+    except JournalNoteError:
+        raise
+    except (OSError, UnicodeError) as error:
+        raise JournalNoteError("오늘 판단을 저장할 수 없습니다.") from error
+    finally:
+        if "temporary" in locals():
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+    return {"status": "saved", "date": observed.date().isoformat(), "time": observed.strftime("%H:%M")}
 
 
 def build_credit_balance_metadata(project_root: Path) -> dict[str, str] | None:
@@ -421,6 +527,45 @@ def build_watchlist(project_root: Path) -> dict[str, object]:
 
 
 __all__ = [
-    "account_extras", "build_credit_balance_metadata", "build_lending",
-    "build_schedule", "build_watchlist",
+    "JournalNoteError", "account_extras", "append_journal_note",
+    "build_credit_balance_metadata", "build_lending", "build_schedule", "build_watchlist",
 ]
+
+
+def build_vix_term_structure_rows(project_root: Path) -> list[list[str]]:
+    """Home 파생 card rows from the retained ``us_vix_term_structure_daily`` dataset.
+
+    Returns ``[["VIX 기간구조", "..."], ["SKEW", "..."]]`` or a single 미표시 row when the
+    derived dataset is absent or unreadable. Values are never fetched live here.
+    """
+    root = Path(project_root) / "data/derived/us_vix_term_structure_daily"
+    if not root.is_dir():
+        return [["VIX 기간구조", "미표시"]]
+    try:
+        import pyarrow.dataset as ds
+
+        frame = ds.dataset(str(root), format="parquet", partitioning=None).to_table(
+            columns=["date", "vix", "vix9d", "vix3m", "skew", "ratio_1m_3m", "regime", "pct_rank_252"],
+        ).to_pandas()
+    except Exception:
+        return [["VIX 기간구조", "미표시"]]
+    if frame.empty:
+        return [["VIX 기간구조", "미표시"]]
+    frame = frame.sort_values("date")
+    latest = frame.dropna(subset=["ratio_1m_3m"]).tail(1)
+    rows: list[list[str]] = []
+    if not latest.empty:
+        row = latest.iloc[0]
+        regime = {"contango": "콘탱고", "backwardation": "백워데이션"}.get(str(row["regime"]), "—")
+        parts = [regime, f"1M/3M {float(row['ratio_1m_3m']):.2f}"]
+        if row["pct_rank_252"] == row["pct_rank_252"]:
+            parts.append(f"1년 백분위 {float(row['pct_rank_252']) * 100:.0f}%")
+        vix9d, vix = row["vix9d"], row["vix"]
+        if vix9d == vix9d and vix == vix:
+            parts.append(f"9D {float(vix9d):.1f} · 1M {float(vix):.1f} · 3M {float(row['vix3m']):.1f}")
+        rows.append(["VIX 기간구조", " · ".join(parts) + f" · {str(row['date'])[5:]}"])
+    skew = frame.dropna(subset=["skew"]).tail(1)
+    if not skew.empty:
+        row = skew.iloc[0]
+        rows.append(["SKEW", f"{float(row['skew']):.1f} · {str(row['date'])[5:]}"])
+    return rows or [["VIX 기간구조", "미표시"]]

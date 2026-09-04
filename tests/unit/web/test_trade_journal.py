@@ -8,13 +8,53 @@ from uuid import uuid4
 import pandas as pd
 import pytest
 
-from stock_web.api import account_page, trade_journal
+from stock_web.api import account_page, home_cards, trade_journal
 from stock_web.api.trade_journal import build_trade_journal, derive_trade_events
 from stock_web.app import create_app
 from tests.unit.web import ASGITestClient
 
 
 KST = timezone(timedelta(hours=9))
+
+
+def test_journal_note_heading_creation_preserves_auto_region() -> None:
+    root = _make_project()
+    journal_dir = root / "vault/일지"
+    journal_dir.mkdir(parents=True)
+    settings = root / "artifacts/local_user/web_settings.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text(json.dumps({"journal_dir": str(journal_dir)}), encoding="utf-8")
+    target = journal_dir / "2026-09-04 투자.md"
+    auto = "<!-- auto:start market -->\n- 자동 내용\n<!-- auto:end market -->"
+    target.write_text(f"# 아침 일지\n\n{auto}\n\n## 오늘 행동\n\n- 대기\n", encoding="utf-8")
+
+    result = home_cards.append_journal_note(
+        root, {"text": "반도체 강세를 추격하지 않고 종가를 확인"},
+        now=datetime(2026, 9, 4, 9, 7, tzinfo=KST),
+    )
+    saved = target.read_text(encoding="utf-8")
+
+    assert result == {"status": "saved", "date": "2026-09-04", "time": "09:07"}
+    assert auto in saved
+    assert saved.count("## 오늘 판단") == 1
+    assert "- 09:07 판단: 반도체 강세를 추격하지 않고 종가를 확인" in saved
+
+
+def test_journal_note_rejects_amount_text() -> None:
+    root = _make_project()
+    journal_dir = root / "vault/일지"
+    journal_dir.mkdir(parents=True)
+    settings = root / "artifacts/local_user/web_settings.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text(json.dumps({"journal_dir": str(journal_dir)}), encoding="utf-8")
+
+    with pytest.raises(home_cards.JournalNoteError, match="금액은 적지 않습니다"):
+        home_cards.append_journal_note(
+            root, {"text": "목표는 ₩100000"},
+            now=datetime(2026, 9, 4, 9, 7, tzinfo=KST),
+        )
+
+    assert not (journal_dir / "2026-09-04 투자.md").exists()
 
 
 def _make_project() -> Path:

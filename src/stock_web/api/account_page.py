@@ -63,7 +63,7 @@ _ACCOUNT_NUMBER = re.compile(r"(?<!\d)(?:\d[ -]?){9,13}\d(?!\d)")
 _CASH_FLOW_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
 _AUDIT_COUNT_KEYS = frozenset({
     "accounts", "assets", "conditions", "entries", "items", "liabilities",
-    "lists", "positions",
+    "lists", "notes", "positions",
 })
 _AUDIT_LOCK = Lock()
 

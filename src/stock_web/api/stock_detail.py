@@ -183,10 +183,17 @@ def _load_ohlcv(project_root: Path, symbol: str) -> pd.DataFrame | None:
                 partitioning=None,
             )
     else:
+        from stock_web.api.symbol_resolver import global_equity_identity
+
+        equity = global_equity_identity(symbol)
         frame = dsx.load(
             project_root,
-            "data/normalized/global_etf_price_daily",
+            (
+                "data/normalized/global_equity_price_daily"
+                if equity is not None else "data/normalized/global_etf_price_daily"
+            ),
             filter_expr=(field("symbol") == symbol),
+            partitioning=None if equity is not None else "hive",
         )
     if frame is None or frame.empty or not {"date", "close"} <= set(frame.columns):
         return None
@@ -244,6 +251,24 @@ def _identity(project_root: Path, symbol: str, market: str) -> tuple[dict[str, o
             "isin": _text(row.get("isin")) if row is not None else None,
             "currency": "KRW",
         }, row)
+    from stock_web.api.symbol_resolver import global_equity_identity
+
+    equity = global_equity_identity(symbol)
+    if equity is not None:
+        return ({
+            "symbol": symbol,
+            "name": equity["name"],
+            "market": "US 주식",
+            "security_type": equity["security_type"],
+            "isin": None,
+            "currency": equity["currency"],
+            "exchange": equity["exchange"],
+            "underlying_kr_symbol": equity.get("underlying_kr_symbol"),
+            "underlying_url": (
+                f"/stocks?symbol={equity['underlying_kr_symbol']}"
+                if equity.get("underlying_kr_symbol") else None
+            ),
+        }, None)
     catalog = {item.symbol: item for item in US_ETF_CHART_IDENTITIES}
     item = catalog.get(symbol)
     return ({

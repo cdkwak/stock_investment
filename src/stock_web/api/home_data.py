@@ -108,6 +108,15 @@ def _ohlcv(project_root: Path, symbol: str) -> tuple[pd.DataFrame | None, str]:
             filter_expr=(field("symbol") == symbol), partitioning=None,
         )
         return frame, _stock_name(project_root, symbol)
+    from stock_web.api.symbol_resolver import global_equity_identity
+
+    global_equity = global_equity_identity(symbol)
+    if global_equity is not None:
+        frame = dsx.load(
+            project_root, "data/normalized/global_equity_price_daily",
+            filter_expr=(field("symbol") == symbol), partitioning=None,
+        )
+        return frame, str(global_equity["name"])
     if symbol.isalpha() and 1 <= len(symbol) <= 5:
         frame = dsx.load(project_root, "data/normalized/global_etf_price_daily", filter_expr=(field("symbol") == symbol))
         return frame, symbol
@@ -876,7 +885,6 @@ def build_derivatives(project_root: Path) -> dict[str, object]:
     from stock_data.gui.health_service import DailyHealthArtifactService
     from stock_data.gui.services import DashboardService
     from stock_data.gui.us_option_pcr_adapter import current_us_option_pcr_scope_views
-    from stock_data.gui.vix_futures_adapter import build_vix_futures_dashboard_view
 
     service = DashboardService(project_root)
     try:
@@ -901,10 +909,9 @@ def build_derivatives(project_root: Path) -> dict[str, object]:
             return f"{value} · {format_kst(metric.as_of)}" if metric.as_of else value
         return unavailable(getattr(metric, "unavailable_reason", None))
 
-    try:
-        vix_reason = build_vix_futures_dashboard_view().metric.unavailable_reason
-    except Exception:
-        vix_reason = None
+    from stock_web.api.home_cards import build_vix_term_structure_rows
+
+    vix_rows = build_vix_term_structure_rows(project_root)
     try:
         cboe_views = current_us_option_pcr_scope_views()
         cboe_reason = cboe_views[0].reason if cboe_views else None
@@ -918,7 +925,7 @@ def build_derivatives(project_root: Path) -> dict[str, object]:
             ["LS 선물 외국인 순계약", display("LS_FUTURES_FOREIGN_NET", "{:+,.0f}")],
         ]},
         {"title": "미국", "rows": [
-            ["VIX 선물", unavailable(vix_reason, us_row=True)],
+            *vix_rows,
             ["CBOE PCR", unavailable(cboe_reason, us_row=True)],
         ]},
     ]}

@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from stock_data.gui.watchlist_service import LocalWatchlistService
-from stock_web.api import home_data, stocks_page
+from stock_web.api import home_data, stocks_page, symbol_resolver
 from stock_web.api import scanner as scanner_api
 from stock_web.api.scanner import build_scanner
 from stock_web.api.stocks_page import (
@@ -247,6 +247,33 @@ def test_search_endpoint_combines_korean_catalog_and_static_us_etfs() -> None:
     assert row["symbol"] == "EWY"
     assert row["price_available"] is False
     assert row["unavailable_reason"] == "로컬 가격 없음"
+
+
+def test_watchlist_accepts_skhy_registry_equity(monkeypatch: pytest.MonkeyPatch) -> None:
+    root = make_project(new_temp_root())
+    monkeypatch.setattr(symbol_resolver, "_global_equity_registry", lambda: {
+        "SKHY": {
+            "korean_name": "SK하이닉스(ADR)", "official_exchange": "NASDAQ",
+            "security_type": "DEPOSITARY_RECEIPT", "underlying_kr_symbol": "000660",
+            "expected_currency": "USD",
+        },
+    })
+    symbol_resolver._SYMBOL_INDEX_CACHE.clear()
+    stocks_page._SEARCH_INDEX_CACHE.clear()
+    client = ASGITestClient(create_app(root))
+
+    search = client.get("/api/stocks/search", params={"q": "하이닉스 ADR"}).json()
+    added = client.post(
+        "/api/watchlist/items",
+        json={"list_id": "favorites", "market": "US 주식", "symbol": "SKHY"},
+        client_host="127.0.0.1",
+    )
+
+    assert search["matches"][0]["symbol"] == "SKHY"
+    assert search["matches"][0]["source"] == "global_equity_registry"
+    assert added.status_code == 200
+    assert added.json()["lists"][0]["items"][0]["market"] == "US 주식"
+    assert added.json()["lists"][0]["items"][0]["security_type"] == "ADR"
 
 
 def test_search_index_ranks_exact_then_prefix_by_latest_market_cap() -> None:

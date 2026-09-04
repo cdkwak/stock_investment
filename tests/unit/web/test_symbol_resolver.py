@@ -4,8 +4,10 @@ from pathlib import Path
 from uuid import uuid4
 
 import pandas as pd
+import pytest
 
-from stock_web.api.symbol_resolver import resolve_symbol_code
+from stock_web.api import symbol_resolver
+from stock_web.api.symbol_resolver import resolve_local_symbol, resolve_symbol_code
 
 
 def _root() -> Path:
@@ -103,6 +105,30 @@ def test_resolves_us_etf_case_insensitively() -> None:
         "name": "Direxion Daily MSCI South Korea Bull 3X Shares", "currency": "USD",
         "security_type": "ETF", "source": "us_etf_catalog",
     }
+
+
+def test_resolves_skhy_global_equity_registry_aliases(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _root()
+    monkeypatch.setattr(symbol_resolver, "_global_equity_registry", lambda: {
+        "SKHY": {
+            "korean_name": "SK하이닉스(ADR)", "official_exchange": "NASDAQ",
+            "security_type": "DEPOSITARY_RECEIPT", "underlying_kr_symbol": "000660",
+            "expected_currency": "USD",
+        },
+    })
+    symbol_resolver._SYMBOL_INDEX_CACHE.clear()
+
+    assert resolve_symbol_code(root, "skhy") == {
+        "found": True, "market": "US 주식", "symbol": "SKHY",
+        "name": "SK하이닉스(ADR)", "currency": "USD",
+        "security_type": "ADR", "source": "global_equity_registry",
+    }
+    for name in ("하이닉스 ADR", "SK하이닉스(ADR)"):
+        assert resolve_local_symbol(root, symbol="", name=name) == {
+            "symbol": "SKHY", "name": "SK하이닉스(ADR)", "currency": "USD",
+        }
 
 
 def test_unknown_code_is_typed_not_found() -> None:

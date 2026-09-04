@@ -183,6 +183,38 @@
     return normalized.filter((row) => !row.hidden).map((row) => `<div${rowClass ? ` class="${rowClass}"` : ""}><span>${esc(row.label)}</span><span class="num"><b>${esc(row.value)}</b>${row.hint ? ` <small>· ${esc(row.hint)}</small>` : ""}</span></div>`).join("") +
       (hidden ? `<div class="regime-hidden-note">근거 없는 지표 ${hidden}개 숨김</div>` : "");
   }
+  const regimeEvidenceStorageKey = "si.regime.evidence";
+  function loadRegimeEvidenceOpen() {
+    try { return localStorage.getItem(regimeEvidenceStorageKey) === "open"; }
+    catch (_error) { return false; }
+  }
+  function applyRegimeEvidenceState(open, remember = false) {
+    const section = $("regime"), strip = $("regime-evidence-strip");
+    if (!section) return;
+    section.dataset.expanded = open ? "true" : "false";
+    if (strip) strip.hidden = !open;
+    const toggle = $("regime-toggle");
+    if (toggle) {
+      toggle.textContent = open ? "근거 접기 ▴" : "근거 펼치기 ▾";
+      toggle.setAttribute("aria-expanded", String(open));
+    }
+    if (remember) {
+      try { localStorage.setItem(regimeEvidenceStorageKey, open ? "open" : "closed"); }
+      catch (_error) { /* optional preference */ }
+    }
+  }
+  function renderRegimeEvidenceStrip(sec) {
+    const host = $("regime-evidence-strip");
+    if (!host) return;
+    const markets = Array.isArray(sec && sec.markets) ? sec.markets : [];
+    const riskRows = sec && sec.risk && Array.isArray(sec.risk.rows)
+      ? sec.risk.rows : ((markets[2] || {}).evidence || []);
+    const evidenceCard = (title, rows) => `<div class="regime-evidence-card"><div class="t">${esc(title)}</div><div class="ev">${regimeRows(rows)}</div></div>`;
+    host.innerHTML = evidenceCard("한국장 근거", (markets[0] || {}).evidence || [])
+      + evidenceCard("미국장 근거", (markets[1] || {}).evidence || [])
+      + evidenceCard("글로벌 위험 근거", riskRows)
+      + `<div class="regime-evidence-card"><div class="t">판정 규칙</div><div class="ev regime-rule-copy"><div>RSI14 &gt; 70 이고 추세선 위 = 과열 · RSI14 &lt; 30 이고 추세선 아래 = 침체 · 그 외 중립</div><div>글로벌 위험: 침체 신호 2개 이상 = 침체, 과열 신호 2개 이상 = 과열 (금리차 역전 · 금리차 1개월 −0.25%p · 10년물 1개월 −25bp · WTI 1개월 −10%)</div></div></div>`;
+  }
   function renderRegime(sec) {
     const host = $("regime-cards");
     if (!sec || !sec.markets) { host.innerHTML = `<div class="regime-card">${unavailable("국면 근거 미계산")}</div>`; return; }
@@ -190,10 +222,11 @@
       <div class="regime-card">
         <div class="regime-title-line">
           <span class="t">${esc(m.title)}</span>
-          <div class="temp"><b style="color:${m.hot ? "var(--amber-soft)" : "#f4f2ee"}">${esc(m.temperature)}</b><span>${esc(m.subtitle || "")}</span>${index === 0 ? '<button class="regime-toggle" id="regime-toggle" type="button" aria-expanded="false">근거 펼치기 ▾</button>' : ""}</div>
+          <div class="temp"><b style="color:${m.hot ? "var(--amber-soft)" : "#f4f2ee"}">${esc(m.temperature)}</b><span>${esc(String(m.subtitle || "").replace(/^신호 (?=\d+\/3)/, "자료 "))}</span>${index === 0 ? '<button class="regime-toggle" id="regime-toggle" type="button" aria-expanded="false">근거 펼치기 ▾</button>' : ""}</div>
         </div>
         <div class="ev">${regimeRows(m.evidence)}</div>
       </div>`).join("");
+    renderRegimeEvidenceStrip(sec);
     const r = sec.rules;
     const researchCurrent = (Array.isArray(sec.research_current) && sec.research_current.length ? sec.research_current : ["규칙 평가 없음"])
       .map((line) => `<div style="border-top:1px solid #4a463f;margin-top:5px;padding-top:5px;color:var(--amber-soft);font-size:10px">${esc(line)}</div>`).join("");
@@ -202,6 +235,7 @@
       ${regimeRows(r.rows, "row")}
       ${r.warning ? `<div class="warn">${esc(r.warning)}</div>` : ""}
       <div style="font-size:10px;color:#8a847b;margin-top:4px">${esc(r.source || "")}</div>` : `<div class="t">내 규칙</div><div style="color:#b5aea4;font-size:11px">규칙 값 미입력 · Obsidian "투자 규칙.md"의 [채우기] 값을 채우면 표시됩니다</div>`) + researchCurrent;
+    applyRegimeEvidenceState($("regime").dataset.expanded === "true");
   }
 
   // ---- tiles ----------------------------------------------------------------
@@ -358,7 +392,7 @@
       layout: { background: { color: "#fff" }, textColor: "#6b6660", fontFamily: "IBM Plex Sans KR, system-ui" },
       grid: { vertLines: { color: "#f0ece5" }, horzLines: { color: "#e6e1d8" } },
       rightPriceScale: { borderColor: "#d9d3ca" }, timeScale: { borderColor: "#d9d3ca" },
-      crosshair: { mode: 1 }, autoSize: true,
+      crosshair: { mode: 1 }, width: Math.max(1, el.clientWidth), height: Math.max(1, el.clientHeight),
     });
     const priceFormatter = (value) => {
       const symbol = String((loadedChart || {}).symbol || "").toUpperCase();
@@ -378,7 +412,14 @@
     if (window.ResizeObserver) {
       chartResizeObserver = new ResizeObserver(() => {
         clearTimeout(chartResizeTimer);
-        chartResizeTimer = setTimeout(() => { if (chart) chart.timeScale().fitContent(); }, 80);
+        chartResizeTimer = setTimeout(() => {
+          if (!chart) return;
+          const width = Math.max(1, Math.round(el.clientWidth));
+          const height = Math.max(1, Math.round(el.clientHeight));
+          chart.applyOptions({ height });
+          chart.resize(width, height);
+          chart.timeScale().fitContent();
+        }, 80);
       });
       chartResizeObserver.observe(el);
     }
@@ -462,8 +503,14 @@
     $("watchlist-meta").textContent = publicMode
       ? `관심 ${sec.watch_count ?? rows.length}`
       : `보유 ${sec.held_count ?? 0} · 관심 ${sec.watch_count ?? 0}`;
-    host.innerHTML = `<div class="tr th watch"><div>종목</div><div>구분</div><div class="r">현재가</div><div class="r">등락</div><div class="r">고점 대비</div><div class="r">RSI14</div><div class="watch-investor-head"><small>순매수 억원 · 당일 (툴팁 5일·20일)</small><span>외국인</span><span>기관</span><span>개인</span></div></div>` +
-      rows.map((r) => `<div class="tr watch">
+    const isUs = (row) => ["US ETF", "US 주식"].includes(String(row.market || "")) || /^[A-Z][A-Z0-9.-]{0,9}$/.test(String(row.symbol || ""));
+    const orderedRows = [...rows.filter((row) => !isUs(row)), ...rows.filter(isUs)];
+    const live = sec.us_live && Array.isArray(sec.us_live.quotes) ? sec.us_live : null;
+    const liveLine = live ? `<div class="us-live-quotes"><b>밤사이 미국</b><span class="muted">${esc(live.session_label || "")} · ${esc(live.as_of_label || "")}</span>${live.quotes.map((quote) => `<span class="quote"><b>${esc(quote.symbol)}</b> <span class="num">${quote.currency === "USD" ? "$" : `${esc(quote.currency)} `}${fmt(quote.last_price, 2)}</span> <span class="num ${cls(quote.change_pct)}">${pct(quote.change_pct)}</span></span>`).join("")}</div>` : "";
+    let insertedLive = false;
+    const renderedRows = orderedRows.map((r) => {
+      const prefix = !insertedLive && liveLine && isUs(r) ? (insertedLive = true, liveLine) : "";
+      return `${prefix}<div class="tr watch">
         <div title="${esc(r.name || r.symbol || "")}"><div>${esc(watchlistName(r))}</div>${watchlistInvestorMobile(r)}${r.flag ? `<div class="flag">조건 도달 · ${esc(r.flag)}</div>` : ""}</div>
         <div class="watch-status">${!publicMode && r.held ? '<span class="badge held-badge">보유</span>' : '<span class="muted">관심</span>'}</div>
         <div class="r num">${r.price ?? "—"}</div>
@@ -473,7 +520,9 @@
         ${watchlistInvestorCell(r, "foreign")}
         ${watchlistInvestorCell(r, "institution")}
         ${watchlistInvestorCell(r, "individual")}
-      </div>`).join("");
+      </div>`;
+    }).join("");
+    host.innerHTML = `<div class="tr th watch"><div>종목</div><div>구분</div><div class="r">현재가</div><div class="r">등락</div><div class="r">고점 대비</div><div class="r">RSI14</div><div class="watch-investor-head"><small>순매수 억원 · 당일 (툴팁 5일·20일)</small><span>외국인</span><span>기관</span><span>개인</span></div></div>` + renderedRows;
   }
 
   // ---- account ------------------------------------------------------------------
@@ -626,6 +675,34 @@
 
   // ---- boot -----------------------------------------------------------------------
   let payload = null;
+  let homeToastTimer = null;
+  function showHomeToast(message, error = false) {
+    const toast = $("home-toast");
+    if (!toast) return;
+    clearTimeout(homeToastTimer);
+    toast.textContent = message;
+    toast.classList.toggle("error", error);
+    toast.hidden = false;
+    homeToastTimer = setTimeout(() => { toast.hidden = true; }, 3200);
+  }
+  async function saveJournalNote() {
+    const input = $("journal-note"), button = $("save-journal-note");
+    const note = String((input || {}).value || "").trim();
+    if (!note) { showHomeToast("판단을 한 줄 적어 주세요.", true); return; }
+    if (/(?:[₩$]\s*\d)|(?:\d[\d,.]*\s*(?:원|만원|억|천만|달러|불))/.test(note)) { showHomeToast("금액은 적지 않습니다", true); return; }
+    button.disabled = true;
+    try {
+      const response = await fetch("/api/journal/note", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: note }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+      input.value = "";
+      showHomeToast("오늘 판단을 저장했습니다.");
+    } catch (error) { showHomeToast(error.message || "저장하지 못했습니다.", true); }
+    finally { button.disabled = false; }
+  }
   async function loadChart(symbol, range) {
     try {
       const r = await fetch(`/api/chart?symbol=${encodeURIComponent(symbol)}&range=${encodeURIComponent(range)}`);
@@ -635,16 +712,11 @@
   }
   function currentRange() { const b = document.querySelector("#chart-range button.on"); return b ? b.dataset.v : "6M"; }
   async function boot() {
+    applyRegimeEvidenceState(loadRegimeEvidenceOpen());
     wireHomeIndicatorPicker();
     $("regime").addEventListener("click", (event) => {
       if (!event.target.closest(".regime-title-line, .regime-toggle")) return;
-      const sec = $("regime"); const open = getComputedStyle(sec.querySelector(".ev") || sec).display !== "none";
-      sec.dataset.expanded = open ? "false" : "true";
-      const toggle = $("regime-toggle");
-      if (toggle) {
-        toggle.textContent = open ? "근거 펼치기 ▾" : "근거 접기 ▴";
-        toggle.setAttribute("aria-expanded", String(!open));
-      }
+      applyRegimeEvidenceState($("regime").dataset.expanded !== "true", true);
     });
     $("tiles-more").addEventListener("click", () => { const t = $("tiles"); t.classList.toggle("collapsed"); $("tiles-more").textContent = t.classList.contains("collapsed") ? "지표 더 보기 ▾" : "지표 접기 ▴"; });
     $("tiles").classList.add("collapsed");
@@ -652,6 +724,7 @@
     document.querySelectorAll("#chart-range button").forEach((b) => b.addEventListener("click", () => { document.querySelectorAll("#chart-range button").forEach((x) => x.classList.remove("on")); b.classList.add("on"); loadChart($("chart-symbol").value, b.dataset.v); }));
     document.querySelectorAll("#account-range button").forEach((b) => b.addEventListener("click", () => { document.querySelectorAll("#account-range button").forEach((x) => x.classList.remove("on")); b.classList.add("on"); renderAccount(((payload || {}).sections || {}).account, b.dataset.v); }));
     $("chart-symbol").addEventListener("change", () => loadChart($("chart-symbol").value, currentRange()));
+    if ($("save-journal-note")) $("save-journal-note").addEventListener("click", saveJournalNote);
     try {
       const r = await fetch("/api/home"); payload = await r.json();
     } catch (e) { payload = { sections: {} }; }
@@ -686,11 +759,23 @@
       if (button) button.hidden = true;
     });
   }
+  function enforceGlobalEquityHeadline(root = document) {
+    const card = root.querySelector && root.querySelector("#stock-headline-card");
+    if (!card) return;
+    const title = card.querySelector("h1"), subtitle = card.querySelector(".stock-headline-top p");
+    if (!title || !subtitle || title.textContent.trim() !== "SK하이닉스(ADR)" || !subtitle.textContent.includes("SKHY")) return;
+    title.innerHTML = 'SK하이닉스(ADR) · NASDAQ · 원주 <a href="/stocks?symbol=000660">000660</a>';
+    subtitle.textContent = "SKHY · US 주식 · ADR";
+  }
   if (typeof module !== "undefined" && module.exports) module.exports = { aggregateCandles, brokerReportedPnl, formatCompactKorean, formatSharePercent, rsiWilder, signedEok };
   if (typeof document !== "undefined") document.addEventListener("DOMContentLoaded", () => {
     if (publicMode) {
       enforcePublicUi();
       new MutationObserver(() => enforcePublicUi()).observe(document.body, { childList: true, subtree: true });
+    }
+    if ($("stocks-page")) {
+      enforceGlobalEquityHeadline();
+      new MutationObserver(() => enforceGlobalEquityHeadline()).observe($("stock-headline-card"), { childList: true, subtree: true });
     }
     if ($("home-page")) boot();
   });

@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import math
 import os
+from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
 import re
@@ -19,6 +20,7 @@ from stock_data.gui.services import (
     US_ETF_CHART_IDENTITIES,
 )
 from stock_data.gui.watchlist_service import LocalWatchlistService, WatchlistState
+from stock_web.api.symbol_resolver import global_equity_identities, global_equity_identity
 
 
 CONDITIONS_SCHEMA_VERSION = 1
@@ -28,6 +30,7 @@ CONDITION_FIELDS = frozenset({
 CONDITION_OPS = frozenset({"<=", ">="})
 CONDITION_SCOPES = frozenset({"watchlist", "universe"})
 PUBLIC_WATCHLIST_RELATIVE = Path("config/public_watchlist.json")
+GLOBAL_EQUITY_WATCHLIST_RELATIVE = Path("artifacts/local_user/watchlist_global_equities.json")
 
 
 @dataclass(frozen=True)
@@ -53,6 +56,84 @@ def _watchlist_path(project_root: Path) -> Path:
 
 def _conditions_path(project_root: Path) -> Path:
     return Path(project_root) / "artifacts/local_user/watch_conditions.json"
+
+
+def _global_equity_watchlist_path(project_root: Path) -> Path:
+    return Path(project_root) / GLOBAL_EQUITY_WATCHLIST_RELATIVE
+
+
+def _load_global_equity_watchlist(project_root: Path) -> dict[str, list[dict[str, str]]]:
+    path = _global_equity_watchlist_path(project_root)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return {}
+    raw_lists = payload.get("lists") if isinstance(payload, Mapping) else None
+    if payload.get("schema_version") != 1 or not isinstance(raw_lists, Mapping):
+        return {}
+    cleaned: dict[str, list[dict[str, str]]] = {}
+    for list_id, raw_items in raw_lists.items():
+        if not isinstance(list_id, str) or not isinstance(raw_items, list):
+            continue
+        items: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for raw in raw_items:
+            if not isinstance(raw, Mapping):
+                continue
+            symbol = str(raw.get("symbol") or "").strip().upper()
+            if symbol in seen or global_equity_identity(symbol) is None:
+                continue
+            seen.add(symbol)
+            items.append({
+                "symbol": symbol,
+                "added_at_kst": str(raw.get("added_at_kst") or "MIGRATED"),
+            })
+        if items:
+            cleaned[list_id] = items
+    return cleaned
+
+
+def _save_global_equity_watchlist(
+    project_root: Path, lists: Mapping[str, list[dict[str, str]]],
+) -> None:
+    path = _global_equity_watchlist_path(project_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + f".{uuid4().hex}.tmp")
+    try:
+        temporary.write_text(
+            json.dumps({"schema_version": 1, "lists": lists}, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _global_equity_object(item: Mapping[str, object]) -> EquityIdentity:
+    return EquityIdentity(
+        symbol=str(item["symbol"]), name=str(item["name"]), market="US 주식",
+        isin=None, listing_date=None, security_type=str(item["security_type"]),
+        issuer=str(item.get("exchange") or "") or None,
+        exposure=(f"원주 {item['underlying_kr_symbol']}" if item.get("underlying_kr_symbol") else None),
+        currency="USD", identity_source="global_equity_registry",
+    )
+
+
+def _serialize_with_global_equities(project_root: Path, state: WatchlistState) -> dict[str, object]:
+    payload = serialize_watchlists(state)
+    lists_by_id = {item["list_id"]: item for item in payload["lists"]}
+    for list_id, items in _load_global_equity_watchlist(project_root).items():
+        target = lists_by_id.get(list_id)
+        if target is None:
+            continue
+        for stored in items:
+            identity = global_equity_identity(stored["symbol"])
+            if identity is not None:
+                target["items"].append({
+                    **_identity_payload(_global_equity_object(identity)),
+                    "added_at_kst": stored["added_at_kst"],
+                })
+    return payload
 
 
 def _identity_payload(identity: EquityIdentity) -> dict[str, object]:
@@ -401,6 +482,18 @@ def _kr_etf_universe_search_entries(project_root: Path) -> tuple[_SearchIndexEnt
     return tuple(entries)
 
 
+def _global_equity_search_entries() -> tuple[_SearchIndexEntry, ...]:
+    entries: list[_SearchIndexEntry] = []
+    for item in global_equity_identities():
+        identity = _global_equity_object(item)
+        entries.append(_SearchIndexEntry(
+            identity=identity, market_cap=None,
+            aliases=tuple(str(alias) for alias in item.get("aliases", ()) if alias),
+            source="global_equity_registry", full_name=str(item["name"]),
+        ))
+    return tuple(entries)
+
+
 def _search_index(project_root: Path) -> tuple[_SearchIndexEntry, ...]:
     root = Path(project_root).resolve()
     key = str(root)
@@ -436,7 +529,7 @@ def _search_index(project_root: Path) -> tuple[_SearchIndexEntry, ...]:
         universe_keys = {entry.identity.key for entry in universe_entries}
         index = tuple(
             entry for entry in base_entries if entry.identity.key not in universe_keys
-        ) + universe_entries
+        ) + universe_entries + _global_equity_search_entries()
         _SEARCH_INDEX_CACHE[key] = (signature, index)
         return index
 
@@ -517,6 +610,9 @@ def _canonical_identity(project_root: Path, market: object, symbol: object) -> E
         identity = next(
             (item for item in US_ETF_CHART_IDENTITIES if item.symbol == clean_symbol), None,
         )
+    elif clean_market == "US 주식":
+        item = global_equity_identity(clean_symbol)
+        identity = None if item is None else _global_equity_object(item)
     else:
         view = EquityChartService(Path(project_root)).search(clean_symbol, limit=30)
         identity = next(
@@ -532,8 +628,19 @@ def add_watchlist_item(project_root: Path, payload: object) -> dict[str, object]
         raise StocksInputError("요청 형식이 올바르지 않습니다.")
     list_id = str(payload.get("list_id") or "favorites")
     identity = _canonical_identity(project_root, payload.get("market"), payload.get("symbol"))
-    state = LocalWatchlistService(_watchlist_path(project_root)).add_item(list_id, identity)
-    return serialize_watchlists(state)
+    service = LocalWatchlistService(_watchlist_path(project_root))
+    if identity.market == "US 주식":
+        state = service.load()
+        state.list_by_id(list_id)
+        lists = _load_global_equity_watchlist(project_root)
+        items = list(lists.get(list_id, []))
+        if not any(item["symbol"] == identity.symbol for item in items):
+            items.append({"symbol": identity.symbol, "added_at_kst": datetime.now().astimezone().isoformat()})
+            lists[list_id] = items
+            _save_global_equity_watchlist(project_root, lists)
+    else:
+        state = service.add_item(list_id, identity)
+    return _serialize_with_global_equities(project_root, state)
 
 
 def remove_watchlist_item(project_root: Path, payload: object) -> dict[str, object]:
@@ -544,10 +651,18 @@ def remove_watchlist_item(project_root: Path, payload: object) -> dict[str, obje
     symbol = str(payload.get("symbol") or "").strip().upper()
     if not market or not symbol:
         raise StocksInputError("목록, 시장, 종목코드가 필요합니다.")
-    state = LocalWatchlistService(_watchlist_path(project_root)).remove_item(
-        list_id, (market, symbol),
-    )
-    return serialize_watchlists(state)
+    service = LocalWatchlistService(_watchlist_path(project_root))
+    if market == "US 주식":
+        state = service.load()
+        state.list_by_id(list_id)
+        lists = _load_global_equity_watchlist(project_root)
+        lists[list_id] = [item for item in lists.get(list_id, []) if item["symbol"] != symbol]
+        if not lists[list_id]:
+            lists.pop(list_id, None)
+        _save_global_equity_watchlist(project_root, lists)
+    else:
+        state = service.remove_item(list_id, (market, symbol))
+    return _serialize_with_global_equities(project_root, state)
 
 
 def move_watchlist_item(project_root: Path, payload: object) -> dict[str, object]:
@@ -559,12 +674,25 @@ def move_watchlist_item(project_root: Path, payload: object) -> dict[str, object
         raise StocksInputError("이동 방향이 올바르지 않습니다.") from error
     if offset not in {-1, 1}:
         raise StocksInputError("이동 방향은 -1 또는 1이어야 합니다.")
-    state = LocalWatchlistService(_watchlist_path(project_root)).move_item(
-        str(payload.get("list_id") or "favorites"),
-        (str(payload.get("market") or "").strip(), str(payload.get("symbol") or "").strip().upper()),
-        offset,
-    )
-    return serialize_watchlists(state)
+    list_id = str(payload.get("list_id") or "favorites")
+    market = str(payload.get("market") or "").strip()
+    symbol = str(payload.get("symbol") or "").strip().upper()
+    service = LocalWatchlistService(_watchlist_path(project_root))
+    if market == "US 주식":
+        state = service.load()
+        state.list_by_id(list_id)
+        lists = _load_global_equity_watchlist(project_root)
+        items = list(lists.get(list_id, []))
+        source = next((index for index, item in enumerate(items) if item["symbol"] == symbol), None)
+        if source is None:
+            raise KeyError((market, symbol))
+        target = max(0, min(len(items) - 1, source + offset))
+        items.insert(target, items.pop(source))
+        lists[list_id] = items
+        _save_global_equity_watchlist(project_root, lists)
+    else:
+        state = service.move_item(list_id, (market, symbol), offset)
+    return _serialize_with_global_equities(project_root, state)
 
 
 def mutate_watchlist(project_root: Path, payload: object) -> dict[str, object]:
@@ -580,7 +708,7 @@ def mutate_watchlist(project_root: Path, payload: object) -> dict[str, object]:
         )
     else:
         raise StocksInputError("지원하지 않는 관심목록 작업입니다.")
-    return serialize_watchlists(state)
+    return _serialize_with_global_equities(project_root, state)
 
 
 def _last_ma(chart: Mapping[str, object], key: str) -> float | None:
@@ -673,12 +801,22 @@ def build_stocks_page_data(
     state = LocalWatchlistService(_watchlist_path(root)).load()
     conditions_payload = load_conditions(root)
     conditions = list(conditions_payload.get("conditions", []))
-    watchlists = serialize_watchlists(state)
+    watchlists = _serialize_with_global_equities(root, state)
     table = [
         _watchlist_row(root, watchlist.list_id, watchlist.name, item.identity, conditions)
         for watchlist in state.lists
         for item in watchlist.items
     ]
+    names_by_id = {watchlist.list_id: watchlist.name for watchlist in state.lists}
+    table.extend(
+        _watchlist_row(
+            root, list_id, names_by_id[list_id], _global_equity_object(identity), conditions,
+        )
+        for list_id, items in _load_global_equity_watchlist(root).items()
+        if list_id in names_by_id
+        for stored in items
+        if (identity := global_equity_identity(stored["symbol"])) is not None
+    )
     return {
         "watchlists": watchlists,
         "conditions": conditions_payload,
@@ -695,11 +833,16 @@ def build_home_watchlist(
     data = build_stocks_page_data(project_root, public_mode=public_mode)
     rows = []
     for item in data["table"]:
+        is_us = item.get("market") in {"US ETF", "US 주식"}
         rows.append({
-            "name": item["name"], "symbol": item["symbol"], "held": False,
+            "name": item["name"], "symbol": item["symbol"],
+            "market": item.get("market"), "currency": item.get("currency"),
+            "security_type": item.get("security_type"), "held": False,
             "weight_pct": None,
-            "price": f"{item['price']:,.2f}" if item.get("price_available") and item.get("market") == "US ETF" else (
-                f"{item['price']:,.0f}" if item.get("price_available") else None
+            "price": f"{item['price']:,.2f}" if item.get("price_available") and is_us else (
+                f"{item['price']:,.0f}" if item.get("price_available") else (
+                    "자료 없음" if item.get("market") == "US 주식" else None
+                )
             ),
             "change_pct": item.get("change_pct"),
             "drawdown_pct": item.get("drawdown_pct"), "rsi14": item.get("rsi14"),
@@ -718,4 +861,69 @@ def build_home_watchlist(
     }
     if not public_mode:
         result["held_count"] = 0
+    us_live = _us_live_quotes(Path(project_root), data["table"])
+    if us_live is not None:
+        result["us_live"] = us_live
     return result
+
+
+def _us_live_quotes(
+    project_root: Path, table: Iterable[Mapping[str, object]],
+) -> dict[str, object] | None:
+    """Project optional Toss U.S. quotes without exposing their artifact location."""
+    path = project_root / "artifacts/intraday/tossinvest_us_quotes_latest.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, Mapping) or payload.get("provider") != "tossinvest":
+        return None
+    raw_quotes = payload.get("quotes")
+    if not isinstance(raw_quotes, list):
+        return None
+    quotes_by_symbol = {
+        str(quote.get("symbol") or "").strip().upper(): quote
+        for quote in raw_quotes if isinstance(quote, Mapping)
+    }
+    quotes: list[dict[str, object]] = []
+    for row in table:
+        if row.get("market") not in {"US ETF", "US 주식"}:
+            continue
+        symbol = str(row.get("symbol") or "").strip().upper()
+        quote = quotes_by_symbol.get(symbol)
+        if quote is None:
+            continue
+        try:
+            last_price = float(quote.get("last_price"))
+            daily_close = float(row.get("price")) if row.get("price_available") else None
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(last_price) or last_price <= 0:
+            continue
+        change = last_price - daily_close if daily_close not in {None, 0} else None
+        quotes.append({
+            "symbol": symbol,
+            "last_price": last_price,
+            "currency": str(quote.get("currency") or row.get("currency") or "USD"),
+            "timestamp_kst": str(quote.get("timestamp_kst") or ""),
+            "daily_close": daily_close,
+            "change": change,
+            "change_pct": change / daily_close * 100.0 if change is not None else None,
+        })
+    if not quotes:
+        return None
+    session_labels = {
+        "pre_market": "프리마켓", "regular": "정규장",
+        "after_hours": "애프터마켓", "closed": "휴장",
+    }
+    session_hint = str(payload.get("session_hint") or "")
+    if session_hint not in session_labels:
+        return None
+    as_of_kst = str(payload.get("as_of_kst") or "")
+    match = re.search(r"T([0-2]\d:[0-5]\d)", as_of_kst)
+    return {
+        "label": "밤사이 미국", "session": session_hint,
+        "session_label": session_labels[session_hint],
+        "as_of_kst": as_of_kst, "as_of_label": match.group(1) if match else as_of_kst,
+        "quotes": quotes,
+    }

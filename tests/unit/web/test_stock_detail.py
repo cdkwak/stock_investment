@@ -4,12 +4,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from stock_data.research.target_prices import (
     append_target_price_vintages_atomic,
     rows_to_frame,
 )
 from stock_web.app import create_app
+from stock_web.api import datasets, stock_detail, symbol_resolver
 from tests.unit.web import ASGITestClient, make_project, new_temp_root
 
 
@@ -225,6 +227,49 @@ def test_us_etf_keeps_unavailable_sections_typed_and_reads_target_price() -> Non
     assert payload["target_price"]["analyst_count"] == 12
     assert payload["target_price"]["as_of"] == "2026-09-02"
     assert payload["target_price"]["upside_pct"] == (500 / 439 - 1) * 100
+    assert payload["investor_flows"] == {"reason": "종목별 수급은 국내 주식만 보존"}
+
+
+def test_skhy_detail_uses_global_equity_daily_and_links_underlying(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _make_detail_project()
+    monkeypatch.setattr(symbol_resolver, "_global_equity_registry", lambda: {
+        "SKHY": {
+            "korean_name": "SK하이닉스(ADR)", "official_exchange": "NASDAQ",
+            "security_type": "DEPOSITARY_RECEIPT", "underlying_kr_symbol": "000660",
+            "expected_currency": "USD",
+        },
+    })
+    dates = pd.date_range("2026-07-24", periods=30, freq="B")
+    close = pd.Series([100.0 + index for index in range(30)])
+    _write_parquet(
+        root, "data/normalized/global_equity_price_daily/symbol=SKHY/year=2026/data.parquet",
+        pd.DataFrame({
+            "date": dates, "symbol": ["SKHY"] * 30, "source_ticker": ["SKHY"] * 30,
+            "open": close - 1, "high": close + 2, "low": close - 2, "close": close,
+            "adjusted_close": close, "volume": [1_000_000] * 30,
+            "currency": ["USD"] * 30, "exchange": ["NASDAQ"] * 30,
+            "provider": ["fixture"] * 30,
+            "retrieved_at": pd.to_datetime(["2026-09-04T00:00:00Z"] * 30),
+            "adjustment_status": ["RAW_AND_ADJUSTED_RETAINED"] * 30,
+        }),
+    )
+    datasets._CACHE.clear()
+    stock_detail._DETAIL_CACHE.clear()
+
+    payload = ASGITestClient(create_app(root)).get(
+        "/api/stock-detail", params={"symbol": "SKHY", "market": "US 주식"},
+    ).json()
+
+    assert payload["identity"] == {
+        "symbol": "SKHY", "name": "SK하이닉스(ADR)", "market": "US 주식",
+        "security_type": "ADR", "isin": None, "currency": "USD",
+        "exchange": "NASDAQ", "underlying_kr_symbol": "000660",
+        "underlying_url": "/stocks?symbol=000660",
+    }
+    assert payload["headline"]["price"] == 129.0
+    assert payload["stats"]["rsi14"] == 100.0
     assert payload["investor_flows"] == {"reason": "종목별 수급은 국내 주식만 보존"}
 
 
