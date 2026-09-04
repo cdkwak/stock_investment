@@ -114,7 +114,7 @@ def test_home_chart_stretches_and_resizes() -> None:
 
     assert ".home-dashboard { align-items: stretch; }" in css
     assert ".chart-card { display: flex; flex: 1 1 auto; flex-direction: column;" in css
-    assert ".chart { width: 100%; flex: 1 1 auto; min-height: 420px; }" in css
+    assert ".chart { width: 100%; flex: 1 1 auto; min-height: 380px; max-height: 540px; }" in css
     assert "@media (max-width: 768px)" in css
     assert ".chart { flex: none; height: 320px; min-height: 320px; }" in css
     assert "chart.applyOptions({ height })" in script
