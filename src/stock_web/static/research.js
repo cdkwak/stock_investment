@@ -691,7 +691,7 @@
       $("crisis-episode").innerHTML = (crisisState.payload.episodes || []).map((episode) => `<option value="${esc(episode.id)}">${esc(episode.label)}${episode.signal_date ? ` · 신호 ${esc(episode.signal_date)}` : ""}${episode.is_holdout ? " · 홀드아웃" : ""}</option>`).join("");
       updateHoldoutCounters({ persistent_views: crisisState.payload.holdout_views || 0 });
       if ((crisisState.payload.assets || []).some((asset) => asset.id === "tlt")) $("crisis-asset").value = "tlt";
-      setCrisisPreset("tlt");
+      setCrisisPreset("equity-yield");
     } catch (error) {
       $("crisis-status").textContent = error.message || "미계산";
       $("crisis-chart").innerHTML = `<div class="unavailable">${emptyMarkup(error.message || "미계산")}</div>`;

@@ -842,7 +842,7 @@ def test_crisis_overlay_panel_declares_alignment_presets_and_holdout_gate() -> N
 
     assert 'id="crisis-overlay"' in template
     assert "한 자산 × 여러 위기" in template and "한 위기 × 여러 자산" in template
-    for label in ("주식 vs 10년 금리", "TLT 위기별", "리츠 위기별", "낙폭 사다리: KOSPI 5개 사이클"):
+    for label in ("주식 vs 10년 금리", "30년물(TLT 대용) 위기별", "리츠 위기별", "낙폭 사다리: KOSPI 5개 사이클"):
         assert label in template
     assert ".venv\\Scripts\\python.exe scripts/research/run_crisis_overlay.py --project-root ." in template
     assert 'id="crisis-basis"' in template and "보유시작 = 100" in template
