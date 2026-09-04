@@ -32,7 +32,7 @@ FORMULAS = {
     "ratio_1m_3m": "vix / vix3m",
     "ratio_9d_1m": "vix9d / vix",
     "regime": "contango when vix < vix3m else backwardation",
-    "pct_rank_252": "percentile rank of ratio_1m_3m in the trailing 252 observations",
+    "pct_rank_252": "percentile rank of ratio_1m_3m in the trailing 252 dates that have a ratio (FRED holiday rows skipped)",
 }
 
 
@@ -110,9 +110,14 @@ def calculate_vix_term_structure(
     comparable = result[["vix", "vix3m"]].notna().all(axis=1)
     result.loc[comparable & result["vix"].lt(result["vix3m"]), "regime"] = "contango"
     result.loc[comparable & result["vix"].ge(result["vix3m"]), "regime"] = "backwardation"
-    result["pct_rank_252"] = result["ratio_1m_3m"].rolling(
+    # FRED VIXCLS carries rows on Cboe holidays (no VIX3M close that day), so the
+    # rank runs over the trailing 252 dates that actually have a ratio; a date
+    # without a ratio keeps a null rank instead of poisoning every later window.
+    available = result["ratio_1m_3m"].dropna()
+    ranked = available.rolling(
         PERCENTILE_WINDOW, min_periods=PERCENTILE_WINDOW,
     ).apply(_last_percentile_rank, raw=False)
+    result["pct_rank_252"] = ranked.reindex(result.index)
     return result.loc[:, OUTPUT_COLUMNS].reset_index(drop=True)
 
 
