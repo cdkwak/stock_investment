@@ -62,8 +62,11 @@ def test_market_verdict_records_raw_capped_score_note_and_trend_evidence() -> No
     assert verdict["market_score"] == verdict["score"] == 1
     assert verdict["score_note"] == "과열은 RSI14와 추세의 서로 다른 두 근거가 필요"
     assert regime._trend_evidence_value(
-        {"value": 68.0, "distance_pct": 7.1}, "200일선",
-    ) == "200일선 +7.1% (10년 백분위 68%)"
+        {"value": 68.0, "distance_pct": 7.1, "contribution": 0}, "200일선",
+    ) == "200일선 +7.1% (10년 백분위 68%) → 0"
+    assert regime._trend_evidence_value(
+        {"value": 4.9, "distance_pct": -7.4, "contribution": -1}, "60일선",
+    ) == "60일선 −7.4% (10년 백분위 5%) → −1"
 
 
 def test_volatility_only_records_the_one_point_cap_note() -> None:

@@ -329,9 +329,13 @@ def _trend_evidence_value(component: dict[str, object], trend_name: str) -> str:
     if percentile is None or distance is None:
         return "자료 없음"
     sign = "+" if distance >= 0.0 else "−"
+    contribution = component.get("contribution")
+    # Same "→ ±N" tail as every other component row: the trend row is often the only
+    # component that moves the score, so its contribution must be visible (06:00 review).
     return (
         f"{trend_name} {sign}{abs(distance):.1f}% "
-        f"(10년 백분위 {percentile:.0f}%)"
+        f"(10년 백분위 {percentile:.0f}%) → "
+        f"{_score_text(contribution if isinstance(contribution, int) else None)}"
     )
 
 
