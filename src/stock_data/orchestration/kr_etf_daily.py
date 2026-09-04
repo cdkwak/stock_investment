@@ -116,9 +116,56 @@ def resolve_kr_etf_symbols(project_root: Path) -> tuple[str, ...]:
         master = read_dataset(master_root, KR_ETF_MASTER, validate_kr_etf_master)
         selected.update(master["symbol"].astype(str))
 
+    # Manual (web-entered) accounts: any Korean ETF the user holds is priced by this
+    # lane too, so the 내 계좌 page never needs a hand-typed 현재가 for KRX ETFs.
+    selected.update(_manual_account_etf_symbols(root))
+
     if not selected:
         return ()
     return normalize_symbols(sorted(selected))
+
+
+MANUAL_ACCOUNT_PATHS = (
+    Path("artifacts/local_user/manual_accounts.json"),
+    Path("artifacts/local_user/manual_accounts_web.json"),
+)
+UNIVERSE_ROOT = Path("data/normalized/kr_etf_universe_daily")
+
+
+def _manual_account_etf_symbols(root: Path) -> set[str]:
+    """Tickers held in manual accounts that the retained KRX ETF universe knows as ETFs."""
+
+    tickers: set[str] = set()
+    for relative in MANUAL_ACCOUNT_PATHS:
+        path = root / relative
+        if not path.is_file():
+            continue
+        payload = _read_json(path)
+        accounts = payload.get("accounts") if isinstance(payload, dict) else None
+        if not isinstance(accounts, list):
+            continue
+        for account in accounts:
+            positions = account.get("positions") if isinstance(account, dict) else None
+            for position in positions or []:
+                if not isinstance(position, dict):
+                    continue
+                ticker = str(position.get("ticker") or "").strip().upper()
+                if len(ticker) == 6 and ticker.isalnum():
+                    tickers.add(ticker)
+    if not tickers:
+        return set()
+    universe_root = root / UNIVERSE_ROOT
+    if not universe_root.exists() or not any(universe_root.rglob("*.parquet")):
+        return set()
+    import pyarrow.dataset as ds
+
+    table = ds.dataset(str(universe_root), format="parquet", partitioning=None).to_table(
+        columns=["symbol", "security_type"],
+    ).to_pandas()
+    known = set(
+        table.loc[table["security_type"].astype(str).eq("ETF"), "symbol"].astype(str).str.upper()
+    )
+    return tickers & known
 
 
 def plan_kr_etf_symbol_windows(
