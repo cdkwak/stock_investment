@@ -112,7 +112,7 @@ def test_same_day_refresh_skips_current_retained_session_at_api_zero(monkeypatch
     assert bridge.refresh_close_watchlist_same_day(current) == "skipped · already_current"
 
 
-def test_same_day_refresh_refuses_a_plan_above_eight_calls(monkeypatch) -> None:
+def test_same_day_refresh_refuses_a_plan_above_the_call_cap(monkeypatch) -> None:
     current = datetime(2026, 9, 4, 16, 10, tzinfo=ZoneInfo("Asia/Seoul"))
     calls: list[str] = []
     monkeypatch.setattr(bridge, "_is_xkrx_trading_day", lambda day: True)
@@ -120,7 +120,7 @@ def test_same_day_refresh_refuses_a_plan_above_eight_calls(monkeypatch) -> None:
     monkeypatch.setattr(
         bridge,
         "_same_day_lane_call_ceiling",
-        lambda lane, target: 4 if lane == "KR_EQUITY_PROVISIONAL_DAILY" else 5,
+        lambda lane, target: 6 if lane == "KR_EQUITY_PROVISIONAL_DAILY" else 9,  # 4 used + 9 > cap 12
     )
     monkeypatch.setattr(
         bridge,
