@@ -391,6 +391,9 @@ def test_account_posts_are_loopback_only_and_pages_and_get_apis_render() -> None
     assert ".source-mobile-meta" in account_css
     assert "manual-name-search" in account_javascript
     assert "manualSearchSequence" in account_javascript
+    assert "/api/stocks/resolve?code=" in account_javascript
+    assert 'id === "journal-symbol"' in account_javascript
+    assert 'classList.contains("manual-code-input")' in account_javascript
     assert "events.slice(0, journalVisibleRows)" in account_javascript
     assert "window.setTimeout(() => { toast.hidden = true; }, 8000)" in account_javascript
     assert client.get("/api/manual/accounts").status_code == 200
@@ -486,6 +489,40 @@ def test_manual_accounts_resolve_unique_names_and_hint_ambiguous_or_missing_name
     assert response.json()["error"] == (
         "종목명을 찾을 수 없습니다. 종목코드를 직접 입력하거나 검색 결과에서 고르세요."
     )
+
+
+def test_stock_resolve_endpoint_is_relay_readable_and_manual_code_only_fills_name() -> None:
+    root = _account_project()
+    client = ASGITestClient(create_app(root))
+
+    resolved = client.get(
+        "/api/stocks/resolve", params={"code": "005930"},
+        client_host="127.0.0.1", headers={"x-forwarded-for": "100.64.0.8"},
+    )
+    assert resolved.status_code == 200
+    assert resolved.json() == {
+        "found": True,
+        "market": "KOSPI",
+        "symbol": "005930",
+        "name": "삼성전자",
+        "currency": "KRW",
+        "security_type": "보통주",
+        "source": "kr_equity_master",
+    }
+
+    payload = _manual_post_payload()
+    payload["accounts"] = [{
+        **payload["accounts"][0],
+        "positions": [{
+            "ticker": "005930", "name": "", "quantity": 1,
+            "average_cost": 70_000, "manual_price": None,
+        }],
+    }]
+    saved = client.post(
+        "/api/manual/accounts", json=payload, client_host="127.0.0.1",
+    )
+    assert saved.status_code == 200
+    assert saved.json()["accounts"][0]["positions"][0]["name"] == "삼성전자"
 
 
 def test_write_audit_records_200_400_403_without_private_payload_content() -> None:

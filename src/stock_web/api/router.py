@@ -283,6 +283,12 @@ def build_router(project_root: Path, *, public_mode: bool = False) -> APIRouter:
 
         return json_response(search_stocks(project_root, q))
 
+    @router.get("/stocks/resolve")
+    def stock_resolve(code: str = "") -> Response:
+        from stock_web.api.symbol_resolver import resolve_symbol_code
+
+        return json_response(resolve_symbol_code(project_root, code))
+
     @router.get("/stock-detail")
     def stock_detail(symbol: str, market: str = "") -> Response:
         from stock_web.api.stock_detail import build_stock_detail_payload

@@ -2,11 +2,244 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
+import threading
 from typing import Mapping
+
+import pandas as pd
 
 
 class SymbolResolutionError(ValueError):
     """Sanitized identity-resolution error suitable for a form response."""
+
+
+_SYMBOL_INDEX_CACHE: dict[str, tuple[str, dict[str, dict[str, str]]]] = {}
+_SYMBOL_INDEX_LOCK = threading.Lock()
+
+
+def _dataset_signature(project_root: Path) -> str:
+    """Return the identity datasets' cheap cache signature."""
+    root = Path(project_root).resolve()
+    parts: list[str] = []
+    for relative in (
+        "data/normalized/kr_equity_master",
+        "data/normalized/kr_etf_universe_daily",
+        "data/normalized/kr_etf_master",
+    ):
+        dataset = root / relative
+        try:
+            paths = sorted(dataset.rglob("*.parquet"))
+        except OSError:
+            paths = []
+        for path in paths:
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            parts.append(
+                f"{path.relative_to(root).as_posix()}:{stat.st_size}:{stat.st_mtime_ns}"
+            )
+    return "|".join(parts) or "MISSING"
+
+
+def _parquet_frames(dataset: Path, columns: list[str]) -> list[pd.DataFrame]:
+    """Read physical files without interpreting directory names as partitions."""
+    return [
+        pd.read_parquet(path, columns=columns, partitioning=None)
+        for path in sorted(dataset.rglob("*.parquet"))
+    ]
+
+
+def _text(value: object) -> str:
+    if value is None or pd.isna(value):
+        return ""
+    return str(value).strip()
+
+
+def _identity(
+    *, market: str, symbol: object, name: object, currency: str,
+    security_type: object, source: str,
+) -> dict[str, str] | None:
+    clean_symbol = _text(symbol).upper()
+    clean_name = _text(name)
+    clean_type = _text(security_type)
+    if not clean_symbol or not clean_name or not clean_type:
+        return None
+    return {
+        "market": market,
+        "symbol": clean_symbol,
+        "name": clean_name,
+        "currency": currency,
+        "security_type": clean_type,
+        "source": source,
+    }
+
+
+def _kr_stock_identities(project_root: Path) -> tuple[dict[str, str], ...]:
+    dataset = Path(project_root) / "data/normalized/kr_equity_master"
+    try:
+        frames = _parquet_frames(dataset, [
+            "symbol", "name", "market", "delisting_date", "security_type_name",
+        ])
+        if not frames:
+            return ()
+        frame = pd.concat(frames, ignore_index=True)
+        active = frame.loc[
+            frame["delisting_date"].isna()
+            & frame["security_type_name"].astype(str).eq("보통주")
+            & frame["market"].astype(str).isin({"KOSPI", "KOSDAQ"})
+            & frame["symbol"].astype(str).str.fullmatch(r"\d{6}")
+        ]
+        if active.duplicated(["market", "symbol"]).any():
+            return ()
+        rows = (
+            _identity(
+                market=_text(row.market), symbol=row.symbol, name=row.name,
+                currency="KRW", security_type=row.security_type_name,
+                source="kr_equity_master",
+            )
+            for row in active.sort_values(["market", "symbol"], kind="stable").itertuples(index=False)
+        )
+        return tuple(item for item in rows if item is not None)
+    except (KeyError, OSError, PermissionError, TypeError, ValueError):
+        return ()
+
+
+def _kr_etf_universe_identities(
+    project_root: Path,
+) -> tuple[dict[str, str], ...] | None:
+    dataset = Path(project_root) / "data/normalized/kr_etf_universe_daily"
+    try:
+        frames = _parquet_frames(dataset, [
+            "source_date", "symbol", "name", "market", "security_type", "listing_status",
+        ])
+        if not frames:
+            return None
+        frame = pd.concat(frames, ignore_index=True)
+        frame["_source_date"] = pd.to_datetime(frame["source_date"], errors="coerce")
+        if frame.empty or frame["_source_date"].isna().any():
+            return None
+        latest = frame.loc[frame["_source_date"].eq(frame["_source_date"].max())].copy()
+        if (
+            latest.empty
+            or latest["symbol"].astype(str).duplicated().any()
+            or not latest["symbol"].astype(str).str.fullmatch(r"[0-9A-Z]{6}").all()
+            or latest[["symbol", "name", "market", "security_type", "listing_status"]].isna().any().any()
+            or not latest["market"].astype(str).eq("KRX").all()
+            or not latest["security_type"].astype(str).eq("ETF").all()
+            or not latest["listing_status"].astype(str).eq("LISTED_AT_SOURCE_DATE").all()
+        ):
+            return None
+        rows = (
+            _identity(
+                market="KRX", symbol=row.symbol, name=row.name, currency="KRW",
+                security_type="ETF", source="kr_etf_universe_daily",
+            )
+            for row in latest.sort_values("symbol", kind="stable").itertuples(index=False)
+        )
+        resolved = tuple(item for item in rows if item is not None)
+        return resolved or None
+    except (KeyError, OSError, PermissionError, TypeError, ValueError):
+        return None
+
+
+def _kr_etf_master_identities(project_root: Path) -> tuple[dict[str, str], ...]:
+    dataset = Path(project_root) / "data/normalized/kr_etf_master"
+    try:
+        frames = _parquet_frames(
+            dataset, ["symbol", "name", "market", "security_type", "listing_status"],
+        )
+        if not frames:
+            return ()
+        frame = pd.concat(frames, ignore_index=True)
+        active = frame.loc[
+            frame["market"].astype(str).eq("KRX")
+            & frame["security_type"].astype(str).eq("ETF")
+            & frame["listing_status"].astype(str).eq("LISTED_AT_SOURCE_DATE")
+        ]
+        if active["symbol"].astype(str).duplicated().any():
+            return ()
+        rows = (
+            _identity(
+                market="KRX", symbol=row.symbol, name=row.name, currency="KRW",
+                security_type="ETF", source="kr_etf_master",
+            )
+            for row in active.sort_values("symbol", kind="stable").itertuples(index=False)
+        )
+        return tuple(item for item in rows if item is not None)
+    except (KeyError, OSError, PermissionError, TypeError, ValueError):
+        return ()
+
+
+def _us_etf_identities() -> tuple[dict[str, str], ...]:
+    from stock_data.contracts.global_etf import GLOBAL_ETF_REGISTRY
+
+    identities: dict[str, dict[str, str]] = {}
+    for symbol, spec in GLOBAL_ETF_REGISTRY.items():
+        item = _identity(
+            market="US ETF", symbol=symbol, name=spec.get("official_fund_name"),
+            currency="USD", security_type=spec.get("instrument_type"),
+            source="global_etf_registry",
+        )
+        if item is not None:
+            identities[item["symbol"]] = item
+
+    # The accepted GUI catalog intentionally contains several display-only ETFs
+    # in addition to the contract-registry daily lane.
+    from stock_data.gui.services import US_ETF_CHART_IDENTITIES
+
+    for identity in US_ETF_CHART_IDENTITIES:
+        item = _identity(
+            market="US ETF", symbol=identity.symbol, name=identity.name,
+            currency="USD", security_type=identity.security_type,
+            source="us_etf_catalog",
+        )
+        if item is not None:
+            identities.setdefault(item["symbol"], item)
+    return tuple(identities.values())
+
+
+def _build_symbol_index(project_root: Path) -> dict[str, dict[str, str]]:
+    index: dict[str, dict[str, str]] = {}
+    universe = _kr_etf_universe_identities(project_root)
+    ordered = (
+        *_kr_stock_identities(project_root),
+        *(universe if universe is not None else _kr_etf_master_identities(project_root)),
+        *_us_etf_identities(),
+    )
+    for item in ordered:
+        index.setdefault(item["symbol"], item)
+    return index
+
+
+def _symbol_index(project_root: Path) -> dict[str, dict[str, str]]:
+    root = Path(project_root).resolve()
+    key = str(root)
+    signature = _dataset_signature(root)
+    cached = _SYMBOL_INDEX_CACHE.get(key)
+    if cached is not None and cached[0] == signature:
+        return cached[1]
+    with _SYMBOL_INDEX_LOCK:
+        cached = _SYMBOL_INDEX_CACHE.get(key)
+        if cached is not None and cached[0] == signature:
+            return cached[1]
+        index = _build_symbol_index(root)
+        _SYMBOL_INDEX_CACHE[key] = (signature, index)
+        return index
+
+
+def resolve_symbol_code(project_root: Path, code: object) -> dict[str, object]:
+    """Resolve one exact KRX code or U.S. ETF ticker from retained catalogs."""
+    clean_code = str(code or "").strip().upper()
+    if not (
+        re.fullmatch(r"[0-9A-Z]{6}", clean_code)
+        or re.fullmatch(r"[A-Z][A-Z0-9.-]{0,9}", clean_code)
+    ):
+        return {"found": False, "reason": "미등록 코드"}
+    selected = _symbol_index(Path(project_root)).get(clean_code)
+    if selected is None:
+        return {"found": False, "reason": "미등록 코드"}
+    return {"found": True, **selected}
 
 
 def _candidates(project_root: Path, query: str) -> list[dict[str, object]]:
@@ -22,7 +255,8 @@ def resolve_local_symbol(
 ) -> dict[str, str | None]:
     """Resolve one local catalog identity without making a provider call.
 
-    A supplied symbol remains authoritative. A blank symbol requires either one
+    A supplied symbol and name remain authoritative. A blank name is filled
+    only for an exact registered symbol. A blank symbol requires either one
     exact name match or one unique search match. Ambiguous errors deliberately
     contain only the first three local code/name candidates.
     """
@@ -31,18 +265,14 @@ def resolve_local_symbol(
     if clean_symbol:
         if clean_name:
             return {"symbol": clean_symbol, "name": clean_name, "currency": None}
-        exact = [
-            item for item in _candidates(project_root, clean_symbol)
-            if str(item.get("symbol") or "").strip().upper() == clean_symbol
-        ]
-        if len(exact) == 1:
-            selected = exact[0]
+        resolved = resolve_symbol_code(project_root, clean_symbol)
+        if resolved.get("found") is True:
             return {
-                "symbol": clean_symbol,
-                "name": str(selected.get("name") or clean_symbol).strip(),
-                "currency": str(selected.get("currency") or "").strip() or None,
+                "symbol": str(resolved["symbol"]),
+                "name": str(resolved["name"]),
+                "currency": str(resolved["currency"]),
             }
-        return {"symbol": clean_symbol, "name": clean_name, "currency": None}
+        raise SymbolResolutionError("미등록 코드입니다. 종목명으로 검색하세요.")
 
     if not clean_name or len(clean_name) > 80:
         raise SymbolResolutionError("종목명이 올바르지 않습니다.")
@@ -78,4 +308,4 @@ def resolve_local_symbol(
     )
 
 
-__all__ = ["SymbolResolutionError", "resolve_local_symbol"]
+__all__ = ["SymbolResolutionError", "resolve_local_symbol", "resolve_symbol_code"]

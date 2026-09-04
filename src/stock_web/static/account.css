@@ -1,3 +1,7 @@
+.account-page {
+  --symbol-success: #217346;
+}
+
 .card-head b {
   white-space: nowrap;
   flex-shrink: 0;
@@ -107,6 +111,20 @@
 .manual-search-results {
   z-index: 30;
 }
+
+.symbol-resolve-hint {
+  display: block;
+  min-height: 1.35em;
+  margin-top: 3px;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.symbol-resolve-hint[hidden] { display: none; }
+
+.symbol-resolve-hint.success { color: var(--symbol-success); }
+
+.symbol-resolve-hint.warning { color: var(--amber); }
 
 .journal-more-wrap {
   display: flex;

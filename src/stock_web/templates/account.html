@@ -69,7 +69,7 @@
     <summary class="card-head"><b>입력 (수동 계좌 · 자산/부채 · 입출금 · 매매일지)</b><span class="input-panel-meta"><span class="badge">4</span><span class="muted">기본 접힘 · PC에서만 저장</span></span></summary>
     <div class="input-subsections">
       <details class="card form-card input-subsection manual-account-card">
-        <summary class="card-head"><b>수동 증권 계좌 입력</b><span class="muted">종목명 검색으로 코드·통화 자동 입력</span></summary>
+        <summary class="card-head"><b>수동 증권 계좌 입력</b><span class="muted">종목명↔코드 검색으로 이름·코드·통화 자동 입력</span></summary>
         <div class="subform-head"><span class="muted">한국 종목은 최신 로컬 종가, 미국 종목은 수동 현재가를 사용합니다.</span><button type="button" class="button" id="add-manual-account">계좌 추가</button></div>
         <div id="manual-accounts-form"></div>
         <div class="form-actions"><span class="muted" id="manual-status"></span><button type="button" class="button primary" id="save-manual-accounts">수동 계좌 저장</button></div>
@@ -113,7 +113,7 @@
             <label class="field" for="journal-name"><span>종목명</span><input id="journal-name" maxlength="80" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="journal-search-results" placeholder="회사명·ETF명 또는 코드 검색"></label>
             <div class="journal-search-results" id="journal-search-results" role="listbox" hidden></div>
           </div>
-          <label class="field"><span>종목코드·티커</span><input id="journal-symbol" maxlength="24" placeholder="검색 선택 시 자동 입력 · 직접 입력 가능"></label>
+          <label class="field symbol-code-field"><span>종목코드·티커</span><input id="journal-symbol" maxlength="24" placeholder="코드 입력 시 종목명 확인"><small class="symbol-resolve-hint" id="journal-symbol-hint" role="status" aria-live="polite" hidden></small></label>
           <label class="field"><span>구분</span><select id="journal-side"><option value="BUY">매수</option><option value="SELL">매도</option><option value="DIVIDEND">배당</option><option value="TRANSFER_IN">입고</option><option value="TRANSFER_OUT">출고</option><option value="OTHER">기타</option></select></label>
           <label class="field"><span>통화</span><select id="journal-currency"><option value="KRW">KRW</option><option value="USD">USD</option></select></label>
           <label class="field"><span>수량</span><input type="number" min="0" step="0.000001" id="journal-quantity"></label>

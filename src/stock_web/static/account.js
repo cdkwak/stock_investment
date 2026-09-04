@@ -53,6 +53,7 @@
   let manualSearchSequence = 0;
   let manualSearchMatches = [];
   let activeManualSearchInput = null;
+  const symbolResolveStates = new WeakMap();
   let toastTimer = null;
 
   function showToast(message) {
@@ -225,8 +226,10 @@
     if (!item) return;
     selectedJournalIdentity = item;
     $("journal-name").value = item.name || "";
+    $("journal-name").dataset.autoFilledName = $("journal-name").value;
     $("journal-symbol").value = item.symbol || "";
     $("journal-currency").value = item.market === "US ETF" ? "USD" : "KRW";
+    setSymbolResolveHint($("journal-symbol"), `✓ ${item.name} · ${item.market}`, "success");
     closeJournalSearch();
   }
 
@@ -235,6 +238,8 @@
     if (selectedJournalIdentity && query !== selectedJournalIdentity.name) {
       selectedJournalIdentity = null;
       $("journal-symbol").value = "";
+      delete $("journal-name").dataset.autoFilledName;
+      clearSymbolResolveHint($("journal-symbol"));
     }
     window.clearTimeout(journalSearchTimer);
     const sequence = ++journalSearchSequence;
@@ -284,6 +289,8 @@
     if (query !== input.dataset.selectedName) {
       input.closest(".holding-row").querySelector('[data-field="ticker"]').value = "";
       delete input.dataset.selectedName;
+      delete input.dataset.autoFilledName;
+      clearSymbolResolveHint(input.closest(".holding-row").querySelector('[data-field="ticker"]'));
     }
     window.clearTimeout(manualSearchTimer);
     const sequence = ++manualSearchSequence;
@@ -309,9 +316,100 @@
     const editor = input.closest(".manual-account-editor");
     input.value = item.name || "";
     input.dataset.selectedName = input.value;
-    row.querySelector('[data-field="ticker"]').value = item.symbol || "";
+    input.dataset.autoFilledName = input.value;
+    const symbolInput = row.querySelector('[data-field="ticker"]');
+    symbolInput.value = item.symbol || "";
     editor.querySelector('[data-field="currency"]').value = item.currency || (item.market === "US ETF" ? "USD" : "KRW");
+    setSymbolResolveHint(symbolInput, `✓ ${item.name} · ${item.market}`, "success");
     closeManualSearch();
+  }
+
+  function symbolResolveTargets(input) {
+    if (input.id === "journal-symbol") {
+      return {
+        nameInput: $("journal-name"), currencyInput: $("journal-currency"),
+      };
+    }
+    const row = input.closest(".holding-row");
+    const editor = input.closest(".manual-account-editor");
+    return {
+      nameInput: row?.querySelector('[data-field="name"]'),
+      currencyInput: editor?.querySelector('[data-field="currency"]'),
+    };
+  }
+
+  function symbolResolveHint(input) {
+    return input.closest(".symbol-code-field")?.querySelector(".symbol-resolve-hint");
+  }
+
+  function clearSymbolResolveHint(input) {
+    const hint = symbolResolveHint(input);
+    if (!hint) return;
+    hint.textContent = "";
+    hint.classList.remove("success", "warning");
+    hint.hidden = true;
+  }
+
+  function setSymbolResolveHint(input, message, state) {
+    const hint = symbolResolveHint(input);
+    if (!hint) return;
+    hint.textContent = message;
+    hint.classList.remove("success", "warning");
+    hint.classList.add(state);
+    hint.hidden = false;
+  }
+
+  function invalidateSymbolResolve(input) {
+    const state = symbolResolveStates.get(input);
+    if (state) {
+      window.clearTimeout(state.timer);
+      state.sequence += 1;
+    }
+    clearSymbolResolveHint(input);
+  }
+
+  function scheduleSymbolResolve(input) {
+    let state = symbolResolveStates.get(input);
+    if (!state) {
+      state = { timer: null, sequence: 0 };
+      symbolResolveStates.set(input, state);
+    }
+    window.clearTimeout(state.timer);
+    const sequence = ++state.sequence;
+    const code = input.value.trim();
+    if (!code) {
+      clearSymbolResolveHint(input);
+      return;
+    }
+    state.timer = window.setTimeout(async () => {
+      try {
+        const response = await fetch(`/api/stocks/resolve?code=${encodeURIComponent(code)}`);
+        const result = await response.json();
+        if (sequence !== state.sequence || !input.isConnected || input.value.trim() !== code) return;
+        if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+        if (!result.found) {
+          setSymbolResolveHint(input, "미등록 코드 · 종목명으로 검색하세요", "warning");
+          return;
+        }
+        const { nameInput, currencyInput } = symbolResolveTargets(input);
+        const currentName = nameInput?.value.trim() || "";
+        if (nameInput && (!currentName || currentName === nameInput.dataset.autoFilledName)) {
+          nameInput.value = result.name || "";
+          nameInput.dataset.autoFilledName = nameInput.value;
+          if (nameInput.classList.contains("manual-name-search")) {
+            nameInput.dataset.selectedName = nameInput.value;
+          } else if (input.id === "journal-symbol") {
+            selectedJournalIdentity = result;
+          }
+        }
+        input.value = result.symbol || code.toUpperCase();
+        if (currencyInput) currencyInput.value = result.currency;
+        setSymbolResolveHint(input, `✓ ${result.name} · ${result.market}`, "success");
+      } catch (error) {
+        if (sequence !== state.sequence || !input.isConnected) return;
+        setSymbolResolveHint(input, `코드 확인 실패 · ${error.message}`, "warning");
+      }
+    }, 300);
   }
 
   function updateJournalPriceField() {
@@ -340,6 +438,7 @@
     $("journal-account").value = "미래에셋";
     $("journal-symbol").value = "";
     $("journal-name").value = "";
+    delete $("journal-name").dataset.autoFilledName;
     $("journal-side").value = "BUY";
     $("journal-currency").value = "KRW";
     $("journal-quantity").value = "";
@@ -347,6 +446,7 @@
     $("journal-memo").value = "";
     selectedJournalIdentity = null;
     ++journalSearchSequence;
+    invalidateSymbolResolve($("journal-symbol"));
     closeJournalSearch();
     updateJournalPriceField();
   }
@@ -401,7 +501,7 @@
           <label class="field"><span>종목명</span><input class="manual-name-search" data-field="name" value="${esc(position.name || "")}" maxlength="80" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="manual-search-results-${accountIndex}-${positionIndex}" placeholder="이름만 입력하거나 검색 결과 선택"></label>
           <div class="journal-search-results manual-search-results" id="manual-search-results-${accountIndex}-${positionIndex}" role="listbox" hidden></div>
         </div>
-        <label class="field"><span>종목코드·티커</span><input data-field="ticker" value="${esc(position.ticker || "")}" placeholder="검색 선택 시 자동 입력"></label>
+        <label class="field symbol-code-field"><span>종목코드·티커</span><input class="manual-code-input" data-field="ticker" value="${esc(position.ticker || "")}" placeholder="코드 입력 시 종목명 확인"><small class="symbol-resolve-hint" role="status" aria-live="polite" hidden></small></label>
         <label class="field"><span>수량</span><input data-field="quantity" type="number" min="0" step="any" value="${esc(position.quantity ?? "")}"></label>
         <label class="field"><span>평균단가</span><input data-field="average_cost" type="number" min="0" step="any" value="${esc(position.average_cost ?? "")}"></label>
         <label class="field"><span>수동 현재가</span><input data-field="manual_price" type="number" min="0" step="any" value="${esc(position.manual_price ?? "")}" placeholder="선택"></label>
@@ -634,13 +734,26 @@
     $("manual-accounts-form").addEventListener("input", (event) => {
       if (event.target instanceof HTMLInputElement && event.target.classList.contains("manual-name-search")) {
         scheduleManualSearch(event.target);
+      } else if (event.target instanceof HTMLInputElement && event.target.classList.contains("manual-code-input")) {
+        invalidateSymbolResolve(event.target);
       }
     });
+    ["blur", "change"].forEach((eventName) => {
+      $("manual-accounts-form").addEventListener(eventName, (event) => {
+        if (event.target instanceof HTMLInputElement && event.target.classList.contains("manual-code-input")) {
+          scheduleSymbolResolve(event.target);
+        }
+      }, eventName === "blur");
+    });
     $("manual-accounts-form").addEventListener("keydown", (event) => {
-      if (!(event.target instanceof HTMLInputElement) || !event.target.classList.contains("manual-name-search")) return;
-      if (event.key === "Escape") closeManualSearch();
-      if (event.key === "Enter" && manualSearchMatches.length) {
-        event.preventDefault(); selectManualIdentity(manualSearchMatches[0]);
+      if (!(event.target instanceof HTMLInputElement)) return;
+      if (event.target.classList.contains("manual-code-input") && event.key === "Enter") {
+        event.preventDefault(); scheduleSymbolResolve(event.target);
+      } else if (event.target.classList.contains("manual-name-search")) {
+        if (event.key === "Escape") closeManualSearch();
+        if (event.key === "Enter" && manualSearchMatches.length) {
+          event.preventDefault(); selectManualIdentity(manualSearchMatches[0]);
+        }
       }
     });
     $("journal-name").addEventListener("input", scheduleJournalSearch);
@@ -649,6 +762,16 @@
       if (event.key === "Enter" && journalSearchMatches.length) {
         event.preventDefault();
         selectJournalIdentity(journalSearchMatches[0]);
+      }
+    });
+    const journalSymbolInput = $("journal-symbol");
+    journalSymbolInput.addEventListener("input", () => invalidateSymbolResolve(journalSymbolInput));
+    ["blur", "change"].forEach((eventName) => {
+      journalSymbolInput.addEventListener(eventName, () => scheduleSymbolResolve(journalSymbolInput));
+    });
+    journalSymbolInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault(); scheduleSymbolResolve(journalSymbolInput);
       }
     });
     $("journal-side").addEventListener("change", updateJournalPriceField);

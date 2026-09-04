@@ -45,10 +45,22 @@ exposes account identifiers.
 - 수동 증권 계좌 and 매매일지 use the same provider-free local symbol resolver.
   The index includes Korean equities, the latest validated
   `kr_etf_universe_daily` rows (including its non-Hive `partitioning=None`
-  storage contract), and the accepted static U.S. ETF catalog.
+  storage contract), falls back to `kr_etf_master` when that snapshot is not
+  valid, and includes the contract-registry plus accepted GUI U.S. ETF catalog.
+- `GET /api/stocks/resolve?code=...` performs an exact, case-insensitive ticker
+  lookup and is readable through relayed clients. Its successful response keeps
+  market, canonical symbol/name, currency, security type, and local source;
+  unknown input returns the typed `미등록 코드` result without a provider call.
 - A selected name fills canonical code, display name, and KRW/USD. When a POST
   has a blank code, one exact or unique local name match is accepted. Ambiguous
   input fails with at most three `code name` candidates; no match fails closed.
+- Leaving or changing a code field, or pressing Enter in it, resolves after a
+  300 ms debounce in both forms. A match fills currency and fills the name only
+  when it is blank or was previously auto-filled; a user-entered different name
+  is preserved. The inline text cue identifies success or gives the name-search
+  fallback, so state is not communicated by green/amber colour alone.
+- Code-only POSTs use the same resolver and persist the canonical name and
+  currency for both manual holdings and manual journal entries.
 - Every account-related local write attempt appends one JSON line to
   `artifacts/local_user/web_write_audit.jsonl`. Its complete schema is `ts`,
   `path`, `client_kind`, `status`, `error_code`, and integer-only `row_counts`.

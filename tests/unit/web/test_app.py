@@ -80,7 +80,7 @@ def test_data_page_uses_korean_grouped_health_and_kst_receipts() -> None:
     assert page.status_code == 200
     for header in ("데이터셋", "신선도", "최신", "예상", "운영 상태", "차단 사유", "자동화"):
         assert header in page.text
-    assert "정상" in page.text
+    assert "정시" in page.text
     assert "일별 · KR 지수" in page.text
     assert 'title="CURRENT"' in page.text
     assert "마지막 실행(KST)" in page.text
