@@ -8,7 +8,7 @@ until a later executable decision point.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from typing import Any, Iterable
+from typing import Any, Iterable, Sequence
 
 import numpy as np
 import pandas as pd
@@ -17,6 +17,7 @@ import pandas as pd
 TRADING_DAYS = 252
 EPISODE_COOLDOWN = 120
 LEVEL_ZERO_LOOKBACK = 60
+FOLLOWUP_HORIZONS = (0, 20, 60, 120, 250)
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,6 +203,141 @@ def _asof(series: pd.Series, date: pd.Timestamp | None) -> float | None:
     return None if position < 0 else float(series.iloc[position])
 
 
+def episode_session_date(
+    episode: Episode,
+    session_dates: Iterable[Any],
+    offset: int,
+) -> pd.Timestamp | None:
+    """Return the market-session date at ``T + offset`` for an episode."""
+
+    if isinstance(offset, bool) or not isinstance(offset, (int, np.integer)) or offset < 0:
+        raise ValueError("offset must be a non-negative integer")
+    dates = pd.DatetimeIndex(pd.to_datetime(list(session_dates), errors="raise")).normalize()
+    if dates.has_duplicates or not dates.is_monotonic_increasing:
+        raise ValueError("session dates must be unique and increasing")
+    target = episode.signal_index + int(offset)
+    if target >= len(dates):
+        return None
+    date = pd.Timestamp(dates[target])
+    if offset == 0 and date != episode.signal_date:
+        raise ValueError("episode signal index does not match the supplied session calendar")
+    return date
+
+
+def measure_asset_horizons(
+    values: pd.Series,
+    episode: Episode,
+    equity_close: pd.Series,
+    session_dates: Iterable[Any],
+    *,
+    offsets: Sequence[int] = FOLLOWUP_HORIZONS,
+) -> dict[str, Any]:
+    """Measure existing asset/equity valuation semantics at extra horizons.
+
+    Values remain normalized to the episode's existing ``hold_start_date``.
+    Target dates use the episode market's retained session calendar, with
+    asset and equity marks aligned as-of that date.
+    """
+
+    if any(
+        isinstance(offset, bool)
+        or not isinstance(offset, (int, np.integer))
+        or offset < 0
+        for offset in offsets
+    ):
+        raise ValueError("offsets must contain non-negative integers")
+    normalized_offsets = tuple(int(offset) for offset in offsets)
+    if len(set(normalized_offsets)) != len(normalized_offsets):
+        raise ValueError("offsets must be unique")
+    start_value = _asof(values, episode.hold_start_date)
+    equity_start = _asof(equity_close, episode.hold_start_date)
+    row: dict[str, Any] = {
+        "episode_id": episode.episode_id,
+        "market": episode.market,
+        "signal_date": episode.signal_date,
+        "hold_start_date": episode.hold_start_date,
+        "cycle": episode.cycle,
+        "cycle_type": episode.cycle_type,
+    }
+    for offset in normalized_offsets:
+        label = "t" if offset == 0 else str(offset)
+        target_date = episode_session_date(episode, session_dates, offset)
+        target_value = _asof(values, target_date)
+        equity_target = _asof(equity_close, target_date)
+        row[f"date_{label}"] = target_date
+        row[f"value_{label}"] = (
+            100.0 * target_value / start_value
+            if start_value is not None and target_value is not None
+            else None
+        )
+        row[f"equity_value_{label}"] = (
+            100.0 * equity_target / equity_start
+            if equity_start is not None and equity_target is not None
+            else None
+        )
+    return row
+
+
+def peak_after_episode(
+    values: pd.Series,
+    episode: Episode,
+    session_dates: Iterable[Any],
+    *,
+    max_offset: int = 250,
+) -> dict[str, Any]:
+    """Locate the first maximum asset level from T through ``max_offset``.
+
+    The returned ``full_window`` distinguishes a settled peak from a
+    right-censored, still-observed maximum.  Levels reuse the same hold-start
+    normalization and as-of session alignment as the episode valuation.
+    """
+
+    if isinstance(max_offset, bool) or not isinstance(max_offset, (int, np.integer)):
+        raise ValueError("max_offset must be a non-negative integer")
+    if max_offset < 0:
+        raise ValueError("max_offset must be a non-negative integer")
+    dates = pd.DatetimeIndex(pd.to_datetime(list(session_dates), errors="raise")).normalize()
+    if dates.has_duplicates or not dates.is_monotonic_increasing:
+        raise ValueError("session dates must be unique and increasing")
+    if episode.signal_index >= len(dates) or dates[episode.signal_index] != episode.signal_date:
+        raise ValueError("episode signal index does not match the supplied session calendar")
+    available_offset = min(int(max_offset), len(dates) - 1 - episode.signal_index)
+    full_window = available_offset == int(max_offset)
+    start_value = _asof(values, episode.hold_start_date)
+    if start_value is None:
+        return {
+            "peak_offset": None,
+            "peak_date": None,
+            "peak_value": None,
+            "observed_through_offset": available_offset,
+            "full_window": full_window,
+        }
+    levels: list[float] = []
+    valid_offsets: list[int] = []
+    for offset in range(available_offset + 1):
+        target_date = pd.Timestamp(dates[episode.signal_index + offset])
+        target_value = _asof(values, target_date)
+        if target_value is not None:
+            valid_offsets.append(offset)
+            levels.append(100.0 * target_value / start_value)
+    if not levels:
+        peak_offset = None
+        peak_date = None
+        peak_value = None
+    else:
+        peak_position = int(np.argmax(np.asarray(levels, dtype="float64")))
+        peak_offset = valid_offsets[peak_position]
+        peak_date = pd.Timestamp(dates[episode.signal_index + peak_offset])
+        peak_value = float(levels[peak_position])
+    return {
+        "peak_offset": peak_offset,
+        "peak_date": peak_date,
+        "peak_value": peak_value,
+        "observed_through_offset": available_offset,
+        "full_window": full_window,
+    }
+
+
 def krw_converted_value(local_usd_value: float, start_fx: float, target_fx: float) -> float:
     """Convert a 100-based USD asset value with KRW-per-USD observations."""
 
@@ -290,13 +426,24 @@ def measure_asset_episode(
     return row
 
 
-def classify_asset(rows: pd.DataFrame) -> dict[str, Any]:
-    """Apply the fixed ammunition / buy-target thresholds."""
+def classify_asset(
+    rows: pd.DataFrame,
+    *,
+    floor_statistic: str = "worst",
+) -> dict[str, Any]:
+    """Apply fixed ammunition / buy-target thresholds.
+
+    ``floor_statistic='p10'`` changes only the downside floor from the worst
+    observation to the empirical 10th percentile; all other criteria stay
+    fixed.
+    """
 
     required = {"value_t", "value_60", "equity_value_t", "equity_value_60"}
     missing = required.difference(rows.columns)
     if missing:
         raise ValueError(f"classification rows are missing columns: {sorted(missing)}")
+    if floor_statistic not in {"worst", "p10"}:
+        raise ValueError("floor_statistic must be 'worst' or 'p10'")
     t_values = pd.to_numeric(rows["value_t"], errors="coerce").dropna()
     if t_values.empty:
         return {
@@ -304,11 +451,16 @@ def classify_asset(rows: pd.DataFrame) -> dict[str, Any]:
             "observations_t": 0,
             "share_t_ge_100": None,
             "worst_t": None,
+            "p10_t": None,
+            "floor_statistic": floor_statistic,
+            "floor_value": None,
             "recovery_observations": 0,
             "share_recovery_beats_equity": None,
         }
     share_t = float(t_values.ge(100.0).mean())
     worst_t = float(t_values.min())
+    p10_t = float(t_values.quantile(0.10))
+    floor_value = worst_t if floor_statistic == "worst" else p10_t
     valid = rows[["value_t", "value_60", "equity_value_t", "equity_value_60"]].apply(
         pd.to_numeric, errors="coerce"
     ).dropna()
@@ -318,9 +470,9 @@ def classify_asset(rows: pd.DataFrame) -> dict[str, Any]:
         asset_recovery = valid["value_60"] / valid["value_t"] - 1.0
         equity_recovery = valid["equity_value_60"] / valid["equity_value_t"] - 1.0
         share_recovery = float(asset_recovery.gt(equity_recovery).mean())
-    if share_t >= 0.70 and worst_t >= 95.0:
+    if share_t >= 0.70 and floor_value >= 95.0:
         classification = "실탄"
-    elif worst_t < 95.0 and share_recovery is not None and share_recovery > 0.50:
+    elif floor_value < 95.0 and share_recovery is not None and share_recovery > 0.50:
         classification = "매수 대상"
     else:
         classification = "중립"
@@ -329,8 +481,46 @@ def classify_asset(rows: pd.DataFrame) -> dict[str, Any]:
         "observations_t": int(len(t_values)),
         "share_t_ge_100": share_t,
         "worst_t": worst_t,
+        "p10_t": p10_t,
+        "floor_statistic": floor_statistic,
+        "floor_value": floor_value,
         "recovery_observations": int(len(valid)),
         "share_recovery_beats_equity": share_recovery,
+    }
+
+
+def quantile_values(
+    rows: pd.DataFrame,
+    *,
+    labels: Sequence[str] = ("t", "20", "60"),
+) -> dict[str, dict[str, Any]]:
+    """Return empirical p10/p25/median/p75 values for named horizons."""
+
+    output: dict[str, dict[str, Any]] = {}
+    for label in labels:
+        column = f"value_{label}"
+        if column not in rows:
+            raise ValueError(f"quantile rows are missing column: {column}")
+        values = pd.to_numeric(rows[column], errors="coerce").dropna()
+        output[str(label)] = {
+            "count": int(len(values)),
+            "p10": float(values.quantile(0.10)) if len(values) else None,
+            "p25": float(values.quantile(0.25)) if len(values) else None,
+            "median": float(values.median()) if len(values) else None,
+            "p75": float(values.quantile(0.75)) if len(values) else None,
+        }
+    return output
+
+
+def fixed_crisis_types(delta_10y: float, delta_2y: float) -> dict[str, str]:
+    """Apply the two predeclared binary crisis-type rules without tuning."""
+
+    values = np.asarray([delta_10y, delta_2y], dtype="float64")
+    if not np.isfinite(values).all():
+        raise ValueError("yield deltas must be finite")
+    return {
+        "ten_year_rule": "인플레형" if float(delta_10y) > 0.0 else "침체형",
+        "two_year_first_rule": "침체형" if float(delta_2y) < -0.5 else "인플레형",
     }
 
 
@@ -352,6 +542,7 @@ def aggregate_values(rows: pd.DataFrame) -> dict[str, Any]:
 __all__ = [
     "EPISODE_COOLDOWN",
     "Episode",
+    "FOLLOWUP_HORIZONS",
     "LEVEL_ZERO_LOOKBACK",
     "TRADING_DAYS",
     "aggregate_values",
@@ -359,9 +550,14 @@ __all__ = [
     "classify_asset",
     "cluster_level_two",
     "duration_proxy_returns",
+    "episode_session_date",
+    "fixed_crisis_types",
     "krw_converted_value",
     "max_drawdown_in_window",
     "measure_asset_episode",
+    "measure_asset_horizons",
+    "peak_after_episode",
     "prepare_value_series",
+    "quantile_values",
     "returns_to_nav",
 ]

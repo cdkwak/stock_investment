@@ -23,13 +23,18 @@ from stock_data.research.compound_ladder import LadderSpec, ladder_levels  # noq
 from stock_data.research.condition_backtest import compute_signals  # noqa: E402
 from stock_data.research.core_ammunition import (  # noqa: E402
     Episode,
+    FOLLOWUP_HORIZONS,
     aggregate_values,
     cash_proxy_returns,
     classify_asset,
     cluster_level_two,
     duration_proxy_returns,
+    fixed_crisis_types,
     measure_asset_episode,
+    measure_asset_horizons,
+    peak_after_episode,
     prepare_value_series,
+    quantile_values,
     returns_to_nav,
 )
 
@@ -66,6 +71,23 @@ ETF_ASSETS = {
     "reit_vnq": ("리츠 (VNQ)", "VNQ"),
 }
 SPLIT_LABELS = ("전체", "경기침체형", "인플레형")
+CYCLE_BUCKETS = (
+    "1997–98 외환위기 (KR)",
+    "2000–02 닷컴",
+    "2008–09 금융위기",
+    "2011 (EU/미국 신용등급)",
+    "2015–16",
+    "2018",
+    "2020 코로나",
+    "2022 인플레",
+    "2025–26",
+)
+FOLLOWUP_ASSETS = (
+    "treasury_30y_proxy",
+    "tlt",
+    "treasury_2y_proxy",
+    "cash_3m_proxy",
+)
 
 
 def _json_value(value: Any) -> Any:
@@ -103,6 +125,13 @@ def _write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(text, encoding="utf-8", newline="\n")
+    temporary.replace(path)
+
+
+def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    pd.DataFrame(_json_value(rows)).to_csv(temporary, index=False, encoding="utf-8", lineterminator="\n")
     temporary.replace(path)
 
 
@@ -698,6 +727,725 @@ def _markdown(summary: dict[str, Any], records: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def _followup_measurements(
+    episodes: list[Episode],
+    frames: dict[str, pd.DataFrame],
+    ladders: dict[str, pd.DataFrame],
+    assets: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for episode in episodes:
+        equity = prepare_value_series(frames[episode.market]["date"], frames[episode.market]["close"])
+        session_dates = ladders[episode.market]["date"]
+        for asset_id, metadata in assets.items():
+            row = measure_asset_horizons(
+                metadata["values"],
+                episode,
+                equity,
+                session_dates,
+                offsets=FOLLOWUP_HORIZONS,
+            )
+            row.update(
+                {
+                    "asset_id": asset_id,
+                    "asset": metadata["label"],
+                    "asset_kind": metadata["kind"],
+                }
+            )
+            rows.append(row)
+    return rows
+
+
+def _path_summary(rows: pd.DataFrame) -> list[dict[str, Any]]:
+    output: list[dict[str, Any]] = []
+    for asset_id in FOLLOWUP_ASSETS:
+        part = rows.loc[rows["asset_id"].eq(asset_id)]
+        label = str(part["asset"].iloc[0])
+        for offset in FOLLOWUP_HORIZONS:
+            horizon = "t" if offset == 0 else str(offset)
+            values = pd.to_numeric(part[f"value_{horizon}"], errors="coerce").dropna()
+            output.append(
+                {
+                    "asset_id": asset_id,
+                    "asset": label,
+                    "horizon": horizon,
+                    "count": int(len(values)),
+                    "median": float(values.median()) if len(values) else None,
+                    "mean": float(values.mean()) if len(values) else None,
+                }
+            )
+    return output
+
+
+def _worst_episode_rows(rows: pd.DataFrame) -> list[dict[str, Any]]:
+    output: list[dict[str, Any]] = []
+    for asset_id, part in rows.groupby("asset_id", sort=False):
+        for horizon in ("t", "20", "60"):
+            values = pd.to_numeric(part[f"value_{horizon}"], errors="coerce")
+            if not values.notna().any():
+                output.append(
+                    {
+                        "asset_id": asset_id,
+                        "asset": part["asset"].iloc[0],
+                        "horizon": horizon,
+                        "value": None,
+                        "episode_id": None,
+                        "signal_date": None,
+                        "target_date": None,
+                        "cycle": None,
+                    }
+                )
+                continue
+            index = values.idxmin()
+            row = part.loc[index]
+            output.append(
+                {
+                    "asset_id": asset_id,
+                    "asset": row["asset"],
+                    "horizon": horizon,
+                    "value": float(values.loc[index]),
+                    "episode_id": row["episode_id"],
+                    "signal_date": row["signal_date"],
+                    "target_date": row[f"date_{horizon}"],
+                    "cycle": row["cycle"],
+                }
+            )
+    return output
+
+
+def _same_episode_check(rows: pd.DataFrame, worst_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    worst = pd.DataFrame(worst_rows)
+    proxy = worst.loc[worst["asset_id"].eq("treasury_30y_proxy")].set_index("horizon")
+    worst_t_id = str(proxy.at["t", "episode_id"])
+    worst_60_id = str(proxy.at["60", "episode_id"])
+    proxy_rows = rows.loc[
+        rows["asset_id"].eq("treasury_30y_proxy") & rows["episode_id"].eq(worst_t_id)
+    ]
+    worst_t_plus_60 = pd.to_numeric(proxy_rows["value_60"], errors="coerce").iloc[0]
+    return {
+        "worst_t_episode_id": worst_t_id,
+        "worst_t_signal_date": proxy.at["t", "signal_date"],
+        "worst_t_value": float(proxy.at["t", "value"]),
+        "worst_60_episode_id": worst_60_id,
+        "worst_60_signal_date": proxy.at["60", "signal_date"],
+        "worst_60_value": float(proxy.at["60", "value"]),
+        "same_episode": worst_t_id == worst_60_id,
+        "worst_t_episode_value_60": float(worst_t_plus_60),
+        "continues_below_100_at_60": bool(worst_t_plus_60 < 100.0),
+    }
+
+
+def _cycle_decomposition(rows: pd.DataFrame) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    decomposition: list[dict[str, Any]] = []
+    overall: list[dict[str, Any]] = []
+    for asset_id, asset_rows in rows.groupby("asset_id", sort=False):
+        for cycle in CYCLE_BUCKETS:
+            part = asset_rows.loc[asset_rows["cycle"].eq(cycle)]
+            item: dict[str, Any] = {
+                "asset_id": asset_id,
+                "asset": asset_rows["asset"].iloc[0],
+                "cycle": cycle,
+                "episode_count": int(part["episode_id"].nunique()),
+            }
+            for horizon in ("t", "20", "60"):
+                values = pd.to_numeric(part[f"value_{horizon}"], errors="coerce").dropna()
+                item[f"count_{horizon}"] = int(len(values))
+                item[f"median_{horizon}"] = float(values.median()) if len(values) else None
+                item[f"worst_{horizon}"] = float(values.min()) if len(values) else None
+            decomposition.append(item)
+
+        candidates: list[tuple[float, str, pd.Series]] = []
+        for _, row in asset_rows.iterrows():
+            for horizon in ("t", "20", "60"):
+                value = pd.to_numeric(pd.Series([row[f"value_{horizon}"]]), errors="coerce").iloc[0]
+                if pd.notna(value):
+                    candidates.append((float(value), horizon, row))
+        value, horizon, row = min(candidates, key=lambda item: item[0])
+        t_values = pd.to_numeric(asset_rows["value_t"], errors="coerce")
+        t_index = t_values.idxmin()
+        t_row = asset_rows.loc[t_index]
+        overall.append(
+            {
+                "asset_id": asset_id,
+                "asset": row["asset"],
+                "worst_t_value": float(t_values.loc[t_index]),
+                "worst_t_episode_id": t_row["episode_id"],
+                "worst_t_cycle": t_row["cycle"],
+                "worst_t_origin": (
+                    "2022 인플레형" if t_row["cycle_type"] == "인플레형" else "침체형"
+                ),
+                "value": value,
+                "horizon": horizon,
+                "episode_id": row["episode_id"],
+                "signal_date": row["signal_date"],
+                "cycle": row["cycle"],
+                "origin": "2022 인플레형" if row["cycle_type"] == "인플레형" else "침체형",
+            }
+        )
+    return decomposition, overall
+
+
+def _quantile_and_classification(rows: pd.DataFrame) -> list[dict[str, Any]]:
+    output: list[dict[str, Any]] = []
+    for asset_id, part in rows.groupby("asset_id", sort=False):
+        original = classify_asset(part)
+        p10 = classify_asset(part, floor_statistic="p10")
+        output.append(
+            {
+                "asset_id": asset_id,
+                "asset": part["asset"].iloc[0],
+                "quantiles": quantile_values(part),
+                "original_classification": original["classification"],
+                "p10_classification": p10["classification"],
+                "share_t_ge_100": original["share_t_ge_100"],
+                "worst_t": original["worst_t"],
+                "p10_t": p10["p10_t"],
+                "changed": original["classification"] != p10["classification"],
+            }
+        )
+    return output
+
+
+def _carry_and_gap(
+    treasury_ext: pd.DataFrame,
+    episodes: list[Episode],
+    rows: pd.DataFrame,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    frame = treasury_ext.copy()
+    frame["date"] = pd.to_datetime(frame["date"], errors="raise").dt.normalize()
+    frame = frame.loc[frame["date"].ge(pd.Timestamp("1990-01-01"))]
+    cash = pd.to_numeric(frame["dtb3"], errors="coerce")
+    carry: list[dict[str, Any]] = []
+    for asset_id, column, label in (
+        ("treasury_3y_proxy", "dgs3", "3Y"),
+        ("treasury_5y_proxy", "dgs5", "5Y"),
+    ):
+        tenor = pd.to_numeric(frame[column], errors="coerce")
+        spread = tenor - cash
+        spread = spread.dropna()
+        asset_rows = rows.loc[rows["asset_id"].eq(asset_id)]
+        t_values = pd.to_numeric(asset_rows["value_t"], errors="coerce").dropna()
+        carry.append(
+            {
+                "asset_id": asset_id,
+                "tenor": label,
+                "observations": int(len(spread)),
+                "start": frame.loc[spread.index, "date"].min(),
+                "end": frame.loc[spread.index, "date"].max(),
+                "annual_carry_advantage_pp": float(spread.mean()),
+                "crisis_t_p25_value": float(t_values.quantile(0.25)),
+                "crisis_t_worst_value": float(t_values.min()),
+                "crisis_t_p25_loss_pct": float(t_values.quantile(0.25) - 100.0),
+                "crisis_t_worst_loss_pct": float(t_values.min() - 100.0),
+            }
+        )
+
+    gap_rows: list[dict[str, Any]] = []
+    for market in ("KR", "US"):
+        dates = sorted(episode.signal_date for episode in episodes if episode.market == market)
+        gaps = np.diff(np.asarray(dates, dtype="datetime64[D]")).astype("timedelta64[D]").astype(int)
+        years = gaps.astype("float64") / 365.2425
+        gap_rows.append(
+            {
+                "market": market,
+                "episode_count": len(dates),
+                "interval_count": int(len(years)),
+                "mean_gap_years": float(years.mean()),
+                "median_gap_years": float(np.median(years)),
+            }
+        )
+
+    break_even: list[dict[str, Any]] = []
+    for carry_row in carry:
+        for gap in gap_rows:
+            break_even.append(
+                {
+                    "tenor": carry_row["tenor"],
+                    "market_gap": gap["market"],
+                    "annual_carry_advantage_pp": carry_row["annual_carry_advantage_pp"],
+                    "mean_gap_years": gap["mean_gap_years"],
+                    "carry_times_gap_pct": carry_row["annual_carry_advantage_pp"]
+                    * gap["mean_gap_years"],
+                    "crisis_t_p25_loss_pct": carry_row["crisis_t_p25_loss_pct"],
+                    "crisis_t_worst_loss_pct": carry_row["crisis_t_worst_loss_pct"],
+                }
+            )
+    return carry, gap_rows, break_even
+
+
+def _reit_horizon(rows: pd.DataFrame) -> list[dict[str, Any]]:
+    reit = rows.loc[rows["asset_id"].eq("reit_vnq")].copy()
+    output: list[dict[str, Any]] = []
+    for split, part in (
+        ("침체형", reit.loc[reit["cycle_type"].eq("경기침체형")]),
+        ("2022 인플레형", reit.loc[reit["cycle_type"].eq("인플레형")]),
+    ):
+        for horizon in ("60", "120", "250"):
+            values = pd.to_numeric(part[f"value_{horizon}"], errors="coerce").dropna()
+            comparison = part[["value_t", f"value_{horizon}", "equity_value_t", f"equity_value_{horizon}"]].apply(
+                pd.to_numeric, errors="coerce"
+            ).dropna()
+            if len(comparison):
+                reit_recovery = comparison[f"value_{horizon}"] / comparison["value_t"] - 1.0
+                equity_recovery = (
+                    comparison[f"equity_value_{horizon}"] / comparison["equity_value_t"] - 1.0
+                )
+                beat_share = float(reit_recovery.gt(equity_recovery).mean())
+                positive_share = float(reit_recovery.gt(0.0).mean())
+            else:
+                beat_share = None
+                positive_share = None
+            output.append(
+                {
+                    "split": split,
+                    "horizon": horizon,
+                    "count": int(len(values)),
+                    "median": float(values.median()) if len(values) else None,
+                    "p25": float(values.quantile(0.25)) if len(values) else None,
+                    "worst": float(values.min()) if len(values) else None,
+                    "comparison_count": int(len(comparison)),
+                    "beat_equity_recovery_share": beat_share,
+                    "positive_recovery_share": positive_share,
+                }
+            )
+    return output
+
+
+def _peak_timing(
+    episodes: list[Episode],
+    ladders: dict[str, pd.DataFrame],
+    assets: dict[str, dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    episode_rows: list[dict[str, Any]] = []
+    for asset_id in ("treasury_30y_proxy", "tlt"):
+        metadata = assets[asset_id]
+        for episode in episodes:
+            peak = peak_after_episode(
+                metadata["values"],
+                episode,
+                ladders[episode.market]["date"],
+                max_offset=250,
+            )
+            episode_rows.append(
+                {
+                    "asset_id": asset_id,
+                    "asset": metadata["label"],
+                    "episode_id": episode.episode_id,
+                    "market": episode.market,
+                    "signal_date": episode.signal_date,
+                    "cycle": episode.cycle,
+                    "cycle_type": episode.cycle_type,
+                    **peak,
+                }
+            )
+
+    peak_frame = pd.DataFrame(episode_rows)
+    aggregates: list[dict[str, Any]] = []
+    for asset_id in ("treasury_30y_proxy", "tlt"):
+        asset_rows = peak_frame.loc[peak_frame["asset_id"].eq(asset_id)]
+        for split, split_rows in (
+            ("전체", asset_rows),
+            ("침체형", asset_rows.loc[asset_rows["cycle_type"].eq("경기침체형")]),
+            ("2022 인플레형", asset_rows.loc[asset_rows["cycle_type"].eq("인플레형")]),
+        ):
+            complete = split_rows.loc[split_rows["full_window"].eq(True)].copy()  # noqa: E712
+            complete = complete.dropna(subset=["peak_offset", "peak_value"])
+            offsets = pd.to_numeric(complete["peak_offset"], errors="coerce")
+            levels = pd.to_numeric(complete["peak_value"], errors="coerce")
+            aggregates.append(
+                {
+                    "asset_id": asset_id,
+                    "asset": asset_rows["asset"].iloc[0],
+                    "split": split,
+                    "count": int(len(complete)),
+                    "median_offset": float(offsets.median()) if len(offsets) else None,
+                    "p25_offset": float(offsets.quantile(0.25)) if len(offsets) else None,
+                    "p75_offset": float(offsets.quantile(0.75)) if len(offsets) else None,
+                    "share_peak_gt_105": float(levels.gt(105.0).mean()) if len(levels) else None,
+                }
+            )
+    return episode_rows, aggregates
+
+
+def _series_asof(series: pd.Series, date: pd.Timestamp) -> float:
+    position = int(series.index.searchsorted(pd.Timestamp(date), side="right")) - 1
+    if position < 0:
+        raise ValueError(f"no retained yield observation on or before {date:%Y-%m-%d}")
+    return float(series.iloc[position])
+
+
+def _crisis_axis(
+    treasury: pd.DataFrame,
+    episodes: list[Episode],
+    ladders: dict[str, pd.DataFrame],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    yields = treasury.copy()
+    yields["date"] = pd.to_datetime(yields["date"], errors="raise").dt.normalize()
+    dgs10 = prepare_value_series(yields["date"], yields["dgs10"])
+    dgs2 = prepare_value_series(yields["date"], yields["dgs2"])
+    episode_rows: list[dict[str, Any]] = []
+    for episode in episodes:
+        ladder = ladders[episode.market]
+        prior_index = episode.signal_index - 60
+        if prior_index < 0:
+            raise ValueError(f"episode lacks T-60 session: {episode.episode_id}")
+        prior_date = pd.Timestamp(ladder.at[prior_index, "date"])
+        delta_10y = _series_asof(dgs10, episode.signal_date) - _series_asof(dgs10, prior_date)
+        delta_2y = _series_asof(dgs2, episode.signal_date) - _series_asof(dgs2, prior_date)
+        rules = fixed_crisis_types(delta_10y, delta_2y)
+        episode_rows.append(
+            {
+                "episode_id": episode.episode_id,
+                "market": episode.market,
+                "signal_date": episode.signal_date,
+                "t_minus_60_date": prior_date,
+                "cycle": episode.cycle,
+                "actual_type": "인플레형" if episode.cycle_type == "인플레형" else "침체형",
+                "delta_10y_pp": delta_10y,
+                "delta_2y_pp": delta_2y,
+                **rules,
+            }
+        )
+
+    focal = pd.DataFrame(episode_rows)
+    focal = focal.loc[
+        focal["cycle"].isin(["2008–09 금융위기", "2020 코로나", "2022 인플레"])
+    ]
+    confusion: dict[str, Any] = {}
+    for rule in ("ten_year_rule", "two_year_first_rule"):
+        counts: list[dict[str, Any]] = []
+        for actual in ("침체형", "인플레형"):
+            for predicted in ("침체형", "인플레형"):
+                count = int(
+                    (focal["actual_type"].eq(actual) & focal[rule].eq(predicted)).sum()
+                )
+                counts.append({"actual": actual, "predicted": predicted, "count": count})
+        confusion[rule] = {
+            "counts": counts,
+            "correct": int(focal[rule].eq(focal["actual_type"]).sum()),
+            "total": int(len(focal)),
+            "separates_focal_cycles": bool(focal[rule].eq(focal["actual_type"]).all()),
+        }
+    return episode_rows, confusion
+
+
+def _fmt_pct(value: Any, digits: int = 1) -> str:
+    return "자료 없음" if value is None or pd.isna(value) else f"{float(value):.{digits}%}"
+
+
+def _followup_markdown(summary: dict[str, Any]) -> str:
+    lines = [
+        "# 코어 실탄 연구 후속 점검 — 위기 유형축 1차 검사",
+        "",
+        "> retained Parquet만 사용한 개발용 기술통계다. 기존 40개 level-2 에피소드와 보유 시작점 평가 함수를 재사용했다. T는 같은 종가의 설명용 평가이며 실행 가능 수익률이 아니다.",
+        "",
+        f"- 입력 manifest: `{summary['input_manifest_sha256']}` ({summary['input_file_count']} Parquet, API 호출 {summary['api_calls']})",
+        f"- 에피소드: {len(summary['episodes'])}개; +120/+250은 각 시장의 retained 거래세션 기준",
+        "- 값 100은 기존 보유 시작일 기준이며, 손실은 `값−100`%로 읽는다.",
+        "",
+        "## 1. TLT/30Y 중앙 경로와 단기물 비교",
+        "",
+        "|자산|시점|N|중앙값|평균|",
+        "|---|---:|---:|---:|---:|",
+    ]
+    for row in summary["path_summary"]:
+        horizon = "T" if row["horizon"] == "t" else f"+{row['horizon']}"
+        lines.append(
+            f"|{row['asset']}|{horizon}|{row['count']}|{_fmt(row['median'])}|{_fmt(row['mean'])}|"
+        )
+    lines.extend(
+        [
+            "",
+            "30Y/TLT의 평소 이득과 최악 손실은 아래 2·4절의 worst/p10과 함께 봐야 한다. 2Y/3M은 같은 보유 시작점·같은 에피소드로 비교했다.",
+            "",
+            "## 2. 최악 T와 최악 +60은 같은 에피소드인가",
+            "",
+        ]
+    )
+    same = summary["same_episode_30y"]
+    lines.append(
+        f"**답:** 30Y 프록시의 최악 T와 최악 +60은 **{'같다' if same['same_episode'] else '다르다'}**. "
+        f"최악 T는 `{same['worst_t_episode_id']}` ({_fmt(same['worst_t_value'])}), 최악 +60은 "
+        f"`{same['worst_60_episode_id']}` ({_fmt(same['worst_60_value'])})이다."
+    )
+    lines.append("")
+    lines.append(
+        f"'한 번 빠지기 시작하면 계속 간다'는 명제는 이 최악-T 사례에서 **{'성립' if same['continues_below_100_at_60'] else '성립하지 않음'}**: "
+        f"그 에피소드의 +60 값은 {_fmt(same['worst_t_episode_value_60'])}이다. 이는 한 사례 확인이지 일반적 지속성 검정은 아니다."
+    )
+    lines.extend(
+        [
+            "",
+            "|자산|최악 T (에피소드 / T일)|최악 +20 (에피소드 / 목표일)|최악 +60 (에피소드 / 목표일)|",
+            "|---|---|---|---|",
+        ]
+    )
+    worst = pd.DataFrame(summary["worst_episodes"])
+    for asset_id in worst["asset_id"].drop_duplicates():
+        part = worst.loc[worst["asset_id"].eq(asset_id)].set_index("horizon")
+        cells = []
+        for horizon in ("t", "20", "60"):
+            row = part.loc[horizon]
+            cells.append(
+                "자료 없음"
+                if row["value"] is None or pd.isna(row["value"])
+                else f"{_fmt(row['value'])} / `{row['episode_id']}` / {row['target_date']}"
+            )
+        lines.append(f"|{part.iloc[0]['asset']}|{cells[0]}|{cells[1]}|{cells[2]}|")
+
+    lines.extend(
+        [
+            "",
+            "## 3. 사이클별 분해",
+            "",
+            "각 칸은 `중앙값 / 최악`이며, 2015–16처럼 신호가 없으면 자료 없음이다. 이 표는 요청한 9개 사전 버킷만 보이고, 전체 worst 판정은 기타 초기 에피소드까지 포함한다.",
+            "",
+            "|자산|사이클|N|T|+20|+60|",
+            "|---|---|---:|---:|---:|---:|",
+        ]
+    )
+    for row in summary["cycle_decomposition"]:
+        lines.append(
+            f"|{row['asset']}|{row['cycle']}|{row['episode_count']}|"
+            f"{_fmt(row['median_t'])} / {_fmt(row['worst_t'])}|"
+            f"{_fmt(row['median_20'])} / {_fmt(row['worst_20'])}|"
+            f"{_fmt(row['median_60'])} / {_fmt(row['worst_60'])}|"
+        )
+    lines.extend(
+        [
+            "",
+            "전체 worst는 T/+20/+60의 모든 유효 셀 중 최저값으로 정의했다.",
+            "",
+            "|자산|worst T / 출처|T 에피소드|T/+20/+60 전체 worst|시점|전체 worst 에피소드 / 사이클|출처 유형|",
+            "|---|---|---|---:|---:|---|---|",
+        ]
+    )
+    for row in summary["overall_worst_origin"]:
+        horizon = "T" if row["horizon"] == "t" else f"+{row['horizon']}"
+        lines.append(
+            f"|{row['asset']}|{_fmt(row['worst_t_value'])} / **{row['worst_t_origin']}**|`{row['worst_t_episode_id']}`|"
+            f"{_fmt(row['value'])}|{horizon}|`{row['episode_id']}` / {row['cycle']}|**{row['origin']}**|"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## 4. 분위수와 p10 바닥 분류",
+            "",
+            "|자산|시점|N|p10|p25|중앙값|p75|",
+            "|---|---:|---:|---:|---:|---:|---:|",
+        ]
+    )
+    for asset in summary["quantiles"]:
+        for horizon in ("t", "20", "60"):
+            item = asset["quantiles"][horizon]
+            title = "T" if horizon == "t" else f"+{horizon}"
+            lines.append(
+                f"|{asset['asset']}|{title}|{item['count']}|{_fmt(item['p10'])}|{_fmt(item['p25'])}|{_fmt(item['median'])}|{_fmt(item['p75'])}|"
+            )
+    lines.extend(
+        [
+            "",
+            "다른 조건(T≥100 비율 70%, 회복률 비교)은 그대로 두고 `worst T ≥ 95`만 `p10 T ≥ 95`로 바꿨다.",
+            "",
+            "|자산|worst 기준|p10 기준|worst T|p10 T|변경|",
+            "|---|---|---|---:|---:|---|",
+        ]
+    )
+    for row in summary["quantiles"]:
+        lines.append(
+            f"|{row['asset']}|{row['original_classification']}|{row['p10_classification']}|{_fmt(row['worst_t'])}|{_fmt(row['p10_t'])}|{'예' if row['changed'] else '아니오'}|"
+        )
+    changed_count = sum(bool(row["changed"]) for row in summary["quantiles"])
+    lines.append("")
+    lines.append(f"결과적으로 분류 변경은 **{changed_count}/{len(summary['quantiles'])}개 자산**이다.")
+
+    lines.extend(
+        [
+            "",
+            "## 5. 중간 만기 carry–위기손실 산술",
+            "",
+            "1990-01-01 이후 같은 retained FRED 행에서 `(tenor yield − DTB3)`를 계산했다.",
+            "",
+            "|만기|관측 수|기간|연평균 carry 우위|위기 T p25 손실|위기 T 최악 손실|",
+            "|---|---:|---|---:|---:|---:|",
+        ]
+    )
+    for row in summary["carry_advantage"]:
+        lines.append(
+            f"|{row['tenor']}|{row['observations']}|{row['start']}–{row['end']}|{row['annual_carry_advantage_pp']:+.2f}%p|{row['crisis_t_p25_loss_pct']:+.2f}%|{row['crisis_t_worst_loss_pct']:+.2f}%|"
+        )
+    lines.extend(
+        [
+            "",
+            "|시장|에피소드|간격 수|평균 달력 간격|중앙 달력 간격|",
+            "|---|---:|---:|---:|---:|",
+        ]
+    )
+    for row in summary["episode_gap_years"]:
+        lines.append(
+            f"|{row['market']}|{row['episode_count']}|{row['interval_count']}|{row['mean_gap_years']:.2f}년|{row['median_gap_years']:.2f}년|"
+        )
+    lines.extend(
+        [
+            "",
+            "|만기|간격 기준|carry × 평균 간격|위기 T p25 손실|최악 손실|산술 문장|",
+            "|---|---|---:|---:|---:|---|",
+        ]
+    )
+    for row in summary["break_even"]:
+        sentence = (
+            f"{row['tenor']}: 연 {row['annual_carry_advantage_pp']:+.2f}%p × 평균 {row['mean_gap_years']:.2f}년 = "
+            f"{row['carry_times_gap_pct']:+.2f}% vs 위기 당일 p25 {row['crisis_t_p25_loss_pct']:+.2f}%, 최악 {row['crisis_t_worst_loss_pct']:+.2f}%"
+        )
+        lines.append(
+            f"|{row['tenor']}|{row['market_gap']}|{row['carry_times_gap_pct']:+.2f}%|{row['crisis_t_p25_loss_pct']:+.2f}%|{row['crisis_t_worst_loss_pct']:+.2f}%|{sentence}|"
+        )
+    lines.append("")
+    lines.append("이는 배분 조언이 아니라 관측 평균을 단순 곱한 산술 비교다. 복리, 듀레이션 변화, 세금·비용, 위기 간격 분포는 반영하지 않는다.")
+
+    lines.extend(
+        [
+            "",
+            "## 6. VNQ horizon 연장",
+            "",
+            "`주식 대비 우위`는 T→해당 horizon의 VNQ 회복률이 같은 에피소드 주식 기준 회복률보다 큰 비율이다.",
+            "",
+            "|구간|시점|N|중앙값|p25|최악|주식 대비 우위|T 이후 양(+) 회복|",
+            "|---|---:|---:|---:|---:|---:|---:|---:|",
+        ]
+    )
+    for row in summary["reit_horizon"]:
+        if row["horizon"] == "60":
+            continue
+        lines.append(
+            f"|{row['split']}|+{row['horizon']}|{row['count']}|{_fmt(row['median'])}|{_fmt(row['p25'])}|{_fmt(row['worst'])}|{_fmt_pct(row['beat_equity_recovery_share'])} ({row['comparison_count']})|{_fmt_pct(row['positive_recovery_share'])}|"
+        )
+    reit = {(row["split"], row["horizon"]): row for row in summary["reit_horizon"]}
+    rec_60 = reit[("침체형", "60")]["beat_equity_recovery_share"]
+    rec_120 = reit[("침체형", "120")]["beat_equity_recovery_share"]
+    rec_250 = reit[("침체형", "250")]["beat_equity_recovery_share"]
+    horizon_effect = max(value for value in (rec_120, rec_250) if value is not None) > float(rec_60)
+    lines.append("")
+    lines.append(
+        f"침체형 주식 대비 우위 비율은 +60 {_fmt_pct(rec_60)} → +120 {_fmt_pct(rec_120)} → +250 {_fmt_pct(rec_250)}다. "
+        f"따라서 약한 +60 반등은 **{'horizon 문제의 증거가 더 강하다' if horizon_effect else '단순 horizon 연장으로 해소되지 않아 mechanism 문제의 증거가 더 강하다'}**."
+    )
+
+    lines.extend(
+        [
+            "",
+            "## 7. TLT/30Y 최고점 시기",
+            "",
+            "완전한 250세션 창의 집계만 사용했다. 미완전 창은 행에 `검열`로 표시하며 최고점 통계에서 제외한다. 동률 최고점은 최초 세션이다.",
+            "",
+            "|에피소드|사이클|30Y offset / 값|TLT offset / 값|창 상태|",
+            "|---|---|---:|---:|---|",
+        ]
+    )
+    peaks = pd.DataFrame(summary["peak_timing"]["episodes"])
+    for episode_id in peaks["episode_id"].drop_duplicates():
+        part = peaks.loc[peaks["episode_id"].eq(episode_id)].set_index("asset_id")
+        cells = []
+        states = []
+        for asset_id in ("treasury_30y_proxy", "tlt"):
+            row = part.loc[asset_id]
+            unavailable = row["peak_offset"] is None or pd.isna(row["peak_offset"])
+            cells.append("자료 없음" if unavailable else f"+{int(row['peak_offset'])} / {_fmt(row['peak_value'])}")
+            states.append(
+                "자료 없음"
+                if unavailable
+                else "완전"
+                if row["full_window"]
+                else f"검열(+{row['observed_through_offset']})"
+            )
+        lines.append(f"|`{episode_id}`|{part.iloc[0]['cycle']}|{cells[0]}|{cells[1]}|{' / '.join(states)}|")
+    lines.extend(
+        [
+            "",
+            "|자산|구간|N|중앙 offset|IQR|peak>105 비율|",
+            "|---|---|---:|---:|---:|---:|",
+        ]
+    )
+    for row in summary["peak_timing"]["aggregate"]:
+        iqr = (
+            "자료 없음"
+            if row["p25_offset"] is None
+            else f"{row['p25_offset']:.1f}–{row['p75_offset']:.1f}"
+        )
+        lines.append(
+            f"|{row['asset']}|{row['split']}|{row['count']}|{_fmt(row['median_offset'], 1)}|{iqr}|{_fmt_pct(row['share_peak_gt_105'])}|"
+        )
+    proxy_all = next(
+        row
+        for row in summary["peak_timing"]["aggregate"]
+        if row["asset_id"] == "treasury_30y_proxy" and row["split"] == "전체"
+    )
+    lines.append("")
+    lines.append(
+        f"2차 실탄 가설에 들어갈 30Y 프록시의 중앙 최고점은 T+{proxy_all['median_offset']:.1f}세션, IQR {proxy_all['p25_offset']:.1f}–{proxy_all['p75_offset']:.1f}세션이며, 105를 넘긴 비율은 {_fmt_pct(proxy_all['share_peak_gt_105'])}다. 이는 매매 규칙이나 권고가 아니다."
+    )
+
+    lines.extend(
+        [
+            "",
+            "## 8. 위기 유형축 1차 검사",
+            "",
+            "주 규칙은 `Δ10Y = dgs10(T) − dgs10(T−60 시장세션)`가 0보다 크면 인플레형, 아니면 침체형이다. 2Y-first 보조 규칙은 `Δ2Y < −0.5%p`면 침체형, 아니면 인플레형이다. 임계값은 조정하지 않았다.",
+            "",
+            "|에피소드|실제 사이클|Δ10Y|10Y 규칙|Δ2Y|2Y-first 규칙|실제 유형|",
+            "|---|---|---:|---|---:|---|---|",
+        ]
+    )
+    for row in summary["crisis_axis"]["episodes"]:
+        lines.append(
+            f"|`{row['episode_id']}`|{row['cycle']}|{row['delta_10y_pp']:+.2f}%p|{row['ten_year_rule']}|{row['delta_2y_pp']:+.2f}%p|{row['two_year_first_rule']}|{row['actual_type']}|"
+        )
+    lines.extend(
+        [
+            "",
+            "혼동행렬은 요청한 2008/2020(실제 침체형)과 2022(실제 인플레형)만 사용한다.",
+            "",
+            "|규칙|실제|예측 침체형|예측 인플레형|정답/전체|완전 분리|",
+            "|---|---|---:|---:|---:|---|",
+        ]
+    )
+    for rule, label in (("ten_year_rule", "10Y"), ("two_year_first_rule", "2Y-first")):
+        item = summary["crisis_axis"]["confusion"][rule]
+        counts = {(row["actual"], row["predicted"]): row["count"] for row in item["counts"]}
+        for actual in ("침체형", "인플레형"):
+            lines.append(
+                f"|{label}|{actual}|{counts[(actual, '침체형')]}|{counts[(actual, '인플레형')]}|{item['correct']}/{item['total']}|{'예' if item['separates_focal_cycles'] else '아니오'}|"
+            )
+    primary = summary["crisis_axis"]["confusion"]["ten_year_rule"]
+    lines.append("")
+    lines.append(
+        "**한 문장 결론:** "
+        + (
+            "고정 10Y 축은 2008/2020과 2022를 완전 분리해 탐색적 증거가 있으나, 독립 클러스터 외부검증 전까지 연구축으로만 유지한다."
+            if primary["separates_focal_cycles"]
+            else "고정 10Y 축은 2008/2020과 2022를 완전 분리하지 못했으므로 현재 형태는 보류(shelve)한다."
+        )
+    )
+
+    lines.extend(
+        [
+            "",
+            "## 해석 제한",
+            "",
+            f"- 요청한 9개 사전 사이클 버킷 중 level-2가 실제 관측된 독립 클러스터는 **{summary['limitations']['observed_independent_cycle_clusters']}개**다(2015–16은 무신호). 2008과 2020의 KR/US 행은 각각 동기화된 같은 위기라 독립 표본 두 개로 세지 않는다.",
+            "- 2022 인플레형은 에피소드 행이 여러 개여도 독립 위기 클러스터로는 **단 1개 관측**이다.",
+            "- 30Y 등 듀레이션 프록시는 `−D×Δy + 전일 y/252`의 상수 듀레이션 근사로 볼록성·롤다운·실제 ETF 비용을 반영하지 않는다.",
+            "- FRED 금리는 현재 보존본이며 빈티지 고정 ALFRED가 아니다. 이 결과는 descriptive/PIT-limited이고 예측성과나 실현 가능한 체결 성과가 아니다.",
+            "- 2026-07-13 에피소드의 +60 이후 horizon/250세션 peak는 미도래 또는 우측 검열이다. 집계는 유효·완전 관측만 사용한다.",
+            "- T−60은 각 시장 세션이며 FRED는 해당 날짜의 마지막 retained 관측을 as-of 정렬했다. 휴장일 차이를 미래 관측으로 메우지 않았다.",
+            "- 어떤 표도 자산배분·매수/매도 권고나 적합성 판단이 아니다.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def run(project_root: Path, *, quick: bool = False) -> dict[str, Any]:
     root = Path(project_root).resolve()
     manifest = _manifest(root)
@@ -753,12 +1501,149 @@ def run(project_root: Path, *, quick: bool = False) -> dict[str, Any]:
     return summary
 
 
+def _validate_followup(
+    root: Path,
+    manifest: dict[str, Any],
+    episodes: list[Episode],
+    rows: list[dict[str, Any]],
+    summary: dict[str, Any],
+    *,
+    quick: bool,
+) -> None:
+    base_path = root / "artifacts/research/core_ammunition/summary.json"
+    base = json.loads(base_path.read_text(encoding="utf-8"))
+    expected_count = 6 if quick else 40
+    if len(episodes) != expected_count or len(rows) != expected_count * 13:
+        raise ValueError("follow-up episode/asset output is incomplete")
+    if not quick:
+        actual_episode_keys = [
+            (episode.episode_id, episode.signal_date.strftime("%Y-%m-%d"), episode.hold_start_date.strftime("%Y-%m-%d"))
+            for episode in episodes
+        ]
+        base_episode_keys = [
+            (item["episode_id"], item["signal_date"], item["hold_start_date"])
+            for item in base["episodes"]
+        ]
+        if actual_episode_keys != base_episode_keys:
+            raise ValueError("follow-up must reuse the exact base episode table")
+        if manifest["sha256"] != base["input_manifest_sha256"]:
+            raise ValueError("follow-up retained input manifest differs from the base study")
+        actual = pd.DataFrame(rows).set_index(["asset_id", "episode_id"])
+        for asset_id, asset in base["assets"].items():
+            for item in asset["episodes"]:
+                key = (asset_id, item["episode_id"])
+                for horizon in ("t", "20", "60"):
+                    expected = item[f"value_{horizon}"]
+                    observed = actual.at[key, f"value_{horizon}"]
+                    if expected is None:
+                        if pd.notna(observed):
+                            raise ValueError(f"base/follow-up missingness mismatch: {key} {horizon}")
+                    elif not math.isclose(float(observed), float(expected), rel_tol=0.0, abs_tol=1e-10):
+                        raise ValueError(f"base/follow-up valuation mismatch: {key} {horizon}")
+    frame = pd.DataFrame(rows)
+    if frame[["episode_id", "asset_id"]].duplicated().any():
+        raise ValueError("follow-up asset/episode keys must be unique")
+    if set(frame["asset_id"]) != set(ETF_ASSETS) | set(YIELD_ASSETS) | {"cash_3m_proxy", "gold", "usdkrw"}:
+        raise ValueError("follow-up asset set differs from the base study")
+    crisis = summary["crisis_axis"]["episodes"]
+    if len(crisis) != expected_count or any(item["ten_year_rule"] not in {"침체형", "인플레형"} for item in crisis):
+        raise ValueError("crisis-axis classifications are incomplete")
+    if not quick:
+        empty_2015 = [
+            item for item in summary["cycle_decomposition"] if item["cycle"] == "2015–16"
+        ]
+        if len(empty_2015) != 13 or any(item["episode_count"] != 0 for item in empty_2015):
+            raise ValueError("the predefined 2015–16 empty bucket must be explicit")
+
+
+def run_followup(project_root: Path, *, quick: bool = False) -> dict[str, Any]:
+    root = Path(project_root).resolve()
+    manifest = _manifest(root)
+    episodes, frames, ladders = _episode_inputs(root, quick)
+    assets, _ = _assets(root)
+    rows = _followup_measurements(episodes, frames, ladders, assets)
+    frame = pd.DataFrame(rows)
+    worst_rows = _worst_episode_rows(frame)
+    cycle_decomposition, overall_worst = _cycle_decomposition(frame)
+    treasury_ext = _read_dataset(
+        root,
+        "fred_treasury_yield_ext_daily",
+        ("date", "dgs3", "dgs5", "dtb3"),
+    )
+    carry, gap_rows, break_even = _carry_and_gap(treasury_ext, episodes, frame)
+    peak_rows, peak_aggregate = _peak_timing(episodes, ladders, assets)
+    treasury = _read_dataset(
+        root,
+        "fred_treasury_yield_daily",
+        ("date", "dgs2", "dgs10", "dgs30"),
+    )
+    crisis_rows, confusion = _crisis_axis(treasury, episodes, ladders)
+    observed_cycles = {episode.cycle for episode in episodes}.intersection(CYCLE_BUCKETS)
+    base_summary_path = root / "artifacts/research/core_ammunition/summary.json"
+    summary: dict[str, Any] = {
+        "schema_version": 1,
+        "experiment": "core-ammunition-followup/v1",
+        "development_only": True,
+        "api_calls": 0,
+        "quick": quick,
+        "decision_clock": "T close descriptive mark; earliest signal-based action is after T close",
+        "input_manifest_sha256": manifest["sha256"],
+        "input_file_count": manifest["file_count"],
+        "base_summary_sha256": hashlib.sha256(base_summary_path.read_bytes()).hexdigest(),
+        "episode_table_reused": True,
+        "episodes": [episode.to_dict() for episode in episodes],
+        "path_summary": _path_summary(frame),
+        "worst_episodes": worst_rows,
+        "same_episode_30y": _same_episode_check(frame, worst_rows),
+        "cycle_decomposition": cycle_decomposition,
+        "overall_worst_origin": overall_worst,
+        "quantiles": _quantile_and_classification(frame),
+        "carry_advantage": carry,
+        "episode_gap_years": gap_rows,
+        "break_even": break_even,
+        "reit_horizon": _reit_horizon(frame),
+        "peak_timing": {"episodes": peak_rows, "aggregate": peak_aggregate},
+        "crisis_axis": {"episodes": crisis_rows, "confusion": confusion},
+        "limitations": {
+            "predeclared_cycle_buckets": len(CYCLE_BUCKETS),
+            "observed_independent_cycle_clusters": len(observed_cycles),
+            "synchronous_cross_market_clusters": ["2008–09 금융위기", "2020 코로나"],
+            "inflation_cluster_observations": 1,
+        },
+    }
+    _validate_followup(root, manifest, episodes, rows, summary, quick=quick)
+
+    output = root / "artifacts/research/core_ammunition/followup"
+    _write_json(output / "input_manifest.json", manifest)
+    _write_json(output / "summary.json", summary)
+    _write_csv(output / "episode_horizons.csv", rows)
+    _write_csv(output / "peak_timing.csv", peak_rows)
+    _write_csv(output / "crisis_types.csv", crisis_rows)
+    _write_text(
+        root / "docs/research/RESULTS_20260905_core_ammunition_followup.md",
+        _followup_markdown(_json_value(summary)),
+    )
+    print(
+        f"DONE core-ammunition-followup/v1 episodes={len(episodes)} assets={len(assets)} "
+        f"manifest={manifest['sha256'][:12]} quick={quick}"
+    )
+    return summary
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project-root", type=Path, default=ROOT)
     parser.add_argument("--quick", action="store_true", help="Use only the latest three episodes per market.")
+    parser.add_argument(
+        "--followup",
+        action="store_true",
+        help="Run the eight-question retained-data follow-up and fixed crisis-type check.",
+    )
     args = parser.parse_args()
-    run(args.project_root, quick=args.quick)
+    if args.followup:
+        run_followup(args.project_root, quick=args.quick)
+    else:
+        run(args.project_root, quick=args.quick)
 
 
 if __name__ == "__main__":
