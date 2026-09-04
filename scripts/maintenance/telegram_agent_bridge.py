@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from datetime import date, datetime
+from datetime import date, datetime, time as datetime_time
 import hashlib
 import json
 import os
@@ -28,6 +28,12 @@ MAX_MESSAGE_LENGTH = 3500
 MAX_REPORT_LENGTH = 2200
 MAX_REQUEST_LENGTH = 1200
 BRIEF_DISCLAIMER = "※ 사실·시나리오 구분, 투자 조언 아님"
+SAME_DAY_REFRESH_CUTOFF = datetime_time(15, 40)
+SAME_DAY_REFRESH_LANES = (
+    "KR_EQUITY_PROVISIONAL_DAILY",
+    "KR_ETF_PRICE_DAILY",
+)
+SAME_DAY_REFRESH_MAX_PROVIDER_CALLS = 12  # 2 equity calls + up to 3 Korean ETFs (KR_ETF lane uses one ticker-list call plus one per symbol)
 INTAKE_ROOT = REPOSITORY / ".tmp" / "agents" / "telegram-bridge"
 BRIEFS_ROOT = REPOSITORY / "artifacts" / "local_user" / "briefs"
 INTAKE_SCHEMA = {
@@ -179,6 +185,10 @@ _CONDITION_NAMES = {
 
 class BridgeError(RuntimeError):
     """A deliberately sanitized bridge failure safe to print."""
+
+
+class SameDayRefreshBudgetError(RuntimeError):
+    """The close-brief refresh cannot fit its fixed provider-call budget."""
 
 
 def load_settings(
@@ -529,11 +539,134 @@ def _kst_now() -> datetime:
     return datetime.now(ZoneInfo("Asia/Seoul"))
 
 
+def _watchlist_table() -> list[Mapping[str, object]]:
+    source_root = REPOSITORY / "src"
+    if str(source_root) not in sys.path:
+        sys.path.insert(0, str(source_root))
+    from stock_web.api.stocks_page import build_stocks_page_data
+
+    table = build_stocks_page_data(REPOSITORY).get("table", [])
+    return [row for row in table if isinstance(row, Mapping)]
+
+
+def _row_as_of(row: Mapping[str, object]) -> date | None:
+    value = row.get("as_of")
+    if value is None:
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+def _retained_korean_close_max_as_of() -> date | None:
+    korean_markets = {"KOSPI", "KOSDAQ", "KRX"}
+    dates = [
+        row_date
+        for row in _watchlist_table()
+        if str(row.get("market") or "").upper() in korean_markets
+        if (row_date := _row_as_of(row)) is not None
+    ]
+    return max(dates) if dates else None
+
+
+def _is_xkrx_trading_day(value: date) -> bool:
+    source_root = REPOSITORY / "src"
+    if str(source_root) not in sys.path:
+        sys.path.insert(0, str(source_root))
+    from stock_data.orchestration.exchange_calendar import (
+        ExchangeMarket,
+        ExchangeTradingCalendar,
+    )
+
+    return ExchangeTradingCalendar(ExchangeMarket.KR).is_trading_day(value)
+
+
+def _same_day_lane_call_ceiling(lane: str, target_session: date) -> int:
+    if lane == "KR_EQUITY_PROVISIONAL_DAILY":
+        return 2
+    if lane != "KR_ETF_PRICE_DAILY":
+        raise ValueError("unsupported same-day refresh lane")
+
+    source_root = REPOSITORY / "src"
+    if str(source_root) not in sys.path:
+        sys.path.insert(0, str(source_root))
+    from stock_data.orchestration.kr_etf_daily import (
+        plan_kr_etf_symbol_windows,
+        resolve_kr_etf_symbols,
+    )
+
+    symbols = resolve_kr_etf_symbols(REPOSITORY)
+    if not symbols:
+        return 0
+    windows = plan_kr_etf_symbol_windows(
+        REPOSITORY,
+        symbols=symbols,
+        target_session=target_session,
+    )
+    # The retained master can need one ticker-list refresh when prices are current.
+    return 1 + 2 * len(windows) if windows else 1
+
+
+def _run_same_day_lane(lane: str, now_kst: datetime) -> Mapping[str, object]:
+    if str(REPOSITORY) not in sys.path:
+        sys.path.insert(0, str(REPOSITORY))
+    from scripts.maintenance.run_provider_scheduler import _run_bundle_lane
+
+    return _run_bundle_lane(
+        REPOSITORY,
+        lane,
+        started_at=now_kst,
+        scheduled_for=now_kst,
+        dry_run=False,
+    )
+
+
+def refresh_close_watchlist_same_day(now_kst: datetime | None = None) -> str:
+    """Refresh completed-session Korean watchlist closes within eight calls."""
+
+    supplied = now_kst or _kst_now()
+    if supplied.tzinfo is None or supplied.utcoffset() is None:
+        raise ValueError("same-day refresh time must be timezone-aware")
+    now = supplied.astimezone(ZoneInfo("Asia/Seoul"))
+    if now.time().replace(tzinfo=None) < SAME_DAY_REFRESH_CUTOFF:
+        return "skipped · before_1540"
+    if not _is_xkrx_trading_day(now.date()):
+        return "skipped · non_trading_day"
+
+    retained_max = _retained_korean_close_max_as_of()
+    if retained_max == now.date():
+        return "skipped · already_current"
+    if retained_max is not None and retained_max > now.date():
+        raise ValueError("retained Korean close date is after the current session")
+
+    provider_calls = 0
+    for lane in SAME_DAY_REFRESH_LANES:
+        ceiling = _same_day_lane_call_ceiling(lane, now.date())
+        if ceiling < 0:
+            raise SameDayRefreshBudgetError("same-day lane call ceiling is invalid")
+        if provider_calls + ceiling > SAME_DAY_REFRESH_MAX_PROVIDER_CALLS:
+            raise SameDayRefreshBudgetError("same-day refresh exceeds provider-call budget")
+        result = _run_same_day_lane(lane, now)
+        calls = int(result.get("api_calls", 0) or 0)
+        if calls < 0 or calls > ceiling:
+            raise SameDayRefreshBudgetError("same-day lane call count exceeded its ceiling")
+        provider_calls += calls
+        if provider_calls > SAME_DAY_REFRESH_MAX_PROVIDER_CALLS:
+            raise SameDayRefreshBudgetError("same-day refresh exceeded provider-call budget")
+        if str(result.get("status") or "").startswith(("FAIL", "DEGRADED")):
+            raise RuntimeError("same-day scheduler lane failed")
+    return f"completed · {provider_calls} calls"
+
+
 def persist_market_report(
     report_kind: str,
     report: str,
     sent: bool,
     generated_at_kst: datetime | None = None,
+    *,
+    basis_date: str | None = None,
+    sameday_refresh: str = "not_applicable",
 ) -> Path | None:
     generated_at = generated_at_kst or _kst_now()
     target = BRIEFS_ROOT / f"{generated_at:%Y-%m-%d}-{report_kind}.md"
@@ -544,6 +677,8 @@ def persist_market_report(
         f"generated_at_kst: {generated_at.isoformat(timespec='seconds')}\n"
         f"sent: {'true' if sent else 'false'}\n"
         f"model: {'local' if report_kind == 'conditions' else 'codex'}\n"
+        f"basis_date: {basis_date or 'null'}\n"
+        f"sameday_refresh: {sameday_refresh}\n"
         "---\n\n"
         f"{report.rstrip()}\n"
     )
@@ -582,32 +717,62 @@ def _short_label(row: Mapping[str, object]) -> str:
     symbol = str(row.get("symbol") or "").strip()
     return symbol if len(name) > 16 and symbol else name
 
-def watchlist_condition_summary(limit: int = 8) -> str:
+def watchlist_condition_summary(
+    limit: int = 8, *, same_day_basis: bool = False,
+    basis_target: date | None = None,
+) -> str:
     """Deterministic local block: watchlist rows whose user-defined conditions are met today.
 
     Computed from retained data through the web stocks page builder (no network, no Codex);
     holdings/balances are never included — only symbol, price, change and the condition names.
     """
-    source_root = REPOSITORY / "src"
-    if str(source_root) not in sys.path:
-        sys.path.insert(0, str(source_root))
-    from stock_web.api.stocks_page import build_stocks_page_data
-
-    table = build_stocks_page_data(REPOSITORY).get("table", [])
-    hits = [row for row in table if row.get("condition_matches")]
-    # Conditions are evaluated on retained closes; at 16:10 that is still the previous session
-    # (today's Korean closes arrive with the 20:30 bundle), so the basis date must be visible.
-    as_of_dates = sorted({str(row["as_of"])[:10] for row in table if row.get("as_of")})
-    basis = f" ({as_of_dates[-1][5:].replace('-', '/')} 마감 기준)" if as_of_dates else ""
-    lines = [f"📌 관심종목{basis}"]
+    table = _watchlist_table()
+    hits = [row for row in table if row.get("condition_matches")][:limit]
     if not hits:
         return ""
-    for row in hits[:limit]:
+    row_dates = [
+        row_date for row in table if (row_date := _row_as_of(row)) is not None
+    ]
+    basis_date = max(row_dates) if row_dates else None
+    provisional_basis = bool(
+        same_day_basis
+        and basis_date
+        and any(
+            _row_as_of(row) == basis_date and row.get("price_basis") == "provisional"
+            for row in table
+        )
+    )
+    comparison_date = basis_target or basis_date
+    mixed_basis = bool(
+        same_day_basis
+        and comparison_date
+        and any(
+            row_date < comparison_date
+            for row in hits
+            if (row_date := _row_as_of(row)) is not None
+        )
+    )
+    basis = ""
+    if basis_date is not None:
+        provisional = " 잠정" if provisional_basis else ""
+        basis = f" ({basis_date:%m/%d}{provisional} 마감 기준)"
+        if mixed_basis:
+            basis += " · 일부 전일"
+    lines = [f"📌 관심종목{basis}"]
+    for row in hits:
         price = row.get("price")
         change = row.get("change_pct")
         price_text = f"{price:,.2f}" if isinstance(price, (int, float)) and price < 1000 else (
             f"{price:,.0f}" if isinstance(price, (int, float)) else "—"
         )
+        row_date = _row_as_of(row)
+        if (
+            same_day_basis
+            and comparison_date is not None
+            and row_date is not None
+            and row_date < comparison_date
+        ):
+            price_text += f" ({row_date:%m/%d})"
         if isinstance(change, (int, float)):
             marker = "▲" if change > 0 else "▼" if change < 0 else ""
             change_text = f"{marker}{abs(change):.1f}%"
@@ -628,6 +793,21 @@ def watchlist_condition_summary(limit: int = 8) -> str:
     return "\n".join(lines)
 
 
+def _basis_date_from_summary(summary: str, reference_date: date) -> str | None:
+    match = re.search(r"^📌 관심종목 \((\d{2})/(\d{2})", summary, re.MULTILINE)
+    if match is None:
+        return None
+    month, day = (int(value) for value in match.groups())
+    year = reference_date.year
+    try:
+        candidate = date(year, month, day)
+    except ValueError:
+        return None
+    if candidate > reference_date:
+        candidate = date(year - 1, month, day)
+    return candidate.isoformat()
+
+
 def generate_send_and_persist_market_report(
     client: TelegramClient, chat_id: int, report_kind: str,
 ) -> Path | None:
@@ -640,7 +820,14 @@ def generate_send_and_persist_market_report(
             print("telegram_bridge: report conditions skipped=no_hits")
             return None
         send_long_message(client, chat_id, report)
-        saved_path = persist_market_report(report_kind, report, True)
+        generated_at = _kst_now()
+        saved_path = persist_market_report(
+            report_kind,
+            report,
+            True,
+            generated_at,
+            basis_date=_basis_date_from_summary(report, generated_at.date()),
+        )
         if saved_path is not None:
             print(
                 "telegram_bridge: report conditions sent=true "
@@ -649,10 +836,32 @@ def generate_send_and_persist_market_report(
         return saved_path
 
     report = generate_market_report(report_kind)
+    sameday_refresh = "not_applicable"
+    basis_date: str | None = None
     if report_kind == "close":
+        reference_date = _kst_now().date()
+        basis_target: date | None = reference_date
         try:
-            summary = watchlist_condition_summary()
+            sameday_refresh = refresh_close_watchlist_same_day()
+        except Exception as exc:  # same-day data must never block the brief
+            sameday_refresh = f"failed · {type(exc).__name__}"
+            print(
+                "telegram_bridge: warning: same-day refresh failed: "
+                f"{type(exc).__name__}",
+                file=sys.stderr,
+            )
+        if sameday_refresh in {
+            "skipped · before_1540",
+            "skipped · non_trading_day",
+        }:
+            basis_target = None
+        try:
+            summary = watchlist_condition_summary(
+                same_day_basis=True,
+                basis_target=basis_target,
+            )
             if summary:
+                basis_date = _basis_date_from_summary(summary, reference_date)
                 report_lines = report.rstrip().splitlines()
                 footer_index = next(
                     (
@@ -683,7 +892,13 @@ def generate_send_and_persist_market_report(
         send_long_message(client, chat_id, report)
     except BridgeError as exc:
         send_error = exc
-    saved_path = persist_market_report(report_kind, report, send_error is None)
+    saved_path = persist_market_report(
+        report_kind,
+        report,
+        send_error is None,
+        basis_date=basis_date,
+        sameday_refresh=sameday_refresh,
+    )
     if saved_path is not None:
         print(
             f"telegram_bridge: report {report_kind} sent="

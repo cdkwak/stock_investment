@@ -1,5 +1,5 @@
 import importlib.util
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Iterator
 from uuid import uuid4
@@ -27,6 +27,7 @@ def tmp_path() -> Iterator[Path]:
 
 def test_close_brief_appends_condition_hits_and_never_blocks_on_failure(monkeypatch) -> None:
     sent: list[str] = []
+    refreshes: list[str] = []
 
     class Client:
         def send(self, chat_id, text):
@@ -38,11 +39,18 @@ def test_close_brief_appends_condition_hits_and_never_blocks_on_failure(monkeypa
         "※ 사실·시나리오 구분, 투자 조언 아님"
     )
     monkeypatch.setattr(bridge, "generate_market_report", lambda kind: generated)
-    monkeypatch.setattr(bridge, "persist_market_report", lambda kind, report, ok: None)
+    monkeypatch.setattr(
+        bridge, "persist_market_report", lambda kind, report, ok, *args, **kwargs: None,
+    )
     monkeypatch.setattr(bridge, "send_long_message", lambda client, chat_id, text: sent.append(text))
     monkeypatch.setattr(
+        bridge,
+        "refresh_close_watchlist_same_day",
+        lambda: refreshes.append("close") or "completed · 0 calls",
+    )
+    monkeypatch.setattr(
         bridge, "watchlist_condition_summary",
-        lambda: "📌 관심종목 (09/02 마감 기준)\nSK하이닉스 1,693,000 ▲1.1% · 고점 -30%↓\n설명용 · 신호 아님",
+        lambda **kwargs: "📌 관심종목 (09/02 마감 기준)\nSK하이닉스 1,693,000 ▲1.1% · 고점 -30%↓\n설명용 · 신호 아님",
     )
     bridge.generate_send_and_persist_market_report(Client(), 1, "close")
     assert sent[-1].startswith("마감 요약 본문\n📌 관심종목 (09/02 마감 기준)")
@@ -53,7 +61,7 @@ def test_close_brief_appends_condition_hits_and_never_blocks_on_failure(monkeypa
     def boom():
         raise RuntimeError("no retained data")
 
-    monkeypatch.setattr(bridge, "watchlist_condition_summary", boom)
+    monkeypatch.setattr(bridge, "watchlist_condition_summary", lambda **kwargs: boom())
     bridge.generate_send_and_persist_market_report(Client(), 1, "close")
     assert sent[-1] == bridge.normalize_brief(generated)
 
@@ -61,6 +69,108 @@ def test_close_brief_appends_condition_hits_and_never_blocks_on_failure(monkeypa
     monkeypatch.setattr(bridge, "write_investing_journal_draft", lambda day: None)
     bridge.generate_send_and_persist_market_report(Client(), 1, "morning")
     assert sent[-1] == bridge.normalize_brief(generated)
+    assert refreshes == ["close", "close"]
+
+
+def test_same_day_refresh_runs_only_after_cutoff_on_xkrx_session(monkeypatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(bridge, "_retained_korean_close_max_as_of", lambda: None)
+    monkeypatch.setattr(bridge, "_same_day_lane_call_ceiling", lambda lane, target: 2)
+    monkeypatch.setattr(
+        bridge,
+        "_run_same_day_lane",
+        lambda lane, now: calls.append(lane) or {"status": "PASS", "api_calls": 2},
+    )
+
+    before = datetime(2026, 9, 4, 15, 39, tzinfo=ZoneInfo("Asia/Seoul"))
+    monkeypatch.setattr(bridge, "_is_xkrx_trading_day", lambda day: True)
+    assert bridge.refresh_close_watchlist_same_day(before) == "skipped · before_1540"
+    assert calls == []
+
+    after = datetime(2026, 9, 4, 16, 10, tzinfo=ZoneInfo("Asia/Seoul"))
+    monkeypatch.setattr(bridge, "_is_xkrx_trading_day", lambda day: False)
+    assert bridge.refresh_close_watchlist_same_day(after) == "skipped · non_trading_day"
+    assert calls == []
+
+    monkeypatch.setattr(bridge, "_is_xkrx_trading_day", lambda day: True)
+    assert bridge.refresh_close_watchlist_same_day(after) == "completed · 4 calls"
+    assert calls == list(bridge.SAME_DAY_REFRESH_LANES)
+
+
+def test_same_day_refresh_skips_current_retained_session_at_api_zero(monkeypatch) -> None:
+    current = datetime(2026, 9, 4, 16, 10, tzinfo=ZoneInfo("Asia/Seoul"))
+    monkeypatch.setattr(bridge, "_is_xkrx_trading_day", lambda day: True)
+    monkeypatch.setattr(
+        bridge, "_retained_korean_close_max_as_of", lambda: current.date(),
+    )
+    monkeypatch.setattr(
+        bridge,
+        "_run_same_day_lane",
+        lambda *args: pytest.fail("current retained data must be API zero"),
+    )
+
+    assert bridge.refresh_close_watchlist_same_day(current) == "skipped · already_current"
+
+
+def test_same_day_refresh_refuses_a_plan_above_eight_calls(monkeypatch) -> None:
+    current = datetime(2026, 9, 4, 16, 10, tzinfo=ZoneInfo("Asia/Seoul"))
+    calls: list[str] = []
+    monkeypatch.setattr(bridge, "_is_xkrx_trading_day", lambda day: True)
+    monkeypatch.setattr(bridge, "_retained_korean_close_max_as_of", lambda: None)
+    monkeypatch.setattr(
+        bridge,
+        "_same_day_lane_call_ceiling",
+        lambda lane, target: 4 if lane == "KR_EQUITY_PROVISIONAL_DAILY" else 5,
+    )
+    monkeypatch.setattr(
+        bridge,
+        "_run_same_day_lane",
+        lambda lane, now: calls.append(lane) or {"status": "PASS", "api_calls": 4},
+    )
+
+    with pytest.raises(bridge.SameDayRefreshBudgetError):
+        bridge.refresh_close_watchlist_same_day(current)
+    assert calls == ["KR_EQUITY_PROVISIONAL_DAILY"]
+
+
+def test_close_refresh_failure_still_sends_and_persists_typed_status(monkeypatch) -> None:
+    generated_at = datetime(2026, 9, 4, 16, 10, tzinfo=ZoneInfo("Asia/Seoul"))
+    generated = (
+        "마감 요약 본문\n"
+        "출처: 거래소\n"
+        "※ 사실·시나리오 구분, 투자 조언 아님"
+    )
+    sent: list[str] = []
+    persisted: dict[str, object] = {}
+    monkeypatch.setattr(bridge, "_kst_now", lambda: generated_at)
+    monkeypatch.setattr(bridge, "generate_market_report", lambda kind: generated)
+    monkeypatch.setattr(bridge, "_is_xkrx_trading_day", lambda day: True)
+    monkeypatch.setattr(bridge, "_retained_korean_close_max_as_of", lambda: None)
+    monkeypatch.setattr(bridge, "_same_day_lane_call_ceiling", lambda lane, target: 2)
+
+    def fail_lane(lane, now):
+        raise OSError("mock provider failure")
+
+    monkeypatch.setattr(bridge, "_run_same_day_lane", fail_lane)
+    monkeypatch.setattr(
+        bridge,
+        "watchlist_condition_summary",
+        lambda **kwargs: "📌 관심종목 (09/04 잠정 마감 기준)\n삼성전자 1 ▲1.0% · RSI≤30\n설명용 · 신호 아님",
+    )
+    monkeypatch.setattr(bridge, "send_long_message", lambda client, chat_id, text: sent.append(text))
+
+    def persist(kind, report, ok, *args, **kwargs):
+        persisted.update(kind=kind, report=report, ok=ok, **kwargs)
+        return None
+
+    monkeypatch.setattr(bridge, "persist_market_report", persist)
+
+    bridge.generate_send_and_persist_market_report(object(), 1, "close")
+
+    assert sent and "마감 요약 본문" in sent[0]
+    assert persisted["ok"] is True
+    assert persisted["basis_date"] == "2026-09-04"
+    assert persisted["sameday_refresh"] == "failed · OSError"
 
 
 def test_condition_summary_formats_hits_from_stocks_table(monkeypatch) -> None:
@@ -70,17 +180,63 @@ def test_condition_summary_formats_hits_from_stocks_table(monkeypatch) -> None:
     fake.build_stocks_page_data = lambda root: {"table": [
         {"name": "삼성전자", "symbol": "005930", "price": 261000.0, "change_pct": 0.4, "condition_matches": [], "as_of": "2026-09-02"},
         {"name": "SK하이닉스", "symbol": "000660", "price": 1693000.0, "change_pct": 1.14,
+         "as_of": "2026-09-02", "price_basis": "canonical",
          "condition_matches": [{"name": "52주 고점 대비 -30% 이하"}, {"name": "60일선 대비 -10% 이하"}, {"name": "RSI14 ≥ 70"}]},
         {"name": "SOXL", "symbol": "SOXL", "price": 105.91, "change_pct": -6.1,
+         "as_of": "2026-09-02", "price_basis": "canonical",
          "condition_matches": [{"name": "하루 -5% 이하 급락"}, {"name": "RSI14 ≤ 30"}, {"name": "사용자 조건"}]},
     ]}
     monkeypatch.setitem(sys.modules, "stock_web.api.stocks_page", fake)
-    text = bridge.watchlist_condition_summary()
+    text = bridge.watchlist_condition_summary(same_day_basis=True)
     assert "삼성전자" not in text
     assert text.startswith("📌 관심종목 (09/02 마감 기준)")
     assert "SK하이닉스 1,693,000 ▲1.1% · 고점 -30%↓ · 60일선 -10%↓ · RSI≥70" in text
     assert "SOXL 105.91 ▼6.1% · 일 -5%↓ · RSI≤30 · 사용자 조건" in text
     assert text.endswith("설명용 · 신호 아님")
+
+
+def test_condition_summary_labels_provisional_and_mixed_row_dates(monkeypatch) -> None:
+    monkeypatch.setattr(bridge, "_watchlist_table", lambda: [
+        {
+            "name": "삼성전자", "symbol": "005930", "price": 70000.0,
+            "change_pct": 1.2, "as_of": "2026-09-04", "price_basis": "provisional",
+            "condition_matches": [{"name": "RSI14 ≤ 30"}],
+        },
+        {
+            "name": "SOXL", "symbol": "SOXL", "price": 105.91,
+            "change_pct": -6.1, "as_of": "2026-09-03", "price_basis": "canonical",
+            "condition_matches": [{"name": "하루 -5% 이하 급락"}],
+        },
+    ])
+
+    text = bridge.watchlist_condition_summary(same_day_basis=True)
+
+    assert text.startswith("📌 관심종목 (09/04 잠정 마감 기준) · 일부 전일")
+    assert "삼성전자 70,000 ▲1.2%" in text
+    assert "SOXL 105.91 (09/03) ▼6.1%" in text
+
+    conditions_text = bridge.watchlist_condition_summary()
+    assert conditions_text.startswith("📌 관심종목 (09/04 마감 기준)")
+    assert "잠정" not in conditions_text and "일부 전일" not in conditions_text
+    assert "SOXL 105.91 ▼6.1%" in conditions_text
+
+
+def test_close_basis_marks_all_previous_rows_after_failed_refresh(monkeypatch) -> None:
+    monkeypatch.setattr(bridge, "_watchlist_table", lambda: [
+        {
+            "name": "삼성전자", "symbol": "005930", "price": 70000.0,
+            "change_pct": 1.2, "as_of": "2026-09-03", "price_basis": "canonical",
+            "condition_matches": [{"name": "RSI14 ≤ 30"}],
+        },
+    ])
+
+    text = bridge.watchlist_condition_summary(
+        same_day_basis=True,
+        basis_target=date(2026, 9, 4),
+    )
+
+    assert text.startswith("📌 관심종목 (09/03 마감 기준) · 일부 전일")
+    assert "삼성전자 70,000 (09/03) ▲1.2%" in text
 
 
 def test_condition_summary_limits_hit_rows_to_eight(monkeypatch) -> None:
@@ -137,6 +293,8 @@ def test_conditions_report_skips_codex_and_persists_only_sent_hits(
     assert "kind: conditions\n" in contents
     assert "sent: true\n" in contents
     assert "model: local\n" in contents
+    assert "basis_date: 2026-09-03\n" in contents
+    assert "sameday_refresh: not_applicable\n" in contents
     assert contents.endswith(f"---\n\n{block}\n")
 
 

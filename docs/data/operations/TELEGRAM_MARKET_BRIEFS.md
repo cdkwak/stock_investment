@@ -16,10 +16,18 @@ None of these routes may place orders, mutate accounts, or promote market data.
 | `close` | `STOCK_TELEGRAM_KR_CLOSE_BRIEF` | Weekdays 16:10 | A-style close brief, at most 18 generated lines, plus any local condition block |
 | `conditions` | `STOCK_TELEGRAM_KR_CONDITIONS` | Weekdays 20:50 | Local condition block only; no message when there are no hits |
 
-The 16:10 close message labels the condition block with its retained close
-basis date. Korean closes arrive in the 20:30 bundle, so this block can still
-refer to the preceding completed session. The separate 20:50 conditions task
-runs after that bundle and sends only current retained hits.
+Before building the 16:10 close message's condition block, the bridge performs
+an in-process same-day refresh through the existing
+`KR_EQUITY_PROVISIONAL_DAILY` and `KR_ETF_PRICE_DAILY` scheduler lane runners.
+It never spawns or changes a Windows task. The refresh is eligible only on an
+XKRX trading day at or after 15:40 KST, is API-zero when the retained Korean
+watchlist maximum already equals that session, and refuses any next lane whose
+addition would exceed the eight-call ceiling. Earlier completed lanes remain
+retained and the affected older rows use the mixed-basis labels below. A refresh
+exception is fail-open for Telegram delivery and is recorded as
+`sameday_refresh: failed · <type>` in the persisted brief. The separate 20:50
+conditions route is unchanged: it performs no same-day pre-refresh and sends
+only current retained hits after the 20:30 bundle.
 
 ## Message contract
 
@@ -35,8 +43,14 @@ runs after that bundle and sends only current retained hits.
   complete-line boundary within the Telegram message limit.
 
 The local condition block starts with `📌 관심종목 (MM/DD 마감 기준)`, emits
-at most eight matching rows, and ends with `설명용 · 신호 아님`. It is persisted
-to `artifacts/local_user/briefs/YYYY-MM-DD-conditions.md` only after a successful
+at most eight matching rows, and ends with `설명용 · 신호 아님`. A maximum-date
+row with `price_basis="provisional"` changes the header to
+`(MM/DD 잠정 마감 기준)`. When displayed rows use earlier dates, the header adds
+` · 일부 전일` and each earlier price adds its own `(MM/DD)` date. Persisted
+brief front matter includes `basis_date` (ISO date or `null`) and
+`sameday_refresh`; morning uses `not_applicable`, and the conditions message
+body remains unchanged. A conditions block is persisted to
+`artifacts/local_user/briefs/YYYY-MM-DD-conditions.md` only after a successful
 send. A no-hit run logs `report conditions skipped=no_hits` and creates no file.
 
 ## Manual execution

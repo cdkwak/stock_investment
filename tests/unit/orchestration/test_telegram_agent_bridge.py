@@ -343,6 +343,8 @@ def test_market_report_is_saved_with_kst_name_frontmatter_and_body(
         "generated_at_kst: 2026-09-03T07:31:12+09:00\n"
         "sent: true\n"
         "model: codex\n"
+        "basis_date: null\n"
+        "sameday_refresh: not_applicable\n"
         "---\n\n"
         "☀️ 아침 09/03\n다우 47,000 ▲0.2%\n"
         "※ 사실·시나리오 구분, 투자 조언 아님\n"
@@ -379,7 +381,10 @@ def test_market_report_send_failure_is_saved_as_unsent(
     monkeypatch.setattr(bridge, "BRIEFS_ROOT", tmp_path / "briefs")
     monkeypatch.setattr(bridge, "_kst_now", lambda: generated_at)
     monkeypatch.setattr(bridge, "generate_market_report", lambda kind: "마감 본문")
-    monkeypatch.setattr(bridge, "watchlist_condition_summary", lambda: "")
+    monkeypatch.setattr(
+        bridge, "refresh_close_watchlist_same_day", lambda: "completed · 0 calls",
+    )
+    monkeypatch.setattr(bridge, "watchlist_condition_summary", lambda **kwargs: "")
 
     class FailingClient:
         def send(self, chat_id: int, text: str) -> None:
@@ -390,6 +395,8 @@ def test_market_report_send_failure_is_saved_as_unsent(
     contents = saved.read_text(encoding="utf-8")
     assert "kind: close\n" in contents
     assert "sent: false\n" in contents
+    assert "basis_date: null\n" in contents
+    assert "sameday_refresh: completed · 0 calls\n" in contents
     assert contents.endswith(
         "---\n\n마감 본문\n※ 사실·시나리오 구분, 투자 조언 아님\n"
     )
