@@ -824,6 +824,9 @@ def test_compound_panel_static_contract_uses_cached_frame_render_and_existing_ch
     assert "신호 ${esc(episode.signal_date)}" in script
     assert "고원 판정 (적합 구간)" in template
     assert "이 조합의 고원 판정은 아직 계산 안 됨" in script
+    assert "전 구간 기준선 미달" in script
+    assert "이 조합에서는 파라미터가 결과를 바꾸지 않음" in script
+    assert 'return "전액 손실"' in script
     assert "row.exit === combination.exit && row.cost_enabled === combination.cost_enabled" in script
     assert "item.holdout_relative_to_baseline" in script
     assert "item.holdout_baseline_final_wealth_multiple" in script

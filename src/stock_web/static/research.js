@@ -767,7 +767,10 @@
   }
 
   function multipleText(value, digits = 2) {
-    return finite(value) ? `${Number(value).toFixed(digits)}배` : "—";
+    if (!finite(value)) return "—";
+    // A 0.00x final multiple is a real path (3x · exit d wipes out), not a failed computation.
+    if (Number(value) < 0.005) return "전액 손실";
+    return `${Number(value).toFixed(digits)}배`;
   }
 
   function compoundProductLabel(variant) {
@@ -854,9 +857,22 @@
       && Math.abs(ys.indexOf(row[definition.y]) - bestYi) <= 1);
     const bestValue = Number(heatMetric(best, combination.product_variant).relative_to_baseline);
     const neighbourMean = neighbours.length ? neighbours.reduce((sum, row) => sum + Number(heatMetric(row, combination.product_variant).relative_to_baseline), 0) / neighbours.length : NaN;
-    const sharp = bestValue > 1 && Number.isFinite(neighbourMean) && bestValue - neighbourMean > .25 * (bestValue - 1);
     const surfaceNote = ` · 표면 기준: ${scenario} (손잡이와 같음)`;
-    $("compound-plateau-verdict").textContent = `${sharp ? "뾰족한 봉우리" : "넓은 고원"} · 최적 ${bestValue.toFixed(2)}x${Number.isFinite(neighbourMean) ? ` / 이웃 평균 ${neighbourMean.toFixed(2)}x` : " / 이웃 없음"}${surfaceNote}`;
+    // Three tiers (Obsidian session, 2026-09-05): the most positive wording only under the
+    // strictest condition. (1) a degenerate surface (k=1, or a wipe-out everywhere) is "no
+    // effect", never a plateau; (2) a surface whose best cell is at or below the baseline gets
+    // no flatness verdict at all; (3) only when the best beats the baseline do we judge shape.
+    const spread = high - low;
+    let verdict;
+    if (!(spread > 1e-6)) {
+      verdict = `이 조합에서는 파라미터가 결과를 바꾸지 않음 (표면 전체 ${bestValue.toFixed(2)}x)`;
+    } else if (!(bestValue > 1)) {
+      verdict = `전 구간 기준선 미달 · 최적 ${bestValue.toFixed(2)}x`;
+    } else {
+      const sharp = Number.isFinite(neighbourMean) && bestValue - neighbourMean > .25 * (bestValue - 1);
+      verdict = `${sharp ? "뾰족한 봉우리" : "넓은 고원"} · 최적 ${bestValue.toFixed(2)}x${Number.isFinite(neighbourMean) ? ` / 이웃 평균 ${neighbourMean.toFixed(2)}x` : " / 이웃 없음"}`;
+    }
+    $("compound-plateau-verdict").textContent = `${verdict}${surfaceNote}`;
   }
 
   function renderCompound() {
@@ -933,7 +949,7 @@
     }).join("");
     const windowNote = showHoldout
       ? "FIT 열은 적합 구간(~2015), 홀드아웃 열은 2016~ · 결과 문서의 'a가 전 지수 MDD 최저'는 홀드아웃 기준"
-      : "지금 보이는 순위는 적합 구간(~2015) 기준이며 홀드아웃(2016~)에서는 뒤집힘 — 결과 문서의 'a가 전 지수 MDD 최저'는 홀드아웃 기준";
+      : "지금 보이는 순위는 적합 구간(~2015) 기준이며 홀드아웃(2016~)에서는 뒤집힘 — 결과 문서의 'a가 전 지수 MDD 최저'는 홀드아웃 기준. 적합 구간에 1997·2000·2008 대형 위기가 몰려 있어 레버리지 전략의 적합 성적이 나쁘고, 홀드아웃(2016~ 상승장)은 반대. 홀드아웃 열은 열람 기록을 남긴 뒤 같은 표에 나란히 붙음";
     host.innerHTML = `<p class="muted compound-exit-window">${esc(windowNote)}</p><div class="compound-subhead"><b>출구 5개 나란히 · 최종배수와 최대낙폭을 같은 줄에</b><span class="muted">같은 신호·배율·비용, 출구만 다름 · MDD = 계좌 고점 대비 반납폭(원금 손실 아님)${showHoldout ? "" : " · 홀드아웃 열은 '홀드아웃 보기' 뒤에"}</span></div><div class="research-table-wrap"><table class="research-table compound-exit-table"><thead><tr><th>출구</th><th>FIT 최종/기준선</th><th>FIT MDD</th>${showHoldout ? "<th>홀드아웃 최종/기준선</th><th>홀드아웃 MDD</th>" : ""}</tr></thead><tbody>${rows}</tbody></table></div>`;
   }
 
