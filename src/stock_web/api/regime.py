@@ -138,6 +138,21 @@ def _fmt(value: float | None, pattern: str) -> str:
     return "표시 불가" if value is None else pattern.format(value)
 
 
+_NO_EVIDENCE_VALUES = frozenset({"근거 없음", "표시 불가", "수집 추가 필요", ""})
+
+
+def _evidence_row(
+    label: str, value: object, *, hint: str | None = None,
+) -> dict[str, object]:
+    display = "표시 불가" if value is None else str(value)
+    return {
+        "label": label,
+        "value": display,
+        "evidence": value is not None and display not in _NO_EVIDENCE_VALUES,
+        "hint": hint,
+    }
+
+
 def _foreign_sell_streak(query: LocalParquetQuery) -> int | None:
     frame = query.tail(
         "normalized/kr_market_investor_trading_daily",
@@ -284,26 +299,43 @@ def build_regime(project_root: Path, account: dict[str, object]) -> dict[str, ob
     kr_axes = int(kr_technical) + int(valuation_pct is not None)
     kr_score = oversold_strength(kr_rsi, kr_distance, vk_pct)
     kr_evidence = [
-        ["KOSPI RSI14", _fmt(kr_rsi, "{:.1f}")],
-        ["60일선 대비", _fmt(kr_distance, "{:+.1f}%")],
-        ["VKOSPI 250일 순위", _fmt(vk_pct, "{:.0f}%")],
-        ["KRX PER 5년 순위", _fmt(valuation_pct, "{:.0f}%")],
-        ["신용잔고 1년 순위", _fmt(credit_pct, "{:.0f}%")],
-        ["외국인 연속 순매도", "표시 불가" if foreign_streak is None else f"{foreign_streak}일"],
-        ["과매도 강도", "표시 불가" if kr_score is None else f"{kr_score[0]:.1f}/10"],
-        ["실적 모멘텀", "근거 없음"],
+        _evidence_row("KOSPI RSI14", _fmt(kr_rsi, "{:.1f}")),
+        _evidence_row("60일선 대비", _fmt(kr_distance, "{:+.1f}%")),
+        _evidence_row(
+            "VKOSPI 250일 백분위", _fmt(vk_pct, "{:.0f}%"), hint="낮을수록 안정",
+        ),
+        _evidence_row(
+            "KRX PER 5년 백분위", _fmt(valuation_pct, "{:.0f}%"), hint="낮을수록 저평가",
+        ),
+        _evidence_row(
+            "신용잔고 1년 백분위", _fmt(credit_pct, "{:.0f}%"), hint="높을수록 과열",
+        ),
+        _evidence_row(
+            "외국인 연속 순매도",
+            None if foreign_streak is None else f"{foreign_streak}일",
+        ),
+        _evidence_row(
+            "과매도 강도", None if kr_score is None else f"{kr_score[0]:.1f}/10",
+            hint="높을수록 과매도",
+        ),
+        _evidence_row("실적 모멘텀", "근거 없음"),
     ]
 
     us_technical = all(value is not None for value in (us_rsi, us_distance, vix_pct))
     us_axes = int(us_technical)
     us_score = oversold_strength(us_rsi, us_distance, vix_pct)
     us_evidence = [
-        ["S&P 500 RSI14", _fmt(us_rsi, "{:.1f}")],
-        ["200일선 대비", _fmt(us_distance, "{:+.1f}%")],
-        ["VIX 250일 순위", _fmt(vix_pct, "{:.0f}%")],
-        ["과매도 강도", "표시 불가" if us_score is None else f"{us_score[0]:.1f}/10"],
-        ["밸류에이션", "수집 추가 필요"],
-        ["실적 모멘텀", "근거 없음"],
+        _evidence_row("S&P 500 RSI14", _fmt(us_rsi, "{:.1f}")),
+        _evidence_row("200일선 대비", _fmt(us_distance, "{:+.1f}%")),
+        _evidence_row(
+            "VIX 250일 백분위", _fmt(vix_pct, "{:.0f}%"), hint="낮을수록 안정",
+        ),
+        _evidence_row(
+            "과매도 강도", None if us_score is None else f"{us_score[0]:.1f}/10",
+            hint="높을수록 과매도",
+        ),
+        _evidence_row("밸류에이션", "수집 추가 필요"),
+        _evidence_row("실적 모멘텀", "근거 없음"),
     ]
 
     yields = query.tail(
@@ -330,12 +362,12 @@ def build_regime(project_root: Path, account: dict[str, object]) -> dict[str, ob
         for value in (spread_level, spread_change, yield_change_bp, wti_change)
     )
     global_evidence = [
-        ["10Y-2Y", _fmt(spread_level, "{:+.2f}%p")],
-        ["10Y-2Y 1개월", _fmt(spread_change, "{:+.2f}%p")],
-        ["미국 10Y 1개월", _fmt(yield_change_bp, "{:+.0f}bp")],
-        ["WTI 1개월", _fmt(wti_change, "{:+.1f}%")],
-        ["밸류에이션", "수집 추가 필요"],
-        ["실적 모멘텀", "근거 없음"],
+        _evidence_row("10Y-2Y", _fmt(spread_level, "{:+.2f}%p")),
+        _evidence_row("10Y-2Y 1개월", _fmt(spread_change, "{:+.2f}%p")),
+        _evidence_row("미국 10Y 1개월", _fmt(yield_change_bp, "{:+.0f}bp")),
+        _evidence_row("WTI 1개월", _fmt(wti_change, "{:+.1f}%")),
+        _evidence_row("밸류에이션", "수집 추가 필요"),
+        _evidence_row("실적 모멘텀", "근거 없음"),
     ]
 
     markets: list[dict[str, object]] = [

@@ -5,6 +5,7 @@ absent section (or a ``reason``), never a substituted number.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 import math
 import json
 import re
@@ -291,6 +292,77 @@ def _fx_intraday_displacements(
     return deltas[0], deltas[1]
 
 
+def _curve_frame(
+    frame: pd.DataFrame | None, *, tenor_column: str, value_column: str,
+    tenor_names: dict[str, str],
+) -> pd.DataFrame:
+    if (
+        frame is None or frame.empty
+        or not {"date", tenor_column, value_column}.issubset(frame.columns)
+    ):
+        return pd.DataFrame()
+    work = frame[["date", tenor_column, value_column]].copy()
+    work["date"] = pd.to_datetime(work["date"], errors="coerce")
+    work[value_column] = pd.to_numeric(work[value_column], errors="coerce")
+    work[tenor_column] = work[tenor_column].astype(str).map(tenor_names)
+    work = work.dropna(subset=["date", tenor_column, value_column])
+    if work.empty:
+        return pd.DataFrame()
+    curve = work.pivot_table(
+        index="date", columns=tenor_column, values=value_column, aggfunc="last",
+    ).reset_index()
+    return curve.dropna(subset=["3Y", "10Y"]).sort_values("date", kind="stable")
+
+
+def _korean_treasury_tile(project_root: Path) -> dict[str, object]:
+    """Prefer a newer BOK curve, otherwise identify the current Toss fallback."""
+    name = "한국 3Y · 10Y"
+    try:
+        bok = _curve_frame(
+            dsx.load(
+                project_root,
+                "data/normalized/bok_ecos_kr_treasury_yield_source_observation",
+                columns=["date", "tenor", "yield_percent"],
+            ),
+            tenor_column="tenor", value_column="yield_percent",
+            tenor_names={"3Y": "3Y", "10Y": "10Y"},
+        )
+        toss = _curve_frame(
+            dsx.load(
+                project_root,
+                "data/normalized/kr_treasury_yield_daily",
+                columns=["date", "instrument", "close"],
+            ),
+            tenor_column="instrument", value_column="close",
+            tenor_names={"KR_BOND_3Y": "3Y", "KR_BOND_10Y": "10Y"},
+        )
+        use_bok = not bok.empty and (
+            toss.empty or pd.Timestamp(bok["date"].iloc[-1]) >= pd.Timestamp(toss["date"].iloc[-1])
+        )
+        curve = bok if use_bok else toss
+        if curve.empty:
+            return _placeholder(name, "한국 국채 보존 데이터 없음")
+        latest = curve.iloc[-1]
+        source_name = "BOK 국채" if use_bok else "Toss 국채"
+        source_label = f"{source_name} {latest['date']:%m-%d}"
+        tile = _tile_from_series(
+            name, None, curve, "10Y", fmt="{:.2f}%", change_kind="bp",
+            window_label=f"{source_name} 일별",
+        )
+        tile["value"] = f"3Y {float(latest['3Y']):.2f}% · 10Y {float(latest['10Y']):.2f}%"
+        tile["source_label"] = source_label
+        tile["sub_note"] = source_label
+        if len(curve) >= 2:
+            previous = curve.iloc[-2]
+            change_3y = (float(latest["3Y"]) - float(previous["3Y"])) * 100.0
+            change_10y = (float(latest["10Y"]) - float(previous["10Y"])) * 100.0
+            tile["change_pct"] = change_10y
+            tile["change_label"] = f"3Y {change_3y:+.0f}bp · 10Y {change_10y:+.0f}bp"
+        return tile
+    except Exception:
+        return _placeholder(name, "한국 국채 데이터를 읽을 수 없음")
+
+
 def build_tiles(project_root: Path) -> list[dict[str, object]]:
     def idx(sym: str):
         frame, _ = _ohlcv(project_root, sym)
@@ -328,7 +400,7 @@ def build_tiles(project_root: Path) -> list[dict[str, object]]:
         _tile_from_series("미국 2Y", None, yields, "dgs2", fmt="{:.2f}%", change_kind="bp", window_label="FRED 일별"),
         _tile_from_series("미국 30Y", None, yields, "dgs30", fmt="{:.2f}%", change_kind="bp", window_label="FRED 일별"),
         _tile_from_series("VIX", None, vix, "vixcls"),
-        _placeholder("한국 3Y · 10Y", "한국은행 확정 검증 후 표시"),
+        _korean_treasury_tile(project_root),
     ]
     for tile in tiles:
         intraday = load_intraday_series(project_root, str(tile["name"]))
@@ -392,7 +464,7 @@ def build_tiles(project_root: Path) -> list[dict[str, object]]:
                 )
         else:
             tile["spark_kind"] = "daily"
-            if tile.get("spark"):
+            if tile.get("spark") and not tile.get("source_label"):
                 tile["window"] = "최근 30일 마감"
             if tile["name"] == "VIX" and daily_value is not None:
                 tile["sub_note"] = (
@@ -409,9 +481,20 @@ def build_tiles(project_root: Path) -> list[dict[str, object]]:
 
 
 def build_flows(project_root: Path) -> dict[str, object]:
+    from stock_web.api.home_cards import build_lending
+
+    try:
+        lending = build_lending(project_root)
+    except Exception:
+        lending = None
     frame = dsx.load(project_root, "data/normalized/kr_market_investor_trading_daily", filter_expr=(field("market") == "KOSPI"))
-    if frame is None or frame.empty:
-        return {"reason": "투자자 매매 데이터 없음"}
+    required = {
+        "date", "foreigner_buy_amount", "foreigner_sell_amount",
+        "institution_buy_amount", "institution_sell_amount",
+        "individual_buy_amount", "individual_sell_amount",
+    }
+    if frame is None or frame.empty or not required.issubset(frame.columns):
+        return {"reason": "투자자 매매 데이터 없음", "lending": lending}
     frame = frame.sort_values("date")
     groups = {"외국인": "foreigner", "기관": "institution", "개인": "individual"}
     rows = []
@@ -419,20 +502,27 @@ def build_flows(project_root: Path) -> dict[str, object]:
         net = (frame[f"{key}_buy_amount"].astype(float) - frame[f"{key}_sell_amount"].astype(float)) / 1e8
         rows.append({"name": label, "today": _nan_to_none(net.iloc[-1]), "d5": _nan_to_none(net.iloc[-5:].sum()), "d20": _nan_to_none(net.iloc[-20:].sum())})
     balances = []
-    credit = dsx.load(project_root, "data/normalized/kr_credit_balance_daily")
-    if credit is not None and not credit.empty and "credit_financing_total" in credit.columns:
-        c = credit.dropna(subset=["credit_financing_total"]).sort_values("date")
-        v = c["credit_financing_total"].astype(float)
-        year = c[c["date"] >= c["date"].max() - pd.Timedelta(days=365)]
-        pos = (year["credit_financing_total"] < v.iloc[-1]).mean() * 100
-        balances.append({
-            "name": "신용잔고", "value": f"{v.iloc[-1] / 1e12:.1f}조 ({c['date'].iloc[-1]:%m-%d})",
-            "position": f"1년 상위 {100 - pos:.0f}%", "hot": bool(pos >= 90),
-            "d5_pct": _nan_to_none((v.iloc[-1] / v.iloc[-6] - 1) * 100) if len(v) > 6 else None,
-            "d20_pct": _nan_to_none((v.iloc[-1] / v.iloc[-21] - 1) * 100) if len(v) > 21 else None,
-            "spark": [round(float(x) / 1e12, 3) for x in v.iloc[-20:]],
-        })
-    return {"as_of": frame["date"].iloc[-1].strftime("%Y-%m-%d"), "market": "KOSPI", "rows": rows, "balances": balances}
+    try:
+        credit = dsx.load(project_root, "data/normalized/kr_credit_balance_daily")
+        if credit is not None and not credit.empty and "credit_financing_total" in credit.columns:
+            c = credit.dropna(subset=["credit_financing_total"]).sort_values("date")
+            v = c["credit_financing_total"].astype(float)
+            year = c[c["date"] >= c["date"].max() - pd.Timedelta(days=365)]
+            pos = (year["credit_financing_total"] < v.iloc[-1]).mean() * 100
+            balances.append({
+                "name": "신용잔고", "value": f"{v.iloc[-1] / 1e12:.1f}조 ({c['date'].iloc[-1]:%m-%d})",
+                "position": f"1년 상위 {100 - pos:.0f}%", "hot": bool(pos >= 90),
+                "d5_pct": _nan_to_none((v.iloc[-1] / v.iloc[-6] - 1) * 100) if len(v) > 6 else None,
+                "d20_pct": _nan_to_none((v.iloc[-1] / v.iloc[-21] - 1) * 100) if len(v) > 21 else None,
+                "spark": [round(float(x) / 1e12, 3) for x in v.iloc[-20:]],
+            })
+    except (KeyError, TypeError, ValueError):
+        pass
+    return {
+        "as_of": frame["date"].iloc[-1].strftime("%Y-%m-%d"),
+        "market": "KOSPI", "rows": rows, "balances": balances,
+        "lending": lending,
+    }
 
 
 def build_health(project_root: Path) -> dict[str, object]:
@@ -526,8 +616,20 @@ def build_account(project_root: Path) -> dict[str, object]:
     )
     from stock_data.gui.services import EquityChartService, US_ETF_CHART_IDENTITIES
     from stock_web.api.account_page import build_account_page_data
+    from stock_web.api.home_cards import account_extras
 
     account_page = build_account_page_data(project_root)
+    try:
+        extras = account_extras(account_page)
+    except Exception:
+        extras = {
+            "summary_rows": [], "recent_cashflows": [],
+            "extras_reason": "계좌 출처 요약을 읽을 수 없습니다.",
+        }
+
+    def finish(payload: dict[str, object]) -> dict[str, object]:
+        return {**payload, **extras}
+
     account_summary = account_page["summary"]
     account_rows = account_page.get("rows", [])
     cash_unknown = any(
@@ -558,10 +660,10 @@ def build_account(project_root: Path) -> dict[str, object]:
             sources.append(LocalAccountSourceSpec(source_id, title, path))
     if not sources:
         if not manual_accounts and not account_page["net_worth"].get("exists"):
-            return {
+            return finish({
                 "reason": "읽을 수 있는 로컬 계좌 스냅샷이 없습니다.",
                 "sources": account_summary.get("sources", []),
-            }
+            })
         manual_cash = float(manual_data.get("cash_krw") or 0.0)
         exposure_krw = leveraged_krw = short_treasury_krw = 0.0
         exposure_unverified: list[str] = []
@@ -586,7 +688,7 @@ def build_account(project_root: Path) -> dict[str, object]:
             for account in manual_accounts if account.get("currency") == "USD"
         )
         usdkrw = account_summary.get("fx_krw_per_usd")
-        return {
+        return finish({
             "total_krw": invest_total,
             "invest_total_krw": invest_total,
             "net_worth_krw": account_summary.get("net_worth_krw"),
@@ -619,14 +721,14 @@ def build_account(project_root: Path) -> dict[str, object]:
             "exposure_unverified": list(dict.fromkeys(exposure_unverified)),
             "history": flow_history, "benchmark": flow_benchmark,
             "footnote": "입출금은 내 계좌 페이지에서 기록 · 기록이 없으면 변동 전체를 손익으로 간주",
-        }
+        })
 
     portfolio = LocalAccountPortfolioService(
         tuple(sources), history_root=project_root / "data/local/account_value_history",
     ).load()
     presentation = build_account_portfolio_presentation(portfolio)
     if not presentation.available:
-        return {"reason": "로컬 계좌 스냅샷이 표시 가능한 상태가 아닙니다."}
+        return finish({"reason": "로컬 계좌 스냅샷이 표시 가능한 상태가 아닙니다."})
 
     fx, usdkrw, usdkrw_as_of, usdkrw_source = _latest_fx(project_root)
     amounts = {"KRW": 0.0, "USD": 0.0}
@@ -654,10 +756,10 @@ def build_account(project_root: Path) -> dict[str, object]:
                 amounts[summary.currency] += float(summary.securities_value) + cash_value
                 cash[summary.currency] += cash_value
     if amounts["USD"] and usdkrw is None:
-        return {"reason": "USD 자산은 있으나 보존된 USD/KRW 환율을 확인할 수 없습니다."}
+        return finish({"reason": "USD 자산은 있으나 보존된 USD/KRW 환율을 확인할 수 없습니다."})
     total_krw = amounts["KRW"] + amounts["USD"] * float(usdkrw or 0.0)
     if total_krw <= 0:
-        return {"reason": "로컬 계좌 총액을 안전하게 계산할 수 없습니다."}
+        return finish({"reason": "로컬 계좌 총액을 안전하게 계산할 수 없습니다."})
 
     us_identities = {identity.symbol: identity for identity in US_ETF_CHART_IDENTITIES}
     equity = EquityChartService(project_root)
@@ -727,7 +829,7 @@ def build_account(project_root: Path) -> dict[str, object]:
             if any(token in name_upper for token in ("SGOV", "BIL", "SHV", "단기국채", "SHORT TREASURY")):
                 manual_short_treasury_krw += float(value_krw)
     usd_assets_krw = amounts["USD"] * float(usdkrw or 0.0) + manual_usd_krw
-    return {
+    return finish({
         "total_krw": invest_total,
         "invest_total_krw": invest_total,
         "net_worth_krw": account_summary.get("net_worth_krw"),
@@ -763,7 +865,7 @@ def build_account(project_root: Path) -> dict[str, object]:
         "history": history,
         "benchmark": benchmark,
         "footnote": "입출금은 내 계좌 페이지에서 기록 · 기록이 없으면 변동 전체를 손익으로 간주",
-    }
+    })
 
 
 def build_derivatives(project_root: Path) -> dict[str, object]:
@@ -778,16 +880,32 @@ def build_derivatives(project_root: Path) -> dict[str, object]:
     except (KeyError, OSError, PermissionError, TypeError, ValueError):
         metrics = {}
 
+    def unavailable(reason: object, *, us_row: bool = False) -> str:
+        if us_row:
+            return "미표시"
+        text = str(reason or "보존 데이터 없음").strip()
+        if text.isascii() and any(character.isalpha() for character in text):
+            return "출처 검증 전 · 미표시"
+        if text.isascii() and len(text) > 40:
+            return "출처 검증 전 · 미표시"
+        return text
+
     def display(key: str, pattern: str) -> str:
         metric = metrics.get(key)
         if metric is not None and metric.displays_value and metric.value is not None:
             value = pattern.format(float(metric.value))
             return f"{value} · {format_kst(metric.as_of)}" if metric.as_of else value
-        return str(getattr(metric, "unavailable_reason", None) or "보존 데이터 없음")
+        return unavailable(getattr(metric, "unavailable_reason", None))
 
-    vix_reason = build_vix_futures_dashboard_view().metric.unavailable_reason
-    cboe_views = current_us_option_pcr_scope_views()
-    cboe_reason = cboe_views[0].reason if cboe_views else "CBOE PCR source unavailable"
+    try:
+        vix_reason = build_vix_futures_dashboard_view().metric.unavailable_reason
+    except Exception:
+        vix_reason = None
+    try:
+        cboe_views = current_us_option_pcr_scope_views()
+        cboe_reason = cboe_views[0].reason if cboe_views else None
+    except Exception:
+        cboe_reason = None
     return {"groups": [
         {"title": "한국 · KOSPI200", "rows": [
             ["선물 Basis", display("KOSPI200_BASIS", "{:+.2f}")],
@@ -796,37 +914,16 @@ def build_derivatives(project_root: Path) -> dict[str, object]:
             ["LS 선물 외국인 순계약", display("LS_FUTURES_FOREIGN_NET", "{:+,.0f}")],
         ]},
         {"title": "미국", "rows": [
-            ["VIX 선물", str(vix_reason)],
-            ["CBOE PCR", str(cboe_reason)],
+            ["VIX 선물", unavailable(vix_reason, us_row=True)],
+            ["CBOE PCR", unavailable(cboe_reason, us_row=True)],
         ]},
     ]}
 
 
 def build_schedule(project_root: Path) -> dict[str, object]:
-    path = project_root / "data/local/calendar/events.json"
-    if not path.is_file():
-        return {"reason": "로컬 일정 파일이 없습니다."}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        items = payload["items"]
-        if not isinstance(items, list):
-            raise ValueError("items")
-        clean = []
-        for item in items:
-            when = item.get("when")
-            what = item.get("what")
-            importance = item.get("importance")
-            if (
-                not isinstance(when, str)
-                or re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d|\d{2}-\d{2}", when) is None
-                or not isinstance(what, str) or not what.strip()
-                or type(importance) is not int or importance not in {1, 2, 3}
-            ):
-                raise ValueError("item")
-            clean.append({"when": when, "what": what.strip(), "importance": importance})
-        return {"items": clean}
-    except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError, ValueError):
-        return {"reason": "로컬 일정 파일 형식이 올바르지 않습니다."}
+    from stock_web.api.home_cards import build_schedule as build_schedule_card
+
+    return build_schedule_card(project_root)
 
 
 def build_brief(project_root: Path) -> dict[str, object] | None:
@@ -875,9 +972,9 @@ def build_scanner(project_root: Path) -> dict[str, object]:
 
 
 def build_watchlist(project_root: Path) -> dict[str, object]:
-    from stock_web.api.stocks_page import build_home_watchlist
+    from stock_web.api.home_cards import build_watchlist as build_watchlist_card
 
-    return build_home_watchlist(project_root)
+    return build_watchlist_card(project_root)
 
 
 def build_chart_symbols(project_root: Path) -> list[dict[str, str]]:
@@ -923,27 +1020,51 @@ def _attach_research_current(
     return regime
 
 
+def _safe_home_section(builder: Callable[[], object], reason: str) -> object:
+    try:
+        return builder()
+    except Exception:
+        return {"reason": reason}
+
+
 def _build_home_payload_uncached(project_root: Path) -> dict[str, object]:
     from stock_web.api.regime import build_regime
 
     sections: dict[str, object] = {}
-    account = build_account(project_root)
-    sections["account"] = account
-    sections["regime"] = _attach_research_current(
-        project_root,
-        _normalize_regime_cash_label(build_regime(project_root, account), account),
+    account = _safe_home_section(
+        lambda: build_account(project_root), "계좌 데이터를 읽을 수 없습니다.",
     )
-    sections["derivatives"] = build_derivatives(project_root)
+    if not isinstance(account, dict):
+        account = {"reason": "계좌 데이터를 읽을 수 없습니다."}
+    sections["account"] = account
+    sections["regime"] = _safe_home_section(
+        lambda: _attach_research_current(
+            project_root,
+            _normalize_regime_cash_label(build_regime(project_root, account), account),
+        ),
+        "시장 국면 근거를 읽을 수 없습니다.",
+    )
+    sections["derivatives"] = _safe_home_section(
+        lambda: build_derivatives(project_root), "파생 지표를 읽을 수 없습니다.",
+    )
     sections["health"] = build_health(project_root)
-    sections["schedule"] = build_schedule(project_root)
+    sections["schedule"] = _safe_home_section(
+        lambda: build_schedule(project_root), "오늘 브리핑을 읽을 수 없습니다.",
+    )
     brief = build_brief(project_root)
     if brief is not None:
         sections["brief"] = brief
     sections["scanner"] = build_scanner(project_root)
-    sections["watchlist"] = build_watchlist(project_root)
-    sections["tiles"] = build_tiles(project_root)
+    sections["watchlist"] = _safe_home_section(
+        lambda: build_watchlist(project_root), "관심종목 또는 보유 여부를 읽을 수 없습니다.",
+    )
+    sections["tiles"] = _safe_home_section(
+        lambda: build_tiles(project_root), "시장 지표를 읽을 수 없습니다.",
+    )
     sections["chart_symbols"] = build_chart_symbols(project_root)
-    sections["flows"] = build_flows(project_root)
+    sections["flows"] = _safe_home_section(
+        lambda: build_flows(project_root), "수급 데이터를 읽을 수 없습니다.",
+    )
     kospi = _ohlcv(project_root, "KOSPI")[0]
     as_of = kospi["date"].iloc[-1].strftime("%Y-%m-%d") if kospi is not None and not kospi.empty else None
     return {

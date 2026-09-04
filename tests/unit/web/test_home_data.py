@@ -75,7 +75,10 @@ def test_home_payload_is_json_clean_and_missing_sections_explain_why(
     json.dumps(payload, ensure_ascii=False, allow_nan=False)
     sections = payload["sections"]
     assert sections["account"]["reason"] == "읽을 수 있는 로컬 계좌 스냅샷이 없습니다."
-    assert sections["schedule"]["reason"] == "로컬 일정 파일이 없습니다."
+    assert sections["schedule"] == {
+        "briefs": [], "events": [],
+        "note": "일정 출처 없음 · 브리핑의 오늘 밤 항목만 표시",
+    }
     assert sections["health"]["current"] >= 1
     assert len(sections["regime"]["markets"]) == 3
     assert sections["regime"]["rules"] is None
@@ -161,7 +164,7 @@ def test_optional_local_artifacts_are_projected_without_inventing_content() -> N
         "lines": ["첫 줄", "둘째 줄"], "generated_at": "2026-09-17T08:00:00+09:00",
         "source": "local test",
     }), encoding="utf-8")
-    assert home_data.build_schedule(root)["items"][0]["what"] == "테스트 일정"
+    assert home_data.build_schedule(root)["legacy"]["items"][0]["what"] == "테스트 일정"
     brief_payload = home_data.build_brief(root)
     assert brief_payload["lines"] == ["첫 줄", "둘째 줄"]
     assert brief_payload["meta"] == "09-17 08:00 · local test"
@@ -286,6 +289,10 @@ def test_home_account_marks_unknown_cash_and_defaults_short_history_to_all() -> 
     assert account["cash_pct"] is None
     assert account["broker_reported_pnl_krw"] == 20_000
     assert account["period_label"] == "ALL"
+    assert [(row["label"], row["as_of"]) for row in account["summary_rows"][:2]] == [
+        ("Toss", "09-03 07:00"), ("KB", "09-03 07:00"),
+    ]
+    assert account["recent_cashflows"] == []
 
 
 def test_regime_cash_label_keeps_unknown_cash_separate_from_treasury_percentage() -> None:
