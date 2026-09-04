@@ -251,7 +251,7 @@ def test_age_summary_counts_automated_rows_and_groups_oldest_first() -> None:
     assert manual["next_collection"] == "수동"
 
 
-def test_old_scheduler_failure_is_separated_from_recent_receipts() -> None:
+def test_old_scheduler_failure_stays_visible_ahead_of_recent_success() -> None:
     tmp_path = new_temp_root()
     root = tmp_path / "artifacts/scheduler_logs"
     root.mkdir(parents=True)
@@ -268,11 +268,65 @@ def test_old_scheduler_failure_is_separated_from_recent_receipts() -> None:
         tmp_path, now=datetime(2026, 9, 3, tzinfo=timezone.utc),
     )
 
-    assert [row["task"] for row in rows] == ["RECENT", "OLD"]
-    assert rows[0]["result_code_display"]["label"] == "성공"
-    assert rows[1]["result_code_display"]["label"] == "실패 (코드 1)"
-    assert [row["older_than_7_days"] for row in rows] == [False, True]
-    assert build_data_page_context(tmp_path, "ALL")["show_result_code"] is True
+    assert [row["task"] for row in rows] == ["OLD", "RECENT"]
+    assert rows[0]["result_code_display"]["label"] == "실패 (코드 1)"
+    assert rows[1]["result_code_display"]["label"] == "성공"
+    assert [row["older_than_7_days"] for row in rows] == [True, False]
+    context = build_data_page_context(
+        tmp_path, "ALL", now=datetime(2026, 9, 3, tzinfo=timezone.utc),
+    )
+    assert [row["task"] for row in context["receipts"]] == ["OLD", "RECENT"]
+    assert context["older_receipts"] == ()
+    assert context["show_result_code"] is True
+
+
+def test_latest_kr_bundle_terminal_or_stale_claim_is_failed_receipt_and_kpi() -> None:
+    tmp_path = new_temp_root()
+    occurrence_root = tmp_path / "data/state/provider_scheduler/kr_market_daily_occurrences"
+    occurrence_root.mkdir(parents=True)
+    fixtures = {
+        "20260904T001000Z-0910.json": {
+            "scheduled_slot": "09:10", "scheduled_for": "2026-09-04T09:10:00+09:00",
+            "claimed_at_utc": "2026-09-04T00:10:01+00:00", "occurrence_status": "TERMINAL_FAILURE",
+        },
+        "20260905T001000Z-0910.json": {
+            "scheduled_slot": "09:10", "scheduled_for": "2026-09-05T09:10:00+09:00",
+            "claimed_at_utc": "2026-09-05T00:10:01+00:00", "finished_at_utc": "2026-09-05T00:10:20+00:00",
+            "occurrence_status": "TERMINAL_SUCCESS", "terminal_exit_code": 0,
+        },
+        "20260904T113000Z-2030.json": {
+            "scheduled_slot": "20:30", "scheduled_for": "2026-09-04T20:30:00+09:00",
+            "claimed_at_utc": "2026-09-04T11:30:02+00:00", "occurrence_status": "TERMINAL_FAILURE",
+            "terminal_exit_code": 1, "manual_review": {"note": "bundle receipt missing"},
+        },
+        "20260905T051000Z-1410.json": {
+            "scheduled_slot": "14:10", "scheduled_for": "2026-09-05T14:10:00+09:00",
+            "claimed_at_utc": "2026-09-05T05:10:00+00:00", "occurrence_status": "CLAIMED_BEFORE_LANES",
+        },
+    }
+    for name, payload in fixtures.items():
+        (occurrence_root / name).write_text(json.dumps(payload), encoding="utf-8")
+    health_root = tmp_path / "artifacts/daily_health"
+    health_root.mkdir(parents=True)
+    (health_root / "universe_data_v2_latest.json").write_text(json.dumps({"datasets": [{
+        "dataset": "kr_index_daily", "latest": "2026-09-04", "expected": "2026-09-04",
+        "freshness": "CURRENT",
+    }]}), encoding="utf-8")
+
+    now = datetime(2026, 9, 5, 7, 0, tzinfo=timezone.utc)
+    context = build_data_page_context(tmp_path, "OPERATIONAL", now=now)
+    bundle_rows = [row for row in context["receipts"] if row.get("occurrence_source")]
+
+    assert [row["task"] for row in bundle_rows] == [
+        "STOCK_DATA_KR_MARKET_DAILY_1410 번들", "STOCK_DATA_KR_MARKET_DAILY_2030 번들",
+    ]
+    assert bundle_rows[0]["note"] == "번들이 레인 시작 전 점유 상태로 90분 넘게 남아 있습니다."
+    assert bundle_rows[1]["note"] == "bundle receipt missing"
+    assert all(row["failed"] and row["status"]["label"] == "실패" for row in bundle_rows)
+    assert context["health_summary"]["display_failed"] == 2
+    assert next(item for item in context["freshness_counts"] if item["raw"] == "FAILED")["count"] == 2
+    assert context["selected_filter_label"] == "운영 데이터"
+    assert context["kpi_total"] == 91
 
 
 def test_missing_scheduler_result_code_uses_dash() -> None:
@@ -306,6 +360,7 @@ def test_data_template_links_scoped_mobile_css_and_old_receipt_toggle() -> None:
     assert 'data-age-sessions="{{ row.age_sessions if row.age_sessions is not none else \'\' }}"' in template
     assert 'row.dataset.ageSessions !== "0"' in template
     assert "수동/보존 {{ health_summary.display_preserved }}" in template
+    assert "KPI는 전체 {{ kpi_total }}개 기준 · 아래 목록은 필터 적용 ({{ selected_filter_label }})" in template
     assert "{% if show_result_code %}<th>결과 코드</th>{% endif %}" in template
     assert "overflow-x: auto" in css
     assert ".data-page .card-head b { white-space: nowrap; }" in css

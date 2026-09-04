@@ -269,7 +269,10 @@ def test_skhy_detail_uses_global_equity_daily_and_links_underlying(
         "underlying_url": "/stocks?symbol=000660",
     }
     assert payload["headline"]["price"] == 129.0
+    assert payload["headline"]["price_display"] == "129.00"
     assert payload["stats"]["rsi14"] == 100.0
+    assert payload["stats"]["disp60_display"] == "— (상장 60일 미만)"
+    assert payload["stats"]["disp60_reason"] == "상장 60일 미만"
     assert payload["investor_flows"] == {"reason": "종목별 수급은 국내 주식만 보존"}
 
 

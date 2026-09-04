@@ -511,14 +511,17 @@
     const isUs = (row) => ["US ETF", "US 주식"].includes(String(row.market || "")) || /^[A-Z][A-Z0-9.-]{0,9}$/.test(String(row.symbol || ""));
     const orderedRows = [...rows.filter((row) => !isUs(row)), ...rows.filter(isUs)];
     const live = sec.us_live && Array.isArray(sec.us_live.quotes) ? sec.us_live : null;
+    const liveBySymbol = new Map((live && live.quotes || []).map((quote) => [String(quote.symbol || "").toUpperCase(), quote]));
     const liveLine = live ? `<div class="us-live-quotes"><b>밤사이 미국</b><span class="muted">${esc(live.session_label || "")} · ${esc(live.as_of_label || "")}</span>${live.quotes.map((quote) => `<span class="quote"><b>${esc(quote.symbol)}</b> <span class="num">${quote.currency === "USD" ? "$" : `${esc(quote.currency)} `}${fmt(quote.last_price, 2)}</span> <span class="num ${cls(quote.change_pct)}">${pct(quote.change_pct)}</span></span>`).join("")}</div>` : "";
     let insertedLive = false;
     const renderedRows = orderedRows.map((r) => {
       const prefix = !insertedLive && liveLine && isUs(r) ? (insertedLive = true, liveLine) : "";
+      const overnight = liveBySymbol.get(String(r.symbol || "").toUpperCase());
+      const overnightPrice = overnight ? `<small class="muted">밤사이 ${overnight.currency === "USD" ? "$" : `${esc(overnight.currency)} `}${fmt(overnight.last_price, 2)} (${pct(overnight.change_pct)})</small>` : "";
       return `${prefix}<div class="tr watch">
         <div title="${esc(r.name || r.symbol || "")}"><div>${esc(watchlistName(r))}</div>${watchlistInvestorMobile(r)}${r.flag ? `<div class="flag">조건 도달 · ${esc(r.flag)}</div>` : ""}</div>
         <div class="watch-status">${!publicMode && r.held ? '<span class="badge held-badge">보유</span>' : '<span class="muted">관심</span>'}</div>
-        <div class="r num">${r.price ?? "—"}</div>
+        <div class="r num watch-price"><span>${r.price ?? "—"}</span>${overnightPrice}</div>
         <div class="r num ${cls(r.change_pct)}">${pct(r.change_pct)}</div>
         <div class="r num ${cls(r.drawdown_pct)}">${pct(r.drawdown_pct)}</div>
         <div class="r num">${r.rsi14 === null || r.rsi14 === undefined ? "—" : Math.round(r.rsi14)}</div>
@@ -527,7 +530,7 @@
         ${watchlistInvestorCell(r, "individual")}
       </div>`;
     }).join("");
-    host.innerHTML = `<div class="tr th watch"><div>종목</div><div>구분</div><div class="r">현재가</div><div class="r">등락</div><div class="r">고점 대비</div><div class="r">RSI14</div><div class="watch-investor-head"><small>순매수 억원 · 당일 (툴팁 5일·20일)</small><span>외국인</span><span>기관</span><span>개인</span></div></div>` + renderedRows;
+    host.innerHTML = `<div class="tr th watch"><div>종목</div><div>구분</div><div class="r">현재가 · 마감 기준</div><div class="r">등락</div><div class="r">고점 대비</div><div class="r">RSI14</div><div class="watch-investor-head"><small>순매수 억원 · 당일 (툴팁 5일·20일)</small><span>외국인</span><span>기관</span><span>개인</span></div></div>` + renderedRows;
   }
 
   // ---- account ------------------------------------------------------------------
@@ -600,7 +603,7 @@
     const creditMeta = sec.credit || sec.credit_balance || (sec.lending && sec.lending.credit) || {};
     const balances = (Array.isArray(sec.balances) ? sec.balances : []).filter((row) => row.name !== "대차잔고").map((row) => String(row.name || "").includes("신용") ? { ...creditMeta, ...row, as_of: row.as_of || creditMeta.as_of, lag_note: row.lag_note || creditMeta.lag_note } : { ...row });
     if (sec.lending) {
-      const lending = { name: "대차잔고", value: sec.lending.balance_amount === null || sec.lending.balance_amount === undefined ? "—" : `${formatCompactKorean(sec.lending.balance_amount)}원`, d1_pct: sec.lending.d1_pct, d5_pct: sec.lending.d5_pct, d20_pct: null, spark: sec.lending.trend_20d || [], as_of: sec.lending.as_of, lag_note: sec.lending.lag_note };
+      const lending = { name: "대차잔고", value: sec.lending.balance_amount === null || sec.lending.balance_amount === undefined ? "—" : `${formatCompactKorean(sec.lending.balance_amount)}원`, d1_pct: sec.lending.d1_pct, d5_pct: sec.lending.d5_pct, d20_pct: sec.lending.d20_pct, d1_note: sec.lending.d1_note, d5_note: sec.lending.d5_note, d20_note: sec.lending.d20_note, spark: sec.lending.trend_20d || [], as_of: sec.lending.as_of, lag_note: sec.lending.lag_note };
       const creditIndex = balances.findIndex((row) => String(row.name || "").includes("신용"));
       balances.splice(creditIndex >= 0 ? creditIndex + 1 : balances.length, 0, lending);
     }
@@ -616,7 +619,8 @@
           const value = String(b.value ?? "—").replace(/\s*\(\d{2}-\d{2}\)\s*$/, "");
           const lagNote = b.lag_note || (String(b.name || "").includes("신용") ? "KOFIA 신용잔고는 2거래일 뒤 발표" : String(b.name || "").includes("대차") ? "공공데이터포털 대차잔고는 1거래일 뒤 발표" : "");
           const tooltip = [basis ? `${basis} 기준` : "", lagNote].filter(Boolean).join(" · ");
-          return `<div class="tr bal" title="${esc(tooltip)}"><div class="muted">${esc(b.name)}</div><div class="num"><span class="balance-value">${esc(value)}${basis ? ` <small class="balance-as-of muted">· ${esc(basis)} 기준</small>` : ""}</span> <small class="${b.hot ? "up" : "muted"}">${esc(b.position || "")}</small></div><div class="r num ${cls(b.d1_pct)}">${pct(b.d1_pct)}</div><div class="r num ${cls(b.d5_pct)}">${pct(b.d5_pct)}</div><div class="r num ${cls(b.d20_pct)}">${pct(b.d20_pct)}</div><div>${sparkline(b.spark || [], 70, 18)}</div></div>`;
+          const changeCell = (change, note) => change === null || change === undefined ? `<small class="muted">${esc(note || "자료 없음")}</small>` : pct(change);
+          return `<div class="tr bal" title="${esc(tooltip)}"><div class="muted">${esc(b.name)}</div><div class="num"><span class="balance-value">${esc(value)}${basis ? ` <small class="balance-as-of muted">· ${esc(basis)} 기준</small>` : ""}</span> <small class="${b.hot ? "up" : "muted"}">${esc(b.position || "")}</small></div><div class="r num ${cls(b.d1_pct)}">${changeCell(b.d1_pct, b.d1_note)}</div><div class="r num ${cls(b.d5_pct)}">${changeCell(b.d5_pct, b.d5_note)}</div><div class="r num ${cls(b.d20_pct)}">${changeCell(b.d20_pct, b.d20_note)}</div><div>${sparkline(b.spark || [], 70, 18)}</div></div>`;
         }).join("") + `</div>` : "");
   }
   function renderDerivatives(sec) {
@@ -803,14 +807,53 @@
       if (button) button.hidden = true;
     });
   }
+  const stockDisplayRows = new Map();
+  let stockDisplayDetail = null;
+  function installStockDisplayCapture() {
+    if (!$('stocks-page') || window.__siStockDisplayCapture) return;
+    window.__siStockDisplayCapture = true;
+    const nativeFetch = window.fetch.bind(window);
+    window.fetch = async (...args) => {
+      const response = await nativeFetch(...args);
+      let url;
+      try { url = new URL(typeof args[0] === "string" ? args[0] : args[0].url, window.location.href); } catch (_) { return response; }
+      if (response.ok && ["/api/stocks", "/api/stock-detail"].includes(url.pathname)) {
+        response.clone().json().then((data) => {
+          if (url.pathname === "/api/stocks") {
+            (data.table || []).forEach((row) => stockDisplayRows.set(`${row.market}:${row.symbol}`, row));
+          } else stockDisplayDetail = data;
+          enforceGlobalEquityHeadline();
+        }).catch(() => {});
+      }
+      return response;
+    };
+  }
   function enforceGlobalEquityHeadline(root = document) {
     const card = root.querySelector && root.querySelector("#stock-headline-card");
+    document.querySelectorAll("#watchlist-table-rows tr").forEach((tableRow) => {
+      const button = tableRow.querySelector('[data-market="US 주식"][data-symbol]');
+      const row = button && stockDisplayRows.get(`US 주식:${button.dataset.symbol}`);
+      if (!row) return;
+      if (row.price_display && tableRow.children[2].textContent !== row.price_display) tableRow.children[2].textContent = row.price_display;
+      if (row.ma60_display && tableRow.children[6].textContent !== row.ma60_display) tableRow.children[6].textContent = row.ma60_display;
+    });
     if (!card) return;
     const title = card.querySelector("h1"), subtitle = card.querySelector(".stock-headline-top p");
-    if (!title || !subtitle || title.textContent.trim() !== "SK하이닉스(ADR)" || !subtitle.textContent.includes("SKHY")) return;
-    title.innerHTML = 'SK하이닉스(ADR) · NASDAQ · 원주 <a href="/stocks?symbol=000660">000660</a>';
-    subtitle.textContent = "SKHY · US 주식 · ADR";
+    if (!title || !subtitle || !subtitle.textContent.includes("SKHY") || !subtitle.textContent.includes("US 주식")) return;
+    if (title.textContent.trim() !== "SK하이닉스(ADR) · NASDAQ · 원주 000660") {
+      title.innerHTML = 'SK하이닉스(ADR) · NASDAQ · 원주 <a href="/stocks?symbol=000660">000660</a>';
+    }
+    if (subtitle.textContent !== "SKHY · US 주식 · ADR") subtitle.textContent = "SKHY · US 주식 · ADR";
+    const display = stockDisplayDetail && stockDisplayDetail.identity && stockDisplayDetail.identity.symbol === "SKHY" ? stockDisplayDetail : null;
+    const priceNode = card.querySelector(".stock-headline-price > b");
+    if (display && priceNode && display.headline.price_display && priceNode.textContent !== display.headline.price_display) priceNode.textContent = display.headline.price_display;
+    if (display && display.stats.disp60_display) {
+      const tile = [...card.querySelectorAll(".stock-stat-row > div")].find((item) => (item.querySelector("span") || {}).textContent === "60일선 대비");
+      const value = tile && tile.querySelector("b");
+      if (value && value.textContent !== display.stats.disp60_display) value.textContent = display.stats.disp60_display;
+    }
   }
+  if (typeof document !== "undefined") installStockDisplayCapture();
   if (typeof module !== "undefined" && module.exports) module.exports = { aggregateCandles, brokerReportedPnl, formatCompactKorean, formatSharePercent, rsiWilder, signedEok };
   if (typeof document !== "undefined") document.addEventListener("DOMContentLoaded", () => {
     if (publicMode) {
@@ -819,7 +862,7 @@
     }
     if ($("stocks-page")) {
       enforceGlobalEquityHeadline();
-      new MutationObserver(() => enforceGlobalEquityHeadline()).observe($("stock-headline-card"), { childList: true, subtree: true });
+      new MutationObserver(() => enforceGlobalEquityHeadline()).observe($("stocks-page"), { childList: true, subtree: true });
     }
     if ($("home-page")) boot();
   });

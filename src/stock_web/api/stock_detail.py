@@ -329,6 +329,14 @@ def _price_projection(frame: pd.DataFrame | None) -> tuple[dict[str, object], di
     return headline, stats
 
 
+def _price_display(value: object, market: object) -> str | None:
+    numeric = _finite(value)
+    if numeric is None:
+        return None
+    digits = 2 if str(market) in {"US ETF", "US 주식"} else 0
+    return f"{numeric:,.{digits}f}"
+
+
 def _company(identity: dict[str, object], row: pd.Series | None) -> dict[str, object]:
     if row is None:
         return {"available": False, "message": "국내 종목 기업정보만 보존되어 있습니다."}
@@ -573,6 +581,19 @@ def build_stock_detail_payload(project_root: Path, *, symbol: str, market: str =
     korean = _is_korean(normalized_symbol, str(identity["market"]))
     frame = _load_ohlcv(root, normalized_symbol)
     headline, stats = _price_projection(frame)
+    headline["price_display"] = _price_display(headline.get("price"), identity["market"])
+    history_sessions = 0 if frame is None else len(frame)
+    disp60_reason = (
+        "상장 60일 미만"
+        if identity["market"] == "US 주식" and 0 < history_sessions < 60
+        else (f"자료 {history_sessions}일치" if 0 < history_sessions < 60 else None)
+    )
+    stats["disp60_reason"] = disp60_reason
+    stats["disp60_display"] = (
+        f"{float(stats['disp60_pct']):+.1f}%"
+        if stats.get("disp60_pct") is not None
+        else (f"— ({disp60_reason})" if disp60_reason else "—")
+    )
     company = _company(identity, master)
     issued_shares = company.get("issued_shares") if company.get("available") else None
     if headline["price"] is not None and issued_shares is not None:

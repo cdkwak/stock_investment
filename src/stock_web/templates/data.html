@@ -40,6 +40,7 @@
     {% endfor %}
     <p class="age-summary">오늘 {{ age_summary.today }} · 어제 {{ age_summary.yesterday }} · 그 이전 {{ age_summary.older }}</p>
   </section>
+  <p class="health-legend">KPI는 전체 {{ kpi_total }}개 기준 · 아래 목록은 필터 적용 ({{ selected_filter_label }})</p>
   <p class="health-legend">정시 = 정책상 예정된 최신 날짜와 일치 · 연령 배지는 실제 보존 데이터 날짜 기준 · 지연: 활성 자동화가 예상보다 늦음 · 실패: 마지막 실행 실패 · 수동/보존: 자동 갱신 대상 아님 · 참고: 이벤트·분기 기준일</p>
 
   <section class="card">
@@ -112,7 +113,7 @@
         <tbody>
         {% for row in receipts %}
           <tr class="{% if row.failed %}receipt-failed{% endif %}">
-            <td data-label="작업명"><b>{{ row.task }}</b></td>
+            <td data-label="작업명"><b>{{ row.task }}</b>{% if row.note %}<small class="muted">{{ row.note }}</small>{% endif %}</td>
             <td data-label="상태">{{ row.status.label }}</td>
             <td data-label="마지막 실행(KST)" class="num">{{ format_kst(row.finished) }}</td>
             <td data-label="API 호출" class="num">{{ row.api_calls }}</td>
@@ -133,7 +134,7 @@
             <tbody>
             {% for row in older_receipts %}
               <tr class="{% if row.failed %}receipt-failed{% endif %}">
-                <td data-label="작업명"><b>{{ row.task }}</b></td>
+                <td data-label="작업명"><b>{{ row.task }}</b>{% if row.note %}<small class="muted">{{ row.note }}</small>{% endif %}</td>
                 <td data-label="상태">{{ row.status.label }}</td>
                 <td data-label="마지막 실행(KST)" class="num">{{ row.finished_label }}</td>
                 <td data-label="API 호출" class="num">{{ row.api_calls }}</td>

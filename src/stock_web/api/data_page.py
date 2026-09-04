@@ -290,6 +290,70 @@ def _receipt_failed(payload: dict[str, object]) -> bool:
     return any(token in statuses for token in ("FAIL", "ERROR", "BLOCKED"))
 
 
+def _latest_kr_bundle_failures(
+    project_root: Path, *, now: datetime,
+) -> list[dict[str, object]]:
+    occurrence_root = project_root / "data/state/provider_scheduler/kr_market_daily_occurrences"
+    latest_by_slot: dict[str, tuple[float, Path, dict[str, object]]] = {}
+    for path in occurrence_root.glob("*.json"):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        slot = str(payload.get("scheduled_slot") or "").strip()
+        if not slot:
+            continue
+        observed = _receipt_time(payload)
+        sort_time = _sort_time(observed)
+        if sort_time == float("-inf"):
+            sort_time = path.stat().st_mtime
+        previous = latest_by_slot.get(slot)
+        if previous is None or sort_time > previous[0]:
+            latest_by_slot[slot] = (sort_time, path, payload)
+
+    reference_utc = now.astimezone(timezone.utc)
+    cutoff = reference_utc - timedelta(days=7)
+    failures: list[dict[str, object]] = []
+    for slot, (_, path, payload) in latest_by_slot.items():
+        occurrence_status = str(payload.get("occurrence_status") or "UNKNOWN").upper()
+        claimed_at = str(payload.get("claimed_at_utc") or payload.get("scheduled_for") or "")
+        claimed_timestamp = _sort_time(claimed_at)
+        stale_claim = (
+            occurrence_status == "CLAIMED_BEFORE_LANES"
+            and claimed_timestamp != float("-inf")
+            and reference_utc.timestamp() - claimed_timestamp > timedelta(minutes=90).total_seconds()
+        )
+        if occurrence_status != "TERMINAL_FAILURE" and not stale_claim:
+            continue
+        finished = _receipt_time(payload)
+        result_code = payload.get("terminal_exit_code", "—")
+        manual_review = payload.get("manual_review")
+        note = (
+            str(manual_review.get("note") or "").strip()
+            if isinstance(manual_review, dict) else ""
+        )
+        failures.append({
+            "task": f"STOCK_DATA_KR_MARKET_DAILY_{slot.replace(':', '')} 번들",
+            "status": {"raw": occurrence_status, "label": "실패"},
+            "finished": finished,
+            "finished_label": format_kst(finished),
+            "api_calls": "—",
+            "result_code": result_code,
+            "result_code_display": _result_code(result_code),
+            "has_result_code": str(result_code) not in {"—", ""},
+            "failed": True,
+            "older_than_7_days": claimed_timestamp == float("-inf") or claimed_timestamp < cutoff.timestamp(),
+            "note": note or (
+                "번들이 레인 시작 전 점유 상태로 90분 넘게 남아 있습니다."
+                if stale_claim else ""
+            ),
+            "occurrence_source": path.name,
+        })
+    return failures
+
+
 def _result_code(raw: object) -> dict[str, str]:
     value = str(raw if raw is not None else "UNKNOWN")
     upper = value.upper()
@@ -347,9 +411,11 @@ def load_scheduler_receipts(
             "has_result_code": str(result_code) not in {"—", ""},
             "failed": failed,
             "older_than_7_days": sort_time == float("-inf") or sort_time < cutoff.timestamp(),
+            "note": "",
         })
+    rows.extend(_latest_kr_bundle_failures(project_root, now=reference))
     rows.sort(key=lambda row: (
-        bool(row["older_than_7_days"]), not bool(row["failed"]),
+        not bool(row["failed"]), bool(row["older_than_7_days"]),
         -_sort_time(str(row["finished"])),
     ))
     return rows
@@ -442,12 +508,19 @@ def build_data_page_context(
         ))
         if grouped:
             groups.append({"raw": raw, "label": label, "class": css_class, "rows": grouped})
+    receipts = load_scheduler_receipts(project_root, now=reference)
+    bundle_failure_count = sum(
+        bool(row["failed"]) and bool(row.get("occurrence_source"))
+        for row in receipts
+    )
     freshness_counts = [
         {"raw": raw, "label": label, "class": css_class,
-         "count": sum(row.display_status == raw for row in view.rows)}
+         "count": sum(row.display_status == raw for row in view.rows)
+         + (bundle_failure_count if raw == "FAILED" else 0)}
         for raw, (label, css_class) in FRESHNESS.items()
     ]
-    receipts = load_scheduler_receipts(project_root)
+    health_summary = dict(summarize_health_artifact(view))
+    health_summary["display_failed"] = int(health_summary.get("display_failed", 0)) + bundle_failure_count
     show_result_code = sum(bool(row["has_result_code"]) for row in receipts) >= 2
     automated_ages = tuple(
         int(row["age_sessions"])
@@ -465,7 +538,9 @@ def build_data_page_context(
         "health_state": view.artifact_state,
         "health_warning": view.warning,
         "unregistered_dataset_ids": view.unregistered_dataset_ids,
-        "health_summary": summarize_health_artifact(view),
+        "health_summary": health_summary,
+        "kpi_total": len(view.rows),
+        "selected_filter_label": FILTER_LABELS[selected],
         "age_summary": {
             "today": automated_ages.count(0),
             "yesterday": automated_ages.count(1),
@@ -473,8 +548,12 @@ def build_data_page_context(
         },
         "freshness_counts": freshness_counts,
         "health_groups": groups,
-        "receipts": tuple(row for row in receipts if not row["older_than_7_days"]),
-        "older_receipts": tuple(row for row in receipts if row["older_than_7_days"]),
+        "receipts": tuple(
+            row for row in receipts if row["failed"] or not row["older_than_7_days"]
+        ),
+        "older_receipts": tuple(
+            row for row in receipts if row["older_than_7_days"] and not row["failed"]
+        ),
         "show_result_code": show_result_code,
         "web_preserved_datasets": tuple(
             {"dataset": dataset, "reason": reason}

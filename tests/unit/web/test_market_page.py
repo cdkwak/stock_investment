@@ -430,14 +430,30 @@ def test_derivatives_payload_uses_near_wall_columns(monkeypatch: pytest.MonkeyPa
 
     class FakeDerivatives:
         def option_wall(self):
-            return pd.DataFrame([{
-                "date": pd.Timestamp("2026-09-02"), "maturity_month": "2026-09",
-                "underlying_price": 1030.0, "near_wall_window_pct": 15.0,
-                "near_call_wall_strike": 1050.0, "near_call_wall_oi": 8000.0,
-                "near_call_wall_distance_pct": 1.94, "near_call_wall_status": "WALL_AVAILABLE",
-                "near_put_wall_strike": 1000.0, "near_put_wall_oi": 9000.0,
-                "near_put_wall_distance_pct": -2.91, "near_put_wall_status": "WALL_AVAILABLE",
-            }]), {"status": "RAW"}
+            return pd.DataFrame([
+                {
+                    "date": pd.Timestamp("2026-09-02"), "maturity_month": "2026-09",
+                    "underlying_price": 1030.0, "near_wall_window_pct": 15.0,
+                    "near_call_wall_strike": float("nan"), "near_call_wall_oi": float("nan"),
+                    "near_call_wall_distance_pct": float("nan"), "near_call_wall_status": float("nan"),
+                    "near_put_wall_strike": float("nan"), "near_put_wall_oi": float("nan"),
+                    "near_put_wall_distance_pct": float("nan"), "near_put_wall_status": float("nan"),
+                }, {
+                    "date": pd.Timestamp("2026-09-03"), "maturity_month": "2026-09",
+                    "underlying_price": 1030.0, "near_wall_window_pct": 15.0,
+                    "near_call_wall_strike": 1050.0, "near_call_wall_oi": 8000.0,
+                    "near_call_wall_distance_pct": 1.94, "near_call_wall_status": "WALL_AVAILABLE",
+                    "near_put_wall_strike": 1000.0, "near_put_wall_oi": 9000.0,
+                    "near_put_wall_distance_pct": -2.91, "near_put_wall_status": "WALL_AVAILABLE",
+                }, {
+                    "date": pd.Timestamp("2026-09-04"), "maturity_month": "2026-09",
+                    "underlying_price": 1030.0, "near_wall_window_pct": 15.0,
+                    "near_call_wall_strike": float("nan"), "near_call_wall_oi": 0.0,
+                    "near_call_wall_distance_pct": float("nan"), "near_call_wall_status": "NO_NEAR_WINDOW_OI",
+                    "near_put_wall_strike": float("nan"), "near_put_wall_oi": 0.0,
+                    "near_put_wall_distance_pct": float("nan"), "near_put_wall_status": "NO_NEAR_WINDOW_OI",
+                },
+            ]), {"status": "RAW"}
 
         def ls_flow(self):
             return {
@@ -466,17 +482,24 @@ def test_derivatives_payload_uses_near_wall_columns(monkeypatch: pytest.MonkeyPa
 
     payload = build_derivatives(Path("unused"))
     full = build_derivatives(Path("unused"), range_key="ALL")
-    row = payload["wall"]["rows"][0]
+    rows = {row["date"]: row for row in payload["wall"]["rows"]}
+    row = rows["2026-09-03"]
 
     assert row["near_call_wall_strike"] == 1050.0
     assert row["near_put_wall_strike"] == 1000.0
     assert row["near_call_wall_distance_pct"] == pytest.approx(1.94)
     assert payload["wall"]["near_window_available"] is True
     assert payload["basis"]["basis_label"] == "기준일 2026-09-02 · D+1 공개"
-    assert payload["wall"]["basis_label"] == "기준일 2026-09-02 · D+1 공개"
+    assert payload["wall"]["basis_label"] == "기준일 2026-09-04 · D+1 공개"
+    assert rows["2026-09-02"]["near_wall_note"] == "근접 Wall은 2026-09-03부터 계산 (이전 행은 미계산)"
+    assert rows["2026-09-04"]["near_wall_note"] == "±15% 창 안에 양의 미결제약정이 없습니다."
     assert payload["ls_flow"]["warning"] == "원시 관측값 · 정규화 전 · 수동 검증 전에는 표시하지 않습니다"
     assert len(payload["basis"]["series"]) < len(full["basis"]["series"]) == 800
     assert len(payload["pcr"]["volume"]["series"]) < len(full["pcr"]["volume"]["series"]) == 800
+
+    market_js = (Path(__file__).parents[3] / "src/stock_web/static/market.js").read_text(encoding="utf-8")
+    assert 'row.near_call_wall_status === "NO_NEAR_WINDOW_OI" ? "창 내 OI 없음"' in market_js
+    assert '<span class="muted">미계산</span>' in market_js
 
 
 def test_unknown_ascii_warning_uses_generic_korean_note() -> None:

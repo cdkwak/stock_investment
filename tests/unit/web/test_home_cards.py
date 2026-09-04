@@ -73,6 +73,8 @@ def test_credit_and_lending_include_basis_dates_and_lag_notes() -> None:
     assert result["balance_amount"] == 2500.0
     assert result["d1_pct"] == pytest.approx((2500 / 2400 - 1) * 100)
     assert result["d5_pct"] == pytest.approx((2500 / 2000 - 1) * 100)
+    assert result["d20_pct"] == pytest.approx((2500 / 500 - 1) * 100)
+    assert result["d20_note"] is None
     assert result["trend_20d"] == values[-20:]
     assert home_cards.build_lending(new_temp_root()) is None
 

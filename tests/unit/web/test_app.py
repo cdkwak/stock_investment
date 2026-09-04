@@ -107,13 +107,14 @@ def test_dashboard_static_polish_contracts_are_present() -> None:
     assert ".data-health-table td::before" in css
 
 
-def test_home_chart_stretches_and_resizes() -> None:
+def test_home_chart_stops_at_content_height_and_resizes() -> None:
     root = Path(__file__).parents[3] / "src/stock_web"
     script = (root / "static/app.js").read_text(encoding="utf-8")
     css = (root / "static/app.css").read_text(encoding="utf-8")
 
     assert ".home-dashboard { align-items: stretch; }" in css
     assert ".chart-card { display: flex; flex: 1 1 auto; flex-direction: column;" in css
+    assert "align-self: start" in css
     assert ".chart { width: 100%; flex: 1 1 auto; min-height: 380px; max-height: 540px; }" in css
     assert "@media (max-width: 768px)" in css
     assert ".chart { flex: none; height: 320px; min-height: 320px; }" in css
@@ -122,6 +123,14 @@ def test_home_chart_stretches_and_resizes() -> None:
     assert "priceScale(\"vol\").applyOptions" in script
     assert "rsiPanelSeries.setData" in script
     assert "rsiOverlaySeries.setData" in script
+    assert "price_display" in script and "ma60_display" in script
+    assert ".tiles.collapsed .tile:nth-child(n+13)" in css
+    assert ".tiles.collapsed .tile:nth-child(n+9)" in css
+    assert "@media (min-width: 1200px)" in css
+    assert "현재가 · 마감 기준" in script
+    assert "밤사이 ${overnight.currency" in script
+    assert "changeCell(b.d1_pct, b.d1_note)" in script
+    assert "changeCell(b.d20_pct, b.d20_note)" in script
 
 
 def test_regime_evidence_is_collapsed_persisted_and_expanded() -> None:

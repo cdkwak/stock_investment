@@ -233,8 +233,8 @@
     $("wall-unavailable").textContent = wall && wall.status !== "VALUE" ? unavailable(wall.reason) : "";
     $("wall-rows").innerHTML = wall && wall.status === "VALUE" ? (wall.rows || []).map((row) => `<tr>
       <td>${esc(row.date)}</td><td>${esc(row.maturity_month || "—")}</td><td class="num">${fmt(row.underlying_price, 2)}</td>
-      <td class="num up">${row.near_call_wall_strike === null || row.near_call_wall_strike === undefined ? "창 내 OI 없음" : fmt(row.near_call_wall_strike, 2)}</td><td class="num">${compact(row.near_call_wall_oi)}</td><td class="num">${row.near_call_wall_distance_pct === null || row.near_call_wall_distance_pct === undefined ? "—" : signed(row.near_call_wall_distance_pct, 1) + "%"}</td>
-      <td class="num down">${row.near_put_wall_strike === null || row.near_put_wall_strike === undefined ? "창 내 OI 없음" : fmt(row.near_put_wall_strike, 2)}</td><td class="num">${compact(row.near_put_wall_oi)}</td><td class="num">${row.near_put_wall_distance_pct === null || row.near_put_wall_distance_pct === undefined ? "—" : signed(row.near_put_wall_distance_pct, 1) + "%"}</td>
+      <td class="num up">${row.near_call_wall_strike === null || row.near_call_wall_strike === undefined ? (row.near_call_wall_status === "NO_NEAR_WINDOW_OI" ? "창 내 OI 없음" : '<span class="muted">미계산</span>') : fmt(row.near_call_wall_strike, 2)}</td><td class="num">${compact(row.near_call_wall_oi)}</td><td class="num">${row.near_call_wall_distance_pct === null || row.near_call_wall_distance_pct === undefined ? "—" : signed(row.near_call_wall_distance_pct, 1) + "%"}</td>
+      <td class="num down">${row.near_put_wall_strike === null || row.near_put_wall_strike === undefined ? (row.near_put_wall_status === "NO_NEAR_WINDOW_OI" ? "창 내 OI 없음" : '<span class="muted">미계산</span>') : fmt(row.near_put_wall_strike, 2)}</td><td class="num">${compact(row.near_put_wall_oi)}</td><td class="num">${row.near_put_wall_distance_pct === null || row.near_put_wall_distance_pct === undefined ? "—" : signed(row.near_put_wall_distance_pct, 1) + "%"}</td>
       <td class="muted">${esc(row.near_wall_note || "±15% 창")}</td>
     </tr>`).join("") : "";
   }

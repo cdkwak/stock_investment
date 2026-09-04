@@ -437,7 +437,7 @@ def test_regime_cash_label_keeps_unknown_cash_separate_from_treasury_percentage(
     )
 
     assert result["rules"]["rows"][0] == [
-        "현금 · 단기국채", "현금 — · 단기국채 0%", "",
+        "현금 · 단기국채", "현금 입력 없음 · 단기국채 0%", "",
     ]
 
 
@@ -570,15 +570,16 @@ def test_korean_equity_reader_prefers_canonical_overlap_and_appends_only_newer_p
     assert payload["provisional_dates"] == ["2026-09-03"]
 
 
-def test_vix_term_structure_rows_from_derived_dataset(tmp_path) -> None:
+def test_vix_term_structure_rows_from_derived_dataset() -> None:
     import datetime as dt
 
     import pandas as pd
 
     from stock_web.api.home_cards import build_vix_term_structure_rows
 
-    assert build_vix_term_structure_rows(tmp_path) == [["VIX 기간구조", "미표시"]]
-    root = tmp_path / "data/derived/us_vix_term_structure_daily/year=2026"
+    project_root = new_temp_root()
+    assert build_vix_term_structure_rows(project_root) == [["VIX 기간구조", "미표시"]]
+    root = project_root / "data/derived/us_vix_term_structure_daily/year=2026"
     root.mkdir(parents=True)
     pd.DataFrame({
         "date": [dt.date(2026, 9, 1), dt.date(2026, 9, 2), dt.date(2026, 9, 3)],
@@ -588,7 +589,7 @@ def test_vix_term_structure_rows_from_derived_dataset(tmp_path) -> None:
         "ratio_1m_3m": [0.891435, 0.857304, None], "ratio_9d_1m": [0.877, 0.827, None],
         "regime": ["contango", "contango", None], "pct_rank_252": [0.670635, 0.476190, None],
     }).to_parquet(root / "data.parquet", index=False)
-    rows = build_vix_term_structure_rows(tmp_path)
+    rows = build_vix_term_structure_rows(project_root)
     assert rows[0][0] == "VIX 기간구조"
     assert rows[0][1] == "콘탱고 · 1M/3M 0.86 · 1년 백분위 48% · 9D 12.6 · 1M 15.2 · 3M 17.7 · 09-02"
     assert rows[1] == ["SKEW", "143.1 · 09-03"]

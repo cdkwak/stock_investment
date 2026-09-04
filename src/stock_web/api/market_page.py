@@ -406,7 +406,12 @@ def build_derivatives(
                             "±15% 창 안에 양의 미결제약정이 없습니다."
                             if row.get("near_call_wall_status") == "NO_NEAR_WINDOW_OI"
                             or row.get("near_put_wall_status") == "NO_NEAR_WINDOW_OI"
-                            else None
+                            else (
+                                "근접 Wall은 2026-09-03부터 계산 (이전 행은 미계산)"
+                                if pd.isna(row.get("near_call_wall_strike"))
+                                or pd.isna(row.get("near_put_wall_strike"))
+                                else None
+                            )
                         ) if has_near_columns else "기존 파일 형식이라 근접 Wall을 계산할 수 없습니다.",
                     })
                     for row in rows.to_dict(orient="records")

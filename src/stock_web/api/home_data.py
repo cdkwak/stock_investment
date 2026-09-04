@@ -525,8 +525,12 @@ def build_flows(project_root: Path) -> dict[str, object]:
             balances.append({
                 "name": "신용잔고", "value": f"{v.iloc[-1] / 1e12:.1f}조 ({c['date'].iloc[-1]:%m-%d})",
                 "position": f"1년 상위 {100 - pos:.0f}%", "hot": bool(pos >= 90),
-                "d5_pct": _nan_to_none((v.iloc[-1] / v.iloc[-6] - 1) * 100) if len(v) > 6 else None,
-                "d20_pct": _nan_to_none((v.iloc[-1] / v.iloc[-21] - 1) * 100) if len(v) > 21 else None,
+                "d1_pct": _nan_to_none((v.iloc[-1] / v.iloc[-2] - 1) * 100) if len(v) >= 2 and v.iloc[-2] else None,
+                "d1_note": "자료 1일치" if len(v) < 2 else None,
+                "d5_pct": _nan_to_none((v.iloc[-1] / v.iloc[-6] - 1) * 100) if len(v) >= 6 and v.iloc[-6] else None,
+                "d5_note": "5일 미만" if len(v) < 6 else None,
+                "d20_pct": _nan_to_none((v.iloc[-1] / v.iloc[-21] - 1) * 100) if len(v) >= 21 and v.iloc[-21] else None,
+                "d20_note": "20일 미만" if len(v) < 21 else None,
                 "spark": [round(float(x) / 1e12, 3) for x in v.iloc[-20:]],
             })
     except (KeyError, TypeError, ValueError):
@@ -1059,7 +1063,7 @@ def _normalize_regime_cash_label(
         short_treasury = 0.0
     for row in rows:
         if isinstance(row, list) and len(row) >= 3 and row[0] == "현금 · 단기국채":
-            row[1] = f"현금 — · 단기국채 {short_treasury:.0f}%"
+            row[1] = f"현금 입력 없음 · 단기국채 {short_treasury:.0f}%"
             row[2] = ""
     return regime
 

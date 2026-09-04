@@ -727,6 +727,11 @@ def _last_ma(chart: Mapping[str, object], key: str) -> float | None:
     return None
 
 
+def _price_display(value: float, market: str) -> str:
+    digits = 2 if market in {"US ETF", "US 주식"} else 0
+    return f"{value:,.{digits}f}"
+
+
 def _watchlist_row(
     project_root: Path, list_id: str, list_name: str, identity: EquityIdentity,
     conditions: list[dict[str, object]],
@@ -773,11 +778,27 @@ def _watchlist_row(
         if chart.get("as_of") in provisional_dates
         else "canonical"
     )
+    short_history_reason = (
+        "상장 60일 미만"
+        if identity.market == "US 주식" and len(candles) < 60
+        else (f"자료 {len(candles)}일치" if len(candles) < 60 else None)
+    )
     return {
         "list_id": list_id, "list_name": list_name, **_identity_payload(identity),
         "price_available": True, "as_of": chart.get("as_of"),
         "provisional_dates": provisional_dates, "price_basis": price_basis,
-        "price": close,
+        "price": close, "price_display": _price_display(close, identity.market),
+        "ma60_display": (
+            f"{float(metrics['ma60_pct']):+.1f}%"
+            if metrics.get("ma60_pct") is not None
+            else f"— ({short_history_reason})"
+        ),
+        "ma60_unavailable_reason": short_history_reason,
+        "disp60_display": (
+            f"{float(metrics['disp60_pct']):+.1f}%"
+            if metrics.get("disp60_pct") is not None
+            else f"— ({short_history_reason})"
+        ),
         **metrics, "condition_matches": matches,
         "flag": " · ".join(str(match["name"]) for match in matches),
     }

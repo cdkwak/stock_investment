@@ -260,6 +260,18 @@ def test_watchlist_accepts_skhy_registry_equity(monkeypatch: pytest.MonkeyPatch)
     })
     symbol_resolver._SYMBOL_INDEX_CACHE.clear()
     stocks_page._SEARCH_INDEX_CACHE.clear()
+    dates = pd.date_range("2026-07-13", periods=39, freq="B")
+    target = root / "data/normalized/global_equity_price_daily/symbol=SKHY/year=2026/data.parquet"
+    target.parent.mkdir(parents=True)
+    pd.DataFrame({
+        "date": dates, "symbol": ["SKHY"] * 39, "source_ticker": ["SKHY"] * 39,
+        "open": [160.0] * 39, "high": [165.0] * 39, "low": [159.0] * 39,
+        "close": [163.679993] * 39, "adjusted_close": [163.679993] * 39,
+        "volume": [1_000_000] * 39, "currency": ["USD"] * 39,
+        "exchange": ["NASDAQ"] * 39, "provider": ["fixture"] * 39,
+        "retrieved_at": pd.to_datetime(["2026-09-04T00:00:00Z"] * 39),
+        "adjustment_status": ["RAW_AND_ADJUSTED_RETAINED"] * 39,
+    }).to_parquet(target, index=False)
     client = ASGITestClient(create_app(root))
 
     search = client.get("/api/stocks/search", params={"q": "하이닉스 ADR"}).json()
@@ -274,6 +286,10 @@ def test_watchlist_accepts_skhy_registry_equity(monkeypatch: pytest.MonkeyPatch)
     assert added.status_code == 200
     assert added.json()["lists"][0]["items"][0]["market"] == "US 주식"
     assert added.json()["lists"][0]["items"][0]["security_type"] == "ADR"
+    row = client.get("/api/stocks").json()["table"][0]
+    assert row["price_display"] == "163.68"
+    assert row["ma60_display"] == "— (상장 60일 미만)"
+    assert row["disp60_display"] == "— (상장 60일 미만)"
 
 
 def test_search_index_ranks_exact_then_prefix_by_latest_market_cap() -> None:
