@@ -840,7 +840,10 @@
     const bestValue = Number(heatMetric(best, combination.product_variant).relative_to_baseline);
     const neighbourMean = neighbours.length ? neighbours.reduce((sum, row) => sum + Number(heatMetric(row, combination.product_variant).relative_to_baseline), 0) / neighbours.length : NaN;
     const sharp = bestValue > 1 && Number.isFinite(neighbourMean) && bestValue - neighbourMean > .25 * (bestValue - 1);
-    $("compound-plateau-verdict").textContent = `${sharp ? "뾰족한 봉우리" : "넓은 고원"} · 최적 ${bestValue.toFixed(2)}x${Number.isFinite(neighbourMean) ? ` / 이웃 평균 ${neighbourMean.toFixed(2)}x` : " / 이웃 없음"}`;
+    const surfaceNote = (combination.exit !== "a" || combination.cost_enabled !== true)
+      ? " · 주의: 이 표면은 출구 a · 거래비용 포함 · 기본 노출 1 기준이라 지금 손잡이(출구 " + combination.exit + (combination.cost_enabled ? "" : " · 비용 제외") + ")와 다른 조합을 설명함"
+      : " · 표면 기준: 출구 a · 거래비용 포함 · 기본 노출 1";
+    $("compound-plateau-verdict").textContent = `${sharp ? "뾰족한 봉우리" : "넓은 고원"} · 최적 ${bestValue.toFixed(2)}x${Number.isFinite(neighbourMean) ? ` / 이웃 평균 ${neighbourMean.toFixed(2)}x` : " / 이웃 없음"}${surfaceNote}`;
   }
 
   function renderCompound() {
@@ -896,7 +899,16 @@
     if (!host) return;
     const exits = ["a", "b60", "b120", "c", "d"];
     const showHoldout = compoundState.holdoutVisible;
-    const rows = exits.map((exit) => {
+    // 1x hold baseline on the same lines: "레버리지가 낙폭을 얼마나 키웠나" is only visible
+    // against the plain hold's own MDD (grid rows of row_kind "baseline").
+    const baselineRow = ((compoundState.payload || {}).rows || []).find((item) => item.row_kind === "baseline"
+      && item.underlying === (compoundRow(combination) || {}).underlying) || null;
+    const baselineFit = baselineRow ? (baselineRow.fit || null) : null;
+    const baselineHoldout = baselineRow && showHoldout ? (baselineRow.holdout || null) : null;
+    const baselineLine = baselineRow
+      ? `<tr class="baseline"><td>1배 그냥 보유 (기준선)</td><td>1.00배</td><td class="${valueClass(baselineFit && baselineFit.max_drawdown)}">${pct(baselineFit && baselineFit.max_drawdown)}</td>${showHoldout ? `<td>1.00배</td><td class="${valueClass(baselineHoldout && baselineHoldout.max_drawdown)}">${pct(baselineHoldout && baselineHoldout.max_drawdown)}</td>` : ""}</tr>`
+      : "";
+    const rows = baselineLine + exits.map((exit) => {
       const row = compoundRow({ ...combination, exit });
       const fit = compoundMetric(row, combination.product_variant, "fit");
       const holdout = showHoldout ? compoundMetric(row, combination.product_variant, "holdout") : null;
@@ -906,7 +918,7 @@
         : "<td>미계산</td><td>—</td>";
       return `<tr class="${current ? "current" : ""}"><td>${esc(compoundExitLabels[exit] || exit)}${current ? ' <span class="muted">(선택)</span>' : ""}</td>${cell(fit)}${showHoldout ? cell(holdout) : ""}</tr>`;
     }).join("");
-    host.innerHTML = `<div class="compound-subhead"><b>출구 5개 나란히 · 최종배수와 최대낙폭을 같은 줄에</b><span class="muted">같은 신호·배율·비용, 출구만 다름${showHoldout ? "" : " · 홀드아웃 열은 '홀드아웃 보기' 뒤에"}</span></div><div class="research-table-wrap"><table class="research-table compound-exit-table"><thead><tr><th>출구</th><th>FIT 최종/기준선</th><th>FIT MDD</th>${showHoldout ? "<th>홀드아웃 최종/기준선</th><th>홀드아웃 MDD</th>" : ""}</tr></thead><tbody>${rows}</tbody></table></div>`;
+    host.innerHTML = `<div class="compound-subhead"><b>출구 5개 나란히 · 최종배수와 최대낙폭을 같은 줄에</b><span class="muted">같은 신호·배율·비용, 출구만 다름 · MDD = 계좌 고점 대비 반납폭(원금 손실 아님)${showHoldout ? "" : " · 홀드아웃 열은 '홀드아웃 보기' 뒤에"}</span></div><div class="research-table-wrap"><table class="research-table compound-exit-table"><thead><tr><th>출구</th><th>FIT 최종/기준선</th><th>FIT MDD</th>${showHoldout ? "<th>홀드아웃 최종/기준선</th><th>홀드아웃 MDD</th>" : ""}</tr></thead><tbody>${rows}</tbody></table></div>`;
   }
 
   function renderCompoundHoldout(row, combination) {

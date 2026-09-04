@@ -819,6 +819,8 @@ def test_compound_panel_static_contract_uses_cached_frame_render_and_existing_ch
     assert 'id="compound-exit-compare"' in template
     assert "renderCompoundExitCompare(combination)" in script
     assert "출구 5개 나란히" in script
+    assert "1배 그냥 보유 (기준선)" in script
+    assert "이 표면은 출구 a · 거래비용 포함 · 기본 노출 1 기준" in script
     assert "item.holdout_relative_to_baseline" in script
     assert "item.holdout_baseline_final_wealth_multiple" in script
     assert '"거래비용 포함" : "거래비용 제외"' in script
