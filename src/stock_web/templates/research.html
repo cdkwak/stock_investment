@@ -27,6 +27,34 @@
   <p class="research-caution">홀드아웃 성적을 보고 규칙을 고치면 과적합입니다 · 시도 횟수가 근거의 일부입니다</p>
   <div class="research-empty" id="research-empty" role="status" hidden></div>
 
+  <details class="card research-experiment-card" id="rule-experiment">
+    <summary><span><span class="section-index">00</span><b>규칙 직접 시험해보기 ▾</b></span><span class="experiment-session" id="experiment-session">이번 세션 실험 0회</span></summary>
+    <div class="experiment-body">
+      <div class="experiment-presets" aria-label="규칙 프리셋">
+        <button type="button" data-preset="watchlist">현재 관심종목 조건(RSI≤30 · 60일선 −10% · 고점 −30%)</button>
+        <button type="button" data-preset="drawdown-2">낙폭 2단계</button>
+        <button type="button" data-preset="vol-target-15">변동성 목표 15%</button>
+      </div>
+      <div class="experiment-controls">
+        <fieldset class="experiment-field"><legend>측</legend><label><input type="radio" name="experiment-side" value="drawdown" checked> 낙폭</label><label><input type="radio" name="experiment-side" value="overheat"> 과열</label></fieldset>
+        <label class="experiment-field"><span>바스켓</span><select id="experiment-basket"><option value="KR">한국</option><option value="US_TECH">미국 기술주</option><option value="SEMIS">반도체</option><option value="POOLED">통합</option></select></label>
+        <label class="experiment-field"><span>유형</span><select id="experiment-type"><option value="ladder">사다리</option><option value="vol_target">변동성 목표</option><option value="hybrid">혼합</option></select></label>
+        <label class="experiment-field experiment-level-field"><span>단계</span><input id="experiment-levels" type="number" min="1" max="4" value="3" readonly title="선택한 지표 수와 같습니다"></label>
+        <label class="experiment-field experiment-target-field" hidden><span>목표 변동성</span><select id="experiment-target-vol"><option value="0.10">10%</option><option value="0.15" selected>15%</option><option value="0.20">20%</option><option value="0.25">25%</option></select></label>
+        <label class="experiment-field"><span>평가 기간</span><select id="experiment-horizon"><option value="20">20일</option><option value="60" selected>60일</option><option value="90">90일</option></select></label>
+      </div>
+      <div class="experiment-indicators" aria-label="지표 조건">
+        <div class="experiment-indicator-row" data-indicator="drawdown252"><label><input type="checkbox" checked> 252일 낙폭</label><b class="experiment-operator">≤</b><input class="experiment-range" type="range" min="-60" max="0" step="1" value="-30" aria-label="252일 낙폭 임계값"><input class="experiment-number num" type="number" min="-60" max="0" step="1" value="-30" aria-label="252일 낙폭 숫자"><span>%</span></div>
+        <div class="experiment-indicator-row" data-indicator="disp60"><label><input type="checkbox" checked> 60일선 이격</label><b class="experiment-operator">≤</b><input class="experiment-range" type="range" min="-30" max="30" step="1" value="-10" aria-label="60일선 이격 임계값"><input class="experiment-number num" type="number" min="-30" max="30" step="1" value="-10" aria-label="60일선 이격 숫자"><span>%</span></div>
+        <div class="experiment-indicator-row" data-indicator="rsi14"><label><input type="checkbox" checked> RSI14</label><b class="experiment-operator">≤</b><input class="experiment-range" type="range" min="10" max="90" step="1" value="30" aria-label="RSI14 임계값"><input class="experiment-number num" type="number" min="10" max="90" step="1" value="30" aria-label="RSI14 숫자"><span>pt</span></div>
+        <div class="experiment-indicator-row" data-indicator="volidx_pct"><label><input type="checkbox"> 변동성지수 백분위</label><b class="experiment-operator">≤</b><input class="experiment-range" type="range" min="0" max="100" step="1" value="20" aria-label="변동성지수 백분위 임계값"><input class="experiment-number num" type="number" min="0" max="100" step="1" value="20" aria-label="변동성지수 백분위 숫자"><span>%ile</span></div>
+      </div>
+      <div class="experiment-actions"><button type="button" class="primary" id="experiment-evaluate">평가</button><button type="button" id="experiment-register" disabled title="PC에서만">후보로 등록</button><span id="experiment-status" role="status"></span></div>
+      <p class="experiment-caution">홀드아웃 성적을 보고 임계값을 고치면 과적합입니다 — 후보 등록 시 시도 횟수에 기록됩니다</p>
+      <section class="experiment-result" id="experiment-result" aria-live="polite" hidden><div class="experiment-result-head"><b>실험 결과 · 저장되지 않음</b><span id="experiment-result-definition"></span></div><div id="experiment-result-content"></div></section>
+    </div>
+  </details>
+
   <section class="card research-leaderboard-card" aria-labelledby="leaderboard-title">
     <div class="card-head research-section-head">
       <div><span class="section-index">01</span><b id="leaderboard-title">규칙 후보 순위</b></div>
@@ -68,6 +96,16 @@
     <div id="history-content"></div>
   </section>
 </main>
+
+<dialog class="experiment-dialog" id="experiment-register-dialog">
+  <form method="dialog">
+    <h2>실험 규칙을 후보로 등록</h2>
+    <label>후보 이름<input id="experiment-name" maxlength="100" required></label>
+    <label>등록 이유<textarea id="experiment-reason" maxlength="500" rows="3" required></textarea></label>
+    <p>상태는 <b>실험</b>으로 저장되며 시도 횟수가 1회 증가합니다.</p>
+    <div><button value="cancel">취소</button><button type="button" class="primary" id="experiment-register-confirm">등록</button></div>
+  </form>
+</dialog>
 
 <script src="/static/app.js?v={{ static_version }}"></script>
 <script src="/static/research.js?v={{ static_version }}"></script>

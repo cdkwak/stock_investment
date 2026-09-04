@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import threading
 from typing import Any, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
@@ -20,7 +22,12 @@ from .condition_backtest import (
     load_volatility_indices,
 )
 from .extreme_ladder import volatility_target_exposure
-from .rule_candidates import load_candidates, rules_version, validate_registry
+from .rule_candidates import (
+    load_candidates,
+    rules_version,
+    validate_candidate,
+    validate_registry,
+)
 
 
 FIT_END = "2015-12-31"
@@ -44,6 +51,34 @@ RESULT_KEYS = (
     "n", "mean_20", "mean_60", "mean_90", "median_60", "hit_60",
     "baseline_60", "diff_60", "vol_60", "mdd_60", "warn_small_sample",
 )
+
+_CACHE_LOCK = threading.RLock()
+_INDICATOR_FRAME_CACHE: dict[
+    tuple[str, str],
+    tuple[tuple[tuple[str, int, int], ...], pd.DataFrame, pd.DataFrame],
+] = {}
+_RETAINED_ROOTS: dict[str, tuple[str, ...]] = {
+    "KR": (
+        "data/normalized/kr_index_daily",
+        "data/normalized/kr_kospi200_index_daily",
+        "data/normalized/kr_vkospi_daily",
+    ),
+    "US_TECH": (
+        "data/normalized/global_index_price_daily",
+        "data/normalized/fred_vix_daily",
+    ),
+    "SEMIS": (
+        "data/normalized/global_index_price_daily",
+        "data/normalized/fred_vix_daily",
+    ),
+    "POOLED": (
+        "data/normalized/kr_index_daily",
+        "data/normalized/kr_kospi200_index_daily",
+        "data/normalized/global_index_price_daily",
+        "data/normalized/fred_vix_daily",
+        "data/normalized/kr_vkospi_daily",
+    ),
+}
 
 
 def _research_prices(prices: pd.DataFrame) -> pd.DataFrame:
@@ -82,6 +117,44 @@ def load_evaluation_frame(project_root: Path) -> pd.DataFrame:
     signals = prepare_indicator_frame(prices, load_volatility_indices(root))
     outcomes = build_forward_outcomes(prices, horizons=HORIZONS)
     return build_wide_evaluation_frame(signals, outcomes)
+
+
+def _retained_signature(project_root: Path, basket: str) -> tuple[tuple[str, int, int], ...]:
+    rows: list[tuple[str, int, int]] = []
+    for relative in _RETAINED_ROOTS[basket]:
+        path = project_root / relative
+        if path.is_file() and path.suffix == ".parquet":
+            paths = (path,)
+        elif path.is_dir():
+            paths = tuple(sorted(path.rglob("*.parquet"), key=lambda item: item.as_posix()))
+        else:
+            paths = ()
+        for item in paths:
+            stat = item.stat()
+            rows.append((item.relative_to(project_root).as_posix(), stat.st_mtime_ns, stat.st_size))
+    return tuple(rows)
+
+
+def _load_cached_evaluation_frame(project_root: Path, basket: str) -> pd.DataFrame:
+    """Return a per-basket frame invalidated by exact retained-Parquet metadata."""
+
+    root = project_root.resolve()
+    signature = _retained_signature(root, basket)
+    key = (str(root), basket)
+    with _CACHE_LOCK:
+        cached = _INDICATOR_FRAME_CACHE.get(key)
+        if cached is not None and cached[0] == signature:
+            return cached[2]
+
+    prices = _scope(_research_prices(load_primary_indices(root)), basket)
+    signals = prepare_indicator_frame(prices, load_volatility_indices(root))
+    outcomes = build_forward_outcomes(prices, horizons=HORIZONS)
+    evaluation = build_wide_evaluation_frame(signals, outcomes)
+    with _CACHE_LOCK:
+        current_signature = _retained_signature(root, basket)
+        if current_signature == signature:
+            _INDICATOR_FRAME_CACHE[key] = (signature, signals, evaluation)
+    return evaluation
 
 
 def _scope(frame: pd.DataFrame, basket: str) -> pd.DataFrame:
@@ -356,6 +429,70 @@ def _json_value(value: Any) -> Any:
     return value
 
 
+def _evaluate_candidate(
+    evaluation_frame: pd.DataFrame, candidate: Mapping[str, Any]
+) -> dict[str, Any]:
+    frame = _scope(evaluation_frame, str(candidate["basket"]))
+    state = score_candidate(frame, candidate)
+    masks = _period_masks(frame)
+    return {
+        **deepcopy(dict(candidate)),
+        "results": {
+            "fit": _stats(frame, state, candidate, masks["fit"]),
+            "holdout": _stats(frame, state, candidate, masks["holdout"]),
+        },
+        "levels": _levels(frame, state, candidate, masks),
+        "cycles": _cycle_results(frame, state, candidate),
+        "current": _current(frame, state, candidate),
+    }
+
+
+def evaluate_definition(
+    project_root: Path,
+    definition: dict[str, Any],
+    basket: str,
+    side: str,
+    horizons: Sequence[int] = HORIZONS,
+) -> dict[str, Any]:
+    """Evaluate one unsaved definition against retained data deterministically.
+
+    The returned mapping has the same candidate shape as a leaderboard row.  The
+    public horizon selector is validated here while the stable leaderboard
+    contract continues to report all three 20/60/90-session columns.
+    """
+
+    if basket not in PRIMARY_SERIES:
+        raise ValueError(f"unsupported basket: {basket}")
+    if side not in {"drawdown", "overheat"}:
+        raise ValueError(f"unsupported side: {side}")
+    selected_horizons = tuple(sorted(set(int(value) for value in horizons)))
+    if not selected_horizons or any(value not in HORIZONS for value in selected_horizons):
+        raise ValueError("horizons must use 20, 60, or 90")
+
+    evaluation_definition = deepcopy(definition)
+    candidate = {
+        "id": "experiment",
+        "name": "규칙 실험",
+        "side": side,
+        "basket": basket,
+        "status": "experimental",
+        "definition": evaluation_definition,
+        "added_on": "1970-01-01",
+        "reason": "저장되지 않은 retained-data 실험",
+    }
+    validation_candidate = deepcopy(candidate)
+    if evaluation_definition.get("type") == "hybrid":
+        ladder = evaluation_definition.get("ladder")
+        if not isinstance(ladder, Mapping) or ladder.get("side") != side:
+            raise ValueError("hybrid ladder side must match side")
+        validation_candidate["side"] = "hybrid"
+    validated = validate_candidate(validation_candidate)
+    validated["side"] = side
+    return _json_value(
+        _evaluate_candidate(_load_cached_evaluation_frame(Path(project_root), basket), validated)
+    )
+
+
 def build_leaderboard(
     evaluation_frame: pd.DataFrame,
     registry: Mapping[str, Any],
@@ -368,19 +505,7 @@ def build_leaderboard(
     validated = validate_registry(registry)
     candidates: list[dict[str, Any]] = []
     for candidate in validated["candidates"]:
-        frame = _scope(evaluation_frame, candidate["basket"])
-        state = score_candidate(frame, candidate)
-        masks = _period_masks(frame)
-        candidates.append({
-            **candidate,
-            "results": {
-                "fit": _stats(frame, state, candidate, masks["fit"]),
-                "holdout": _stats(frame, state, candidate, masks["holdout"]),
-            },
-            "levels": _levels(frame, state, candidate, masks),
-            "cycles": _cycle_results(frame, state, candidate),
-            "current": _current(frame, state, candidate),
-        })
+        candidates.append(_evaluate_candidate(evaluation_frame, candidate))
     payload = {
         "schema_version": 1,
         "generated_at": generated_at,
@@ -434,7 +559,7 @@ def run_rule_leaderboard(
 
 __all__ = [
     "CYCLES", "FIT_END", "HOLDOUT_START", "PRIMARY_SERIES", "RESULT_KEYS",
-    "build_leaderboard", "current_candidate_state", "load_evaluation_frame",
+    "build_leaderboard", "current_candidate_state", "evaluate_definition", "load_evaluation_frame",
     "load_indicator_frame", "prepare_indicator_frame", "run_rule_leaderboard",
     "score_candidate",
 ]

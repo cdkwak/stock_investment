@@ -1,8 +1,17 @@
 from __future__ import annotations
 
-import pandas as pd
+from pathlib import Path
 
-from stock_data.research.rule_leaderboard import CYCLES, RESULT_KEYS, build_leaderboard
+import pandas as pd
+import pytest
+
+from stock_data.research import rule_leaderboard
+from stock_data.research.rule_leaderboard import (
+    CYCLES,
+    RESULT_KEYS,
+    build_leaderboard,
+    evaluate_definition,
+)
 
 
 def _candidate(
@@ -124,3 +133,62 @@ def test_leaderboard_exact_schema_levels_cycles_current_and_analog() -> None:
     assert all(
         set(item) == {"level", "fit", "holdout"} for item in drawdown["levels"]
     )
+
+
+@pytest.mark.parametrize(
+    ("definition", "expected_level", "expected_exposure"),
+    [
+        (
+            {
+                "type": "ladder",
+                "indicators": [
+                    {"key": "drawdown252", "op": "<=", "threshold": -0.20},
+                    {"key": "disp60", "op": "<=", "threshold": -0.10},
+                ],
+                "levels": 2,
+            },
+            1,
+            0.5,
+        ),
+        ({"type": "vol_target", "target_vol": 0.15, "window": 20}, 0, 0.75),
+        (
+            {
+                "type": "hybrid",
+                "ladder": {
+                    "side": "drawdown",
+                    "indicators": [
+                        {"key": "drawdown252", "op": "<=", "threshold": -0.20},
+                        {"key": "disp60", "op": "<=", "threshold": -0.10},
+                    ],
+                    "levels": 2,
+                },
+                "vol_target": {"target_vol": 0.15, "window": 20},
+            },
+            1,
+            1.0,
+        ),
+    ],
+)
+def test_evaluate_definition_covers_ladder_vol_target_and_hybrid(
+    monkeypatch: pytest.MonkeyPatch,
+    definition: dict[str, object],
+    expected_level: int,
+    expected_exposure: float,
+) -> None:
+    monkeypatch.setattr(rule_leaderboard, "_load_cached_evaluation_frame", lambda *_: _frame())
+
+    result = evaluate_definition(
+        Path("."),
+        definition,
+        "KR",
+        "drawdown",
+    )
+
+    assert set(result) == {
+        "id", "name", "side", "basket", "status", "definition", "added_on",
+        "reason", "results", "levels", "cycles", "current",
+    }
+    assert tuple(result["results"]["fit"]) == RESULT_KEYS
+    assert tuple(result["results"]["holdout"]) == RESULT_KEYS
+    assert result["current"]["level"] == expected_level
+    assert result["current"]["exposure"] == pytest.approx(expected_exposure)

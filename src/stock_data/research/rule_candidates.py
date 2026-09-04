@@ -9,6 +9,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+import threading
 from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
@@ -24,6 +25,7 @@ VALID_OPS = frozenset({"<=", ">="})
 _CANDIDATE_KEYS = frozenset(
     {"id", "name", "side", "basket", "status", "definition", "added_on", "reason"}
 )
+_REGISTRY_LOCK = threading.RLock()
 
 
 class RuleCandidateError(ValueError):
@@ -124,8 +126,6 @@ def validate_candidate(candidate: object) -> dict[str, Any]:
             raise RuleCandidateError("a ladder candidate side must be drawdown or overheat")
     elif definition_type == "vol_target":
         _validate_vol_target(definition, path="definition")
-        if candidate["side"] != "hybrid":
-            raise RuleCandidateError("a vol_target candidate uses side=hybrid")
     else:
         if set(definition) != {"type", "ladder", "vol_target"}:
             raise RuleCandidateError("hybrid definition must contain type/ladder/vol_target")
@@ -245,6 +245,68 @@ def add_candidate(
     return _write_registry(project_root, payload)
 
 
+def add_experimental_candidate(
+    project_root: Path,
+    *,
+    name: str,
+    side: str,
+    basket: str,
+    definition: Mapping[str, Any],
+    reason: str,
+    on: str | None = None,
+) -> dict[str, Any]:
+    """Register one UI experiment with an atomic history/attempt update."""
+
+    if side not in {"drawdown", "overheat"}:
+        raise RuleCandidateError("experimental side must be drawdown or overheat")
+    if not isinstance(name, str) or not name.strip():
+        raise RuleCandidateError("candidate name must be a non-empty string")
+    if not isinstance(reason, str) or not reason.strip():
+        raise RuleCandidateError("every mutation requires a non-empty reason")
+    copied_definition = deepcopy(dict(definition))
+    if copied_definition.get("type") == "hybrid":
+        ladder = copied_definition.get("ladder")
+        if not isinstance(ladder, Mapping) or ladder.get("side") != side:
+            raise RuleCandidateError("hybrid ladder side must match the experiment side")
+        stored_side = "hybrid"
+    else:
+        stored_side = side
+
+    with _REGISTRY_LOCK:
+        payload = load_candidates(project_root)
+        digest = hashlib.sha256(json.dumps(
+            {
+                "name": name.strip(), "side": side, "basket": basket,
+                "definition": copied_definition,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")).hexdigest()[:10]
+        base_id = f"experiment_{digest}"
+        identifiers = {str(item["id"]) for item in payload["candidates"]}
+        candidate_id = base_id
+        suffix = 2
+        while candidate_id in identifiers:
+            candidate_id = f"{base_id}_{suffix}"
+            suffix += 1
+        candidate = validate_candidate({
+            "id": candidate_id,
+            "name": name.strip(),
+            "side": stored_side,
+            "basket": basket,
+            "status": "experimental",
+            "definition": copied_definition,
+            "added_on": _mutation_date(on),
+            "reason": reason.strip(),
+        })
+        payload["candidates"].append(candidate)
+        _record(
+            payload, action="add", candidate_id=candidate_id, reason=reason.strip(), on=on,
+        )
+        return _write_registry(project_root, payload)
+
+
 def edit_candidate(
     project_root: Path,
     candidate_id: str,
@@ -342,7 +404,7 @@ if __name__ == "__main__":
 
 
 __all__ = [
-    "CANDIDATE_PATH", "RuleCandidateError", "add_candidate", "candidate_file",
+    "CANDIDATE_PATH", "RuleCandidateError", "add_candidate", "add_experimental_candidate", "candidate_file",
     "edit_candidate", "load_candidates", "remove_candidate", "retire_candidate",
     "rules_version", "validate_candidate", "validate_registry",
 ]

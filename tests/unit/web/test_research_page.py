@@ -3,12 +3,16 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import threading
+from urllib.parse import urlencode
 from uuid import uuid4
 
 import pandas as pd
 import pytest
 
 from stock_web.api import research_page
+from stock_data.research import rule_leaderboard
+from stock_data.research.rule_candidates import rules_version
 from stock_web.app import create_app
 from tests.unit.web import ASGITestClient
 
@@ -97,6 +101,7 @@ def _write_research_fixture(root: Path) -> None:
     config_path.write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
     research_page._RESEARCH_CACHE.clear()
     research_page._FORWARD_CACHE.clear()
+    research_page._reset_experiment_session()
 
 
 def _write_forward_fixture(root: Path) -> list[pd.Timestamp]:
@@ -256,6 +261,183 @@ def test_research_routes_are_readable_from_tailnet_and_html_has_verdict_colours(
     assert 'class="verdict-miss"' in page.text
     assert 'class="verdict-none"' in page.text
     assert "홀드아웃 성적을 보고 규칙을 고치면 과적합입니다" in page.text
+
+
+def _experiment_url(*indicators: str, **overrides: object) -> str:
+    params: list[tuple[str, object]] = [
+        ("side", overrides.get("side", "drawdown")),
+        ("basket", overrides.get("basket", "KR")),
+        ("type", overrides.get("type", "ladder")),
+        *(('ind', indicator) for indicator in indicators),
+        ("levels", overrides.get("levels", len(indicators) or 1)),
+        ("target_vol", overrides.get("target_vol", .15)),
+        ("horizon", overrides.get("horizon", 60)),
+    ]
+    return "/api/research/experiment?" + urlencode(params)
+
+
+def test_experiment_api_parses_definition_and_is_readable_when_relayed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _root()
+    _write_research_fixture(root)
+    captured: dict[str, object] = {}
+
+    def fake_evaluate(
+        _root: Path, definition: dict[str, object], basket: str, side: str,
+        horizons: tuple[int, ...] = (20, 60, 90),
+    ) -> dict[str, object]:
+        captured.update(definition=definition, basket=basket, side=side, horizons=horizons)
+        return _candidate("experiment", "규칙 실험", side=side, basket=basket, diff=.01)
+
+    monkeypatch.setattr(rule_leaderboard, "evaluate_definition", fake_evaluate)
+    client = ASGITestClient(create_app(root))
+    response = client.get(
+        _experiment_url("drawdown252:<=:-0.2", "disp60:<=:-0.1", levels=2),
+        client_host="100.85.10.20",
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert captured == {
+        "definition": {
+            "type": "ladder",
+            "indicators": [
+                {"key": "drawdown252", "op": "<=", "threshold": -.2},
+                {"key": "disp60", "op": "<=", "threshold": -.1},
+            ],
+            "levels": 2,
+        },
+        "basket": "KR", "side": "drawdown", "horizons": (20, 60, 90),
+    }
+    assert payload["experiment_count"] == 1
+    assert payload["horizon"] == 60
+    assert payload["can_register"] is False
+    assert payload["caution"] == research_page.EXPERIMENT_CAUTION
+
+
+def test_experiment_api_returns_korean_400_for_bad_op_and_missing_indicator() -> None:
+    root = _root()
+    _write_research_fixture(root)
+    client = ASGITestClient(create_app(root))
+
+    bad_op = client.get(_experiment_url("drawdown252:>=:-0.2"), client_host="127.0.0.1")
+    missing = client.get(_experiment_url(levels=1), client_host="127.0.0.1")
+
+    assert bad_op.status_code == missing.status_code == 400
+    assert "연산자는 <=만" in bad_op.json()["error"]
+    assert missing.json()["error"] == "지표를 하나 이상 선택해 주세요."
+
+
+def test_experiment_api_rate_limits_each_client_after_ten_evaluations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _root()
+    _write_research_fixture(root)
+    monkeypatch.setattr(
+        rule_leaderboard, "evaluate_definition",
+        lambda _root, _definition, basket, side: _candidate(
+            "experiment", "규칙 실험", side=side, basket=basket, diff=.01,
+        ),
+    )
+    client = ASGITestClient(create_app(root))
+    url = _experiment_url("drawdown252:<=:-0.2")
+
+    responses = [client.get(url, client_host="127.0.0.1") for _ in range(11)]
+
+    assert all(response.status_code == 200 for response in responses[:10])
+    assert responses[10].status_code == 429
+    assert "1분에 10회" in responses[10].json()["error"]
+
+
+def test_candidate_post_is_loopback_only_records_attempt_and_regenerates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _root()
+    _write_research_fixture(root)
+    calls: list[Path] = []
+
+    def fake_runner(project_root: Path) -> tuple[Path, Path, dict[str, object]]:
+        calls.append(project_root)
+        latest = project_root / research_page.LEADERBOARD_RELATIVE
+        payload = json.loads(latest.read_text(encoding="utf-8"))
+        payload["rules_version"] = rules_version(project_root)
+        payload["attempt_count"] = 8
+        latest.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        return latest, latest, payload
+
+    monkeypatch.setattr(rule_leaderboard, "run_rule_leaderboard", fake_runner)
+    client = ASGITestClient(create_app(root))
+    body = {
+        "name": "나의 낙폭 규칙", "side": "drawdown", "basket": "KR",
+        "definition": {
+            "type": "ladder",
+            "indicators": [{"key": "drawdown252", "op": "<=", "threshold": -.25}],
+            "levels": 1,
+        },
+        "reason": "직접 실험 후 등록",
+    }
+
+    denied = client.post("/api/research/candidates", json=body, client_host="100.85.10.20")
+    response = client.post("/api/research/candidates", json=body, client_host="127.0.0.1")
+
+    assert denied.status_code == 403
+    assert response.status_code == 200 and response.json()["status"] == "ready"
+    registry = json.loads((root / research_page.CANDIDATES_RELATIVE).read_text(encoding="utf-8"))
+    assert registry["attempt_count"] == 8
+    assert registry["history"][-1]["action"] == "add"
+    assert registry["history"][-1]["reason"] == "직접 실험 후 등록"
+    assert registry["candidates"][-1]["status"] == "experimental"
+    assert calls == [root.resolve()]
+
+
+def test_candidate_post_returns_queued_when_regeneration_exceeds_wait(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _root()
+    _write_research_fixture(root)
+    release = threading.Event()
+    finished = threading.Event()
+
+    def slow_runner(_project_root: Path) -> None:
+        release.wait(2)
+        finished.set()
+
+    monkeypatch.setattr(rule_leaderboard, "run_rule_leaderboard", slow_runner)
+    monkeypatch.setattr(research_page, "_REGENERATION_WAIT_SECONDS", .01)
+    client = ASGITestClient(create_app(root))
+    body = {
+        "name": "느린 재생성 후보", "side": "drawdown", "basket": "KR",
+        "definition": {
+            "type": "ladder",
+            "indicators": [{"key": "disp60", "op": "<=", "threshold": -.1}],
+            "levels": 1,
+        },
+        "reason": "백그라운드 경로 검증",
+    }
+
+    try:
+        response = client.post(
+            "/api/research/candidates", json=body, client_host="127.0.0.1",
+        )
+        assert response.status_code == 200
+        assert response.json()["status"] == "queued"
+        assert response.json()["rules_version"] == rules_version(root)
+    finally:
+        release.set()
+        assert finished.wait(2)
+
+
+def test_research_template_contains_collapsed_experiment_and_three_presets() -> None:
+    text = (
+        Path(__file__).parents[3] / "src/stock_web/templates/research.html"
+    ).read_text(encoding="utf-8")
+
+    assert '<details class="card research-experiment-card" id="rule-experiment">' in text
+    assert "규칙 직접 시험해보기 ▾" in text
+    assert "현재 관심종목 조건(RSI≤30 · 60일선 −10% · 고점 −30%)" in text
+    assert 'data-preset="drawdown-2"' in text
+    assert 'data-preset="vol-target-15"' in text
 
 
 def test_every_dashboard_navigation_places_research_after_data() -> None:

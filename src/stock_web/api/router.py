@@ -63,6 +63,12 @@ def build_router(project_root: Path) -> APIRouter:
             for name in ("x-forwarded-for", "tailscale-user-login", "tailscale-user-name")
         )
 
+    def request_client_key(request: Request) -> str:
+        forwarded = request.headers.get("x-forwarded-for", "")
+        if forwarded:
+            return forwarded.split(",", 1)[0].strip() or "relayed"
+        return str(request.client.host) if request.client is not None else "in-process"
+
     def clear_home_cache() -> None:
         from stock_web.api import home_data
 
@@ -328,6 +334,40 @@ def build_router(project_root: Path) -> APIRouter:
         from stock_web.api.research_page import build_forward_payload
 
         return json_response(build_forward_payload(project_root))
+
+    @router.get("/research/experiment")
+    def research_experiment(request: Request) -> Response:
+        from stock_web.api.research_page import (
+            ExperimentRateLimitError,
+            ResearchInputError,
+            evaluate_experiment,
+        )
+
+        try:
+            payload = evaluate_experiment(
+                project_root, request.query_params,
+                client_key=request_client_key(request),
+            )
+        except ExperimentRateLimitError as error:
+            return json_response({"error": str(error)}, status_code=429)
+        except ResearchInputError as error:
+            return json_response({"error": str(error)}, status_code=400)
+        payload["can_register"] = loopback(request)
+        return json_response(payload)
+
+    @router.post("/research/candidates")
+    async def research_candidates(request: Request) -> Response:
+        from stock_web.api.research_page import ResearchInputError, register_experiment_candidate
+
+        if not loopback(request):
+            return json_response({"error": "후보 등록은 PC에서만 할 수 있습니다."}, status_code=403)
+        try:
+            payload = register_experiment_candidate(project_root, await request.json())
+        except (ValueError, ResearchInputError) as error:
+            return json_response({"error": str(error)}, status_code=400)
+        except RuntimeError as error:
+            return json_response({"error": str(error)}, status_code=500)
+        return json_response(payload)
 
     @router.post("/net-worth")
     async def save_net_worth_snapshot(request: Request) -> Response:

@@ -1,4 +1,4 @@
-/* Read-only rule-candidate leaderboard and forward-test renderer. */
+/* Retained-data rule experiment, candidate leaderboard, and forward-test renderer. */
 (function () {
   "use strict";
   const $ = (id) => document.getElementById(id);
@@ -21,6 +21,7 @@
   const emptyMessage = "아직 평가 결과가 없습니다 · `scripts/research/run_rule_leaderboard.py` 실행 후 표시";
   let research = null;
   let selectedId = null;
+  let lastExperiment = null;
 
   function emptyMarkup(message) {
     const parts = String(message || emptyMessage).split("`");
@@ -79,8 +80,9 @@
     return "레벨과 홀드아웃 60일 평균의 단조 관계가 뚜렷하지 않습니다.";
   }
 
-  function renderLevelChart(levels) {
-    const host = $("level-chart");
+  function renderLevelChart(levels, hostId = "level-chart") {
+    const host = $(hostId);
+    if (!host) return;
     const points = (levels || []).map((level) => ({
       level: level.level,
       value: (level.holdout || {}).mean_60,
@@ -124,6 +126,27 @@
     </div>`;
   }
 
+  function splitSummaryMarkup(candidate, horizon = 60) {
+    const rows = ["fit", "holdout"].map((split) => {
+      const metrics = result(candidate, split);
+      return `<tr><td>${split === "fit" ? "적합" : "홀드아웃"}</td><td>${number(metrics.n, 0)}</td><td class="${valueClass(metrics[`mean_${horizon}`])}">${pct(metrics[`mean_${horizon}`])}</td><td class="${valueClass(metrics.diff_60)}">${pct(metrics.diff_60)}</td><td>${pctUnsigned(metrics.hit_60, 0)}</td><td>${pctUnsigned(metrics.vol_60)}</td><td class="${valueClass(metrics.mdd_60)}">${pct(metrics.mdd_60)}</td></tr>`;
+    }).join("");
+    return `<div class="detail-block result-summary-block"><h3>적합 / 홀드아웃 요약 · ${number(horizon, 0)}일 평균 선택</h3><div class="research-table-wrap"><table class="research-table"><thead><tr><th>구간</th><th>n</th><th>${number(horizon, 0)}일 평균</th><th>60일 기준 대비</th><th>상승확률</th><th>변동성</th><th>최대낙폭</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  }
+
+  function detailMarkup(candidate, chartId, horizon = 60) {
+    const cycles = (candidate.cycles || []).map((cycle) => `<tr><td>${esc(cycle.label || cycle.id)}</td><td>${number(cycle.signals, 0)}</td><td>${esc(cycle.first_signal || "—")}</td><td class="${valueClass(cycle.mean_60)}">${pct(cycle.mean_60)}</td><td class="verdict-${esc(cycle.verdict || "none")}">${esc(verdictLabels[cycle.verdict] || cycle.verdict || "신호 없음")}</td></tr>`).join("");
+    const levels = candidate.levels || [];
+    const levelRows = levels.map((level) => `<tr><td>${number(level.level, 0)}</td><td>${number((level.fit || {}).n, 0)} / ${pct((level.fit || {}).mean_60)}</td><td>${number((level.holdout || {}).n, 0)} / ${pct((level.holdout || {}).mean_60)}</td></tr>`).join("");
+    return `<div class="detail-heading"><div><h2>${esc(candidate.name || candidate.id)}</h2><div class="detail-tags"><span class="research-status ${esc(candidate.status || "")}">${esc(statusLabels[candidate.status] || candidate.status)}</span><span class="research-status">${esc(sideLabels[candidate.side] || candidate.side)}</span><span class="research-status">${esc(basketLabels[candidate.basket] || candidate.basket)}</span></div></div><p class="detail-definition">${esc(candidate.definition_text)}</p></div>
+      <div class="detail-grid">
+        ${splitSummaryMarkup(candidate, horizon)}
+        <div class="detail-block"><h3>사이클별 결과</h3><div class="research-table-wrap"><table class="research-table"><thead><tr><th>사이클</th><th>신호 수</th><th>첫 신호</th><th>60일 평균</th><th>판정</th></tr></thead><tbody>${cycles || '<tr><td colspan="5">사이클 결과 없음</td></tr>'}</tbody></table></div></div>
+        <div class="detail-block"><h3>레벨별 결과</h3><div class="level-layout"><div class="research-table-wrap"><table class="research-table"><thead><tr><th>레벨</th><th>적합 n / 평균</th><th>홀드아웃 n / 평균</th></tr></thead><tbody>${levelRows || '<tr><td colspan="3">레벨 결과 없음</td></tr>'}</tbody></table></div><div><div class="level-chart" id="${esc(chartId)}"></div><div class="level-hint">${esc(monotonicHint(levels))}</div></div></div></div>
+        ${currentMarkup(candidate)}
+      </div>`;
+  }
+
   function renderDetail(candidate) {
     if (!candidate) {
       $("detail-content").innerHTML = '<div class="research-detail-empty">선택된 규칙이 없습니다.</div>';
@@ -131,16 +154,8 @@
     }
     $("detail-title").textContent = candidate.name || candidate.id;
     $("detail-reason").textContent = candidate.reason || "";
-    const cycles = (candidate.cycles || []).map((cycle) => `<tr><td>${esc(cycle.label || cycle.id)}</td><td>${number(cycle.signals, 0)}</td><td>${esc(cycle.first_signal || "—")}</td><td class="${valueClass(cycle.mean_60)}">${pct(cycle.mean_60)}</td><td class="verdict-${esc(cycle.verdict || "none")}">${esc(verdictLabels[cycle.verdict] || cycle.verdict || "신호 없음")}</td></tr>`).join("");
-    const levels = candidate.levels || [];
-    const levelRows = levels.map((level) => `<tr><td>${number(level.level, 0)}</td><td>${number((level.fit || {}).n, 0)} / ${pct((level.fit || {}).mean_60)}</td><td>${number((level.holdout || {}).n, 0)} / ${pct((level.holdout || {}).mean_60)}</td></tr>`).join("");
-    $("detail-content").innerHTML = `<div class="detail-heading"><div><h2>${esc(candidate.name || candidate.id)}</h2><div class="detail-tags"><span class="research-status ${esc(candidate.status || "")}">${esc(statusLabels[candidate.status] || candidate.status)}</span><span class="research-status">${esc(sideLabels[candidate.side] || candidate.side)}</span><span class="research-status">${esc(basketLabels[candidate.basket] || candidate.basket)}</span></div></div><p class="detail-definition">${esc(candidate.definition_text)}</p></div>
-      <div class="detail-grid">
-        <div class="detail-block"><h3>사이클별 결과</h3><div class="research-table-wrap"><table class="research-table"><thead><tr><th>사이클</th><th>신호 수</th><th>첫 신호</th><th>60일 평균</th><th>판정</th></tr></thead><tbody>${cycles || '<tr><td colspan="5">사이클 결과 없음</td></tr>'}</tbody></table></div></div>
-        <div class="detail-block"><h3>레벨별 결과</h3><div class="level-layout"><div class="research-table-wrap"><table class="research-table"><thead><tr><th>레벨</th><th>적합 n / 평균</th><th>홀드아웃 n / 평균</th></tr></thead><tbody>${levelRows || '<tr><td colspan="3">레벨 결과 없음</td></tr>'}</tbody></table></div><div><div class="level-chart" id="level-chart"></div><div class="level-hint">${esc(monotonicHint(levels))}</div></div></div></div>
-        ${currentMarkup(candidate)}
-      </div>`;
-    renderLevelChart(levels);
+    $("detail-content").innerHTML = detailMarkup(candidate, "level-chart", 60);
+    renderLevelChart(candidate.levels || [], "level-chart");
   }
 
   function selectCandidate(candidateId) {
@@ -167,7 +182,235 @@
     $("history-content").innerHTML = (history || []).length ? `<div class="history-list">${history.map((item) => `<div class="history-row"><time class="num">${esc(item.date || "—")}</time><span class="history-action">${esc(actionLabels[item.action] || item.action || "—")}</span><span class="history-id">${esc(item.id || "—")}</span><span class="history-reason">${esc(item.reason || "")}</span></div>`).join("")}</div>` : '<div class="unavailable">변경 기록이 없습니다.</div>';
   }
 
+  function experimentSide() {
+    return (document.querySelector('input[name="experiment-side"]:checked') || {}).value || "drawdown";
+  }
+
+  function experimentRows() {
+    return [...document.querySelectorAll(".experiment-indicator-row")];
+  }
+
+  function syncExperimentControls() {
+    const type = $("experiment-type").value;
+    const needsLadder = type !== "vol_target";
+    const needsTarget = type !== "ladder";
+    document.querySelector(".experiment-level-field").hidden = !needsLadder;
+    document.querySelector(".experiment-target-field").hidden = !needsTarget;
+    $("experiment-indicators").hidden = !needsLadder;
+    const selected = experimentRows().filter((row) => row.querySelector('input[type="checkbox"]').checked);
+    $("experiment-levels").value = String(Math.max(1, selected.length));
+    const operator = experimentSide() === "drawdown" ? "≤" : "≥";
+    experimentRows().forEach((row) => {
+      const checked = row.querySelector('input[type="checkbox"]').checked;
+      row.classList.toggle("disabled", !checked);
+      row.querySelector(".experiment-operator").textContent = operator;
+    });
+  }
+
+  function setExperimentSide(side) {
+    const input = document.querySelector(`input[name="experiment-side"][value="${side}"]`);
+    if (input) input.checked = true;
+  }
+
+  function setIndicator(key, checked, value) {
+    const row = document.querySelector(`.experiment-indicator-row[data-indicator="${key}"]`);
+    if (!row) return;
+    row.querySelector('input[type="checkbox"]').checked = checked;
+    if (value !== undefined) {
+      row.querySelector(".experiment-range").value = String(value);
+      row.querySelector(".experiment-number").value = String(value);
+    }
+  }
+
+  function invalidateExperiment() {
+    if (!lastExperiment) return;
+    lastExperiment = null;
+    $("experiment-register").disabled = true;
+    $("experiment-register").title = "다시 평가하세요";
+    $("experiment-status").textContent = "조건이 바뀌었습니다. 다시 평가해 주세요.";
+  }
+
+  function applyPreset(name) {
+    invalidateExperiment();
+    experimentRows().forEach((row) => setIndicator(row.dataset.indicator, false));
+    setExperimentSide("drawdown");
+    $("experiment-basket").value = "KR";
+    if (name === "watchlist") {
+      $("experiment-type").value = "ladder";
+      setIndicator("rsi14", true, 30);
+      setIndicator("disp60", true, -10);
+      setIndicator("drawdown252", true, -30);
+    } else if (name === "drawdown-2") {
+      $("experiment-type").value = "ladder";
+      setIndicator("drawdown252", true, -20);
+      setIndicator("disp60", true, -10);
+    } else {
+      $("experiment-type").value = "vol_target";
+      $("experiment-target-vol").value = "0.15";
+    }
+    syncExperimentControls();
+  }
+
+  function experimentQuery() {
+    const side = experimentSide(), type = $("experiment-type").value;
+    const params = new URLSearchParams({
+      side, basket: $("experiment-basket").value, type,
+      target_vol: $("experiment-target-vol").value,
+      horizon: $("experiment-horizon").value,
+    });
+    if (type !== "vol_target") {
+      const selected = experimentRows().filter((row) => row.querySelector('input[type="checkbox"]').checked);
+      params.set("levels", String(selected.length));
+      selected.forEach((row) => {
+        const key = row.dataset.indicator;
+        const shown = Number(row.querySelector(".experiment-number").value);
+        const threshold = key === "rsi14" ? shown : shown / 100;
+        params.append("ind", `${key}:${side === "drawdown" ? "<=" : ">="}:${threshold}`);
+      });
+    }
+    return params;
+  }
+
+  function renderExperiment(candidate) {
+    $("experiment-result").hidden = false;
+    $("experiment-result-definition").textContent = candidate.definition_text || "";
+    $("experiment-result-content").innerHTML = detailMarkup(
+      candidate, "experiment-level-chart", Number(candidate.horizon) || 60,
+    );
+    renderLevelChart(candidate.levels || [], "experiment-level-chart");
+  }
+
+  async function readError(response) {
+    try {
+      const payload = await response.json();
+      return payload.error || `요청 실패 (${response.status})`;
+    } catch (_error) {
+      return `요청 실패 (${response.status})`;
+    }
+  }
+
+  async function evaluateExperiment() {
+    const button = $("experiment-evaluate");
+    button.disabled = true;
+    $("experiment-status").textContent = "retained 데이터로 평가 중…";
+    try {
+      const response = await fetch(`/api/research/experiment?${experimentQuery().toString()}`);
+      if (!response.ok) throw new Error(await readError(response));
+      lastExperiment = await response.json();
+      renderExperiment(lastExperiment);
+      $("experiment-session").textContent = `이번 세션 실험 ${number(lastExperiment.experiment_count, 0)}회`;
+      const register = $("experiment-register");
+      register.disabled = !lastExperiment.can_register;
+      register.title = lastExperiment.can_register ? "실험 규칙을 후보로 등록" : "PC에서만";
+      $("experiment-status").textContent = lastExperiment.can_register ? "평가 완료 · 아직 저장되지 않았습니다." : "평가 완료 · 후보 등록은 PC에서만 가능합니다.";
+    } catch (error) {
+      lastExperiment = null;
+      $("experiment-register").disabled = true;
+      $("experiment-register").title = "먼저 평가하세요";
+      $("experiment-status").textContent = error.message || "평가하지 못했습니다.";
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function refreshResearch(candidateId) {
+    const response = await fetch("/api/research");
+    if (!response.ok) throw new Error(await readError(response));
+    research = await response.json();
+    renderMeta(research);
+    renderLeaderboard(research);
+    renderHistory(research.history);
+    const selected = (research.candidates || []).find((candidate) => candidate.id === candidateId);
+    if (selected) selectCandidate(candidateId);
+  }
+
+  async function pollForRulesVersion(expectedVersion, candidateId) {
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const response = await fetch("/api/research");
+      if (!response.ok) continue;
+      const payload = await response.json();
+      if (payload.rules_version === expectedVersion) {
+        research = payload;
+        renderMeta(research);
+        renderLeaderboard(research);
+        renderHistory(research.history);
+        if ((research.candidates || []).some((candidate) => candidate.id === candidateId)) selectCandidate(candidateId);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  async function confirmRegistration() {
+    const name = $("experiment-name").value.trim();
+    const reason = $("experiment-reason").value.trim();
+    if (!lastExperiment || !name || !reason) {
+      $("experiment-register-dialog").querySelector("form").reportValidity();
+      return;
+    }
+    const button = $("experiment-register-confirm");
+    button.disabled = true;
+    $("experiment-status").textContent = "후보 등록 및 순위표 재생성 중 · 최대 60초…";
+    try {
+      const response = await fetch("/api/research/candidates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name, reason, side: lastExperiment.side, basket: lastExperiment.basket,
+          definition: lastExperiment.definition,
+        }),
+      });
+      if (!response.ok) throw new Error(await readError(response));
+      const saved = await response.json();
+      $("experiment-register-dialog").close();
+      $("experiment-status").textContent = saved.status === "queued" ? "후보 등록 완료 · 순위표 재생성 대기 중…" : "후보 등록과 순위표 갱신 완료";
+      if (saved.status === "queued") {
+        const ready = await pollForRulesVersion(saved.rules_version, saved.candidate_id);
+        $("experiment-status").textContent = ready ? "순위표 갱신 완료" : "후보는 등록됐습니다. 순위표 갱신 상태를 다시 확인해 주세요.";
+      } else {
+        await refreshResearch(saved.candidate_id);
+      }
+      $("experiment-register").disabled = true;
+      $("experiment-register").title = "이미 후보로 등록했습니다";
+    } catch (error) {
+      $("experiment-status").textContent = error.message || "후보를 등록하지 못했습니다.";
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  function bindExperiment() {
+    experimentRows().forEach((row) => {
+      const range = row.querySelector(".experiment-range");
+      const numeric = row.querySelector(".experiment-number");
+      range.addEventListener("input", () => { numeric.value = range.value; invalidateExperiment(); });
+      numeric.addEventListener("input", () => {
+        const minimum = Number(numeric.min), maximum = Number(numeric.max);
+        if (Number.isFinite(Number(numeric.value))) range.value = String(Math.min(maximum, Math.max(minimum, Number(numeric.value))));
+        invalidateExperiment();
+      });
+      row.querySelector('input[type="checkbox"]').addEventListener("change", () => { invalidateExperiment(); syncExperimentControls(); });
+    });
+    document.querySelectorAll('input[name="experiment-side"]').forEach((input) => input.addEventListener("change", () => { invalidateExperiment(); syncExperimentControls(); }));
+    $("experiment-type").addEventListener("change", () => { invalidateExperiment(); syncExperimentControls(); });
+    for (const id of ["experiment-basket", "experiment-target-vol", "experiment-horizon"]) {
+      $(id).addEventListener("change", invalidateExperiment);
+    }
+    document.querySelectorAll("[data-preset]").forEach((button) => button.addEventListener("click", () => applyPreset(button.dataset.preset)));
+    $("experiment-evaluate").addEventListener("click", evaluateExperiment);
+    $("experiment-register").addEventListener("click", () => {
+      if (!lastExperiment || !lastExperiment.can_register) return;
+      $("experiment-name").value = "";
+      $("experiment-reason").value = "";
+      $("experiment-register-dialog").showModal();
+    });
+    $("experiment-register-confirm").addEventListener("click", confirmRegistration);
+    syncExperimentControls();
+  }
+
   async function boot() {
+    bindExperiment();
     let forward = null;
     try {
       const [researchResponse, forwardResponse] = await Promise.all([fetch("/api/research"), fetch("/api/research/forward")]);

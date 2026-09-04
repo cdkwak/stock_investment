@@ -6,7 +6,7 @@ This is a provider-free, descriptive research workflow. It reads retained Parque
 
 `config/research/rule_candidates.json` is schema version 1. Each add, edit, retire, or remove operation requires a date and reason, appends one history event, and increments `attempt_count`. The exact file-byte SHA-256 is the `rules_version` used by leaderboard and forward-test records. Use `python -m stock_data.research.rule_candidates --project-root . validate` or its `add`, `edit`, `retire`, and `remove` subcommands; programmatic callers may use the matching helpers.
 
-Statuses are `active`, `experimental`, and `retired`. The evaluator reports all three, while the daily recorder writes only active and experimental candidates. Supported baskets are KR (KOSPI200 primary and KOSPI secondary), US_TECH (NASDAQ100), SEMIS (SOX), and POOLED (the named primary series combined).
+Statuses are `active`, `experimental`, and `retired`. The evaluator reports all three, while the daily recorder writes only active and experimental candidates. Supported baskets are KR (KOSPI200 primary and KOSPI secondary), US_TECH (NASDAQ100), SEMIS (SOX), and POOLED (the named primary series combined). The loopback Research UI registers every saved experiment with `status=experimental`, appends an `add` history event, and increments `attempt_count` exactly once.
 
 ## Rule semantics
 
@@ -25,7 +25,9 @@ Thus drawdown evidence restores exposure toward 100%, while overheat evidence sc
 
 Fit rows require the 90-session outcome end date on or before 2015-12-31. Hold-out rows start at observation date 2016-01-01 and require a complete 90-session outcome. Ladder and hybrid headline results use their maximum level; level tables retain every level. Vol-target returns, volatility, and drawdown are scaled by the close-T exposure held fixed over the descriptive forward window. Baselines are unscaled unconditional same-series means.
 
-Cycle dates are diagnostics only and never select thresholds. A drawdown cycle is a hit when signal-date mean 60-session return exceeds the cycle's unconditional mean; an overheat cycle is a hit when it is lower. Hybrids inherit the nested ladder direction. Pure volatility targeting uses the drawdown comparison convention and is labelled descriptive.
+Cycle dates are diagnostics only and never select thresholds. A drawdown cycle is a hit when signal-date mean 60-session return exceeds the cycle's unconditional mean; an overheat cycle is a hit when it is lower. Hybrids inherit the nested ladder direction. Existing pure volatility-target candidates with `side=hybrid` retain the descriptive drawdown comparison convention; a newly registered UI experiment may preserve an explicit `drawdown` or `overheat` side.
+
+`evaluate_definition(project_root, definition, basket, side, horizons=(20,60,90))` is the reusable ad-hoc path. It returns the same candidate result structure as the batch leaderboard without writing a candidate or artifact. Its per-basket evaluation frame is cached in-process and invalidated by the path, modification time, and size of every relevant retained Parquet file. The batch builder continues through the same candidate evaluator, so its schema and numeric outputs remain unchanged.
 
 The daily log key is `(as_of, candidate_id, rules_version)`. Rerunning the same unchanged observation is a no-op; a conflicting replay fails closed. Realised returns are joined later by retained trading-session offsets 20/60/90. A close-T state is observational and only usable from the next retained session.
 
@@ -37,3 +39,5 @@ The daily log key is `(as_of, candidate_id, rules_version)`. Rerunning the same 
 ```
 
 The leaderboard atomically writes `artifacts/research/rule_leaderboard/latest.json` and a `YYYYMMDD.json` copy. Daily observations accumulate at `data/local/research/forward_test/signals.jsonl`. The `RESEARCH_FORWARD_TEST_DAILY` lane is the final member of the 20:30 KR market bundle, makes zero API calls, and fails independently of preceding lanes.
+
+The web experiment GET is provider-free, supports only the four documented indicators and fixed side operator, and limits each client to ten evaluations per minute. Candidate POST is loopback-only. It regenerates the leaderboard in-process; work still running after 60 seconds continues in a daemon thread while the page polls the artifact version.

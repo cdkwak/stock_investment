@@ -13,6 +13,49 @@
 .research-section-head > div { display: flex; align-items: baseline; gap: 8px; }
 .section-index { color: var(--amber); font-size: 10px; font-variant-numeric: tabular-nums; }
 
+.research-experiment-card { padding: 0; overflow: hidden; }
+.research-experiment-card > summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 13px 16px; }
+.research-experiment-card > summary::-webkit-details-marker { display: none; }
+.research-experiment-card > summary > span:first-child { display: flex; align-items: baseline; gap: 8px; }
+.research-experiment-card[open] > summary { border-bottom: 1px solid var(--grid); }
+.experiment-session { color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.experiment-body { padding: 14px 16px 16px; }
+.experiment-presets { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.experiment-presets button, .experiment-actions button, .experiment-dialog button { border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 4px; padding: 7px 10px; cursor: pointer; font: inherit; }
+.experiment-presets button:hover, .experiment-actions button:hover:not(:disabled) { border-color: var(--amber); background: #fffaf2; }
+.experiment-actions button.primary, .experiment-dialog button.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+.experiment-actions button:disabled { cursor: not-allowed; opacity: .48; }
+.experiment-controls { display: grid; grid-template-columns: 1.2fr repeat(5, minmax(105px, .8fr)); gap: 8px; margin-bottom: 10px; }
+.experiment-field { min-width: 0; border: 0; margin: 0; padding: 0; display: flex; gap: 8px; align-items: center; }
+.experiment-field > span, .experiment-field legend { color: var(--muted); font-size: 10px; white-space: nowrap; }
+.experiment-field legend { float: left; margin-right: 8px; line-height: 28px; }
+.experiment-field label { font-size: 11px; white-space: nowrap; }
+.experiment-field select, .experiment-field input[type="number"] { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 3px; background: #fff; padding: 6px; color: var(--ink); }
+.experiment-indicators { border: 1px solid var(--grid); border-radius: 4px; }
+.experiment-indicator-row { display: grid; grid-template-columns: minmax(145px, .8fr) 28px minmax(150px, 2fr) 72px 34px; gap: 8px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--grid); }
+.experiment-indicator-row:last-child { border-bottom: 0; }
+.experiment-indicator-row > label { font-size: 11px; }
+.experiment-operator { text-align: center; color: var(--amber); }
+.experiment-range { width: 100%; accent-color: var(--amber); }
+.experiment-number { width: 100%; border: 1px solid var(--line); border-radius: 3px; padding: 5px; text-align: right; }
+.experiment-indicator-row > span { color: var(--muted); font-size: 9px; }
+.experiment-indicator-row.disabled { opacity: .48; }
+.experiment-actions { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.experiment-actions #experiment-status { color: var(--muted); font-size: 10px; }
+.experiment-caution { color: var(--amber); font-size: 10px; margin: 9px 0 0; }
+.experiment-result { border-top: 2px solid var(--ink); margin-top: 14px; padding-top: 12px; }
+.experiment-result-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.experiment-result-head > span { color: var(--muted); font-size: 10px; text-align: right; }
+.result-summary-block { grid-column: 1 / -1; }
+.experiment-dialog { width: min(440px, calc(100vw - 32px)); border: 1px solid var(--line); border-radius: 6px; padding: 0; box-shadow: 0 18px 60px #0004; }
+.experiment-dialog::backdrop { background: #16140f88; }
+.experiment-dialog form { padding: 18px; display: grid; gap: 12px; }
+.experiment-dialog h2 { font-size: 16px; margin: 0; }
+.experiment-dialog label { display: grid; gap: 5px; color: var(--muted); font-size: 10px; }
+.experiment-dialog input, .experiment-dialog textarea { border: 1px solid var(--line); border-radius: 4px; padding: 8px; color: var(--ink); font: inherit; }
+.experiment-dialog p { color: var(--muted); font-size: 10px; margin: 0; }
+.experiment-dialog form > div { display: flex; justify-content: flex-end; gap: 7px; }
+
 .research-leaderboard-card { min-width: 0; overflow: hidden; }
 .research-table-wrap { display: block; width: 100%; max-width: 100%; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; }
 .research-table { width: 100%; border-collapse: collapse; font-size: 11px; font-variant-numeric: tabular-nums; }
@@ -90,6 +133,7 @@
   .research-current-strip { grid-column: 1; }
   .forward-candidate-summary { grid-template-columns: 1fr; gap: 3px; }
   .forward-summary-line { text-align: left; }
+  .experiment-controls { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 @media (max-width: 600px) {
@@ -118,4 +162,11 @@
   .history-row { grid-template-columns: 80px 1fr; gap: 3px 8px; }
   .history-id, .history-reason { grid-column: 2; }
   .research-verdict-key { justify-content: flex-start; flex-wrap: wrap; }
+  .research-experiment-card > summary { align-items: flex-start; }
+  .experiment-controls { grid-template-columns: 1fr 1fr; }
+  .experiment-indicator-row { grid-template-columns: minmax(120px, 1fr) 24px 64px 28px; }
+  .experiment-indicator-row .experiment-range { grid-column: 1 / -1; grid-row: 2; }
+  .experiment-actions { flex-wrap: wrap; }
+  .experiment-result-head { flex-direction: column; }
+  .experiment-result-head > span { text-align: left; }
 }
