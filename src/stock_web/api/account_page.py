@@ -882,7 +882,7 @@ def build_api_account_data(project_root: Path) -> dict[str, object]:
             "included": included,
             "note": (
                 "USD 환율 없음으로 제외" if conversion_missing
-                else "식별자 없는 로컬 스냅샷"
+                else "증권사 API 잔고 · 계좌번호 저장 안 함"
             ),
         })
     return {
