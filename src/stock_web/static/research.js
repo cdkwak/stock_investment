@@ -816,7 +816,15 @@
 
   function scheduleCompoundRender(resetHoldout = true) {
     if (resetHoldout) compoundState.holdoutVisible = false;
-    if (!compoundState.frame) compoundState.frame = requestAnimationFrame(renderCompound);
+    if (compoundState.frame) return;
+    // requestAnimationFrame never fires in a hidden/background tab, which left the panel
+    // stuck on "그리드를 불러오는 중…"; fall back to a macrotask there.
+    if (document.hidden || typeof requestAnimationFrame !== "function") {
+      compoundState.frame = -1;
+      setTimeout(renderCompound, 0);
+      return;
+    }
+    compoundState.frame = requestAnimationFrame(renderCompound);
   }
 
   function renderCompoundHoldout(row, combination) {
@@ -854,7 +862,8 @@
       setCompoundSlider("compound-drawdown", cachedList("drawdown_thresholds"), -.20);
       setCompoundSlider("compound-disp60", cachedList("disp60_thresholds"), -.10);
       compoundState.holdoutVisible = false;
-      scheduleCompoundRender(false);
+      compoundState.frame = 0;
+      renderCompound();
     } catch (error) {
       compoundState.payload = null;
       $("compound-knob-note").textContent = error.message || "그리드를 읽지 못했습니다.";
