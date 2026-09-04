@@ -47,6 +47,10 @@
 
 .market-valuation-metric { display: inline-flex; gap: 5px; align-items: baseline; }
 
+@media (min-width: 1600px) {
+  .market-page > .card { padding: 9px 11px; }
+}
+
 @media (max-width: 900px) {
   .market-micro-grid { grid-template-columns: 1fr; }
   .market-valuation-chart { height: 286px; }

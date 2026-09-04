@@ -48,6 +48,7 @@
 
 - Base unit: 4 px; main scale: 4, 8, 12, 16, 24, 32.
 - Desktop target: 1366×768 and larger; minimum validated target: 900×640.
+- 본문 최대 1760px, 그 이상은 좌우 여백. 상단 내비게이션만 화면 너비 전체를 사용한다.
 - Default Dashboard order:
   1. page identity, last accepted time, and one refresh-status sentence;
   2. **오늘의 판단**: up to three verified takeaways, portfolio relevance, and one uncertainty/next check;

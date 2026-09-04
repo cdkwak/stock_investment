@@ -326,8 +326,15 @@ def test_account_posts_are_loopback_only_and_pages_and_get_apis_render() -> None
     assert '/static/app.js' in account_page_html
     assert '/static/account.css' in account_page_html
     assert "계좌 관측 또는 환율이 3거래일 넘게 오래된 날" in account_page_html
+    assert 'class="account-wide-grid"' in account_page_html
+    assert 'class="return-metrics dense"' in account_page_html
+    app_css = client.get("/static/app.css").text
+    assert ".page {" in app_css
+    assert "max-width: 1760px" in app_css
+    assert "margin: 0 auto" in app_css
     account_css = client.get("/static/account.css").text
     assert ".card-head b" in account_css
+    assert "grid-template-columns: repeat(3, minmax(0, 1fr))" in account_css
     assert "white-space: nowrap" in account_css
     assert ".source-mobile-meta" in account_css
     assert client.get("/api/manual/accounts").status_code == 200

@@ -23,89 +23,93 @@
     <div class="account-headline"><span>순자산</span><b class="num" id="net-worth-total">—</b><small id="net-worth-asof"></small></div>
   </section>
 
-  <section class="card">
-    <div class="card-head"><b>계좌별</b><span class="muted">식별자 없는 로컬 스냅샷 · 평가 불가 종목은 합계에서 제외</span></div>
-    <div class="data-table-wrap account-source-wrap">
-      <table class="data-table account-source-table">
-        <thead><tr><th>출처</th><th>평가액</th><th>현금</th><th>평가손익</th><th>기준일(KST)</th><th>포함 여부</th></tr></thead>
-        <tbody id="account-source-rows"></tbody>
-      </table>
-    </div>
-  </section>
+  <div class="account-wide-grid">
+    <div class="account-wide-column account-wide-left">
+      <section class="card account-source-card">
+        <div class="card-head"><b>계좌별</b><span class="muted">식별자 없는 로컬 스냅샷 · 평가 불가 종목은 합계에서 제외</span></div>
+        <div class="data-table-wrap account-source-wrap">
+          <table class="data-table account-source-table">
+            <thead><tr><th>출처</th><th>평가액</th><th>현금</th><th>평가손익</th><th>기준일(KST)</th><th>포함 여부</th></tr></thead>
+            <tbody id="account-source-rows"></tbody>
+          </table>
+        </div>
+      </section>
 
-  <section class="card account-performance-card">
-    <div class="card-head"><b>진짜 투자 수익</b>
-      <div class="segmented small" id="return-range"><button data-v="1M">1M</button><button data-v="3M" class="on">3M</button><button data-v="YTD">YTD</button><button data-v="ALL">전체</button></div>
-    </div>
-    <div id="return-metrics" class="return-metrics"></div>
-    <div id="total-asset-chart" class="net-worth-chart"></div>
-    <p class="muted form-note" id="total-asset-note">실선은 총 투자자산 · 점선은 같은 시작값으로 맞춘 KOSPI · 주황 점: 계좌 관측 또는 환율이 3거래일 넘게 오래된 날</p>
-  </section>
+      <section class="card form-card manual-account-card">
+        <div class="card-head"><b>수동 증권 계좌 입력</b><button type="button" class="button" id="add-manual-account">계좌 추가</button></div>
+        <p class="muted form-note">한국 6자리 종목은 최신 로컬 종가를 사용합니다. 미국 종목은 수동 현재가가 없으면 평가 불가입니다.</p>
+        <div id="manual-accounts-form"></div>
+        <div class="form-actions"><span class="muted" id="manual-status"></span><button type="button" class="button primary" id="save-manual-accounts">수동 계좌 저장</button></div>
+      </section>
 
-  <section class="card form-card">
-    <div class="card-head"><b>입출금 기록</b><span class="muted">+ 투자금 입금 · − 투자금 출금</span></div>
-    <input type="hidden" id="cash-flow-id">
-    <div class="cash-flow-form">
-      <label class="field"><span>날짜</span><input type="date" id="cash-flow-date"></label>
-      <label class="field"><span>금액(원)</span><input type="number" step="1" id="cash-flow-amount" placeholder="예: 5000000 또는 -1000000"></label>
-      <label class="field"><span>계좌</span><input id="cash-flow-account" maxlength="60" placeholder="Toss / KB / 미래에셋 / 현금"></label>
-      <label class="field"><span>메모</span><input id="cash-flow-memo" maxlength="200" placeholder="선택 메모"></label>
-      <button type="button" class="button" id="cancel-cash-flow" hidden>취소</button>
-      <button type="button" class="button primary" id="save-cash-flow">기록 저장</button>
-    </div>
-    <div class="form-actions"><span class="muted" id="cash-flow-status"></span></div>
-    <div class="cash-flow-layout">
-      <div class="data-table-wrap"><table class="data-table cash-flow-table"><thead><tr><th>날짜</th><th>금액</th><th>계좌</th><th>메모</th><th>관리</th></tr></thead><tbody id="cash-flow-rows"></tbody></table></div>
-      <div><b class="subform-title">월별 순입출금</b><div id="cash-flow-monthly" class="breakdown-list"></div></div>
-    </div>
-  </section>
-
-  <section class="card form-card journal-card">
-    <div class="card-head"><b>매매일지 (스냅샷 차이 기반 · 추정)</b>
-      <div class="segmented small" id="journal-range"><button data-days="30">1M</button><button data-days="90" class="on">3M</button><button data-days="36500">전체</button></div>
-    </div>
-    <p class="muted form-note">Toss·KB는 하루 단위 보유수량 차이로 자동 추정합니다. API가 없는 미래에셋 등만 아래에 직접 기록하세요.</p>
-    <div class="cash-flow-form journal-form">
-      <label class="field"><span>날짜</span><input type="date" id="journal-date"></label>
-      <label class="field"><span>계좌</span><input id="journal-account" maxlength="60" placeholder="예: 미래에셋"></label>
-      <div class="journal-search-field">
-        <label class="field" for="journal-name"><span>종목명</span><input id="journal-name" maxlength="80" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="journal-search-results" placeholder="회사명·ETF명 또는 코드 검색"></label>
-        <div class="journal-search-results" id="journal-search-results" role="listbox" hidden></div>
-      </div>
-      <label class="field"><span>종목코드·티커</span><input id="journal-symbol" maxlength="24" placeholder="검색 선택 시 자동 입력 · 직접 입력 가능"></label>
-      <label class="field"><span>구분</span><select id="journal-side"><option value="BUY">매수</option><option value="SELL">매도</option><option value="DIVIDEND">배당</option><option value="TRANSFER_IN">입고</option><option value="TRANSFER_OUT">출고</option><option value="OTHER">기타</option></select></label>
-      <label class="field"><span>통화</span><select id="journal-currency"><option value="KRW">KRW</option><option value="USD">USD</option></select></label>
-      <label class="field"><span>수량</span><input type="number" min="0" step="0.000001" id="journal-quantity"></label>
-      <label class="field journal-price-field"><span id="journal-price-label">매수 단가 (원/주)</span><input type="number" min="0" step="any" id="journal-price"><small class="muted" id="journal-price-hint">실제 매수 체결가를 1주 기준으로 입력하세요.</small></label>
-      <label class="field journal-memo"><span>메모</span><input id="journal-memo" maxlength="200" placeholder="선택 메모"></label>
-      <button type="button" class="button primary" id="save-journal-entry">수동 기록 저장</button>
-    </div>
-    <div class="form-actions"><span class="muted" id="journal-status"></span></div>
-    <div class="journal-summary muted" id="journal-summary"></div>
-    <div class="data-table-wrap">
-      <table class="data-table"><thead><tr><th>날짜</th><th>계좌</th><th>종목</th><th>구분</th><th>수량</th><th>추정단가</th><th>금액</th><th>실현손익(추정)</th><th>근거</th></tr></thead><tbody id="journal-rows"></tbody></table>
-    </div>
-    <div class="muted journal-gap" id="journal-gaps"></div>
-  </section>
-
-  <section class="account-grid">
-    <div class="card form-card">
-      <div class="card-head"><b>수동 증권 계좌 입력</b><button type="button" class="button" id="add-manual-account">계좌 추가</button></div>
-      <p class="muted form-note">한국 6자리 종목은 최신 로컬 종가를 사용합니다. 미국 종목은 수동 현재가가 없으면 평가 불가입니다.</p>
-      <div id="manual-accounts-form"></div>
-      <div class="form-actions"><span class="muted" id="manual-status"></span><button type="button" class="button primary" id="save-manual-accounts">수동 계좌 저장</button></div>
+      <section class="card form-card net-worth-form-card">
+        <div class="card-head"><b>기타 자산 · 부채 입력 (순자산)</b><span class="muted">KRW</span></div>
+        <label class="field compact-field"><span>스냅샷 기준일</span><input type="date" id="net-worth-date"></label>
+        <div class="subform-head"><b>자산</b><button type="button" class="button" id="add-asset">자산 추가</button></div>
+        <div id="asset-form-rows"></div>
+        <div class="subform-head"><b>부채</b><button type="button" class="button" id="add-liability">부채 추가</button></div>
+        <div id="liability-form-rows"></div>
+        <div class="form-actions"><span class="muted" id="net-worth-status"></span><button type="button" class="button primary" id="save-net-worth">새 스냅샷 저장</button></div>
+      </section>
     </div>
 
-    <div class="card form-card">
-      <div class="card-head"><b>기타 자산 · 부채 입력 (순자산)</b><span class="muted">KRW</span></div>
-      <label class="field compact-field"><span>스냅샷 기준일</span><input type="date" id="net-worth-date"></label>
-      <div class="subform-head"><b>자산</b><button type="button" class="button" id="add-asset">자산 추가</button></div>
-      <div id="asset-form-rows"></div>
-      <div class="subform-head"><b>부채</b><button type="button" class="button" id="add-liability">부채 추가</button></div>
-      <div id="liability-form-rows"></div>
-      <div class="form-actions"><span class="muted" id="net-worth-status"></span><button type="button" class="button primary" id="save-net-worth">새 스냅샷 저장</button></div>
+    <div class="account-wide-column account-wide-right">
+      <section class="card account-performance-card">
+        <div class="card-head"><b>진짜 투자 수익</b>
+          <div class="segmented small" id="return-range"><button data-v="1M">1M</button><button data-v="3M" class="on">3M</button><button data-v="YTD">YTD</button><button data-v="ALL">전체</button></div>
+        </div>
+        <div id="return-metrics" class="return-metrics dense"></div>
+        <div id="total-asset-chart" class="net-worth-chart"></div>
+        <p class="muted form-note" id="total-asset-note">실선은 총 투자자산 · 점선은 같은 시작값으로 맞춘 KOSPI · 주황 점: 계좌 관측 또는 환율이 3거래일 넘게 오래된 날</p>
+      </section>
+
+      <section class="card form-card cash-flow-card">
+        <div class="card-head"><b>입출금 기록</b><span class="muted">+ 투자금 입금 · − 투자금 출금</span></div>
+        <input type="hidden" id="cash-flow-id">
+        <div class="cash-flow-form">
+          <label class="field"><span>날짜</span><input type="date" id="cash-flow-date"></label>
+          <label class="field"><span>금액(원)</span><input type="number" step="1" id="cash-flow-amount" placeholder="예: 5000000 또는 -1000000"></label>
+          <label class="field"><span>계좌</span><input id="cash-flow-account" maxlength="60" placeholder="Toss / KB / 미래에셋 / 현금"></label>
+          <label class="field"><span>메모</span><input id="cash-flow-memo" maxlength="200" placeholder="선택 메모"></label>
+          <button type="button" class="button" id="cancel-cash-flow" hidden>취소</button>
+          <button type="button" class="button primary" id="save-cash-flow">기록 저장</button>
+        </div>
+        <div class="form-actions"><span class="muted" id="cash-flow-status"></span></div>
+        <div class="cash-flow-layout">
+          <div class="data-table-wrap"><table class="data-table cash-flow-table"><thead><tr><th>날짜</th><th>금액</th><th>계좌</th><th>메모</th><th>관리</th></tr></thead><tbody id="cash-flow-rows"></tbody></table></div>
+          <div><b class="subform-title">월별 순입출금</b><div id="cash-flow-monthly" class="breakdown-list"></div></div>
+        </div>
+      </section>
+
+      <section class="card form-card journal-card">
+        <div class="card-head"><b>매매일지 (스냅샷 차이 기반 · 추정)</b>
+          <div class="segmented small" id="journal-range"><button data-days="30">1M</button><button data-days="90" class="on">3M</button><button data-days="36500">전체</button></div>
+        </div>
+        <p class="muted form-note">Toss·KB는 하루 단위 보유수량 차이로 자동 추정합니다. API가 없는 미래에셋 등만 아래에 직접 기록하세요.</p>
+        <div class="cash-flow-form journal-form">
+          <label class="field"><span>날짜</span><input type="date" id="journal-date"></label>
+          <label class="field"><span>계좌</span><input id="journal-account" maxlength="60" placeholder="예: 미래에셋"></label>
+          <div class="journal-search-field">
+            <label class="field" for="journal-name"><span>종목명</span><input id="journal-name" maxlength="80" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="journal-search-results" placeholder="회사명·ETF명 또는 코드 검색"></label>
+            <div class="journal-search-results" id="journal-search-results" role="listbox" hidden></div>
+          </div>
+          <label class="field"><span>종목코드·티커</span><input id="journal-symbol" maxlength="24" placeholder="검색 선택 시 자동 입력 · 직접 입력 가능"></label>
+          <label class="field"><span>구분</span><select id="journal-side"><option value="BUY">매수</option><option value="SELL">매도</option><option value="DIVIDEND">배당</option><option value="TRANSFER_IN">입고</option><option value="TRANSFER_OUT">출고</option><option value="OTHER">기타</option></select></label>
+          <label class="field"><span>통화</span><select id="journal-currency"><option value="KRW">KRW</option><option value="USD">USD</option></select></label>
+          <label class="field"><span>수량</span><input type="number" min="0" step="0.000001" id="journal-quantity"></label>
+          <label class="field journal-price-field"><span id="journal-price-label">매수 단가 (원/주)</span><input type="number" min="0" step="any" id="journal-price"><small class="muted" id="journal-price-hint">실제 매수 체결가를 1주 기준으로 입력하세요.</small></label>
+          <label class="field journal-memo"><span>메모</span><input id="journal-memo" maxlength="200" placeholder="선택 메모"></label>
+          <button type="button" class="button primary" id="save-journal-entry">수동 기록 저장</button>
+        </div>
+        <div class="form-actions"><span class="muted" id="journal-status"></span></div>
+        <div class="journal-summary muted" id="journal-summary"></div>
+        <div class="data-table-wrap">
+          <table class="data-table"><thead><tr><th>날짜</th><th>계좌</th><th>종목</th><th>구분</th><th>수량</th><th>추정단가</th><th>금액</th><th>실현손익(추정)</th><th>근거</th></tr></thead><tbody id="journal-rows"></tbody></table>
+        </div>
+        <div class="muted journal-gap" id="journal-gaps"></div>
+      </section>
     </div>
-  </section>
+  </div>
 
   <section class="account-grid net-worth-grid">
     <div class="card">

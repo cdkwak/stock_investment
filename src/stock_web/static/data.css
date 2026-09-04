@@ -40,6 +40,10 @@
 .older-receipts summary { cursor: pointer; color: var(--muted); font-size: 11px; }
 .older-receipts[open] summary { margin-bottom: 8px; }
 
+@media (min-width: 1600px) {
+  .data-page > .card { padding: 9px 11px; }
+}
+
 @media (max-width: 599px) {
   html,
   body { max-width: 100%; overflow-x: hidden; }

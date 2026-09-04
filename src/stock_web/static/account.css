@@ -13,6 +13,23 @@
   display: none;
 }
 
+.account-wide-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.account-wide-column {
+  display: contents;
+}
+
+.account-source-card { order: 1; }
+.account-performance-card { order: 2; }
+.cash-flow-card { order: 3; }
+.journal-card { order: 4; }
+.manual-account-card { order: 5; }
+.net-worth-form-card { order: 6; }
+
 .journal-card .data-table-wrap {
   margin-top: 12px;
 }
@@ -112,6 +129,51 @@
 
 .journal-gap {
   margin-top: 8px;
+}
+
+@media (min-width: 1600px) {
+  .account-page .card {
+    padding: 9px 11px;
+  }
+
+  .account-headline {
+    padding: 14px 16px;
+  }
+
+  .account-wide-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    gap: 12px;
+    align-items: start;
+  }
+
+  .account-wide-column {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .account-wide-column > * {
+    order: initial;
+  }
+
+  .return-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .return-metric > span {
+    display: -webkit-box;
+    min-height: 2.7em;
+    overflow: hidden;
+    line-height: 1.35;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  #total-asset-chart {
+    height: 220px;
+  }
 }
 
 @media (max-width: 1000px) {

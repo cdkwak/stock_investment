@@ -23,8 +23,10 @@ a { color: inherit; text-decoration: none; }
 .chip.dashed { border-style: dashed; color: var(--muted); }
 .topbar-right .chip { display: block; max-width: min(360px, 28vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.page { display: flex; flex-direction: column; gap: var(--gap); padding: 12px 24px 24px; max-width: 2600px; margin: 0 auto; }
+.page { display: flex; flex-direction: column; gap: var(--gap); padding: 12px 24px 24px; max-width: 1760px; margin: 0 auto; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 4px; padding: 12px 14px; min-width: 0; }
+.dense { gap: 6px; }
+.dense > * { min-width: 0; }
 .card-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 13px; }
 .unavailable { color: var(--muted); font-size: 12px; padding: 8px 0; }
 
@@ -49,7 +51,7 @@ a { color: inherit; text-decoration: none; }
 .regime-toggle { background: none; border: none; color: #8a847b; font-size: 10px; cursor: pointer; font-family: inherit; padding: 0; white-space: nowrap; }
 
 /* tiles */
-.tiles { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 8px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
 .tile { background: var(--card); border: 1px solid var(--line); border-radius: 4px; padding: 7px 10px 6px; display: flex; flex-direction: column; gap: 2px; min-width: 0; cursor: pointer; }
 .tile[aria-disabled="true"] { cursor: default; }
 .tile:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
@@ -368,12 +370,16 @@ a { color: inherit; text-decoration: none; }
 
 /* breakpoints ---------------------------------------------------------- */
 @media (min-width: 2200px) {
-  .tiles { grid-template-columns: repeat(16, minmax(0, 1fr)); }
+  .tiles { grid-template-columns: repeat(8, minmax(150px, 1fr)); }
   .tiles.collapsed .tile:nth-child(n+9) { display: flex; }
   .tiles-caption .link { display: none; }
   .chart { height: 560px; }
   .acct-chart { height: 160px; }
   .regime[data-expanded="auto"] .ev { display: flex; }
+}
+@media (min-width: 1760px) {
+  .home-dashboard { grid-template-columns: minmax(0, 62fr) minmax(0, 38fr); }
+  .regime { grid-template-columns: 3fr 3fr 3fr 4fr; }
 }
 @media (max-width: 2199px) and (min-width: 1100px) {
   .regime[data-expanded="auto"] .ev { display: none; }

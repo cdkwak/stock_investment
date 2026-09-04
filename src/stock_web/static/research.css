@@ -1,4 +1,4 @@
-.research-page { max-width: 1800px; gap: 12px; }
+.research-page { max-width: 1760px; gap: 12px; }
 .research-hero { background: var(--ink); color: #f4f2ee; border-radius: 6px; padding: 18px 20px; display: grid; grid-template-columns: minmax(180px, .8fr) minmax(600px, 2.2fr); gap: 24px; align-items: end; }
 .research-kicker { color: var(--amber-soft); font-size: 10px; letter-spacing: .14em; font-weight: 700; }
 .research-hero h1 { font-size: 24px; line-height: 1.1; margin: 5px 0 0; }
@@ -126,6 +126,9 @@
 .history-action { color: var(--amber); font-size: 10px; font-weight: 600; }
 .history-id { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 10px; overflow-wrap: anywhere; }
 .history-reason { color: var(--muted); }
+@media (min-width: 1600px) {
+  .research-page > .card:not(.research-experiment-card) { padding: 9px 11px; }
+}
 @media (max-width: 1000px) {
   .research-hero { grid-template-columns: 1fr; gap: 14px; }
   .research-meta { border-left: 0; border-top: 1px solid #4a463f; padding-top: 11px; }
