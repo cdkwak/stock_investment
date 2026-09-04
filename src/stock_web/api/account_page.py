@@ -660,7 +660,7 @@ def build_manual_account_data(project_root: Path) -> dict[str, object]:
         str(position["ticker"])
         for account in accounts if account["currency"] == "KRW"
         for position in account["positions"]
-        if re.fullmatch(r"\d{6}", str(position["ticker"]))
+        if re.fullmatch(r"[0-9A-Z]{6}", str(position["ticker"]).upper()) and any(ch.isdigit() for ch in str(position["ticker"]))
     }
     prices = _latest_kr_prices(project_root, kr_tickers)
     fx, fx_as_of, fx_source = _latest_fx(project_root)
