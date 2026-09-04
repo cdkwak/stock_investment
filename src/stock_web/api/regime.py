@@ -239,6 +239,37 @@ def build_rules(
     }
 
 
+def _index_rsi_and_ma200_distance(service: object, symbol: str) -> tuple[float | None, float | None]:
+    """RSI14 and distance to the 200-day mean for one retained global index (dashboard asset key or symbol)."""
+    from stock_data.gui.services import DASHBOARD_ASSETS
+
+    key = next(
+        (name for name, spec in DASHBOARD_ASSETS.items()
+         if spec.get("kind") == "global" and spec.get("symbol") == symbol),
+        symbol,
+    )
+    try:
+        frame = service.index.asset_series(key, "1Y")
+    except (KeyError, OSError, PermissionError, TypeError, ValueError):
+        return None, None
+    if frame.empty or "close" not in frame:
+        return None, None
+    close = pd.to_numeric(frame["close"], errors="coerce").dropna()
+    rsi = rsi_latest(close)
+    ma200 = close.rolling(200).mean().iloc[-1] if len(close) >= 200 else float("nan")
+    distance = (
+        (float(close.iloc[-1]) / float(ma200) - 1.0) * 100.0
+        if pd.notna(ma200) and ma200 else None
+    )
+    return rsi, distance
+
+
+def _pair_fmt(rsi: float | None, distance: float | None) -> str | None:
+    if rsi is None and distance is None:
+        return None
+    return f"{_fmt(rsi, '{:.1f}') or '—'} · {_fmt(distance, '{:+.1f}%') or '—'}"
+
+
 def build_regime(project_root: Path, account: dict[str, object]) -> dict[str, object]:
     service = DashboardService(project_root)
     query = service.query
@@ -324,9 +355,23 @@ def build_regime(project_root: Path, account: dict[str, object]) -> dict[str, ob
     us_technical = all(value is not None for value in (us_rsi, us_distance, vix_pct))
     us_axes = int(us_technical)
     us_score = oversold_strength(us_rsi, us_distance, vix_pct)
+    # The user's US exposure is technology/semiconductors (TQQQ, SOXL, SKHY), so the
+    # US card carries sub-verdicts for NASDAQ-100 and the SOX index next to the S&P 500.
+    tech_rsi, tech_distance = _index_rsi_and_ma200_distance(service, "NASDAQ100")
+    semis_rsi, semis_distance = _index_rsi_and_ma200_distance(service, "SOX")
+    tech_label = (
+        temperature_label(tech_rsi, tech_distance)
+        if tech_rsi is not None and tech_distance is not None else "자료 없음"
+    )
+    semis_label = (
+        temperature_label(semis_rsi, semis_distance)
+        if semis_rsi is not None and semis_distance is not None else "자료 없음"
+    )
     us_evidence = [
         _evidence_row("S&P 500 RSI14", _fmt(us_rsi, "{:.1f}")),
         _evidence_row("200일선 대비", _fmt(us_distance, "{:+.1f}%")),
+        _evidence_row("NASDAQ100 RSI14 · 200일선", _pair_fmt(tech_rsi, tech_distance)),
+        _evidence_row("SOX RSI14 · 200일선", _pair_fmt(semis_rsi, semis_distance)),
         _evidence_row(
             "VIX 250일 백분위", _fmt(vix_pct, "{:.0f}%"), hint="낮을수록 안정",
         ),
@@ -382,7 +427,8 @@ def build_regime(project_root: Path, account: dict[str, object]) -> dict[str, ob
             "title": "미국장",
             "temperature": temperature_label(us_rsi, us_distance),
             "hot": temperature_label(us_rsi, us_distance) == "과열",
-            "subtitle": f"자료 {us_axes}/3 · 밸류·실적 축 없음",
+            "subtitle": f"기술 {tech_label} · 반도체 {semis_label} · 자료 {us_axes}/3",
+            "sub_verdicts": {"NASDAQ100": tech_label, "SOX": semis_label},
             "evidence": us_evidence,
         },
         {

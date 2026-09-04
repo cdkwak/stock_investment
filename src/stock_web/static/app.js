@@ -210,10 +210,8 @@
     const riskRows = sec && sec.risk && Array.isArray(sec.risk.rows)
       ? sec.risk.rows : ((markets[2] || {}).evidence || []);
     const evidenceCard = (title, rows) => `<div class="regime-evidence-card"><div class="t">${esc(title)}</div><div class="ev">${regimeRows(rows)}</div></div>`;
-    host.innerHTML = evidenceCard("한국장 근거", (markets[0] || {}).evidence || [])
-      + evidenceCard("미국장 근거", (markets[1] || {}).evidence || [])
-      + evidenceCard("글로벌 위험 근거", riskRows)
-      + `<div class="regime-evidence-card"><div class="t">판정 규칙</div><div class="ev regime-rule-copy"><div>RSI14 &gt; 70 이고 추세선 위 = 과열 · RSI14 &lt; 30 이고 추세선 아래 = 침체 · 그 외 중립</div><div>글로벌 위험: 침체 신호 2개 이상 = 침체, 과열 신호 2개 이상 = 과열 (금리차 역전 · 금리차 1개월 −0.25%p · 10년물 1개월 −25bp · WTI 1개월 −10%)</div></div></div>`;
+    void evidenceCard; void riskRows;
+    host.innerHTML = `<div class="regime-evidence-card regime-rule-card"><div class="t">판정 규칙</div><div class="ev regime-rule-copy"><div>RSI14 &gt; 70 이고 추세선 위 = 과열 · RSI14 &lt; 30 이고 추세선 아래 = 침체 · 그 외 중립</div><div>글로벌 위험: 침체 신호 2개 이상 = 침체, 과열 신호 2개 이상 = 과열 (금리차 역전 · 금리차 1개월 −0.25%p · 10년물 1개월 −25bp · WTI 1개월 −10%)</div></div></div>`;
   }
   function renderRegime(sec) {
     const host = $("regime-cards");

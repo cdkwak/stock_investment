@@ -135,7 +135,7 @@ def test_regime_evidence_is_collapsed_persisted_and_expanded() -> None:
     assert 'const regimeEvidenceStorageKey = "si.regime.evidence"' in script
     assert 'open ? "open" : "closed"' in script
     assert 'replace(/^신호 (?=\\d+\\/3)/, "자료 ")' in script
-    for label in ("한국장 근거", "미국장 근거", "글로벌 위험 근거", "판정 규칙"):
+    for label in ("판정 규칙",):
         assert label in script
     assert "RSI14 &gt; 70 이고 추세선 위" in script
     assert "금리차 1개월 −0.25%p" in script

@@ -89,6 +89,7 @@ DASHBOARD_ASSETS = {
     "SP500": {"kind": "global", "symbol": "SP500", "label": "S&P 500"},
     "NASDAQ": {"kind": "global", "symbol": "NASDAQ_COMPOSITE", "label": "NASDAQ"},
     "NDX": {"kind": "global", "symbol": "NASDAQ100", "label": "NDX / NASDAQ-100"},
+    "SOX": {"kind": "global", "symbol": "SOX", "label": "SOX / 필라델피아 반도체"},
     "SOXX": {"kind": "etf", "symbol": "SOXX", "label": "SOXX"},
     "NQ_FUTURES": {
         "kind": "futures", "symbol": "NASDAQ100_FUTURES",
@@ -2266,6 +2267,24 @@ US_ETF_CHART_IDENTITIES = (
         "USD", "비레버리지·장기 국채", "월 분배",
         "UR-054 accepted chart-only catalog",
     ),
+    EquityIdentity(
+        "VNQ", "Vanguard Real Estate ETF", "US ETF", None,
+        "2004-09-29", "ETF", "Vanguard",
+        "MSCI US Investable Market Real Estate 25/50 Index", "USD",
+        "비레버리지 부동산 ETF", "분기 분배", "registered Yahoo daily scope",
+    ),
+    EquityIdentity(
+        "IEF", "iShares 7-10 Year Treasury Bond ETF", "US ETF", None,
+        "2002-07-30", "ETF", "iShares",
+        "ICE U.S. Treasury 7-10 Year Bond Index", "USD",
+        "비레버리지 중기 국채 ETF", "월 분배", "registered Yahoo daily scope",
+    ),
+    EquityIdentity(
+        "SHY", "iShares 1-3 Year Treasury Bond ETF", "US ETF", None,
+        "2002-07-30", "ETF", "iShares",
+        "ICE U.S. Treasury 1-3 Year Bond Index", "USD",
+        "비레버리지 단기 국채 ETF", "월 분배", "registered Yahoo daily scope",
+    ),
 )
 
 
@@ -2284,6 +2303,9 @@ US_ETF_OFFICIAL_IDENTITY_SOURCES = {
     "SPY": "https://www.ssga.com/us/en/individual/etfs/state-street-spdr-sp-500-etf-trust-spy",
     "SGOV": "https://www.ishares.com/us/products/314116/ishares-0-3-month-treasury-bond-etf",
     "VGLT": "https://investor.vanguard.com/investment-products/etfs/profile/vglt",
+    "VNQ": "https://investor.vanguard.com/investment-products/etfs/profile/vnq",
+    "IEF": "https://www.ishares.com/us/products/239456/ishares-710-year-treasury-bond-etf",
+    "SHY": "https://www.ishares.com/us/products/239452/ishares-13-year-treasury-bond-etf",
     "QQQI": "https://neosfunds.com/qqqi/",
     "QDVO": "https://amplifyetfs.com/qdvo/",
     "GPIQ": "https://am.gs.com/en-us/advisors/funds/detail/PV105234/38149W861/goldman-sachs-nasdaq-100-premium-income-etf",
@@ -2989,7 +3011,7 @@ class EquityChartService:
 
 @dataclass
 class USEtfChartService:
-    """Chart-only, local and provider-native view for the accepted 14-ETF catalog."""
+    """Chart-only, local and provider-native view for the accepted ETF catalog."""
 
     root: Path
     authorized_symbols: frozenset[str] = field(
