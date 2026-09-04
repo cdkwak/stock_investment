@@ -7,13 +7,14 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="/static/app.css?v={{ static_version }}">
 </head>
-<body>
+<body data-public="{{ '1' if public_mode else '0' }}">
 <header class="topbar">
   <div class="brand">Stock Investment</div>
   <nav class="nav">
-    <a href="/" class="{{ 'on' if page == 'home' else '' }}">홈</a><a href="/market" class="{{ 'on' if page == 'market' else '' }}">시장</a><a href="/stocks" class="{{ 'on' if page == 'stocks' else '' }}">종목</a><a href="/account" class="{{ 'on' if page == 'account' else '' }}">내 계좌</a><a href="/data" class="{{ 'on' if page == 'data' else '' }}">데이터</a><a href="/research" class="{{ 'on' if page == 'research' else '' }}">검증</a>
+    <a href="/" class="{{ 'on' if page == 'home' else '' }}">홈</a><a href="/market" class="{{ 'on' if page == 'market' else '' }}">시장</a><a href="/stocks" class="{{ 'on' if page == 'stocks' else '' }}">종목</a>{% if not public_mode %}<a href="/account" class="{{ 'on' if page == 'account' else '' }}">내 계좌</a>{% endif %}<a href="/data" class="{{ 'on' if page == 'data' else '' }}">데이터</a><a href="/research" class="{{ 'on' if page == 'research' else '' }}">검증</a>
   </nav>
 </header>
+{% if public_mode %}<div class="guest-banner" role="status" style="padding:6px 16px;text-align:center;background:#fff3cd;color:#5f4b00;border-bottom:1px solid #ead58b;font-size:13px">게스트 모드 · 개인 계좌 정보 없음 · 판단 참고용, 투자 조언 아님</div>{% endif %}
 <main class="page">
   <div class="card"><div class="card-head"><b>{{ title }}</b><span class="muted">준비 중</span></div><div class="muted">{{ blurb }}</div></div>
 </main>

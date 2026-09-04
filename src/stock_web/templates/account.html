@@ -8,15 +8,24 @@
   <link rel="stylesheet" href="/static/app.css?v={{ static_version }}">
   <link rel="stylesheet" href="/static/account.css?v={{ static_version }}">
 </head>
-<body>
+<body data-public="{{ '1' if public_mode else '0' }}">
 <header class="topbar">
   <div class="brand">Stock Investment</div>
   <nav class="nav">
-    <a href="/">홈</a><a href="/market">시장</a><a href="/stocks">종목</a><a class="on" href="/account">내 계좌</a><a href="/data">데이터</a><a href="/research">검증</a>
+    <a href="/">홈</a><a href="/market">시장</a><a href="/stocks">종목</a>{% if not public_mode %}<a class="on" href="/account">내 계좌</a>{% endif %}<a href="/data">데이터</a><a href="/research">검증</a>
   </nav>
   <div class="topbar-right"><span class="chip dashed">로컬 전용 입력</span></div>
 </header>
+{% if public_mode %}<div class="guest-banner" role="status" style="padding:6px 16px;text-align:center;background:#fff3cd;color:#5f4b00;border-bottom:1px solid #ead58b;font-size:13px">게스트 모드 · 개인 계좌 정보 없음 · 판단 참고용, 투자 조언 아님</div>{% endif %}
 
+{% if public_mode %}
+<main class="page account-page">
+  <section class="card" style="max-width:720px;margin:48px auto;text-align:center;padding:40px 24px">
+    <h1 style="font-size:22px;margin:0 0 12px">게스트 모드에서는 계좌 화면이 없습니다</h1>
+    <p class="muted" style="margin:0">개인 계좌·보유 종목·현금흐름·순자산·매매일지는 읽거나 표시하지 않습니다.</p>
+  </section>
+</main>
+{% else %}
 <main class="page account-page">
   <section class="account-summary" id="account-summary">
     <div class="account-headline"><span>투자 자산</span><b class="num" id="invest-total">—</b><small id="invest-asof"></small></div>
@@ -124,8 +133,11 @@
 
   <div class="unavailable" id="account-safety"></div>
 </main>
+{% endif %}
 
 <script src="/static/app.js?v={{ static_version }}"></script>
+{% if not public_mode %}
 <script src="/static/account.js?v={{ static_version }}"></script>
+{% endif %}
 </body>
 </html>

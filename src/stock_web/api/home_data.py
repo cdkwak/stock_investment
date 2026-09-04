@@ -8,6 +8,7 @@ from __future__ import annotations
 from collections.abc import Callable
 import math
 import json
+import os
 import re
 import sys
 import threading
@@ -25,6 +26,8 @@ from stock_web.api.intraday import load_intraday_series
 
 _HOME_CACHE_TTL_SECONDS = 60.0
 _HOME_CACHE: dict[str, tuple[float, dict[str, object]]] = {}
+_PUBLIC_REGIME_LOCK = threading.Lock()
+_PUBLIC_SCANNER_LOCK = threading.Lock()
 
 RANGE_SESSIONS = {"3M": 63, "6M": 126, "1Y": 252, "3Y": 756, "ALL": None}
 
@@ -960,10 +963,43 @@ def build_brief(project_root: Path) -> dict[str, object] | None:
         return None
 
 
-def build_scanner(project_root: Path) -> dict[str, object]:
+def build_public_scanner(
+    project_root: Path, *, avg_value_20d_min: float = 1_000_000_000.0,
+    market_cap_min: float = 100_000_000_000.0,
+    apply_liquidity_filter: bool = True,
+) -> dict[str, object]:
+    """Build the scanner without reading conditions or reading/writing its user cache."""
+    from stock_web.api import scanner as scanner_api
+
+    with _PUBLIC_SCANNER_LOCK:
+        original_load = scanner_api.load_conditions
+        original_read = scanner_api._read_cache
+        original_write = scanner_api._write_cache
+        scanner_api.load_conditions = lambda _root: {
+            "schema_version": 1, "conditions": [],
+        }
+        scanner_api._read_cache = lambda *_args, **_kwargs: None
+        scanner_api._write_cache = lambda *_args, **_kwargs: None
+        try:
+            return scanner_api.build_scanner(
+                project_root,
+                avg_value_20d_min=avg_value_20d_min,
+                market_cap_min=market_cap_min,
+                apply_liquidity_filter=apply_liquidity_filter,
+            )
+        finally:
+            scanner_api.load_conditions = original_load
+            scanner_api._read_cache = original_read
+            scanner_api._write_cache = original_write
+
+
+def build_scanner(project_root: Path, *, public_mode: bool = False) -> dict[str, object]:
     from stock_web.api.scanner import build_scanner as build_full_scanner
 
-    result = build_full_scanner(project_root)
+    result = (
+        build_public_scanner(project_root)
+        if public_mode else build_full_scanner(project_root)
+    )
     return {
         key: result.get(key)
         for key in ("status", "as_of", "count", "rule", "top", "reason")
@@ -971,8 +1007,12 @@ def build_scanner(project_root: Path) -> dict[str, object]:
     }
 
 
-def build_watchlist(project_root: Path) -> dict[str, object]:
+def build_watchlist(project_root: Path, *, public_mode: bool = False) -> dict[str, object]:
     """Return Home watchlist rows with optional retained investor summaries."""
+    if public_mode:
+        from stock_web.api.stocks_page import build_home_watchlist
+
+        return build_home_watchlist(project_root, public_mode=True)
     from stock_web.api.home_cards import build_watchlist as build_watchlist_card
 
     return build_watchlist_card(project_root)
@@ -1021,6 +1061,21 @@ def _attach_research_current(
     return regime
 
 
+def _build_public_regime(project_root: Path) -> dict[str, object]:
+    """Build public market evidence without resolving the private rules file."""
+    from stock_web.api import regime as regime_api
+
+    with _PUBLIC_REGIME_LOCK:
+        original_build_rules = regime_api.build_rules
+        regime_api.build_rules = lambda _account, _markets, _root=None: None
+        try:
+            return _attach_research_current(
+                project_root, regime_api.build_regime(project_root, {"guest": True}),
+            )
+        finally:
+            regime_api.build_rules = original_build_rules
+
+
 def _safe_home_section(builder: Callable[[], object], reason: str) -> object:
     try:
         return builder()
@@ -1028,23 +1083,32 @@ def _safe_home_section(builder: Callable[[], object], reason: str) -> object:
         return {"reason": reason}
 
 
-def _build_home_payload_uncached(project_root: Path) -> dict[str, object]:
+def _build_home_payload_uncached(
+    project_root: Path, *, public_mode: bool = False,
+) -> dict[str, object]:
     from stock_web.api.regime import build_regime
 
     sections: dict[str, object] = {}
-    account = _safe_home_section(
-        lambda: build_account(project_root), "계좌 데이터를 읽을 수 없습니다.",
-    )
-    if not isinstance(account, dict):
-        account = {"reason": "계좌 데이터를 읽을 수 없습니다."}
-    sections["account"] = account
-    sections["regime"] = _safe_home_section(
-        lambda: _attach_research_current(
-            project_root,
-            _normalize_regime_cash_label(build_regime(project_root, account), account),
-        ),
-        "시장 국면 근거를 읽을 수 없습니다.",
-    )
+    if public_mode:
+        sections["account"] = {"guest": True}
+        sections["regime"] = _safe_home_section(
+            lambda: _build_public_regime(project_root),
+            "시장 국면 근거를 읽을 수 없습니다.",
+        )
+    else:
+        account = _safe_home_section(
+            lambda: build_account(project_root), "계좌 데이터를 읽을 수 없습니다.",
+        )
+        if not isinstance(account, dict):
+            account = {"reason": "계좌 데이터를 읽을 수 없습니다."}
+        sections["account"] = account
+        sections["regime"] = _safe_home_section(
+            lambda: _attach_research_current(
+                project_root,
+                _normalize_regime_cash_label(build_regime(project_root, account), account),
+            ),
+            "시장 국면 근거를 읽을 수 없습니다.",
+        )
     sections["derivatives"] = _safe_home_section(
         lambda: build_derivatives(project_root), "파생 지표를 읽을 수 없습니다.",
     )
@@ -1052,12 +1116,14 @@ def _build_home_payload_uncached(project_root: Path) -> dict[str, object]:
     sections["schedule"] = _safe_home_section(
         lambda: build_schedule(project_root), "오늘 브리핑을 읽을 수 없습니다.",
     )
-    brief = build_brief(project_root)
-    if brief is not None:
-        sections["brief"] = brief
-    sections["scanner"] = build_scanner(project_root)
+    if not public_mode:
+        brief = build_brief(project_root)
+        if brief is not None:
+            sections["brief"] = brief
+    sections["scanner"] = build_scanner(project_root, public_mode=public_mode)
     sections["watchlist"] = _safe_home_section(
-        lambda: build_watchlist(project_root), "관심종목 또는 보유 여부를 읽을 수 없습니다.",
+        lambda: build_watchlist(project_root, public_mode=public_mode),
+        "관심종목을 읽을 수 없습니다.",
     )
     sections["tiles"] = _safe_home_section(
         lambda: build_tiles(project_root), "시장 지표를 읽을 수 없습니다.",
@@ -1080,9 +1146,21 @@ _HOME_REFRESH_LOCK = threading.Lock()
 _HOME_REFRESHING: set[str] = set()
 
 
-def _refresh_home_payload(root: Path, key: str) -> None:
+def _home_cache_key(project_root: Path, *, public_mode: bool) -> str:
+    base = str(Path(project_root).resolve())
+    return f"{base}|guest" if public_mode else base
+
+
+def clear_home_cache(project_root: Path, *, public_mode: bool = False) -> None:
+    _HOME_CACHE.pop(_home_cache_key(project_root, public_mode=public_mode), None)
+
+
+def _refresh_home_payload(root: Path, key: str, public_mode: bool) -> None:
     try:
-        payload = _build_home_payload_uncached(root)
+        payload = (
+            _build_home_payload_uncached(root, public_mode=True)
+            if public_mode else _build_home_payload_uncached(root)
+        )
         _HOME_CACHE[key] = (time.monotonic(), payload)
     except Exception as error:  # a failed background rebuild keeps the last good document
         print(f"stock_web: home payload refresh failed: {type(error).__name__}: {error}", file=sys.stderr)
@@ -1091,7 +1169,9 @@ def _refresh_home_payload(root: Path, key: str) -> None:
             _HOME_REFRESHING.discard(key)
 
 
-def build_home_payload(project_root: Path) -> dict[str, object]:
+def build_home_payload(
+    project_root: Path, *, public_mode: bool | None = None,
+) -> dict[str, object]:
     """Build the home document with a stale-while-revalidate cache.
 
     Building takes several seconds (many retained datasets), so a request never waits for a
@@ -1100,7 +1180,9 @@ def build_home_payload(project_root: Path) -> dict[str, object]:
     (`warm_home_payload` is used at app startup to avoid even that).
     """
     root = Path(project_root).resolve()
-    key = str(root)
+    if public_mode is None:
+        public_mode = os.environ.get("STOCK_WEB_PUBLIC_MODE") == "1"
+    key = _home_cache_key(root, public_mode=public_mode)
     now = time.monotonic()
     cached = _HOME_CACHE.get(key)
     if cached is not None:
@@ -1110,21 +1192,31 @@ def build_home_payload(project_root: Path) -> dict[str, object]:
                 if start:
                     _HOME_REFRESHING.add(key)
             if start:
-                threading.Thread(target=_refresh_home_payload, args=(root, key), daemon=True).start()
+                threading.Thread(
+                    target=_refresh_home_payload, args=(root, key, public_mode), daemon=True,
+                ).start()
         return cached[1]
-    payload = _build_home_payload_uncached(root)
+    payload = (
+        _build_home_payload_uncached(root, public_mode=True)
+        if public_mode else _build_home_payload_uncached(root)
+    )
     _HOME_CACHE[key] = (time.monotonic(), payload)
     return payload
 
 
-def warm_home_payload(project_root: Path, *, interval_seconds: float | None = None) -> threading.Thread:
+def warm_home_payload(
+    project_root: Path, *, public_mode: bool | None = None,
+    interval_seconds: float | None = None,
+) -> threading.Thread:
     """Build the home document off the request path; optionally keep it fresh forever."""
     root = Path(project_root).resolve()
+    if public_mode is None:
+        public_mode = os.environ.get("STOCK_WEB_PUBLIC_MODE") == "1"
 
     def run() -> None:
         while True:
             try:
-                build_home_payload(root)
+                build_home_payload(root, public_mode=public_mode)
             except Exception as error:
                 print(f"stock_web: home payload warmup failed: {type(error).__name__}: {error}", file=sys.stderr)
             if interval_seconds is None:

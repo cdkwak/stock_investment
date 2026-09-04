@@ -8,18 +8,31 @@
   <link rel="stylesheet" href="/static/app.css?v={{ static_version }}">
   <link rel="stylesheet" href="/static/data.css?v={{ static_version }}">
 </head>
-<body>
+<body data-public="{{ '1' if public_mode else '0' }}">
 <header class="topbar">
   <div class="brand">Stock Investment</div>
   <nav class="nav">
-    <a href="/">홈</a><a href="/market">시장</a><a href="/stocks">종목</a><a href="/account">내 계좌</a><a class="on" href="/data">데이터</a><a href="/research">검증</a>
+    <a href="/">홈</a><a href="/market">시장</a><a href="/stocks">종목</a>{% if not public_mode %}<a href="/account">내 계좌</a>{% endif %}<a class="on" href="/data">데이터</a><a href="/research">검증</a>
   </nav>
+  {% if public_mode %}
+  <div class="topbar-right"><span class="chip dashed">게스트 · 읽기 전용</span></div>
+  {% else %}
   <div class="topbar-right">
     <span class="muted">로컬 보존 데이터</span>
     <span class="chip{% if health_summary.display_late or health_summary.display_failed %} dashed{% endif %}">정상 {{ health_summary.display_current }} · 지연 {{ health_summary.display_late }} · 실패 {{ health_summary.display_failed }} · 수동/보존 {{ health_summary.display_preserved }} · 참고 {{ health_summary.display_reference }}{% if health_summary.unregistered_count %} · 미등록 {{ health_summary.unregistered_count }}{% endif %}</span>
   </div>
+  {% endif %}
 </header>
+{% if public_mode %}<div class="guest-banner" role="status" style="padding:6px 16px;text-align:center;background:#fff3cd;color:#5f4b00;border-bottom:1px solid #ead58b;font-size:13px">게스트 모드 · 개인 계좌 정보 없음 · 판단 참고용, 투자 조언 아님</div>{% endif %}
 
+{% if public_mode %}
+<main class="page data-page">
+  <section class="card" style="max-width:720px;margin:48px auto;text-align:center;padding:40px 24px">
+    <h1 style="font-size:22px;margin:0 0 12px">게스트 모드에서는 개인 운영 정보를 표시하지 않습니다</h1>
+    <p class="muted" style="margin:0">데이터셋 상태, 실행 기록, 자격증명 만료 정보는 비공개입니다.</p>
+  </section>
+</main>
+{% else %}
 <main class="page data-page">
   <section class="freshness-summary" aria-label="신선도 요약">
     {% for item in freshness_counts %}
@@ -149,5 +162,6 @@
     });
   })();
 </script>
+{% endif %}
 </body>
 </html>

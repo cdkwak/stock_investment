@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 
 import uvicorn
 
@@ -28,8 +29,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run the local read-only web dashboard.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8787)
+    parser.add_argument(
+        "--public", action="store_true",
+        help="hide personal account data and use the fixed public watchlist",
+    )
     parser.add_argument("--reload", action="store_true", help="auto-reload on code change (development)")
     args = parser.parse_args()
+    if args.public:
+        os.environ["STOCK_WEB_PUBLIC_MODE"] = "1"
     if args.reload:
         uvicorn.run("stock_web.app:create_app", factory=True, host=args.host, port=args.port, reload=True)
     else:
@@ -37,7 +44,11 @@ def main() -> int:
         # Keep the home document warm: the first paint never waits for the multi-second build.
         from stock_web.api.home_data import warm_home_payload
 
-        warm_home_payload(app.state.project_root, interval_seconds=55)
+        warm_home_payload(
+            app.state.project_root,
+            public_mode=app.state.public_mode,
+            interval_seconds=55,
+        )
         uvicorn.run(app, host=args.host, port=args.port)
     return 0
 

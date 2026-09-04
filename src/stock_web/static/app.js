@@ -2,6 +2,7 @@
 (function () {
   "use strict";
   const $ = (id) => document.getElementById(id);
+  const publicMode = typeof document !== "undefined" && document.body && document.body.dataset.public === "1";
   const fmt = (v, d = 2) => (v === null || v === undefined || Number.isNaN(v)) ? "—" : Number(v).toLocaleString("ko-KR", { minimumFractionDigits: d, maximumFractionDigits: d });
   const pct = (v, d = 1) => (v === null || v === undefined) ? "—" : `${v > 0 ? "+" : ""}${Number(v).toFixed(d)}%`;
   const cls = (v) => (v === null || v === undefined) ? "muted" : (v > 0 ? "up" : v < 0 ? "down" : "muted");
@@ -411,12 +412,16 @@
   function renderWatchlist(sec) {
     const host = $("watchlist");
     if (!sec || !sec.rows) { host.innerHTML = unavailable(sec && sec.reason); return; }
-    const rows = [...sec.rows].sort((left, right) => Number(Boolean(right.held)) - Number(Boolean(left.held)));
-    $("watchlist-meta").textContent = `보유 ${sec.held_count ?? 0} · 관심 ${sec.watch_count ?? 0}`;
+    const rows = publicMode
+      ? [...sec.rows]
+      : [...sec.rows].sort((left, right) => Number(Boolean(right.held)) - Number(Boolean(left.held)));
+    $("watchlist-meta").textContent = publicMode
+      ? `관심 ${sec.watch_count ?? rows.length}`
+      : `보유 ${sec.held_count ?? 0} · 관심 ${sec.watch_count ?? 0}`;
     host.innerHTML = `<div class="tr th watch"><div>종목</div><div>구분</div><div class="r">현재가</div><div class="r">등락</div><div class="r">고점 대비</div><div class="r">RSI14</div><div class="watch-investor-head"><small>순매수 억원 · 당일 (툴팁 5일·20일)</small><span>외국인</span><span>기관</span><span>개인</span></div></div>` +
       rows.map((r) => `<div class="tr watch">
         <div title="${esc(r.name || r.symbol || "")}"><div>${esc(watchlistName(r))}</div>${watchlistInvestorMobile(r)}${r.flag ? `<div class="flag">조건 도달 · ${esc(r.flag)}</div>` : ""}</div>
-        <div class="watch-status">${r.held ? '<span class="badge held-badge">보유</span>' : '<span class="muted">관심</span>'}</div>
+        <div class="watch-status">${!publicMode && r.held ? '<span class="badge held-badge">보유</span>' : '<span class="muted">관심</span>'}</div>
         <div class="r num">${r.price ?? "—"}</div>
         <div class="r num ${cls(r.change_pct)}">${pct(r.change_pct)}</div>
         <div class="r num ${cls(r.drawdown_pct)}">${pct(r.drawdown_pct)}</div>
@@ -430,6 +435,11 @@
   // ---- account ------------------------------------------------------------------
   const signedKrw = (value) => value === null || value === undefined ? "—" : `${value > 0 ? "+" : value < 0 ? "−" : ""}₩${formatCompactKorean(Math.abs(value))}`;
   function renderAccount(sec, selectedWindow = null) {
+    if (publicMode) {
+      const card = $("account-card");
+      if (card) card.hidden = true;
+      return;
+    }
     const host = $("account");
     const investTotal = sec && sec.invest_total_krw !== undefined ? sec.invest_total_krw : sec && sec.total_krw;
     if (!sec) { host.innerHTML = unavailable("계좌 요약 없음"); return; }
@@ -605,6 +615,22 @@
     renderWatchlist(s.watchlist); renderAccount(s.account); renderFlows(s.flows); renderDerivatives(s.derivatives);
     renderSchedule(s.schedule); renderBrief(s.schedule, s.brief); renderScanner(s.scanner); renderSummaryStrip(s);
   }
+  function enforcePublicUi(root = document) {
+    if (!publicMode) return;
+    root.querySelectorAll("[data-private-account], .held-badge").forEach((element) => { element.hidden = true; });
+    const watchlistTitle = document.querySelector("#watchlist-card .card-head b");
+    if (watchlistTitle) watchlistTitle.textContent = "관심종목";
+    ["toggle-detail-watchlist", "edit-detail-conditions"].forEach((id) => {
+      const button = $(id);
+      if (button) button.hidden = true;
+    });
+  }
   if (typeof module !== "undefined" && module.exports) module.exports = { aggregateCandles, brokerReportedPnl, formatCompactKorean, formatSharePercent, rsiWilder, signedEok };
-  if (typeof document !== "undefined") document.addEventListener("DOMContentLoaded", () => { if ($("home-page")) boot(); });
+  if (typeof document !== "undefined") document.addEventListener("DOMContentLoaded", () => {
+    if (publicMode) {
+      enforcePublicUi();
+      new MutationObserver(() => enforcePublicUi()).observe(document.body, { childList: true, subtree: true });
+    }
+    if ($("home-page")) boot();
+  });
 })();

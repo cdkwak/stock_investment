@@ -7,17 +7,18 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="/static/app.css?v={{ static_version }}">
 </head>
-<body>
+<body data-public="{{ '1' if public_mode else '0' }}">
 <header class="topbar">
   <div class="brand">Stock Investment</div>
   <nav class="nav">
-    <a class="on" href="/">홈</a><a href="/market">시장</a><a href="/stocks">종목</a><a href="/account">내 계좌</a><a href="/data">데이터</a><a href="/research">검증</a>
+    <a class="on" href="/">홈</a><a href="/market">시장</a><a href="/stocks">종목</a>{% if not public_mode %}<a href="/account">내 계좌</a>{% endif %}<a href="/data">데이터</a><a href="/research">검증</a>
   </nav>
   <div class="topbar-right">
     <span id="as-of" class="muted"></span>
     <span id="health-chip" class="chip dashed" title="데이터 갱신 확인 중">데이터 갱신 확인 중</span>
   </div>
 </header>
+{% if public_mode %}<div class="guest-banner" role="status" style="padding:6px 16px;text-align:center;background:#fff3cd;color:#5f4b00;border-bottom:1px solid #ead58b;font-size:13px">게스트 모드 · 개인 계좌 정보 없음 · 판단 참고용, 투자 조언 아님</div>{% endif %}
 
 <main class="page" id="home-page" data-initial-symbol="{{ initial_symbol }}">
   <section id="regime" class="regime" data-expanded="auto">
@@ -71,7 +72,7 @@
         <div class="card-head"><b>관심종목 · 보유</b><span class="muted" id="watchlist-meta"></span></div>
         <div class="table" id="watchlist"></div>
       </div>
-      <div class="card" id="account-card">
+      <div class="card" id="account-card" data-private-account>
         <div class="card-head"><b>내 계좌</b>
           <div class="segmented small" id="account-range"><button data-v="1M">1M</button><button data-v="3M" class="on">3M</button><button data-v="YTD">YTD</button><button data-v="ALL">전체</button></div>
         </div>

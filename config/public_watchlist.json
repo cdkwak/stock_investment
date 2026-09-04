@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "items": [
+    {
+      "market": "KOSPI",
+      "symbol": "139260",
+      "name": "KOSPI200 IT ETF",
+      "security_type": "ETF"
+    },
+    {
+      "market": "KOSPI",
+      "symbol": "123320",
+      "name": "TIGER 레버리지",
+      "security_type": "ETF",
+      "leverage_style": "일간 2배·매일 재설정"
+    },
+    {
+      "market": "KOSPI",
+      "symbol": "243880",
+      "name": "TIGER 200IT레버리지",
+      "security_type": "ETF",
+      "leverage_style": "일간 2배·매일 재설정"
+    },
+    {
+      "market": "KOSPI",
+      "symbol": "005930",
+      "name": "삼성전자",
+      "security_type": "보통주"
+    },
+    {
+      "market": "KOSPI",
+      "symbol": "000660",
+      "name": "SK하이닉스",
+      "security_type": "보통주"
+    },
+    {
+      "market": "US ETF",
+      "symbol": "QQQ",
+      "name": "QQQ",
+      "security_type": "ETF"
+    },
+    {
+      "market": "US ETF",
+      "symbol": "SPY",
+      "name": "SPY",
+      "security_type": "ETF"
+    },
+    {
+      "market": "US ETF",
+      "symbol": "SOXX",
+      "name": "SOXX",
+      "security_type": "ETF"
+    },
+    {
+      "market": "US ETF",
+      "symbol": "TLT",
+      "name": "TLT",
+      "security_type": "ETF"
+    }
+  ]
+}

@@ -17,6 +17,18 @@
       "port": 8788
     },
     {
+      "name": "guest",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "stock_web",
+        "--public",
+        "--port",
+        "8790"
+      ],
+      "port": 8790
+    },
+    {
       "name": "review-server",
       "runtimeExecutable": ".venv/Scripts/python.exe",
       "runtimeArgs": [

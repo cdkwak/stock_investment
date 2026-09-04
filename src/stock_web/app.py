@@ -7,9 +7,13 @@ through the typed services in ``stock_web.api``.
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import ipaddress
 import os
 from pathlib import Path
+import secrets
+import time
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
 from fastapi import FastAPI, Request
@@ -118,8 +122,10 @@ def _project_root() -> Path:
 
 def create_app(project_root: Path | None = None) -> FastAPI:
     root = (project_root or _project_root()).resolve()
+    public_mode = os.environ.get("STOCK_WEB_PUBLIC_MODE") == "1"
     app = FastAPI(title="Stock Investment Dashboard", docs_url=None, redoc_url=None)
     app.state.project_root = root
+    app.state.public_mode = public_mode
     app.mount("/static", StaticFiles(directory=PACKAGE_ROOT / "static"), name="static")
     templates = Jinja2Templates(directory=PACKAGE_ROOT / "templates")
     static_root = PACKAGE_ROOT / "static"
@@ -127,11 +133,40 @@ def create_app(project_root: Path | None = None) -> FastAPI:
         int(max(p.stat().st_mtime for p in static_root.glob("*")) if any(static_root.glob("*")) else 0)
     )
     templates.env.globals["format_kst"] = format_kst
+    templates.env.globals["public_mode"] = public_mode
     pin_failures = PinFailureLimiter()
+    guest_session_secret = secrets.token_bytes(32) if public_mode else None
+
+    def session_cookie_is_valid(value: str | None) -> bool:
+        if not public_mode:
+            return verify_session_cookie(root, value)
+        if not value or guest_session_secret is None:
+            return False
+        try:
+            expiry_text, supplied_signature = value.split(".", 1)
+            if not expiry_text.isascii() or not expiry_text.isdigit():
+                return False
+            expiry = int(expiry_text)
+        except (AttributeError, TypeError, ValueError):
+            return False
+        expected = hmac.new(
+            guest_session_secret, expiry_text.encode("ascii"), hashlib.sha256,
+        ).hexdigest()
+        return hmac.compare_digest(expected, supplied_signature) and expiry > int(time.time())
+
+    def new_session_cookie() -> str:
+        if not public_mode:
+            return create_session_cookie(root)
+        assert guest_session_secret is not None
+        expiry_text = str(int(time.time()) + SESSION_MAX_AGE_SECONDS)
+        signature = hmac.new(
+            guest_session_secret, expiry_text.encode("ascii"), hashlib.sha256,
+        ).hexdigest()
+        return f"{expiry_text}.{signature}"
 
     from stock_web.api.router import build_router
 
-    app.include_router(build_router(root), prefix="/api")
+    app.include_router(build_router(root, public_mode=public_mode), prefix="/api")
 
     @app.middleware("http")
     async def _private_network_only(request: Request, call_next):
@@ -144,7 +179,7 @@ def create_app(project_root: Path | None = None) -> FastAPI:
             _request_is_loopback(request)
             or not pin_is_configured(root)
             or pin_exempt
-            or verify_session_cookie(root, request.cookies.get(SESSION_COOKIE_NAME))
+            or session_cookie_is_valid(request.cookies.get(SESSION_COOKIE_NAME))
         ):
             return await call_next(request)
         if path == "/api" or path.startswith("/api/"):
@@ -200,7 +235,7 @@ def create_app(project_root: Path | None = None) -> FastAPI:
         response = RedirectResponse(next_path, status_code=303)
         response.set_cookie(
             SESSION_COOKIE_NAME,
-            create_session_cookie(root),
+            new_session_cookie(),
             max_age=SESSION_MAX_AGE_SECONDS,
             path="/",
             secure=True,
@@ -229,6 +264,10 @@ def create_app(project_root: Path | None = None) -> FastAPI:
 
     @app.get("/data", response_class=HTMLResponse)
     def data_page(request: Request, status: str = "OPERATIONAL") -> HTMLResponse:
+        if public_mode:
+            return templates.TemplateResponse(
+                request, "data.html", {"page": "data"},
+            )
         from stock_web.api.data_page import build_data_page_context
 
         context = build_data_page_context(root, status)

@@ -7,14 +7,15 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="/static/app.css?v={{ static_version }}">
 </head>
-<body>
+<body data-public="{{ '1' if public_mode else '0' }}">
 <header class="topbar">
   <div class="brand">Stock Investment</div>
   <nav class="nav">
-    <a href="/">홈</a><a href="/market">시장</a><a class="on" href="/stocks">종목</a><a href="/account">내 계좌</a><a href="/data">데이터</a><a href="/research">검증</a>
+    <a href="/">홈</a><a href="/market">시장</a><a class="on" href="/stocks">종목</a>{% if not public_mode %}<a href="/account">내 계좌</a>{% endif %}<a href="/data">데이터</a><a href="/research">검증</a>
   </nav>
   <div class="topbar-right"><span class="chip dashed">로컬 데이터 · 로컬 설정</span></div>
 </header>
+{% if public_mode %}<div class="guest-banner" role="status" style="padding:6px 16px;text-align:center;background:#fff3cd;color:#5f4b00;border-bottom:1px solid #ead58b;font-size:13px">게스트 모드 · 개인 계좌 정보 없음 · 판단 참고용, 투자 조언 아님</div>{% endif %}
 
 <main class="page stocks-page" id="stocks-page" data-initial-symbol="{{ request.query_params.get('symbol', '') }}">
   <div class="stocks-detail-layout">
@@ -82,7 +83,7 @@
         <div id="stock-investor-flows"><div class="unavailable">종목을 선택하세요.</div></div>
       </section>
 
-      <details class="card stocks-management" open>
+      <details class="card stocks-management" open{% if public_mode %} hidden{% endif %}>
         <summary>관심종목 관리</summary>
         <div class="stocks-management-body">
           <div class="card-head"><span></span><span class="muted" id="watchlist-status" role="status" aria-live="polite"></span></div>
@@ -113,7 +114,7 @@
         </div>
       </details>
 
-      <details class="card stocks-management">
+      <details class="card stocks-management"{% if public_mode %} hidden{% endif %}>
         <summary>조건 설정</summary>
         <div class="stocks-management-body">
           <p class="muted">관심종목 조건은 상세와 홈에 표시 · 전체시장 조건은 스캐너 후보에 추가</p>

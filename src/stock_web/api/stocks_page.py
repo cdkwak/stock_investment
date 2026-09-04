@@ -27,6 +27,9 @@ CONDITION_FIELDS = frozenset({
 })
 CONDITION_OPS = frozenset({"<=", ">="})
 CONDITION_SCOPES = frozenset({"watchlist", "universe"})
+PUBLIC_WATCHLIST_RELATIVE = Path("config/public_watchlist.json")
+
+
 @dataclass(frozen=True)
 class _SearchIndexEntry:
     identity: EquityIdentity
@@ -86,6 +89,68 @@ def serialize_watchlists(state: WatchlistState) -> dict[str, object]:
             for watchlist in state.lists
         ],
     }
+
+
+def _public_watchlist(project_root: Path) -> tuple[dict[str, object], tuple[EquityIdentity, ...]]:
+    path = Path(project_root) / PUBLIC_WATCHLIST_RELATIVE
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise StocksInputError("공개 관심종목 설정을 읽을 수 없습니다.") from error
+    items = payload.get("items") if isinstance(payload, dict) else None
+    if (
+        not isinstance(payload, dict)
+        or payload.get("schema_version") != 1
+        or not isinstance(items, list)
+        or not items
+    ):
+        raise StocksInputError("공개 관심종목 설정 형식이 올바르지 않습니다.")
+    identities: list[EquityIdentity] = []
+    seen: set[tuple[str, str]] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            raise StocksInputError("공개 관심종목 항목 형식이 올바르지 않습니다.")
+        market = str(item.get("market") or "").strip()
+        symbol = str(item.get("symbol") or "").strip().upper()
+        name = str(item.get("name") or "").strip()
+        security_type = str(item.get("security_type") or "").strip()
+        if (
+            market not in {"KOSPI", "KOSDAQ", "US ETF"}
+            or not symbol or not name or security_type not in {"ETF", "보통주"}
+            or (market == "US ETF" and not re.fullmatch(r"[A-Z][A-Z0-9.-]{0,9}", symbol))
+            or (market != "US ETF" and not re.fullmatch(r"\d{6}", symbol))
+            or (market, symbol) in seen
+        ):
+            raise StocksInputError("공개 관심종목 항목을 검증할 수 없습니다.")
+        seen.add((market, symbol))
+        identities.append(EquityIdentity(
+            symbol=symbol,
+            name=name,
+            market=market,
+            isin=None,
+            listing_date=None,
+            security_type=security_type,
+            currency="USD" if market == "US ETF" else "KRW",
+            leverage_style=(
+                str(item.get("leverage_style")).strip()
+                if item.get("leverage_style") else None
+            ),
+            identity_source="tracked public watchlist",
+        ))
+    watchlists = {
+        "schema_version": 1,
+        "revision": 0,
+        "recovered_from_backup": False,
+        "lists": [{
+            "list_id": "public",
+            "name": "공개 관심종목",
+            "items": [
+                {**_identity_payload(identity), "added_at_kst": None}
+                for identity in identities
+            ],
+        }],
+    }
+    return watchlists, tuple(identities)
 
 
 def _clean_condition(raw: object, seen: set[str]) -> dict[str, object]:
@@ -583,8 +648,28 @@ def _watchlist_row(
     }
 
 
-def build_stocks_page_data(project_root: Path) -> dict[str, object]:
+def build_stocks_page_data(
+    project_root: Path, *, public_mode: bool | None = None,
+) -> dict[str, object]:
     root = Path(project_root)
+    if public_mode is None:
+        public_mode = os.environ.get("STOCK_WEB_PUBLIC_MODE") == "1"
+    if public_mode:
+        watchlists, identities = _public_watchlist(root)
+        table = [
+            {
+                **_watchlist_row(root, "public", "공개 관심종목", identity, []),
+                "held": False,
+            }
+            for identity in identities
+        ]
+        return {
+            "public": True,
+            "watchlists": watchlists,
+            "conditions": {"schema_version": CONDITIONS_SCHEMA_VERSION, "conditions": []},
+            "table": table,
+            "note": "고정 공개 관심종목 · 읽기 전용 · 추천이나 주문 신호가 아닙니다.",
+        }
     state = LocalWatchlistService(_watchlist_path(root)).load()
     conditions_payload = load_conditions(root)
     conditions = list(conditions_payload.get("conditions", []))
@@ -602,8 +687,12 @@ def build_stocks_page_data(project_root: Path) -> dict[str, object]:
     }
 
 
-def build_home_watchlist(project_root: Path) -> dict[str, object]:
-    data = build_stocks_page_data(project_root)
+def build_home_watchlist(
+    project_root: Path, *, public_mode: bool | None = None,
+) -> dict[str, object]:
+    if public_mode is None:
+        public_mode = os.environ.get("STOCK_WEB_PUBLIC_MODE") == "1"
+    data = build_stocks_page_data(project_root, public_mode=public_mode)
     rows = []
     for item in data["table"]:
         rows.append({
@@ -619,7 +708,14 @@ def build_home_watchlist(project_root: Path) -> dict[str, object]:
             "provisional_dates": item.get("provisional_dates", []),
             "price_basis": item.get("price_basis"),
         })
-    return {
-        "rows": rows, "held_count": 0, "watch_count": len(rows),
-        "note": "보유 비중은 계좌 연결 후 · 조건 표시는 종목 페이지의 사용자 조건 기준",
+    result: dict[str, object] = {
+        "rows": rows, "watch_count": len(rows),
+        "note": (
+            "고정 공개 관심종목 · 읽기 전용"
+            if public_mode else
+            "보유 비중은 계좌 연결 후 · 조건 표시는 종목 페이지의 사용자 조건 기준"
+        ),
     }
+    if not public_mode:
+        result["held_count"] = 0
+    return result

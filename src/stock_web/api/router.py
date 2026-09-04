@@ -14,6 +14,7 @@ import math
 
 from fastapi import APIRouter, Request
 from fastapi.responses import Response
+from fastapi.routing import APIRoute
 
 
 def _jsonable(value: object) -> object:
@@ -46,8 +47,29 @@ def json_response(payload: object, *, status_code: int = 200) -> Response:
     )
 
 
-def build_router(project_root: Path) -> APIRouter:
-    router = APIRouter()
+def _guest_mode_blocked(method: str, path: str) -> bool:
+    if method.upper() in {"POST", "DELETE"}:
+        return True
+    return (
+        path in {"/api/account", "/api/cash-flows", "/api/net-worth", "/api/manual"}
+        or path.startswith("/api/trade-journal")
+        or path.startswith("/api/manual/")
+    )
+
+
+def build_router(project_root: Path, *, public_mode: bool = False) -> APIRouter:
+    class GuestGuardRoute(APIRoute):
+        def get_route_handler(self):
+            original = super().get_route_handler()
+
+            async def guarded(request: Request) -> Response:
+                if public_mode and _guest_mode_blocked(request.method, request.url.path):
+                    return json_response({"error": "guest mode"}, status_code=404)
+                return await original(request)
+
+            return guarded
+
+    router = APIRouter(route_class=GuestGuardRoute)
 
     def loopback(request: Request) -> bool:
         """True only for a direct connection from this machine.
@@ -72,13 +94,13 @@ def build_router(project_root: Path) -> APIRouter:
     def clear_home_cache() -> None:
         from stock_web.api import home_data
 
-        home_data._HOME_CACHE.pop(str(project_root.resolve()), None)
+        home_data.clear_home_cache(project_root, public_mode=public_mode)
 
     @router.get("/home")
     def home() -> Response:
         from stock_web.api import home_data
 
-        return json_response(home_data.build_home_payload(project_root))
+        return json_response(home_data.build_home_payload(project_root, public_mode=public_mode))
 
     @router.get("/chart")
     def chart(symbol: str = "KOSPI", range: str = "6M") -> Response:
@@ -185,7 +207,7 @@ def build_router(project_root: Path) -> APIRouter:
     def stocks() -> Response:
         from stock_web.api.stocks_page import build_stocks_page_data
 
-        return json_response(build_stocks_page_data(project_root))
+        return json_response(build_stocks_page_data(project_root, public_mode=public_mode))
 
     @router.get("/stocks/search")
     def stock_search(q: str = "") -> Response:
@@ -219,14 +241,14 @@ def build_router(project_root: Path) -> APIRouter:
         min_cap: float = 100_000_000_000.0,
         all: int = 0,
     ) -> Response:
+        from stock_web.api.home_data import build_public_scanner
         from stock_web.api.scanner import build_scanner
 
         try:
-            result = build_scanner(
-                project_root,
-                avg_value_20d_min=min_value,
-                market_cap_min=min_cap,
-                apply_liquidity_filter=all != 1,
+            builder = build_public_scanner if public_mode else build_scanner
+            result = builder(
+                project_root, avg_value_20d_min=min_value,
+                market_cap_min=min_cap, apply_liquidity_filter=all != 1,
             )
         except ValueError as error:
             return json_response({"error": str(error)}, status_code=400)
@@ -386,5 +408,10 @@ def build_router(project_root: Path) -> APIRouter:
     @router.get("/ping")
     def ping() -> dict[str, str]:
         return {"status": "ok", "observed_at_utc": datetime.now(timezone.utc).isoformat()}
+
+    if public_mode:
+        @router.api_route("/{guest_path:path}", methods=["POST", "DELETE"])
+        def reject_unknown_guest_write(guest_path: str) -> Response:
+            return json_response({"error": "guest mode"}, status_code=404)
 
     return router
