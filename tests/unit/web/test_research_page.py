@@ -446,3 +446,15 @@ def test_every_dashboard_navigation_places_research_after_data() -> None:
         text = (template_root / name).read_text(encoding="utf-8")
         nav = text.split('<nav class="nav">', 1)[1].split("</nav>", 1)[0]
         assert nav.index('href="/research"') > nav.index('href="/data"')
+
+
+def test_research_template_declares_every_id_the_script_binds() -> None:
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[3] / "src/stock_web"
+    script = (root / "static/research.js").read_text(encoding="utf-8")
+    template = (root / "templates/research.html").read_text(encoding="utf-8")
+    used = set(re.findall(r'\$\("([a-zA-Z0-9_-]+)"\)', script))
+    present = set(re.findall(r'id="([a-zA-Z0-9_-]+)"', template))
+    assert used - present == set(), sorted(used - present)
