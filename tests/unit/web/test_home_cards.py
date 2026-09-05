@@ -460,11 +460,15 @@ def test_korean_treasury_tile_falls_back_to_newer_toss_curve() -> None:
             }),
         )
 
-    tile = next(
-        item for item in home_data.build_tiles(root)
-        if item["name"] == "한국 3Y · 10Y"
-    )
+    tiles = {item["name"]: item for item in home_data.build_tiles(root)}
+    three, ten = tiles["한국 3Y"], tiles["한국 10Y"]
 
-    assert tile["value"] == "3Y 3.25% · 10Y 3.70%"
-    assert tile["change_label"] == "3Y +5bp · 10Y +10bp"
-    assert tile["source_label"] == "Toss 국채 09-02"
+    # Two tiles (one value each) instead of the overflowing combined "3Y · 10Y" cell.
+    assert three["value"] == "3.25%" and ten["value"] == "3.70%"
+    assert three["source_label"] == ten["source_label"] == "Toss 국채 09-02"
+    assert "한국 3Y · 10Y" not in tiles
+    names = list(tiles)
+    assert names[:12] == [
+        "KOSPI", "KOSDAQ", "NASDAQ 100 선물", "S&P 500 선물", "필라델피아 반도체",
+        "미국 2Y", "미국 10Y", "미국 30Y", "한국 3Y", "한국 10Y", "USD/KRW", "VIX",
+    ]

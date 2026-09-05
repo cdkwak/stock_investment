@@ -411,9 +411,15 @@ def _curve_frame(
     return curve.dropna(subset=["3Y", "10Y"]).sort_values("date", kind="stable")
 
 
-def _korean_treasury_tile(project_root: Path) -> dict[str, object]:
-    """Prefer a newer BOK curve, otherwise identify the current Toss fallback."""
-    name = "한국 3Y · 10Y"
+def _korean_treasury_tiles(project_root: Path) -> list[dict[str, object]]:
+    """Two tiles (한국 3Y, 한국 10Y) from the newer of the BOK and Toss curves.
+
+    One combined "3Y · 10Y" tile overflowed at 1440 (headline 168px in an 85px cell) and
+    left its MA5/MA20 tenor ambiguous; the user asked for it to be fixed (2026-09-05 20:20).
+    Each tile now has the same shape as the other 15: label · one value · one change.
+    """
+
+    names = {"3Y": "한국 3Y", "10Y": "한국 10Y"}
     try:
         bok = _curve_frame(
             dsx.load(
@@ -438,26 +444,22 @@ def _korean_treasury_tile(project_root: Path) -> dict[str, object]:
         )
         curve = bok if use_bok else toss
         if curve.empty:
-            return _placeholder(name, "한국 국채 보존 데이터 없음")
+            return [_placeholder(name, "한국 국채 보존 데이터 없음") for name in names.values()]
         latest = curve.iloc[-1]
         source_name = "BOK 국채" if use_bok else "Toss 국채"
         source_label = f"{source_name} {latest['date']:%m-%d}"
-        tile = _tile_from_series(
-            name, None, curve, "10Y", fmt="{:.2f}%", change_kind="bp",
-            window_label=f"{source_name} 일별",
-        )
-        tile["value"] = f"3Y {float(latest['3Y']):.2f}% · 10Y {float(latest['10Y']):.2f}%"
-        tile["source_label"] = source_label
-        tile["sub_note"] = source_label
-        if len(curve) >= 2:
-            previous = curve.iloc[-2]
-            change_3y = (float(latest["3Y"]) - float(previous["3Y"])) * 100.0
-            change_10y = (float(latest["10Y"]) - float(previous["10Y"])) * 100.0
-            tile["change_pct"] = change_10y
-            tile["change_label"] = f"3Y {change_3y:+.0f}bp · 10Y {change_10y:+.0f}bp"
-        return tile
+        tiles: list[dict[str, object]] = []
+        for tenor, name in names.items():
+            tile = _tile_from_series(
+                name, None, curve, tenor, fmt="{:.2f}%", change_kind="bp",
+                window_label=f"{source_name} 일별",
+            )
+            tile["source_label"] = source_label
+            tile["sub_note"] = source_label
+            tiles.append(tile)
+        return tiles
     except Exception:
-        return _placeholder(name, "한국 국채 데이터를 읽을 수 없음")
+        return [_placeholder(name, "한국 국채 데이터를 읽을 수 없음") for name in names.values()]
 
 
 def build_tiles(project_root: Path) -> list[dict[str, object]]:
@@ -481,20 +483,21 @@ def build_tiles(project_root: Path) -> list[dict[str, object]]:
     yields = dsx.load(project_root, "data/normalized/fred_treasury_yield_daily")
     spread = dsx.load(project_root, "data/derived/us_treasury_spread_daily")
     tiles = [
-        # Order = what the ladder/ammunition work reads first: indices, futures, FX, then the
-        # treasury/volatility tiles inside the first 12 (collapsed view); commodities after (review 09-05 10:30).
+        # 자산군 묶음 (user 2026-09-05 20:20): 한국주식 → 미국주식 → 금리(미국 2Y·10Y·30Y·한국 3Y·10Y)
+        # → 환율·변동성. 접힌 12칸 = 위 순서의 앞 12개; 10Y-2Y 스프레드(2Y·10Y에서 유도 가능)와
+        # 원자재·EWY는 '지표 더 보기' 뒤. 한국 국채는 두 칸(*로 펼침).
         _tile_from_series("KOSPI", "KOSPI", idx("KOSPI"), "close"),
         _tile_from_series("KOSDAQ", "KOSDAQ", idx("KOSDAQ"), "close"),
         _tile_from_series("NASDAQ 100 선물", "NQF", idx("NQF"), "close", fmt="{:,.0f}"),
         _tile_from_series("S&P 500 선물", "ESF", idx("ESF"), "close"),
-        _tile_from_series("USD/KRW", None, fx, "dexkous", window_label=fx_window),
-        _tile_from_series("미국 10Y", None, yields, "dgs10", fmt="{:.2f}%", change_kind="bp", window_label="FRED 일별"),
-        _tile_from_series("10Y-2Y 스프레드", None, spread, "spread_10y_2y", fmt="{:+.2f}%p", change_kind="bp", window_label="FRED 일별"),
-        _tile_from_series("미국 2Y", None, yields, "dgs2", fmt="{:.2f}%", change_kind="bp", window_label="FRED 일별"),
-        _tile_from_series("미국 30Y", None, yields, "dgs30", fmt="{:.2f}%", change_kind="bp", window_label="FRED 일별"),
-        _tile_from_series("VIX", None, vix, "vixcls"),
-        _korean_treasury_tile(project_root),
         _tile_from_series("필라델피아 반도체", "SOX", idx("SOX"), "close", fmt="{:,.0f}"),
+        _tile_from_series("미국 2Y", None, yields, "dgs2", fmt="{:.2f}%", change_kind="bp", window_label="FRED 일별"),
+        _tile_from_series("미국 10Y", None, yields, "dgs10", fmt="{:.2f}%", change_kind="bp", window_label="FRED 일별"),
+        _tile_from_series("미국 30Y", None, yields, "dgs30", fmt="{:.2f}%", change_kind="bp", window_label="FRED 일별"),
+        *_korean_treasury_tiles(project_root),
+        _tile_from_series("USD/KRW", None, fx, "dexkous", window_label=fx_window),
+        _tile_from_series("VIX", None, vix, "vixcls"),
+        _tile_from_series("10Y-2Y 스프레드", None, spread, "spread_10y_2y", fmt="{:+.2f}%p", change_kind="bp", window_label="FRED 일별"),
         _tile_from_series("밤사이 한국 ETF (EWY)", "EWY", idx("EWY"), "close"),
         _tile_from_series("다우 선물", "YMF", idx("YMF"), "close", fmt="{:,.0f}"),
         (_tile_from_series("달러 인덱스", "DXY", idx("DXY"), "close") if idx("DXY") is not None
