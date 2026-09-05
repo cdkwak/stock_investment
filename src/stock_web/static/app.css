@@ -444,8 +444,10 @@ a { color: inherit; text-decoration: none; }
 @media (max-width: 2199px) and (min-width: 1100px) {
   .regime[data-expanded="auto"] .ev { display: none; }
 }
+@media (min-width: 1200px) and (max-width: 2199px) {
+  .tiles { grid-template-columns: repeat(6, minmax(0, 1fr)); } /* bounded so the 2200px 12-column rule above is not overridden by source order */
+}
 @media (min-width: 1200px) {
-  .tiles { grid-template-columns: repeat(6, minmax(0, 1fr)); }
   .tiles.collapsed .tile:nth-child(n+9) { display: flex; }
   .tiles.collapsed .tile:nth-child(n+13) { display: none; }
 }
