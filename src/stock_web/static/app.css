@@ -104,11 +104,13 @@ a { color: inherit; text-decoration: none; }
 
 /* main row */
 .main-row { display: grid; grid-template-columns: 8fr 5fr; gap: 12px; align-items: start; }
-.home-dashboard { align-items: stretch; }
+/* Columns start-align: the left column must not stretch to the taller side column and hand
+   the surplus to the chart card (531px of blank card below the chart at 1440 — twice). */
+.home-dashboard { align-items: start; }
 .home-left-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .home-left-support { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 4fr); gap: 12px; align-items: start; }
 .side-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-.chart-card { display: flex; flex: 1 1 auto; flex-direction: column; align-self: start; width: 100%; gap: 6px; }
+.chart-card { display: flex; flex: 0 0 auto; flex-direction: column; align-self: start; width: 100%; gap: 6px; }
 .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .toolbar-right { margin-left: auto; display: flex; gap: 6px; align-items: center; font-size: 12px; }
 .select { max-width: 100%; min-width: 0; font: inherit; font-size: 13px; font-weight: 600; border: 1px solid var(--line); border-radius: 4px; padding: 3px 8px; background: #fff; }

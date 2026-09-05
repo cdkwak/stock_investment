@@ -542,3 +542,10 @@ def test_market_template_and_script_render_the_cboe_pcr_panel_with_reason() -> N
     assert "renderCboePcr(section.cboe_pcr)" in script
     assert 'unavailable(view.reason || "보존된 Cboe 일별 통계가 없습니다.")' in script
 
+
+def test_market_chart_script_uses_server_indicators_instead_of_recomputing_on_visible_bars() -> None:
+    root = Path(__file__).parents[3]
+    script = root.joinpath("src/stock_web/static/market.js").read_text(encoding="utf-8")
+    assert "...serverIndicators(payload)" in script
+    assert 'indicators: Object.keys(indicatorState).filter((name) => indicatorState[name].enabled && name !== "volume").join(",")' in script
+

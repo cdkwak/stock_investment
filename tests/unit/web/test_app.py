@@ -122,8 +122,10 @@ def test_home_chart_stops_at_content_height_and_resizes() -> None:
     script = (root / "static/app.js").read_text(encoding="utf-8")
     css = (root / "static/app.css").read_text(encoding="utf-8")
 
-    assert ".home-dashboard { align-items: stretch; }" in css
-    assert ".chart-card { display: flex; flex: 1 1 auto; flex-direction: column;" in css
+    # Columns start-align and the chart card never grows: the 531px blank card below the
+    # chart (review 10:30, regression of b643579) came from the left column stretching.
+    assert ".home-dashboard { align-items: start; }" in css
+    assert ".chart-card { display: flex; flex: 0 0 auto; flex-direction: column;" in css
     assert "align-self: start" in css
     assert ".chart { width: 100%; flex: 1 1 auto; min-height: 380px; max-height: 540px; }" in css
     assert "@media (max-width: 768px)" in css

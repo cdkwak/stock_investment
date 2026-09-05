@@ -117,6 +117,19 @@
     return result;
   }
 
+  function serverIndicators(payload) {
+    const source = (payload && payload.indicators) || {};
+    const result = {};
+    Object.entries(source).forEach(([name, points]) => {
+      if (!Array.isArray(points) || !points.length) return;
+      result[name] = points.filter((point) => point && point.v !== null && point.v !== undefined).map((point) => ({ t: point.t, v: Number(point.v) }));
+    });
+    if (Array.isArray(payload && payload.rsi14) && payload.rsi14.length) {
+      result.rsi14 = payload.rsi14.filter((point) => point && point.v !== null && point.v !== undefined).map((point) => ({ t: point.t, v: Number(point.v) }));
+    }
+    return result;
+  }
+
   function panelMargins(index, height) {
     return { top: Math.max(0.04, 1 - (index + 1) * height), bottom: index * height };
   }
@@ -132,7 +145,8 @@
     if (!mainChart) { $("market-chart").innerHTML = `<div class="unavailable">${unavailable("차트 라이브러리 로드 실패")}</div>`; return; }
     clearDynamicSeries();
     candleSeries.setData(payload.candles.map((candle) => ({ time: candle.t, open: candle.o, high: candle.h, low: candle.l, close: candle.c })));
-    const values = calculateIndicators(payload.candles);
+    // Server values win; the local recalculation only fills anything the server did not send.
+    const values = { ...calculateIndicators(payload.candles), ...serverIndicators(payload) };
     const enabled = Object.keys(indicatorState).filter((name) => indicatorState[name].enabled);
     const panels = enabled.filter((name) => indicatorState[name].placement === "panel");
     const height = panels.length ? Math.min(0.14, 0.58 / panels.length) : 0;
@@ -167,7 +181,9 @@
     if (mainCache.has(cacheKey)) { mainPayload = mainCache.get(cacheKey); renderMainChart(mainPayload); return; }
     $("market-chart-stats").textContent = "차트 확인 중";
     try {
-      const params = new URLSearchParams({ symbol, interval, range, indicators: "" });
+      // Ask the server for every enabled indicator: it computes them on the full history
+      // (warm-up included), so MA120 exists on 3M and MA60 starts at the first visible bar.
+      const params = new URLSearchParams({ symbol, interval, range, indicators: Object.keys(indicatorState).filter((name) => indicatorState[name].enabled && name !== "volume").join(",") });
       const response = await fetch(`/api/market/chart?${params}`);
       mainPayload = response.ok ? await response.json() : { reason: `HTTP ${response.status}` };
       if (response.ok) mainCache.set(cacheKey, mainPayload);
