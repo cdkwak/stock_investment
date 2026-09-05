@@ -1037,8 +1037,8 @@ def test_daily_lane_readiness_is_complete_and_fail_closed_for_scheduler() -> Non
     assert etf_flow_lane.scheduler_eligible is True
     assert etf_flow_lane.blocker is None
     etf_flow = DATASET_OPERATIONS["kr_etf_investor_flow_daily"]
-    assert etf_flow.operational_status is OperationalStatus.MANUAL_READY
-    assert etf_flow.automation_enabled is False
+    assert etf_flow.operational_status is OperationalStatus.AUTO_READY
+    assert etf_flow.automation_enabled is True
 
 
 def test_new_global_price_datasets_have_typed_operation_and_display_routes() -> None:

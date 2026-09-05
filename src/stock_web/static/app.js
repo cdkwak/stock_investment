@@ -798,6 +798,8 @@
     };
     $("tiles-more").addEventListener("click", () => { $("tiles").classList.toggle("collapsed"); $("tiles-more").textContent = tilesMoreLabel(); });
     window.addEventListener("resize", () => { $("tiles-more").textContent = tilesMoreLabel(); });
+    // Tiles render after the home fetch: recompute the label whenever the tile list changes.
+    new MutationObserver(() => { $("tiles-more").textContent = tilesMoreLabel(); }).observe($("tiles"), { childList: true });
     setTimeout(() => { $("tiles-more").textContent = tilesMoreLabel(); }, 0);
     $("tiles").classList.add("collapsed");
     document.querySelectorAll("#chart-interval button").forEach((b) => b.addEventListener("click", () => { document.querySelectorAll("#chart-interval button").forEach((x) => x.classList.remove("on")); b.classList.add("on"); renderChart(); }));
