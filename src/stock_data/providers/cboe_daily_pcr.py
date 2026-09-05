@@ -339,11 +339,15 @@ def parse_archive_pcr(
     captured = _utc(retrieved_at)
     try:
         text = body.decode("utf-8-sig")
-    except UnicodeDecodeError as error:
-        raise CboeDailyPcrError("Cboe archive is not UTF-8") from error
+    except UnicodeDecodeError:
+        # The VIX archive preamble carries Windows-1252 punctuation; the data rows are ASCII.
+        try:
+            text = body.decode("cp1252")
+        except UnicodeDecodeError as error:
+            raise CboeDailyPcrError("Cboe archive is not UTF-8 or Windows-1252") from error
     lines = text.splitlines()
     header_index = next(
-        (index for index, line in enumerate(lines) if _key(line.split(",", 1)[0]) == "DATE"),
+        (index for index, line in enumerate(lines) if _key(line.split(",", 1)[0]) in {"DATE", "Date"}),
         None,
     )
     if header_index is None:
@@ -361,13 +365,13 @@ def parse_archive_pcr(
             continue
         if observed in seen:
             raise CboeDailyPcrError(f"duplicate Cboe archive date: {observed.isoformat()}")
-        call = _count(_mapping_value(row, "CALLS"), f"{scope}.archive.calls")
-        put = _count(_mapping_value(row, "PUTS"), f"{scope}.archive.puts")
-        total = _count(_mapping_value(row, "TOTAL"), f"{scope}.archive.total")
+        call = _count(_mapping_value(row, "CALLS", "CALL", "VIX Call Volume"), f"{scope}.archive.calls")
+        put = _count(_mapping_value(row, "PUTS", "PUT", "VIX Put Volume"), f"{scope}.archive.puts")
+        total = _count(_mapping_value(row, "TOTAL", "Total VIX Options Volume"), f"{scope}.archive.total")
         assert call is not None and put is not None and total is not None
         if call + put != total:
             raise CboeDailyPcrError(f"Cboe archive total differs for {scope}")
-        published = _mapping_value(row, "P/C Ratio")
+        published = _mapping_value(row, "P/C Ratio", "VIX Put/Call Ratio")
         _assert_published_ratio(call=call, put=put, published=published, scope=scope)
         parsed.append({
             "date": observed,
