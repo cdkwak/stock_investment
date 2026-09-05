@@ -704,3 +704,4 @@ a { color: inherit; text-decoration: none; }
 .si-event-line { stroke: #b35c00; stroke-width: 1; stroke-dasharray: 3 3; }
 .si-event-label { font-size: 9px; fill: #b35c00; }
 .regime-note { color: var(--amber-soft, #d9b36a); font-size: 10px; }
+.regime-asof { color: #8a847b; font-size: 10px; white-space: nowrap; }

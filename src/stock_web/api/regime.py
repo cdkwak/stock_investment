@@ -25,6 +25,19 @@ WEB_SETTINGS_RELATIVE = Path("artifacts/local_user/web_settings.json")
 REGIME_HISTORY_SESSIONS = 2_520
 REGIME_MIN_SESSIONS = 750
 REALIZED_VOLATILITY_SESSIONS = 20
+# Implied-volatility axis (review 2026-09-06 00:10). VIX/VKOSPI are ranked in the SAME 10-year
+# window as the trend axis (2,520 sessions): a 250-session window locked inside one abnormal
+# regime turned a 23-year 94th-percentile VKOSPI into "40% · calm" and thinned the VIX low tail
+# (250d 2.8% vs 10y 28%). The 250-session percentile is still reported next to the raw value.
+IMPLIED_VOLATILITY_RECENT_SESSIONS = 250
+# Hysteresis: ±1 switches on at the enter band and only switches off past the exit band, so a
+# reading hovering at the threshold cannot flip the verdict every other session (17 flips in
+# 45 sessions were measured on the plain 20% threshold).
+VOLATILITY_CALM_ENTER = 20.0
+VOLATILITY_CALM_EXIT = 30.0
+VOLATILITY_STRESS_ENTER = 80.0
+VOLATILITY_STRESS_EXIT = 70.0
+HYSTERESIS_LOOKBACK_SESSIONS = 500
 REGIME_CACHE_TTL_SECONDS = 60.0
 
 
@@ -262,6 +275,115 @@ def _latest_percentile(
     return _number(retained.rank(pct=True).iloc[-1] * 100.0)
 
 
+def _plain_volatility_contribution(percentile: float | None) -> int | None:
+    if percentile is None or pd.isna(percentile):
+        return None
+    if percentile <= VOLATILITY_CALM_ENTER:
+        return 1
+    if percentile >= VOLATILITY_STRESS_ENTER:
+        return -1
+    return 0
+
+
+def _volatility_contribution_with_hysteresis(
+    percentiles: pd.Series,
+) -> tuple[int | None, int | None, bool]:
+    """Walk the rolling-percentile history; a ±1 state only clears past its exit band.
+
+    Returns (contribution, plain_threshold_contribution, held) where ``held`` is True when
+    hysteresis kept a state the plain thresholds would already have dropped.
+    """
+    values = pd.to_numeric(percentiles, errors="coerce").dropna().tail(
+        HYSTERESIS_LOOKBACK_SESSIONS,
+    )
+    if values.empty:
+        return None, None, False
+    state: int | None = None
+    for percentile in values:
+        contribution = _plain_volatility_contribution(float(percentile))
+        if contribution == 0 and state == 1 and percentile <= VOLATILITY_CALM_EXIT:
+            contribution = 1
+        elif contribution == 0 and state == -1 and percentile >= VOLATILITY_STRESS_EXIT:
+            contribution = -1
+        state = contribution
+    plain = _plain_volatility_contribution(float(values.iloc[-1]))
+    return state, plain, state != plain
+
+
+def _empty_volatility_axis() -> dict[str, object]:
+    return {
+        "value": None, "as_of": None, "percentile_250d": None, "percentile_10y": None,
+        "contribution": None, "contribution_plain": None, "held": False,
+    }
+
+
+def _implied_volatility_axis(
+    query: LocalParquetQuery, dataset: str, *, date_column: str, value_column: str,
+) -> dict[str, object]:
+    """Read one implied-volatility index and rank it like the trend axis (10-year window)."""
+    try:
+        frame = query.tail(
+            dataset, rows=REGIME_HISTORY_SESSIONS + 64, columns=[date_column, value_column],
+        )
+    except (AttributeError, KeyError, OSError, PermissionError, TypeError, ValueError):
+        return _empty_volatility_axis()
+    if frame is None or frame.empty or value_column not in frame or date_column not in frame:
+        return _empty_volatility_axis()
+    values = pd.to_numeric(frame[value_column], errors="coerce")
+    keep = values.notna()
+    if not keep.any():
+        return _empty_volatility_axis()
+    series = values[keep].reset_index(drop=True)
+    dates = pd.to_datetime(frame.loc[keep, date_column], errors="coerce").reset_index(drop=True)
+    percentile_10y = _latest_percentile(series)
+    recent = series.tail(IMPLIED_VOLATILITY_RECENT_SESSIONS)
+    percentile_250d = _number(recent.rank(pct=True).iloc[-1] * 100.0)
+    rolling = series.rolling(
+        REGIME_HISTORY_SESSIONS, min_periods=REGIME_MIN_SESSIONS,
+    ).rank(pct=True) * 100.0
+    contribution, plain, held = _volatility_contribution_with_hysteresis(rolling)
+    if percentile_10y is None:
+        contribution, plain, held = None, None, False
+    as_of = dates.iloc[-1]
+    return {
+        "value": _number(series.iloc[-1]),
+        "as_of": None if pd.isna(as_of) else pd.Timestamp(as_of).date().isoformat(),
+        "percentile_250d": percentile_250d,
+        "percentile_10y": percentile_10y,
+        "contribution": contribution,
+        "contribution_plain": plain,
+        "held": bool(held),
+    }
+
+
+def _last_date(frame: pd.DataFrame | None, column: str = "date") -> object:
+    if frame is None or frame.empty or column not in frame:
+        return None
+    dates = pd.to_datetime(frame[column], errors="coerce").dropna()
+    return None if dates.empty else dates.max()
+
+
+def _short_date(value: object) -> str | None:
+    if value is None:
+        return None
+    try:
+        stamp = pd.Timestamp(value)
+    except (TypeError, ValueError):
+        return None
+    return None if pd.isna(stamp) else stamp.strftime("%m-%d")
+
+
+def _as_of_label(parts: list[tuple[str, object]]) -> str | None:
+    """'기준 09-04' when every input shares a date, else '기준 KOSPI 09-04 · VKOSPI 09-03'."""
+    dated = [(name, _short_date(value)) for name, value in parts]
+    dated = [(name, date) for name, date in dated if date]
+    if not dated:
+        return None
+    if len({date for _, date in dated}) == 1:
+        return f"기준 {dated[0][1]}"
+    return "기준 " + " · ".join(f"{name} {date}" for name, date in dated)
+
+
 def _price_regime_metrics(
     frame: pd.DataFrame, moving_average_days: int,
 ) -> dict[str, float | None]:
@@ -329,12 +451,21 @@ def _market_verdict(
     distance_pct: float | None,
     trend_name: str,
     volatility_name: str,
+    volatility_axis: dict[str, object] | None = None,
 ) -> dict[str, object]:
+    if volatility_axis is not None:
+        volatility_percentile = _number(volatility_axis.get("percentile_10y"))
     values = tuple(
         None if value is None or pd.isna(value) else float(value)
         for value in (rsi, trend_percentile, volatility_percentile)
     )
     contributions = _market_score_components(*values)
+    if volatility_axis is not None:
+        axis_contribution = volatility_axis.get("contribution")
+        contributions = (
+            contributions[0], contributions[1],
+            axis_contribution if isinstance(axis_contribution, int) else None,
+        )
     raw_score, score, score_note = _aggregate_market_score(contributions)
     # Words must match the kind of evidence (obsidian session, 2026-09-05): VIX/실현변동성 is a
     # risk gauge, not a direction. When ±1 comes from volatility alone, say 저변동/고변동 —
@@ -372,9 +503,38 @@ def _market_verdict(
                 "name": volatility_name,
                 "value": values[2],
                 "contribution": contributions[2],
+                **(
+                    {
+                        "raw_value": _number(volatility_axis.get("value")),
+                        "percentile_250d": _number(volatility_axis.get("percentile_250d")),
+                        "as_of": volatility_axis.get("as_of"),
+                        "held": bool(volatility_axis.get("held")),
+                        "contribution_plain": volatility_axis.get("contribution_plain"),
+                    } if volatility_axis is not None else {}
+                ),
             },
         ],
     }
+
+
+def _volatility_evidence_value(component: dict[str, object]) -> str | None:
+    """'39.3 · 250일 40% · 10년 93% → −1' — raw index, short and long percentile, contribution."""
+    percentile_10y = _number(component.get("value"))
+    if percentile_10y is None:
+        return None
+    parts: list[str] = []
+    raw = _number(component.get("raw_value"))
+    if raw is not None:
+        parts.append(f"{raw:.1f}")
+    percentile_250d = _number(component.get("percentile_250d"))
+    if percentile_250d is not None:
+        parts.append(f"250일 {percentile_250d:.0f}%")
+    parts.append(f"10년 {percentile_10y:.0f}%")
+    contribution = component.get("contribution")
+    text = " · ".join(parts) + f" → {_score_text(contribution if isinstance(contribution, int) else None)}"
+    if component.get("held"):
+        text += " (유지 · 해제 밴드 안)"
+    return text
 
 
 def _trend_evidence_value(component: dict[str, object], trend_name: str) -> str:
@@ -658,12 +818,14 @@ def _build_regime_markets(
     us_distance = us_metrics["distance_pct"]
     us_trend_pct = us_metrics["trend_percentile"]
 
-    try:
-        volatility = service.volatility(days=250)
-    except (KeyError, OSError, PermissionError, TypeError, ValueError):
-        volatility = {}
-    vk_pct = _number(volatility.get("VKOSPI", {}).get("percentile_250d"))
-    vix_pct = _number(volatility.get("VIX", {}).get("percentile_250d"))
+    vk_axis = _implied_volatility_axis(
+        query, "normalized/kr_vkospi_daily", date_column="market_date", value_column="close",
+    )
+    vix_axis = _implied_volatility_axis(
+        query, "normalized/fred_vix_daily", date_column="date", value_column="vixcls",
+    )
+    vk_pct = _number(vk_axis.get("percentile_10y"))
+    vix_pct = _number(vix_axis.get("percentile_10y"))
 
     try:
         valuation_pct, valuation_inputs = _market_valuation_percentile(
@@ -684,7 +846,8 @@ def _build_regime_markets(
 
     kr_verdict = _market_verdict(
         kr_rsi, kr_trend_pct, vk_pct, distance_pct=kr_distance,
-        trend_name="60일선", volatility_name="VKOSPI 250일 백분위",
+        trend_name="60일선", volatility_name="VKOSPI 10년 백분위",
+        volatility_axis=vk_axis,
     )
     kr_available = sum(
         component["value"] is not None for component in kr_verdict["components"]
@@ -699,8 +862,8 @@ def _build_regime_markets(
             "추세 (60일선)", _trend_evidence_value(kr_components[1], "60일선"),
         ),
         _evidence_row(
-            "VKOSPI 250일 백분위",
-            _component_evidence_value(kr_components[2], "{:.0f}%"),
+            "VKOSPI 10년 백분위",
+            _volatility_evidence_value(kr_components[2]),
             hint="낮을수록 안정",
         ),
         _evidence_row(
@@ -723,7 +886,8 @@ def _build_regime_markets(
 
     us_verdict = _market_verdict(
         us_rsi, us_trend_pct, vix_pct, distance_pct=us_distance,
-        trend_name="200일선", volatility_name="VIX 250일 백분위",
+        trend_name="200일선", volatility_name="VIX 10년 백분위",
+        volatility_axis=vix_axis,
     )
     us_available = sum(
         component["value"] is not None for component in us_verdict["components"]
@@ -754,8 +918,8 @@ def _build_regime_markets(
             "추세 (200일선)", _trend_evidence_value(us_components[1], "200일선"),
         ),
         _evidence_row(
-            "VIX 250일 백분위",
-            _component_evidence_value(us_components[2], "{:.0f}%"),
+            "VIX 10년 백분위",
+            _volatility_evidence_value(us_components[2]),
             hint="낮을수록 안정",
         ),
         _evidence_row(
@@ -827,16 +991,23 @@ def _build_regime_markets(
 
     global_temperature = global_risk_temperature(spread_level, spread_change, yield_change_bp, wti_change)
     global_counts = global_risk_signal_counts(spread_level, spread_change, yield_change_bp, wti_change)
+    # Each card says which session its inputs describe (review 2026-09-06 00:10: VIX rows were
+    # 09-03 and VKOSPI rows 09-04 with no date anywhere while the VIX tile showed 09-05 intraday).
+    kr_as_of = _as_of_label([("KOSPI", _last_date(kospi)), ("VKOSPI", vk_axis.get("as_of"))])
+    us_as_of = _as_of_label([("S&P 500", _last_date(sp500)), ("VIX", vix_axis.get("as_of"))])
+    global_as_of = _as_of_label([("금리", _last_date(valid_yields)), ("WTI", _last_date(wti))])
     markets: list[dict[str, object]] = [
         {
             "title": "한국장",
             **kr_verdict,
             "subtitle": f"점수 {_score_text(kr_verdict['score'])} · 자료 {kr_available}/3 · 실적 축 없음",
+            "as_of_label": kr_as_of,
             "evidence": kr_evidence,
         },
         {
             "title": "미국장",
             **us_verdict,
+            "as_of_label": us_as_of,
             "subtitle": (
                 f"점수 {_score_text(us_verdict['score'])}"
                 f" · 기술 {_score_text(tech_verdict['score'])}"
@@ -860,6 +1031,7 @@ def _build_regime_markets(
             "temperature_basis": "매크로 신호 2개 이상일 때만 판정 · 점수 없음",
             "hot": global_temperature == "과열",
             "subtitle": f"자료 {1 if global_available >= 3 else 0}/3 · 매크로 축 · 침체 신호 {global_counts[0]} · 과열 신호 {global_counts[1]}",
+            "as_of_label": global_as_of,
             "evidence": global_evidence,
         },
     ]

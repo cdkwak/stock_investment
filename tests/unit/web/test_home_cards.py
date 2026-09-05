@@ -351,7 +351,7 @@ def test_regime_rows_have_evidence_flags_hints_and_percentile_labels(
     rows = result["markets"][0]["evidence"]
     by_label = {row["label"]: row for row in rows}
 
-    assert by_label["VKOSPI 250일 백분위"]["hint"] == "낮을수록 안정"
+    assert by_label["VKOSPI 10년 백분위"]["hint"] == "낮을수록 안정"
     assert by_label["KRX PER 5년 백분위"]["hint"] == "낮을수록 저평가"
     assert by_label["신용잔고 1년 백분위"]["hint"] == "높을수록 과열"
     assert by_label["과매도 강도"]["hint"] == "높을수록 과매도"

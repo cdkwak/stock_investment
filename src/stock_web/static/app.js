@@ -234,7 +234,7 @@
       ? sec.risk.rows : ((markets[2] || {}).evidence || []);
     const evidenceCard = (title, rows) => `<div class="regime-evidence-card"><div class="t">${esc(title)}</div><div class="ev">${regimeRows(rows)}</div></div>`;
     void evidenceCard; void riskRows;
-    host.innerHTML = `<div class="regime-evidence-card regime-rule-card"><div class="t">판정 규칙</div><div class="ev regime-rule-copy"><div>RSI14와 추세·변동성을 합산해 −2 침체 · −1 약세 · 0 중립 · +1 강세 · +2 과열로 표시합니다. 변동성 단독으로 만든 ±1은 방향 단어 대신 저변동/고변동으로 적습니다. 추세는 각 지수 자기 10년 이격 백분위입니다.</div><div>변동성은 S&amp;P 500=VIX · 코스피=VKOSPI · 나스닥/SOX=자기 20일 실현변동성을 씁니다. 과열/공포는 RSI와 추세라는 두 가지 다른 근거가 필요하며 변동성 단독은 ±1까지입니다.</div><div>글로벌 위험: 침체 신호 2개 이상 = 침체, 과열 신호 2개 이상 = 과열 (금리차 역전 · 금리차 1개월 −0.25%p · 10년물 1개월 −25bp · WTI 1개월 −10%)</div></div></div>`;
+    host.innerHTML = `<div class="regime-evidence-card regime-rule-card"><div class="t">판정 규칙</div><div class="ev regime-rule-copy"><div>RSI14와 추세·변동성을 합산해 −2 침체 · −1 약세 · 0 중립 · +1 강세 · +2 과열로 표시합니다. 변동성 단독으로 만든 ±1은 방향 단어 대신 저변동/고변동으로 적습니다. 변동성(VIX·VKOSPI)은 추세와 같은 10년 창 백분위로 재며, 20% 이하 +1 · 80% 이상 −1은 30%/70%를 되넘을 때까지 유지합니다(히스테리시스). 근거 값은 '지수 원값 · 250일 백분위 · 10년 백분위'를 함께 적습니다. 추세는 각 지수 자기 10년 이격 백분위입니다.</div><div>변동성은 S&amp;P 500=VIX · 코스피=VKOSPI · 나스닥/SOX=자기 20일 실현변동성을 씁니다. 과열/공포는 RSI와 추세라는 두 가지 다른 근거가 필요하며 변동성 단독은 ±1까지입니다.</div><div>글로벌 위험: 침체 신호 2개 이상 = 침체, 과열 신호 2개 이상 = 과열 (금리차 역전 · 금리차 1개월 −0.25%p · 10년물 1개월 −25bp · WTI 1개월 −10%)</div></div></div>`;
   }
   function renderRegime(sec) {
     const host = $("regime-cards");
@@ -245,7 +245,7 @@
         <div class="regime-card">
           <div class="regime-title-line">
             <span class="t">${esc(m.title)}</span>
-            <div class="temp"><b class="regime-verdict ${scoreView.tone}">${esc(m.temperature)}</b>${scoreView.meter}<span>${esc(String(m.subtitle || "").replace(/^신호 (?=\d+\/3)/, "자료 "))}${m.score_note || m.temperature_basis ? ` <small class="regime-note">· ${esc(m.score_note || m.temperature_basis)}</small>` : ""}</span>${index === 0 ? '<button class="regime-toggle" id="regime-toggle" type="button" aria-expanded="false">근거 펼치기 ▾</button>' : ""}</div>
+            <div class="temp"><b class="regime-verdict ${scoreView.tone}">${esc(m.temperature)}</b>${scoreView.meter}<span>${esc(String(m.subtitle || "").replace(/^신호 (?=\d+\/3)/, "자료 "))}${m.score_note || m.temperature_basis ? ` <small class="regime-note">· ${esc(m.score_note || m.temperature_basis)}</small>` : ""}${m.as_of_label ? ` <small class="regime-asof">· ${esc(m.as_of_label)}</small>` : ""}</span>${index === 0 ? '<button class="regime-toggle" id="regime-toggle" type="button" aria-expanded="false">근거 펼치기 ▾</button>' : ""}</div>
           </div>
           <div class="ev-compact">${regimeCompact(m.evidence)}</div>
           <div class="ev">${regimeRows(m.evidence)}</div>

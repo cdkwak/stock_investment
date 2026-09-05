@@ -308,6 +308,7 @@ def _tile_from_series(name: str, symbol: str | None, frame: pd.DataFrame | None,
         "window": f"{window_label} · {series['date'].iloc[-1]:%m-%d}",
         "_daily_value": float(last),
         "_daily_date": series["date"].iloc[-1].strftime("%Y-%m-%d"),
+        "_fmt": fmt,
     }
     if change_kind == "pct":
         tile["change_pct"] = _nan_to_none((last / prev - 1) * 100)
@@ -508,6 +509,7 @@ def build_tiles(project_root: Path) -> list[dict[str, object]]:
         intraday = load_intraday_series(project_root, str(tile["name"]))
         daily_value = tile.pop("_daily_value", None)
         daily_date = tile.pop("_daily_date", None)
+        value_format = str(tile.pop("_fmt", "{:,.2f}"))
         if intraday is not None and len(intraday["points"]) >= 3:
             tile["spark"] = intraday["points"]
             tile["window"] = intraday["window"]
@@ -552,10 +554,20 @@ def build_tiles(project_root: Path) -> list[dict[str, object]]:
                     tile["close_change_pct"] = tile["change_pct"]
                     tile["close_date"] = str(daily_date)[5:10] if daily_date else None
                     tile["change_pct"] = intraday_change
+                    # The two headline numbers must describe the same moment (review 2026-09-06
+                    # 00:10: VIX showed the 09-03 close 14.32 next to +1.47% measured from the
+                    # 09-05 intraday 14.53). The close stays available as close_value.
+                    tile["close_value"] = tile["value"]
+                    tile["value"] = value_format.format(latest_value)
             if tile["name"] == "VIX" and daily_value is not None:
                 tile["window"] = f"24h · {latest_clock} KST"
+                close_change = tile.get("close_change_pct")
+                close_tail = (
+                    f" ({close_change:+.2f}% 마감 대 마감)"
+                    if isinstance(close_change, (int, float)) else ""
+                )
                 tile["sub_note"] = (
-                    f"FRED 마감 {format_kst(daily_date)} {_compact_number(daily_value)}"
+                    f"FRED 마감 {format_kst(daily_date)} {_compact_number(daily_value)}{close_tail}"
                     f" · 장중 ^VIX {_compact_number(latest_value)}"
                 )
             elif tile["name"] == "미국 10Y" and daily_value is not None:

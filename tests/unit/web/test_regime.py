@@ -184,6 +184,19 @@ def test_build_regime_exposes_scores_components_and_us_subscores(
             return result
 
         def tail(self, dataset: str, **_kwargs: object) -> pd.DataFrame:
+            if dataset.endswith("kr_vkospi_daily"):
+                # 900 sessions; the last print sits at the median → 10년 백분위 ≈ 50% → 0.
+                closes = [float(i) for i in range(900)]
+                closes[-1] = 450.0
+                return pd.DataFrame({
+                    "market_date": pd.date_range("2022-01-03", periods=900), "close": closes,
+                })
+            if dataset.endswith("fred_vix_daily"):
+                # Monotonic series: every session is its own 10-year maximum → −1 throughout.
+                return pd.DataFrame({
+                    "date": pd.date_range("2022-01-03", periods=900),
+                    "vixcls": [float(i) for i in range(900)],
+                })
             if dataset.endswith("kr_credit_balance_daily"):
                 return pd.DataFrame({
                     "date": dates,
@@ -255,9 +268,26 @@ def test_build_regime_exposes_scores_components_and_us_subscores(
             "distance_pct": 0.0,
             "contribution": None,
         },
-        {"name": "VKOSPI 250일 백분위", "value": 40.0, "contribution": 0},
+        {
+            "name": "VKOSPI 10년 백분위",
+            "value": pytest.approx(50.1, abs=0.2),
+            "contribution": 0,
+            "raw_value": 450.0,
+            "percentile_250d": pytest.approx(0.4, abs=0.1),
+            "as_of": "2024-06-20",
+            "held": False,
+            "contribution_plain": 0,
+        },
     ]
     assert korea["evidence"][0]["value"] == "48.6 → 0"
+    # Raw index · short window · long window · contribution, in one row (review 2026-09-06).
+    assert korea["evidence"][2]["label"] == "VKOSPI 10년 백분위"
+    assert korea["evidence"][2]["value"] == "450.0 · 250일 0% · 10년 50% → 0"
+    # Every card says which sessions its inputs describe; KOSPI and VKOSPI differ here.
+    assert korea["as_of_label"] == "기준 KOSPI 05-10 · VKOSPI 06-20"
+    assert united_states["as_of_label"] == "기준 S&P 500 05-10 · VIX 06-20"
+    assert united_states["components"][2]["contribution"] == -1
+    assert united_states["evidence"][2]["value"].endswith("10년 100% → −1")
     assert korea["evidence"][1]["value"] == "자료 없음"
     assert korea["evidence"][1]["evidence"] is False
 
@@ -275,3 +305,54 @@ def test_build_regime_exposes_scores_components_and_us_subscores(
     assert global_risk["temperature"] == "판정 없음"
     assert global_risk["temperature_basis"] == "매크로 신호 2개 이상일 때만 판정 · 점수 없음"
     assert global_risk["subtitle"].startswith("자료 ") and "침체 신호" in global_risk["subtitle"]
+
+
+@pytest.mark.parametrize(
+    ("percentiles", "expected"),
+    [
+        ([10.0, 25.0], (1, 0, True)),      # calm entered at ≤20, held while ≤30
+        ([10.0, 35.0], (0, 0, False)),     # cleared past the 30 exit band
+        ([90.0, 75.0], (-1, 0, True)),     # stress entered at ≥80, held while ≥70
+        ([90.0, 65.0], (0, 0, False)),
+        ([50.0, 25.0], (0, 0, False)),     # never entered: 25 alone is not calm
+        ([], (None, None, False)),
+    ],
+)
+def test_volatility_hysteresis_only_clears_past_the_exit_band(
+    percentiles: list[float], expected: tuple[int | None, int | None, bool],
+) -> None:
+    assert regime._volatility_contribution_with_hysteresis(pd.Series(percentiles, dtype=float)) == expected
+
+
+def test_implied_volatility_axis_ranks_in_the_trend_window_and_keeps_the_short_percentile() -> None:
+    class Query:
+        def tail(self, _dataset: str, **_kwargs: object) -> pd.DataFrame:
+            # 3,000 sessions of 10..40 then a 250-session spike to 60..90; the last print, 62,
+            # is near the bottom of the recent window but near the top of the 10-year window.
+            base = [10.0 + (i % 300) * 0.1 for i in range(2_750)]
+            spike = [60.0 + (i % 250) * 0.12 for i in range(249)] + [62.0]
+            return pd.DataFrame({
+                "market_date": pd.date_range("2014-01-01", periods=3_000),
+                "close": base + spike,
+            })
+
+    axis = regime._implied_volatility_axis(
+        Query(), "normalized/kr_vkospi_daily", date_column="market_date", value_column="close",
+    )
+    assert axis["value"] == 62.0
+    assert axis["as_of"] == "2022-03-19"
+    assert axis["percentile_250d"] < 15.0
+    assert axis["percentile_10y"] > 90.0
+    assert axis["contribution"] == -1 and axis["contribution_plain"] == -1
+
+
+def test_implied_volatility_axis_is_empty_without_data() -> None:
+    class Query:
+        def tail(self, _dataset: str, **_kwargs: object) -> pd.DataFrame:
+            return pd.DataFrame()
+
+    axis = regime._implied_volatility_axis(
+        Query(), "normalized/fred_vix_daily", date_column="date", value_column="vixcls",
+    )
+    assert axis["percentile_10y"] is None and axis["contribution"] is None
+
