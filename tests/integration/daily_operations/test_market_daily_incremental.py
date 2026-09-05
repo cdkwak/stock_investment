@@ -717,7 +717,7 @@ def test_credit_two_pass_valid_empty_requires_two_observations(tmp_path):
     assert checkpoint["valid_empty_partitions"] == ["20260813"]
 
 
-def test_market_liquidity_stable_empty_behavior_remains_noop(tmp_path):
+def test_market_liquidity_stable_empty_is_rechecked_for_late_publication(tmp_path):
     for _ in range(2):
         execute_liquidity_credit_two_pass(
             two_pass_plan(tmp_path, "market_liquidity"), project_root=tmp_path,
@@ -725,7 +725,9 @@ def test_market_liquidity_stable_empty_behavior_remains_noop(tmp_path):
         )
 
     replay = two_pass_plan(tmp_path, "market_liquidity")
-    assert (replay.action, replay.estimated_api_calls) == ("NOOP_STABLE", 0)
+    assert (replay.action, replay.estimated_api_calls) == (
+        "CAPTURE_RECHECK_EMPTY", 1,
+    )
 
 
 def test_credit_two_pass_rechecks_stable_empty_and_promotes_lagged_row(

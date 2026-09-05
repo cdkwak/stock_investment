@@ -103,26 +103,44 @@ preserving the dataset-specific finality rules below.
   finality-observation lane, not evidence that the provider has a proven daily
   publication clock or that predictive use is safe.
 
-### 2026-09-03 liquidity/credit stall root cause
+### 2026-09-05 liquidity/credit late-publication handling
 
 - The lane always queried the latest completed XKRX session for both KOFIA endpoints.
 - Credit returned `VALID_EMPTY` on that same-day date because publication lags the session.
 - Two matching empty captures became terminal `STABLE`, so that date was never queried later.
 - The next occurrence moved to a new same-day target; no lagged credit row could promote.
 - Runtime coverage then used provisional/stable observation dates instead of the Normalized max.
-- Credit now makes one extra call only after an empty target, selecting one of the prior 1–3 sessions.
+- Credit makes one extra call only after an empty target, selecting one of the prior 1–3 sessions.
 - A stable-empty date is reopened; a newly complete row is `REVISED` until an identical second pass.
-- This keeps two-pass promotion (no single-observation shortcut); market-liquidity fallback is unchanged.
+- The 2026-09-05 retained/live diagnosis showed that market liquidity is different:
+  Normalized stopped at 2026-08-06 while the endpoint returned one row for
+  `basDt=20260820` and remained empty for `basDt=20260903`, an observed lag of
+  roughly two weeks.
+- Each market-liquidity occurrence now calculates every missing XKRX session in
+  `(last retained date, latest completed session]`, plus any earlier retained
+  provider-empty holes. It requests the oldest dates first and makes at most 20
+  exact-`basDt` calls per occurrence. Two-pass comparison and atomic promotion
+  remain mandatory.
+- `VALID_EMPTY` is `publisher_not_yet_available` and remains eligible on later
+  occurrences. Only after the source date is more than 45 calendar days old is
+  its already-stable empty observation closed as `publisher_gap_confirmed`; no
+  row is invented or forward-filled.
+- Liquidity receipts retain the target-date fields and add
+  `gap_dates_requested`, `gap_rows_promoted`, `oldest_pending_date`, and typed
+  per-date `gap_results`. `NOOP_STABLE` means there was no missing liquidity
+  session, not that a queried date returned empty.
 - Credit health now reports the contract-valid Normalized max against a two-XKRX-business-day
   availability target. A retained T-2 row is `EXPECTED_LAG`; anything older remains
-  `STALE`/`지연/경고`. Market liquidity remains on its manual policy because its retained
-  2026-08-06 maximum does not demonstrate the same T-2 behavior.
+  `STALE`/`지연/경고`. Because KOFIA documents no liquidity publication SLA,
+  liquidity health uses the latest contract-valid published date actually
+  observed by this lane as its expected-available watermark. This avoids a
+  false fixed-day delay claim while the backlog worker continues independently.
 
 Human-run commands (the live command performs public-provider calls):
 
 ```powershell
 # LIQUIDITY_CREDIT_DAILY is bundle-only (not a --lane choice); it runs inside the KR_MARKET_DAILY 09:10 and 20:30 slots.
-# Manual single-lane check from the repo root (dry run, then live; repeat live once when the fallback reports REVISED/COMPLETE):
+# Manual single-lane check from the repo root (dry run, then live; subsequent natural runs continue the bounded backlog):
 $env:PYTHONIOENCODING='utf-8'; .\.venv\Scripts\python.exe -c "import sys; sys.path[:0]=['src','scripts/maintenance']; from datetime import datetime, timezone; from pathlib import Path; import json, run_provider_scheduler as r; print(json.dumps(r._run_liquidity_credit_observation(Path('.').resolve(), clock=datetime.now(timezone.utc), dry_run=True), ensure_ascii=False))"
 $env:PYTHONIOENCODING='utf-8'; .\.venv\Scripts\python.exe -c "import sys; sys.path[:0]=['src','scripts/maintenance']; from datetime import datetime, timezone; from pathlib import Path; import json, run_provider_scheduler as r; print(json.dumps(r._run_liquidity_credit_observation(Path('.').resolve(), clock=datetime.now(timezone.utc), dry_run=False), ensure_ascii=False))"
 ```

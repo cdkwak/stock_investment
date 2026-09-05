@@ -668,6 +668,16 @@ def resolve_expected_latest(
     calendar = ExchangeTradingCalendar(policy.exchange_market)
     market_date = calendar.latest_completed_session(as_of)
     provider_target, derived_availability = _provider_target(policy, calendar, as_of)
+    if (
+        dataset == "kr_market_liquidity_daily"
+        and lane == "LIQUIDITY_CREDIT_DAILY"
+        and retained_latest is not None
+    ):
+        # KOFIA has recently published this series roughly two weeks late and
+        # documents no release SLA.  The only honest expected watermark is the
+        # latest contract-valid date the lane has actually observed.
+        provider_target = retained_latest
+        derived_availability = ProviderAvailability.UNKNOWN
     due_at = _due_at(
         dataset=dataset, lane=lane, policy=policy, target=provider_target,
         calendar=calendar,

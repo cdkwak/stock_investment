@@ -200,7 +200,7 @@ def test_credit_balance_uses_two_provider_business_day_expectation() -> None:
     assert late.collection_required is True
 
 
-def test_market_liquidity_keeps_manual_policy_without_matching_retained_lag() -> None:
+def test_market_liquidity_uses_observed_published_watermark() -> None:
     result = resolve_expected_latest(
         dataset="kr_market_liquidity_daily",
         lane="LIQUIDITY_CREDIT_DAILY",
@@ -209,7 +209,9 @@ def test_market_liquidity_keeps_manual_policy_without_matching_retained_lag() ->
     )
 
     assert result.expected_lag_policy is ExpectedLagPolicy.MANUAL
-    assert result.freshness is ExpectedFreshness.STALE
+    assert result.expected_available_observation == date(2026, 8, 6)
+    assert result.freshness is ExpectedFreshness.EXPECTED_LAG
+    assert result.collection_required is False
 
 
 def test_toss_korean_treasury_uses_completed_successor_session() -> None:

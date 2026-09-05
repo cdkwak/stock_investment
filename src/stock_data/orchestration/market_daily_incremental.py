@@ -29,6 +29,9 @@ from stock_data.orchestration.daily_operations import (
     FreshnessStatus, OperationalEligibility,
     PredictiveEligibility, StageStatus,
 )
+from stock_data.orchestration.exchange_calendar import (
+    ExchangeMarket, ExchangeTradingCalendar,
+)
 
 
 class MarketDailyIncrementalError(RuntimeError):
@@ -69,6 +72,8 @@ class TwoPassResult:
     stable: bool
     landing_path: str | None
     response_status: str | None = None
+    availability_status: str | None = None
+    promoted_rows: int = 0
 
 
 SHORT_SELLING_EXACT_DATE_SCOPE_COUNTS = {
@@ -77,6 +82,8 @@ SHORT_SELLING_EXACT_DATE_SCOPE_COUNTS = {
     "investor": 4,
 }
 SHORT_SELLING_FRESH_SESSION_AUTH_RAW_CALLS = 5
+MAX_GAP_CALLS = 20
+PUBLISHER_LAG_LIMIT_DAYS = 45
 SHORT_SELLING_FINALITY_POLICIES = {
     "trading": "NEXT_XKRX_SESSION_T_PLUS_1",
     "balance": "EXPLICIT_REVIEWED_PROVIDER_PUBLICATION_ONLY",
@@ -409,6 +416,61 @@ def _landing_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def plan_liquidity_gap_dates(
+    *, project_root: Path, target_date: date,
+    calendar: object | None = None, max_gap_calls: int = MAX_GAP_CALLS,
+) -> tuple[date, ...]:
+    """Return the oldest unfilled liquidity sessions within the run budget."""
+    if not 1 <= max_gap_calls <= MAX_GAP_CALLS:
+        raise ValueError(f"max_gap_calls must be between 1 and {MAX_GAP_CALLS}")
+    normalized = project_root / "data/normalized" / KR_MARKET_LIQUIDITY_DAILY.name
+    if not normalized.exists():
+        raise MarketDailyIncrementalError("retained liquidity dataset is missing")
+    frame = read_dataset(
+        normalized, KR_MARKET_LIQUIDITY_DAILY,
+        lambda value: validate_data_v1(value, KR_MARKET_LIQUIDITY_DAILY),
+    )
+    if frame.empty:
+        raise MarketDailyIncrementalError("retained liquidity dataset is empty")
+    last_value = max(frame["date"])
+    last_retained = last_value.date() if hasattr(last_value, "date") else last_value
+    if not isinstance(last_retained, date):
+        last_retained = date.fromisoformat(str(last_retained)[:10])
+    if last_retained >= target_date:
+        missing: set[date] = set()
+    else:
+        exchange = calendar or ExchangeTradingCalendar(ExchangeMarket.KR)
+        first_missing = exchange.next_trading_day(last_retained)
+        missing = set(exchange.sessions_in_range(first_missing, target_date))
+
+    # A later promoted row must not hide an earlier provider-empty hole.
+    state = _read_json(_two_pass_state_path(project_root, KR_MARKET_LIQUIDITY_DAILY.name))
+    dates = state.get("dates", {})
+    if not isinstance(dates, dict):
+        raise MarketDailyIncrementalError("two-pass finality dates are invalid")
+    for token, day in dates.items():
+        if not isinstance(day, dict):
+            raise MarketDailyIncrementalError("two-pass finality date entry is invalid")
+        raw_date = str(day.get("market_date") or token)
+        try:
+            state_date = date.fromisoformat(raw_date)
+        except ValueError:
+            state_date = datetime.strptime(raw_date, "%Y%m%d").date()
+        if (
+            day.get("availability_status") == "publisher_gap_confirmed"
+            or day.get("status") == "PUBLISHER_GAP_CONFIRMED"
+        ):
+            missing.discard(state_date)
+            continue
+        if (
+            day.get("availability_status") == "publisher_not_yet_available"
+            or day.get("stable_response_status") == "VALID_EMPTY"
+        ):
+            if state_date <= target_date:
+                missing.add(state_date)
+    return tuple(sorted(missing)[:max_gap_calls])
+
+
 def _legacy_two_pass_observation(
     project_root: Path, dataset: str, market_date: date, contract,
 ) -> dict | None:
@@ -451,15 +513,31 @@ def plan_liquidity_credit_two_pass(
     if gate:
         action, reason, calls = gate[0], gate[1], 0
     elif (
-        contract.name == KR_CREDIT_BALANCE_DAILY.name
+        contract.name == KR_MARKET_LIQUIDITY_DAILY.name
+        and day.get("availability_status") == "publisher_gap_confirmed"
+    ):
+        action, reason, calls = "NOOP_STABLE", "PUBLISHER_GAP_CONFIRMED", 0
+    elif (
+        contract.name in {
+            KR_CREDIT_BALANCE_DAILY.name, KR_MARKET_LIQUIDITY_DAILY.name,
+        }
         and day.get("status") == "STABLE"
         and day.get("stable_response_status") == "VALID_EMPTY"
     ):
-        action, reason, calls = (
-            "CAPTURE_RECHECK_EMPTY",
-            "STABLE_EMPTY_RECHECK_FOR_LAGGED_PUBLICATION",
-            1,
-        )
+        if (
+            contract.name == KR_MARKET_LIQUIDITY_DAILY.name
+            and (latest_finalized_market_date - market_date).days
+            > PUBLISHER_LAG_LIMIT_DAYS
+        ):
+            action, reason, calls = (
+                "CONFIRM_PUBLISHER_GAP", "PUBLISHER_LAG_LIMIT_EXCEEDED", 0,
+            )
+        else:
+            action, reason, calls = (
+                "CAPTURE_RECHECK_EMPTY",
+                "STABLE_EMPTY_RECHECK_FOR_LAGGED_PUBLICATION",
+                1,
+            )
     elif day.get("status") == "STABLE":
         action, reason, calls = "NOOP_STABLE", "TWO_PASS_STABILITY_CONFIRMED", 0
     elif day.get("observations") or _legacy_two_pass_observation(
@@ -772,11 +850,26 @@ def execute_liquidity_credit_two_pass(
         "market_date": plan.market_date.isoformat(), "status": "UNOBSERVED",
         "comparison_fields": [], "observations": [],
     })
+    if plan.action == "CONFIRM_PUBLISHER_GAP":
+        # Keep the established two-pass state machine status stable; the
+        # orthogonal availability marker carries the permanent-gap decision.
+        day["status"] = "STABLE"
+        day["availability_status"] = "publisher_gap_confirmed"
+        day["gap_confirmed_at"] = (
+            observed_at or datetime.now(timezone.utc)
+        ).astimezone(timezone.utc).isoformat()
+        _atomic_json(state_path, state)
+        return TwoPassResult(
+            plan.dataset, plan.market_date.isoformat(),
+            "PUBLISHER_GAP_CONFIRMED", 0,
+            len(day.get("observations", ())), True, None, "VALID_EMPTY",
+            "publisher_gap_confirmed", 0,
+        )
     if plan.action == "NOOP_STABLE":
         return TwoPassResult(
             plan.dataset, plan.market_date.isoformat(), "NOOP_STABLE", 0,
             len(day.get("observations", ())), True, None,
-            day.get("stable_response_status"),
+            day.get("stable_response_status"), day.get("availability_status"), 0,
         )
 
     key = next(key for key, values in _DATA_GO_DAILY.items() if values[0].name == plan.dataset)
@@ -844,8 +937,12 @@ def execute_liquidity_credit_two_pass(
                     lambda value: validate_data_v1(value, contract),
                 )
                 normalized_sha = _frame_fingerprint(frame, contract, plan.market_date)
+                promoted_row_count = int(
+                    (frame["date"].astype(str) == plan.market_date.isoformat()).sum()
+                )
             else:
                 normalized_sha = hashlib.sha256(b"VALID_EMPTY").hexdigest()
+                promoted_row_count = 0
             observation = {
                 "observed_at": now.isoformat(),
                 "landing_path": paths["landing"].relative_to(project_root).as_posix(),
@@ -859,6 +956,13 @@ def execute_liquidity_credit_two_pass(
             observations.append(observation)
             day["comparison_fields"] = list(contract.column_names)
             day["last_observed_at"] = now.isoformat()
+            if (
+                plan.dataset == KR_MARKET_LIQUIDITY_DAILY.name
+                and result.status == "VALID_EMPTY"
+            ):
+                day["availability_status"] = "publisher_not_yet_available"
+            elif plan.dataset == KR_MARKET_LIQUIDITY_DAILY.name:
+                day.pop("availability_status", None)
             if previous_sha is None:
                 day["anchor_sha256"] = normalized_sha
                 day["status"] = "PROVISIONAL"
@@ -894,6 +998,14 @@ def execute_liquidity_credit_two_pass(
                 int(getattr(result, "pages", 0)), len(observations),
                 final_status == "STABLE", observation["landing_path"],
                 result.status,
+                (
+                    "publisher_not_yet_available"
+                    if (
+                        plan.dataset == KR_MARKET_LIQUIDITY_DAILY.name
+                        and result.status == "VALID_EMPTY"
+                    ) else None
+                ),
+                promoted_row_count if final_status == "STABLE" else 0,
             )
         except Exception as error:
             _rollback_data_go_transaction(
@@ -968,6 +1080,7 @@ __all__ = [
     "TwoPassResult", "execute_liquidity_credit_two_pass",
     "execute_data_go_kr_daily", "execute_short_selling_daily",
     "health_from_exact_date_plan", "plan_data_go_kr_daily",
+    "plan_liquidity_gap_dates",
     "plan_liquidity_credit_two_pass", "plan_short_selling_daily",
     "select_credit_balance_fallback_date",
     "short_selling_raw_call_budget", "SHORT_SELLING_EXACT_DATE_SCOPE_COUNTS",

@@ -1376,17 +1376,23 @@ def test_liquidity_credit_observation_reports_match_and_revision(
             self.response_status = "COMPLETE"
             self.pages = 1
             self.observation_count = 2
+            self.availability_status = None
+            self.promoted_rows = 1 if status == "STABLE" else 0
 
     monkeypatch.setattr(
         MODULE.ExchangeTradingCalendar,
         "latest_completed_session",
         lambda *_args, **_kwargs: datetime(2026, 8, 24).date(),
     )
+    gap_plans = iter(((date(2026, 8, 24),), ()))
+    monkeypatch.setattr(
+        MODULE, "plan_liquidity_gap_dates", lambda **_kwargs: next(gap_plans),
+    )
     monkeypatch.setattr(
         MODULE, "plan_liquidity_credit_two_pass",
         lambda **kwargs: type("Plan", (), {
             "dataset": f"kr_{kwargs['dataset']}_daily", "estimated_api_calls": 1,
-            "action": "CAPTURE_CONFIRMATION",
+            "action": "CAPTURE_CONFIRMATION", "market_date": kwargs["market_date"],
         })(),
     )
     statuses = iter(("STABLE", "REVISED"))
@@ -1404,6 +1410,9 @@ def test_liquidity_credit_observation_reports_match_and_revision(
     assert [item["comparison"] for item in result["observations"]] == [
         "OK", "DIFFERENT",
     ]
+    assert result["observations"][0]["gap_dates_requested"] == ["2026-08-24"]
+    assert result["observations"][0]["gap_rows_promoted"] == 1
+    assert result["observations"][0]["oldest_pending_date"] is None
     assert result["api_calls"] == 2
 
 
@@ -1414,6 +1423,9 @@ def test_liquidity_credit_morning_does_not_create_first_observation(
         MODULE.ExchangeTradingCalendar,
         "latest_completed_session",
         lambda *_args, **_kwargs: datetime(2026, 8, 21).date(),
+    )
+    monkeypatch.setattr(
+        MODULE, "plan_liquidity_gap_dates", lambda **_kwargs: (),
     )
     monkeypatch.setattr(
         MODULE, "plan_liquidity_credit_two_pass",
@@ -1431,9 +1443,9 @@ def test_liquidity_credit_morning_does_not_create_first_observation(
     )
 
     assert result["api_calls"] == 0
-    assert {item["status"] for item in result["observations"]} == {
-        "WAITING_FOR_2030_PROVISIONAL",
-    }
+    assert [item["status"] for item in result["observations"]] == [
+        "NOOP_STABLE", "WAITING_FOR_2030_PROVISIONAL",
+    ]
 
 
 def test_liquidity_credit_empty_credit_uses_one_lag_fallback_only(
@@ -1445,6 +1457,9 @@ def test_liquidity_credit_empty_credit_uses_one_lag_fallback_only(
         MODULE.ExchangeTradingCalendar,
         "latest_completed_session",
         lambda *_args, **_kwargs: target,
+    )
+    monkeypatch.setattr(
+        MODULE, "plan_liquidity_gap_dates", lambda **_kwargs: (),
     )
     monkeypatch.setattr(
         MODULE.ExchangeTradingCalendar,
@@ -1484,6 +1499,8 @@ def test_liquidity_credit_empty_credit_uses_one_lag_fallback_only(
             ),
             pages=1,
             observation_count=2 if is_fallback else 1,
+            availability_status=None,
+            promoted_rows=0,
         )
 
     monkeypatch.setattr(MODULE, "execute_liquidity_credit_two_pass", execute)
@@ -1494,7 +1511,7 @@ def test_liquidity_credit_empty_credit_uses_one_lag_fallback_only(
     )
 
     market, credit = result["observations"]
-    assert "fallback" not in market and market["api_calls"] == 1
+    assert "fallback" not in market and market["api_calls"] == 0
     assert credit["response_status"] == "VALID_EMPTY"
     assert credit["fallback"] == {
         "target_date": "2026-08-21",
@@ -1505,7 +1522,7 @@ def test_liquidity_credit_empty_credit_uses_one_lag_fallback_only(
         "observation_count": 2,
     }
     assert len(selected[0]) == 3
-    assert result["api_calls"] == 3
+    assert result["api_calls"] == 2
 
 
 def test_provider_cli_retains_bound_success_and_noop_events(

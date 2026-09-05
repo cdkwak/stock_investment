@@ -341,7 +341,7 @@ def test_kr_post_close_outputs_wait_for_2030_occurrence_before_stale(
         "kr_kospi200_option_walls_daily": ("2026-08-31", "2026-09-01"),
         "kr_kospi200_options_daily": ("2026-08-31", "2026-09-01"),
         "kr_kospi200_options_provider_bridge_daily": ("2026-08-31", "2026-09-01"),
-        "kr_market_liquidity_daily": ("2026-09-01", "2026-09-02"),
+        "kr_market_liquidity_daily": ("2026-09-01", "2026-09-01"),
         "kr_short_selling_balance_daily": ("2026-08-28", "2026-08-31"),
         "kr_short_selling_investor_daily": ("2026-09-01", "2026-09-02"),
         "kr_treasury_yield_daily": ("2026-08-31", "2026-09-01"),
@@ -384,18 +384,29 @@ def test_kr_post_close_outputs_wait_for_2030_occurrence_before_stale(
         before_rows[dataset]["expected"] == expected
         for dataset, (_actual, expected) in cases.items()
     )
+    delayed_publication = "kr_market_liquidity_daily"
+    ordinary_cases = set(cases) - {delayed_publication}
     assert {
         dataset: (row["latest"], row["freshness"])
         for dataset, row in before_rows.items()
+        if dataset in ordinary_cases
     } == {
         dataset: (actual, "STALE")
         for dataset, (actual, _expected) in cases.items()
+        if dataset in ordinary_cases
     }
+    assert before_rows[delayed_publication]["freshness"] == "EXPECTED_LAG"
     assert all(row["display_status"] == "CURRENT" for row in before_rows.values())
-    assert all(row["pending_until"] == "20:45" for row in before_rows.values())
+    assert all(
+        before_rows[dataset]["pending_until"] == "20:45"
+        for dataset in ordinary_cases
+    )
+    assert before_rows[delayed_publication]["pending_until"] is None
     assert {
         dataset: row["freshness"] for dataset, row in after_rows.items()
-    } == {dataset: "STALE" for dataset in cases}
+        if dataset in ordinary_cases
+    } == {dataset: "STALE" for dataset in ordinary_cases}
+    assert after_rows[delayed_publication]["freshness"] == "EXPECTED_LAG"
 
 
 def test_universe_health_prefers_retained_coverage_probe(tmp_path, monkeypatch):

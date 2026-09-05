@@ -25,7 +25,9 @@ from stock_data.orchestration.kr_equity_provisional_daily import (
     cleanup_canonicalized_provisional_rows,
 )
 from stock_data.orchestration.market_daily_incremental import (
+    MAX_GAP_CALLS,
     execute_liquidity_credit_two_pass,
+    plan_liquidity_gap_dates,
     plan_liquidity_credit_two_pass,
     select_credit_balance_fallback_date,
 )
@@ -343,6 +345,85 @@ def _run_liquidity_credit_observation(
         }
     observations: list[dict[str, object]] = []
     for dataset in ("market_liquidity", "credit_balance"):
+        if dataset == "market_liquidity":
+            gap_dates = plan_liquidity_gap_dates(
+                project_root=project_root, target_date=target,
+                calendar=calendar, max_gap_calls=MAX_GAP_CALLS,
+            )
+            requested = [value.isoformat() for value in gap_dates]
+            if dry_run or not gap_dates:
+                observations.append({
+                    "dataset": "kr_market_liquidity_daily",
+                    "target_date": target.isoformat(),
+                    "status": (
+                        "GAP_REPAIR_PLANNED" if gap_dates else "NOOP_STABLE"
+                    ),
+                    "response_status": None,
+                    "comparison": "PENDING" if gap_dates else "OK",
+                    "api_calls": 0,
+                    "observation_count": 0,
+                    "gap_dates_requested": requested,
+                    "gap_rows_promoted": 0,
+                    "oldest_pending_date": requested[0] if requested else None,
+                    "gap_results": [],
+                })
+                continue
+
+            gap_results: list[dict[str, object]] = []
+            gap_calls = 0
+            gap_rows_promoted = 0
+            observation_count = 0
+            for gap_date in gap_dates:
+                gap_plan = plan_liquidity_credit_two_pass(
+                    project_root=project_root,
+                    dataset=dataset,
+                    market_date=gap_date,
+                    latest_finalized_market_date=target,
+                    accepted_market_dates=(gap_date,),
+                    operation_reviewed=True,
+                    max_api_calls=1,
+                )
+                gap_result = execute_liquidity_credit_two_pass(
+                    gap_plan, project_root=project_root,
+                )
+                gap_calls += int(gap_result.pages)
+                gap_rows_promoted += int(gap_result.promoted_rows)
+                observation_count += int(gap_result.observation_count)
+                gap_results.append({
+                    "date": gap_result.market_date,
+                    "status": gap_result.status,
+                    "response_status": gap_result.response_status,
+                    "availability_status": gap_result.availability_status,
+                    "api_calls": int(gap_result.pages),
+                    "rows_promoted": int(gap_result.promoted_rows),
+                })
+            pending = plan_liquidity_gap_dates(
+                project_root=project_root, target_date=target,
+                calendar=calendar, max_gap_calls=MAX_GAP_CALLS,
+            )
+            observations.append({
+                "dataset": "kr_market_liquidity_daily",
+                "target_date": target.isoformat(),
+                "status": "GAP_REPAIR",
+                "response_status": (
+                    gap_results[-1]["response_status"] if gap_results else None
+                ),
+                "comparison": (
+                    "OK" if all(
+                        item["status"] in {
+                            "STABLE", "NOOP_STABLE", "PUBLISHER_GAP_CONFIRMED",
+                        }
+                        for item in gap_results
+                    ) else "PENDING"
+                ),
+                "api_calls": gap_calls,
+                "observation_count": observation_count,
+                "gap_dates_requested": requested,
+                "gap_rows_promoted": gap_rows_promoted,
+                "oldest_pending_date": pending[0].isoformat() if pending else None,
+                "gap_results": gap_results,
+            })
+            continue
         plan = plan_liquidity_credit_two_pass(
             project_root=project_root,
             dataset=dataset,

@@ -19,9 +19,14 @@ rule; do not infer one rule for every `1160100` service.
 The KOFIA statistics page names the liquidity and credit-balance operations and
 labels the product update cycle `실시간`, but does not publish an exact availability
 clock or revision-freeze rule. Treat that label as discovery metadata, not daily
-finality evidence. The liquidity/credit route therefore permits only the bounded
-historical validation selected by the active runbook until repeated availability
-and revision observations support a reviewed policy.
+finality evidence. A bounded 2026-09-05 observation found that
+`getSecuritiesMarketTotalCapitalInfo` returned one row for `basDt=20260820` but
+zero rows for `basDt=20260903`, consistent with roughly a two-week publication
+lag. This is observed behavior, not an SLA. The liquidity lane therefore revisits
+missing XKRX dates oldest-first, retains every exact-date Landing capture, and
+keeps valid-empty dates pending for up to 45 calendar days before recording an
+explicit source gap without inventing or forward-filling data. Credit keeps its
+separate T+2/fallback behavior.
 
 ## Authentication
 
