@@ -543,9 +543,16 @@ def test_market_template_and_script_render_the_cboe_pcr_panel_with_reason() -> N
     assert 'unavailable(view.reason || "보존된 Cboe 일별 통계가 없습니다.")' in script
 
 
-def test_market_chart_script_uses_server_indicators_instead_of_recomputing_on_visible_bars() -> None:
+def test_market_chart_script_requests_server_indicator_superset_and_labels_fallbacks() -> None:
     root = Path(__file__).parents[3]
     script = root.joinpath("src/stock_web/static/market.js").read_text(encoding="utf-8")
-    assert "...serverIndicators(payload)" in script
-    assert 'indicators: Object.keys(indicatorState).filter((name) => indicatorState[name].enabled && name !== "volume").join(",")' in script
-
+    assert "const chartIndicatorSuperset = Object.keys(indicatorDefaults).sort();" in script
+    assert 'const requestedIndicators = chartIndicatorSuperset.join(",");' in script
+    assert "const cacheKey = `${symbol}|${interval}|${range}|${requestedIndicators}`;" in script
+    assert "new URLSearchParams({ symbol, interval, range, indicators: requestedIndicators })" in script
+    assert "...serverValues" in script
+    assert "payload.stats.rsi14" in script
+    assert "payload.rsi14" not in script
+    fallback_branch = script.split("const fallbackBadge = localFallbacks.has(name) ?", 1)[1].split("return", 1)[0]
+    assert "보이는 봉 계산 · 워밍업 없음" in fallback_branch
+    assert "console.warn" in script

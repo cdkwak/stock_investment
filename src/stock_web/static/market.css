@@ -46,6 +46,14 @@
 }
 
 .market-valuation-metric { display: inline-flex; gap: 5px; align-items: baseline; }
+.market-indicator-fallback-badge {
+  border: 1px dashed var(--amber);
+  border-radius: 3px;
+  color: var(--amber);
+  font-size: 9px;
+  padding: 1px 4px;
+  white-space: nowrap;
+}
 
 @media (min-width: 1600px) {
   .market-page > .card { padding: 9px 11px; }

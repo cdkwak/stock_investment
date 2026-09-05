@@ -29,6 +29,7 @@
     ma60: { enabled: true, placement: "overlay" }, ma120: { enabled: true, placement: "overlay" },
     volume: { enabled: true, placement: "panel" }, rsi14: { enabled: false, placement: "panel" },
   };
+  const chartIndicatorSuperset = Object.keys(indicatorDefaults).sort();
   const flowColors = { foreigner: "#4a3aa7", institution: "#2a78d6", individual: "#eb6834" };
   let indicatorState = loadIndicatorState();
   let mainChart, candleSeries, mainPayload, pagePayload;
@@ -37,6 +38,7 @@
   const flowCache = new Map();
   const historyCache = new Map();
   const hiddenFlowSeries = { KOSPI: new Set(), KOSDAQ: new Set() };
+  const warnedLocalIndicators = new Set();
 
   function loadIndicatorState() {
     try {
@@ -124,9 +126,6 @@
       if (!Array.isArray(points) || !points.length) return;
       result[name] = points.filter((point) => point && point.v !== null && point.v !== undefined).map((point) => ({ t: point.t, v: Number(point.v) }));
     });
-    if (Array.isArray(payload && payload.rsi14) && payload.rsi14.length) {
-      result.rsi14 = payload.rsi14.filter((point) => point && point.v !== null && point.v !== undefined).map((point) => ({ t: point.t, v: Number(point.v) }));
-    }
     return result;
   }
 
@@ -145,9 +144,16 @@
     if (!mainChart) { $("market-chart").innerHTML = `<div class="unavailable">${unavailable("차트 라이브러리 로드 실패")}</div>`; return; }
     clearDynamicSeries();
     candleSeries.setData(payload.candles.map((candle) => ({ time: candle.t, open: candle.o, high: candle.h, low: candle.l, close: candle.c })));
-    // Server values win; the local recalculation only fills anything the server did not send.
-    const values = { ...calculateIndicators(payload.candles), ...serverIndicators(payload) };
     const enabled = Object.keys(indicatorState).filter((name) => indicatorState[name].enabled);
+    const serverValues = serverIndicators(payload);
+    const localValues = calculateIndicators(payload.candles);
+    const values = { ...localValues, ...serverValues };
+    const localFallbacks = new Set(enabled.filter((name) => !Object.prototype.hasOwnProperty.call(serverValues, name)));
+    localFallbacks.forEach((name) => {
+      if (warnedLocalIndicators.has(name)) return;
+      console.warn(`[market] ${indicatorLabels[name]}: 서버 지표 없음; 보이는 봉만으로 계산하며 워밍업이 없습니다.`);
+      warnedLocalIndicators.add(name);
+    });
     const panels = enabled.filter((name) => indicatorState[name].placement === "panel");
     const height = panels.length ? Math.min(0.14, 0.58 / panels.length) : 0;
     mainChart.priceScale("right").applyOptions({ scaleMargins: { top: 0.04, bottom: panels.length * height + 0.02 } });
@@ -166,10 +172,13 @@
       else if (scaleId) mainChart.priceScale(scaleId).applyOptions({ visible: false, scaleMargins: name === "volume" ? { top: .72, bottom: .02 } : { top: .08, bottom: .08 } });
     });
     mainChart.timeScale().fitContent();
-    const latestRsi = values.rsi14.length ? values.rsi14[values.rsi14.length - 1].v : null;
+    const latestRsi = payload.stats && payload.stats.rsi14 !== null && payload.stats.rsi14 !== undefined && Number.isFinite(Number(payload.stats.rsi14)) ? Number(payload.stats.rsi14) : null;
     stats.innerHTML = `<span class="muted">기준일 <b class="num">${esc(payload.as_of)}</b></span>${latestRsi !== null ? `<span class="muted" data-explanation="rsi14">RSI14 <b class="num">${fmt(latestRsi, 1)}</b></span>` : ""}`;
     applyExplanations(pagePayload.explanations || {}, stats);
-    legend.innerHTML = `<span class="market-symbol-label"><i style="background:#1f1d1a"></i>${esc(payload.symbol_name || payload.symbol)}</span>` + enabled.map((name) => `<span class="market-indicator-label"><i style="background:${colors[name]}"></i>${esc(indicatorLabels[name])} · ${indicatorState[name].placement === "panel" ? "아래" : "겹침"}<button type="button" data-remove-indicator="${name}" aria-label="${esc(indicatorLabels[name])} 제거">×</button></span>`).join("");
+    legend.innerHTML = `<span class="market-symbol-label"><i style="background:#1f1d1a"></i>${esc(payload.symbol_name || payload.symbol)}</span>` + enabled.map((name) => {
+      const fallbackBadge = localFallbacks.has(name) ? `<span class="market-indicator-fallback-badge">보이는 봉 계산 · 워밍업 없음</span>` : "";
+      return `<span class="market-indicator-label"><i style="background:${colors[name]}"></i>${esc(indicatorLabels[name])} · ${indicatorState[name].placement === "panel" ? "아래" : "겹침"}${fallbackBadge}<button type="button" data-remove-indicator="${name}" aria-label="${esc(indicatorLabels[name])} 제거">×</button></span>`;
+    }).join("");
     legend.querySelectorAll("[data-remove-indicator]").forEach((button) => button.addEventListener("click", () => changeIndicator(button.dataset.removeIndicator, { enabled: false })));
   }
 
@@ -177,13 +186,13 @@
     const symbol = $("market-chart-symbol").value || "KOSPI";
     const interval = selectedButtonValue("#market-chart-interval", "1d");
     const range = selectedButtonValue("#market-chart-range", "1Y");
-    const cacheKey = `${symbol}|${interval}|${range}`;
+    const requestedIndicators = chartIndicatorSuperset.join(",");
+    const cacheKey = `${symbol}|${interval}|${range}|${requestedIndicators}`;
     if (mainCache.has(cacheKey)) { mainPayload = mainCache.get(cacheKey); renderMainChart(mainPayload); return; }
     $("market-chart-stats").textContent = "차트 확인 중";
     try {
-      // Ask the server for every enabled indicator: it computes them on the full history
-      // (warm-up included), so MA120 exists on 3M and MA60 starts at the first visible bar.
-      const params = new URLSearchParams({ symbol, interval, range, indicators: Object.keys(indicatorState).filter((name) => indicatorState[name].enabled && name !== "volume").join(",") });
+      // Fetch the complete UI allowlist so later toggles keep full-history warm-up values.
+      const params = new URLSearchParams({ symbol, interval, range, indicators: requestedIndicators });
       const response = await fetch(`/api/market/chart?${params}`);
       mainPayload = response.ok ? await response.json() : { reason: `HTTP ${response.status}` };
       if (response.ok) mainCache.set(cacheKey, mainPayload);
