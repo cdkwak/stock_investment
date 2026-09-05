@@ -943,7 +943,8 @@
       return;
     }
     const relative = Number(fit.relative_to_baseline);
-    $("compound-headline").innerHTML = `<span>FIT · ${esc(fit.start || "—")}~${esc(fit.end || "2015")}</span><b>기준선 ${multipleText(fit.baseline_final_wealth_multiple)} · 내 규칙 ${multipleText(fit.final_wealth_multiple)} · ${pct(relative - 1, 0)}</b>`;
+    const headlineTag = combination.product_variant === "actual_adjusted" && Number.isFinite(basisDrag) && Math.abs(basisDrag) < 1e-9 ? " · 보정 없음" : "";
+    $("compound-headline").innerHTML = `<span>FIT · ${esc(fit.start || "—")}~${esc(fit.end || "2015")}${headlineTag}</span><b>기준선 ${multipleText(fit.baseline_final_wealth_multiple)} · 내 규칙 ${multipleText(fit.final_wealth_multiple)} · ${pct(relative - 1, 0)}</b>`;
     $("compound-fit-metrics").innerHTML = `<div class="compound-metric"><span>최종 금액 / 기준선</span><b>${multipleText(relative)}</b></div><div class="compound-metric"><span>CAGR</span><b>${pct(fit.cagr)}</b></div><div class="compound-metric"><span>최대낙폭</span><b>${pct(fit.max_drawdown)}</b></div>`;
     // 실제 상품 보정: say what the correction did. When the calibrated extra drag is 0 the
     // numbers equal the synthetic row by construction — state that instead of leaving the
@@ -955,7 +956,13 @@
       const same = Number.isFinite(drag) && Math.abs(drag) < 1e-9;
       return ` · 실제 상품 ${esc(basis.product_symbol || "?")} · 연환산 갭 ${Number.isFinite(gap) ? (gap * 100).toFixed(1) + "%" : "—"} · 보정 추가 드래그 ${Number.isFinite(drag) ? (drag * 100).toFixed(2) + "%" : "—"}${same ? (Number.isFinite(gap) && gap > 0 ? " → 실제 상품이 합성보다 앞서 추가 드래그 0(음수 갭만 반영) → 숫자는 합성과 동일" : " → 합성과 동일") : " → 합성보다 낮음"}`;
     })();
-    $("compound-knob-note").textContent = `${row.underlying || combination.product} · ${compoundProductLabel(combination.product_variant)} · ${combination.cost_enabled ? "거래비용 포함" : "거래비용 제외"} · cached row${basisNote}`;
+    // Label rule ("이 라벨이 사실이 아닌 경우가 있는가"): when the calibrated extra drag is 0 the
+    // "실제 상품 보정" variant applies no correction at all, so it must not be called a correction.
+    const basisDrag = combination.product_variant === "actual_adjusted" ? Number((row.actual_product_basis || {}).calibrated_extra_drag) : NaN;
+    const productLabel = combination.product_variant === "actual_adjusted" && Number.isFinite(basisDrag) && Math.abs(basisDrag) < 1e-9
+      ? "보정 없음(양수 갭 · 합성 그대로)"
+      : compoundProductLabel(combination.product_variant);
+    $("compound-knob-note").textContent = `${row.underlying || combination.product} · ${productLabel} · ${combination.cost_enabled ? "거래비용 포함" : "거래비용 제외"} · cached row${basisNote}`;
     if (compoundState.holdoutVisible) renderCompoundHoldout(row, combination);
     else $("compound-holdout-output").hidden = true;
     renderCompoundExitCompare(combination);
