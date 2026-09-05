@@ -179,6 +179,28 @@ def temperature_label(
     ))
 
 
+def global_risk_signal_counts(
+    spread_level: float | None,
+    spread_change_1m: float | None,
+    yield_change_bp: float | None,
+    wti_change_pct: float | None,
+) -> tuple[int, int]:
+    """(recessionary, heated) signal counts behind the 글로벌 위험 verdict."""
+    recessionary = sum((
+        spread_level is not None and spread_level < 0.0,
+        spread_change_1m is not None and spread_change_1m <= -0.25,
+        yield_change_bp is not None and yield_change_bp <= -25.0,
+        wti_change_pct is not None and wti_change_pct <= -10.0,
+    ))
+    heated = sum((
+        spread_level is not None and spread_level > 0.5,
+        spread_change_1m is not None and spread_change_1m >= 0.25,
+        yield_change_bp is not None and yield_change_bp >= 25.0,
+        wti_change_pct is not None and wti_change_pct >= 10.0,
+    ))
+    return int(recessionary), int(heated)
+
+
 def global_risk_temperature(
     spread_level: float | None,
     spread_change_1m: float | None,
@@ -314,13 +336,28 @@ def _market_verdict(
     )
     contributions = _market_score_components(*values)
     raw_score, score, score_note = _aggregate_market_score(contributions)
+    # Words must match the kind of evidence (obsidian session, 2026-09-05): VIX/실현변동성 is a
+    # risk gauge, not a direction. When ±1 comes from volatility alone, say 저변동/고변동 —
+    # never 강세/약세 — so the headline cannot be read as a price-direction call.
+    rsi_component, trend_component, volatility_component = contributions
+    volatility_only = (
+        volatility_component not in (None, 0)
+        and all(value in (None, 0) for value in (rsi_component, trend_component))
+    )
+    temperature = score_label(score)
+    temperature_basis = "방향 근거" if score not in (None, 0) and not volatility_only else None
+    if volatility_only and score is not None and score != 0:
+        temperature = "저변동" if score > 0 else "고변동"
+        temperature_basis = "변동성 단독 · 방향 근거 없음"
+        score_note = score_note or "변동성 단독으로는 ±1까지"
     return {
         "score": score,
         "market_score_raw": raw_score,
         "market_score": score,
         "score_note": score_note,
         "score_max": 2,
-        "temperature": score_label(score),
+        "temperature": temperature,
+        "temperature_basis": temperature_basis,
         "hot": score is not None and score >= 2,
         "cold": score is not None and score <= -2,
         "components": [
@@ -647,7 +684,7 @@ def _build_regime_markets(
 
     kr_verdict = _market_verdict(
         kr_rsi, kr_trend_pct, vk_pct, distance_pct=kr_distance,
-        trend_name="60일선", volatility_name="VKOSPI",
+        trend_name="60일선", volatility_name="VKOSPI 250일 백분위",
     )
     kr_available = sum(
         component["value"] is not None for component in kr_verdict["components"]
@@ -659,7 +696,7 @@ def _build_regime_markets(
             "KOSPI RSI14", _component_evidence_value(kr_components[0], "{:.1f}"),
         ),
         _evidence_row(
-            "추세", _trend_evidence_value(kr_components[1], "60일선"),
+            "추세 (60일선)", _trend_evidence_value(kr_components[1], "60일선"),
         ),
         _evidence_row(
             "VKOSPI 250일 백분위",
@@ -686,7 +723,7 @@ def _build_regime_markets(
 
     us_verdict = _market_verdict(
         us_rsi, us_trend_pct, vix_pct, distance_pct=us_distance,
-        trend_name="200일선", volatility_name="VIX",
+        trend_name="200일선", volatility_name="VIX 250일 백분위",
     )
     us_available = sum(
         component["value"] is not None for component in us_verdict["components"]
@@ -714,7 +751,7 @@ def _build_regime_markets(
             "S&P 500 RSI14", _component_evidence_value(us_components[0], "{:.1f}"),
         ),
         _evidence_row(
-            "추세", _trend_evidence_value(us_components[1], "200일선"),
+            "추세 (200일선)", _trend_evidence_value(us_components[1], "200일선"),
         ),
         _evidence_row(
             "VIX 250일 백분위",
@@ -788,6 +825,8 @@ def _build_regime_markets(
         _evidence_row("실적 모멘텀", "근거 없음"),
     ]
 
+    global_temperature = global_risk_temperature(spread_level, spread_change, yield_change_bp, wti_change)
+    global_counts = global_risk_signal_counts(spread_level, spread_change, yield_change_bp, wti_change)
     markets: list[dict[str, object]] = [
         {
             "title": "한국장",
@@ -802,6 +841,7 @@ def _build_regime_markets(
                 f"점수 {_score_text(us_verdict['score'])}"
                 f" · 기술 {_score_text(tech_verdict['score'])}"
                 f" · 반도체 {_score_text(semis_verdict['score'])}"
+                " (부점수 변동성 축 = 자기 실현변동성)"
                 f" · 자료 {us_available}/3"
             ),
             "sub_verdicts": {
@@ -812,13 +852,14 @@ def _build_regime_markets(
         },
         {
             "title": "글로벌 위험",
-            "temperature": global_risk_temperature(
-                spread_level, spread_change, yield_change_bp, wti_change,
+            # No graded score here: two corroborating macro signals make 침체/과열, otherwise
+            # nothing was judged — say so instead of a "중립" that looks like a verdict.
+            "temperature": (
+                global_temperature if global_temperature in ("침체", "과열") else "판정 없음"
             ),
-            "hot": global_risk_temperature(
-                spread_level, spread_change, yield_change_bp, wti_change,
-            ) == "과열",
-            "subtitle": f"자료 {1 if global_available >= 3 else 0}/3 · 매크로 축",
+            "temperature_basis": "매크로 신호 2개 이상일 때만 판정 · 점수 없음",
+            "hot": global_temperature == "과열",
+            "subtitle": f"자료 {1 if global_available >= 3 else 0}/3 · 매크로 축 · 침체 신호 {global_counts[0]} · 과열 신호 {global_counts[1]}",
             "evidence": global_evidence,
         },
     ]

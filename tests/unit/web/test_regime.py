@@ -255,17 +255,23 @@ def test_build_regime_exposes_scores_components_and_us_subscores(
             "distance_pct": 0.0,
             "contribution": None,
         },
-        {"name": "VKOSPI", "value": 40.0, "contribution": 0},
+        {"name": "VKOSPI 250일 백분위", "value": 40.0, "contribution": 0},
     ]
     assert korea["evidence"][0]["value"] == "48.6 → 0"
     assert korea["evidence"][1]["value"] == "자료 없음"
     assert korea["evidence"][1]["evidence"] is False
 
     assert united_states["score"] == -1
-    assert united_states["temperature"] == "약세"
-    assert united_states["subtitle"] == "점수 −1 · 기술 0 · 반도체 0 · 자료 2/3"
+    # −1 made by VIX alone is a risk state, not a direction: 고변동, never 약세 (2026-09-05 rule).
+    assert united_states["temperature"] == "고변동"
+    assert united_states["temperature_basis"] == "변동성 단독 · 방향 근거 없음"
+    assert united_states["score_note"] == "변동성 단독으로는 ±1까지"
+    assert united_states["subtitle"] == "점수 −1 · 기술 0 · 반도체 0 (부점수 변동성 축 = 자기 실현변동성) · 자료 2/3"
     assert united_states["sub_verdicts"]["NASDAQ100"]["score"] == 0
     assert united_states["sub_verdicts"]["SOX"]["components"][2] == {
         "name": "실현변동성 20일 백분위", "value": None, "contribution": None,
     }
-    assert global_risk["temperature"] == "중립"
+    # No graded score behind 글로벌 위험: fewer than two macro signals means nothing was judged.
+    assert global_risk["temperature"] == "판정 없음"
+    assert global_risk["temperature_basis"] == "매크로 신호 2개 이상일 때만 판정 · 점수 없음"
+    assert global_risk["subtitle"].startswith("자료 ") and "침체 신호" in global_risk["subtitle"]
