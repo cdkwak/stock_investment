@@ -146,6 +146,10 @@ def _window(crisis: str, today: str) -> tuple[str, str]:
     return str(item["start"]), str(item["end"] or today)
 
 
+HOLDOUT_START = "2016-01-01"
+HOLDOUT_NOTE = "홀드아웃 구간 — 신호 설계 중 참고 금지"
+
+
 def _window_rows(ids: tuple[str, ...], today: str, *, mode: str) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for crisis_id in ids:
@@ -160,6 +164,10 @@ def _window_rows(ids: tuple[str, ...], today: str, *, mode: str) -> list[dict[st
             "start": start,
             "end": end,
             "duration_note": item.get("duration_note"),
+            # Windows inside the research hold-out (2016-01-01~) are marked, not blocked and not
+            # counted: looking at the market shape here while designing a signal is fitting the
+            # hold-out (vault 8b60835). The screen itself reads market data only.
+            "holdout_note": HOLDOUT_NOTE if start >= HOLDOUT_START else None,
         })
     return rows
 
@@ -462,7 +470,7 @@ def _mode_a(
         "index_choice": index_symbol,
         "selected_crisis": crisis or "ALL",
         "windows": _window_rows(window_ids, today, mode="A"),
-        "selected_window": ({"id": crisis, "start": start, "end": end} if crisis else None),
+        "selected_window": ({"id": crisis, "start": start, "end": end, "holdout_note": (HOLDOUT_NOTE if start >= HOLDOUT_START else None)} if crisis else None),
         "axis": {"left": "가격지수 · 로그", "left_scale": "logarithmic", "right": "국채 금리 (%)", "right_scale": "linear"},
         "normalization_caption": "원지수 · 금리(%)",
         "data_kind_caption": "가격지수(배당 미포함)와 국채 금리(%)를 서로 다른 축에 표시",
@@ -519,7 +527,7 @@ def _mode_b(
         "index_choice": index_choice,
         "selected_crisis": crisis,
         "windows": _window_rows(MODE_B_ORDER, today, mode="B"),
-        "selected_window": {"id": crisis, "start": start, "end": end},
+        "selected_window": {"id": crisis, "start": start, "end": end, "holdout_note": HOLDOUT_NOTE if start >= HOLDOUT_START else None},
         "axis": {"left": "구간 시작 = 100", "left_scale": "linear", "right": None, "right_scale": None},
         "normalization_caption": "구간 시작 = 100",
         "data_kind_caption": data_kind_caption,

@@ -560,8 +560,9 @@
     buttons.push(...(payload.windows || []));
     $("crisis-timeline-crises").innerHTML = buttons.map((item) => {
       const active = String(payload.selected_crisis || "ALL") === String(item.id);
-      const title = item.duration_note || `${item.start || "전체"}${item.end ? ` → ${item.end}` : ""}`;
-      return `<button type="button" class="${active ? "active" : ""}" data-timeline-crisis="${esc(item.id)}" aria-pressed="${active}" title="${esc(title)}">${esc(item.label)}</button>`;
+      const range = item.duration_note || `${item.start || "전체"}${item.end ? ` → ${item.end}` : ""}`;
+      const title = item.holdout_note ? `${range} · ${item.holdout_note}` : range;
+      return `<button type="button" class="${active ? "active" : ""}${item.holdout_note ? " holdout" : ""}" data-timeline-crisis="${esc(item.id)}" aria-pressed="${active}" title="${esc(title)}">${esc(item.label)}${item.holdout_note ? '<small class="holdout-mark" aria-label="홀드아웃 구간">·H</small>' : ""}</button>`;
     }).join("");
     document.querySelectorAll("[data-timeline-crisis]").forEach((button) => button.addEventListener("click", () => selectCrisisTimelineWindow(button.dataset.timelineCrisis)));
 
@@ -592,7 +593,8 @@
   function renderCrisisTimelineCaption(payload) {
     const missing = (payload.missing_notes || []).map((note) => `<span class="warning">누락: ${esc(note)}</span>`).join("");
     const duration = payload.duration_note ? `<span>${esc(payload.duration_note)}</span>` : "";
-    $("crisis-timeline-caption").innerHTML = `<span>${esc(payload.question)} · ${esc(payload.resolution_caption)}</span>${duration}${missing}<span class="privacy">${esc(payload.privacy)}</span>`;
+    const holdout = payload.selected_window && payload.selected_window.holdout_note ? `<span class="warning">${esc(payload.selected_window.holdout_note)}</span>` : "";
+    $("crisis-timeline-caption").innerHTML = `<span>${esc(payload.question)} · ${esc(payload.resolution_caption)}</span>${duration}${holdout}${missing}<span class="privacy">${esc(payload.privacy)}</span>`;
     $("crisis-timeline-caption").title = payload.resolution_caption || "";
   }
 

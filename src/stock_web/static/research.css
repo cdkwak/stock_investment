@@ -355,3 +355,4 @@
 .compound-exit-table tr.current td { font-weight: 600; background: color-mix(in srgb, currentColor 6%, transparent); }
 .compound-exit-table tr.baseline td { color: var(--muted, #6b6b6b); font-style: italic; }
 .crisis-timeline-assets[hidden] { display: none; }
+.crisis-timeline-crises button.holdout .holdout-mark { margin-left: 3px; font-size: 9px; color: var(--amber, #b7791f); }

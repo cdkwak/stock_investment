@@ -293,3 +293,17 @@ def test_mode_a_flags_a_line_that_starts_inside_the_window() -> None:
     assert kr3y["legend_suffix"] is None            # Mode A is not normalised: no "= 100" tail
     assert kr3y["partial_note"] in payload["missing_notes"]
 
+
+def test_windows_inside_the_research_holdout_are_marked_not_blocked() -> None:
+    root = _root()
+    _fixtures(root)
+
+    payload = build_crisis_timeline_payload(root, mode="A", country="US", crisis="2020", index_choice="NASDAQ100")
+
+    by_id = {row["id"]: row for row in payload["windows"]}
+    assert by_id["2008"]["holdout_note"] is None
+    assert by_id["2020"]["holdout_note"] == "홀드아웃 구간 — 신호 설계 중 참고 금지"
+    assert by_id["2022"]["holdout_note"] and by_id["2025"]["holdout_note"]
+    assert payload["selected_window"]["holdout_note"] == "홀드아웃 구간 — 신호 설계 중 참고 금지"
+    assert payload["series"]  # the screen still renders: marked, not blocked
+
