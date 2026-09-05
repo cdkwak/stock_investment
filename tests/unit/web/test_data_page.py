@@ -98,6 +98,9 @@ def test_data_page_prefers_stable_latest_health_pointer() -> None:
     latest = {"datasets": [{
         "dataset": "kr_index_daily", "latest": "2026-09-02",
         "expected": "2026-09-02", "freshness": "CURRENT",
+        "coverage_source": "static_table",
+        "runtime_coverage": "NOT_PROBED",
+        "display_reason": "최신일이 예상일 이상 · 표는 손으로 적은 값",
     }]}
     (root / "universe_data_v2_20260819.json").write_text(
         json.dumps(old), encoding="utf-8",
@@ -113,6 +116,7 @@ def test_data_page_prefers_stable_latest_health_pointer() -> None:
     )
 
     assert row["latest"] == "2026-09-02"
+    assert row["display_reason"].endswith("표는 손으로 적은 값")
 
 
 def test_data_page_labels_pending_current_row_with_due_time() -> None:

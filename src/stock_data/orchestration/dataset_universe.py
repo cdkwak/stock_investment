@@ -2,9 +2,15 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from enum import StrEnum
+from functools import lru_cache
+import os
+from pathlib import Path
 from types import MappingProxyType
+
+import pyarrow.compute as pc
+import pyarrow.parquet as pq
 
 from stock_data.contracts.registry import CONTRACTS as REGISTERED_CONTRACTS
 from stock_data.contracts.kr_index_fundamental_daily import (
@@ -1006,23 +1012,34 @@ def classify_health_display(
 ) -> tuple[HealthDisplayStatus, str]:
     """Return one truthful web grade without turning retained data into incidents."""
 
+    def result(status: HealthDisplayStatus, reason: str) -> tuple[HealthDisplayStatus, str]:
+        if (
+            spec.retained_latest is not None
+            and (
+                runtime_coverage == "NOT_PROBED"
+                or runtime_coverage.startswith("FAILED:")
+            )
+        ):
+            reason = f"{reason} · 표는 손으로 적은 값"
+        return status, reason
+
     if spec.dataset_id in _HEALTH_REFERENCE_IDS:
-        return HealthDisplayStatus.REFERENCE, "최근 보존 이벤트·기간"
+        return result(HealthDisplayStatus.REFERENCE, "최근 보존 이벤트·기간")
     if spec.health_preservation_reason is not None:
-        return HealthDisplayStatus.PRESERVED, spec.health_preservation_reason
+        return result(HealthDisplayStatus.PRESERVED, spec.health_preservation_reason)
     last_run_text = (
         " ".join(str(value) for value in last_run.values())
         if isinstance(last_run, Mapping)
         else str(last_run or "")
     ).upper()
     if any(token in last_run_text for token in ("FAIL", "ERROR", "BLOCKED")):
-        return HealthDisplayStatus.FAILED, "마지막 실행 실패"
+        return result(HealthDisplayStatus.FAILED, "마지막 실행 실패")
     if (
         spec.scheduler_lane == "TOSSINVEST_US_QUOTES_30M"
         and latest is not None
         and freshness in {"CURRENT", "EXPECTED_LAG", "UNKNOWN"}
     ):
-        return HealthDisplayStatus.CURRENT, "최근 30분 경계 관측 보존"
+        return result(HealthDisplayStatus.CURRENT, "최근 30분 경계 관측 보존")
     try:
         latest_value = date.fromisoformat(latest) if latest else None
         expected_value = date.fromisoformat(expected) if expected else None
@@ -1030,14 +1047,14 @@ def classify_health_display(
         latest_value = expected_value = None
     if latest_value is not None and expected_value is not None:
         if latest_value >= expected_value:
-            return HealthDisplayStatus.CURRENT, "최신일이 예상일 이상"
+            return result(HealthDisplayStatus.CURRENT, "최신일이 예상일 이상")
         if spec.automation_enabled and spec.scheduler_lane != "NO_SCHEDULER_LANE":
-            return HealthDisplayStatus.LATE, "활성 자동화가 예상일보다 늦음"
+            return result(HealthDisplayStatus.LATE, "활성 자동화가 예상일보다 늦음")
     if freshness in {"CURRENT", "EXPECTED_LAG"}:
-        return HealthDisplayStatus.CURRENT, "제공처 발행 정책 내 정상"
+        return result(HealthDisplayStatus.CURRENT, "제공처 발행 정책 내 정상")
     if freshness == "STALE" and spec.automation_enabled:
-        return HealthDisplayStatus.LATE, "활성 자동화가 예상일보다 늦음"
-    return HealthDisplayStatus.PRESERVED, "실행 가능한 신선도 기준 없음"
+        return result(HealthDisplayStatus.LATE, "활성 자동화가 예상일보다 늦음")
+    return result(HealthDisplayStatus.PRESERVED, "실행 가능한 신선도 기준 없음")
 
 
 _PHYSICAL_OVERRIDES = {
@@ -1103,6 +1120,166 @@ _PHYSICAL_OVERRIDES = {
     "ls_t1633_program_trading_candidate": ("landing/ls/t1633_program_trading_raw",),
     "ls_t8462_daily_raw": ("landing/ls_openapi/t8462_raw", "landing/ls_openapi/t8462_daily_raw"),
 }
+
+
+_COVERAGE_DATE_COLUMNS = (
+    "date",
+    "trade_date",
+    "capture_date",
+    "market_date",
+    "source_snapshot_date",
+    "source_date",
+    "period_end",
+    "modify_date",
+    "bar_start",
+)
+
+
+def _retained_coverage_roots(project_root: Path, dataset_id: str) -> tuple[Path, ...]:
+    """Return only contract-authorized retained Parquet roots for coverage."""
+
+    data_root = Path(project_root).resolve() / "data"
+    candidates = [
+        data_root / "normalized" / dataset_id,
+        data_root / "retained" / dataset_id,
+    ]
+    for value in _PHYSICAL_OVERRIDES.get(dataset_id, ()):
+        clean = value.split("::", 1)[0]
+        path = Path(clean)
+        if (
+            "<" not in clean
+            and path.parts
+            and path.parts[0] in {"normalized", "retained"}
+        ):
+            candidates.append(data_root / path)
+    unique: list[Path] = []
+    for candidate in candidates:
+        if candidate not in unique and candidate.is_dir():
+            unique.append(candidate)
+    return tuple(unique)
+
+
+def _directory_mtime(root: Path) -> int:
+    """Include nested partition-directory mtimes in the process cache key."""
+
+    latest = root.stat().st_mtime_ns
+    for current, directories, _files in os.walk(root):
+        current_path = Path(current)
+        latest = max(latest, current_path.stat().st_mtime_ns)
+        for directory in directories:
+            latest = max(latest, (current_path / directory).stat().st_mtime_ns)
+    return latest
+
+
+def _as_coverage_date(value: object) -> date | None:
+    if hasattr(value, "as_py"):
+        value = value.as_py()  # type: ignore[union-attr]
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, bytes):
+        value = value.decode("utf-8")
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if len(text) == 8 and text.isdigit():
+        return date(int(text[:4]), int(text[4:6]), int(text[6:8]))
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        try:
+            return datetime.fromisoformat(text.replace("Z", "+00:00")).date()
+        except ValueError:
+            return None
+
+
+def _coverage_date_column(path: Path, dataset_id: str) -> str:
+    names = pq.ParquetFile(path).schema_arrow.names
+    contract = CONTRACTS.get(dataset_id)
+    contract_columns = tuple(getattr(contract, "column_names", ()))
+    candidates = tuple(
+        column for column in _COVERAGE_DATE_COLUMNS if column in contract_columns
+    ) + _COVERAGE_DATE_COLUMNS
+    for column in candidates:
+        if column in names:
+            return column
+    raise ValueError(f"{dataset_id}: retained Parquet has no coverage date column")
+
+
+def _parquet_date_bounds(path: Path, column: str) -> tuple[date, date]:
+    parquet = pq.ParquetFile(path)
+    column_index = parquet.schema_arrow.get_field_index(column)
+    if column_index < 0:
+        raise ValueError(f"{path}: missing coverage column {column}")
+    observed: list[date] = []
+    for index in range(parquet.metadata.num_row_groups):
+        statistics = parquet.metadata.row_group(index).column(column_index).statistics
+        if statistics is None or not statistics.has_min_max:
+            continue
+        for value in (statistics.min, statistics.max):
+            parsed = _as_coverage_date(value)
+            if parsed is not None:
+                observed.append(parsed)
+    if not observed:
+        # Some writers omit statistics. This still reads one retained column only
+        # and disables Hive inference so partition names cannot alter the schema.
+        table = pq.read_table(path, columns=[column], partitioning=None)
+        extrema = pc.min_max(table[column]).as_py()
+        for value in (extrema or {}).values():
+            parsed = _as_coverage_date(value)
+            if parsed is not None:
+                observed.append(parsed)
+    if not observed:
+        raise ValueError(f"{path}: coverage column {column} is empty or invalid")
+    return min(observed), max(observed)
+
+
+@lru_cache(maxsize=512)
+def _probe_retained_coverage_cached(
+    roots_with_mtime: tuple[tuple[str, int], ...], dataset_id: str,
+) -> tuple[str, str] | None:
+    observed: list[date] = []
+    for root_text, _mtime in roots_with_mtime:
+        root = Path(root_text)
+        paths = tuple(sorted(root.rglob("*.parquet")))
+        if not paths:
+            continue
+        date_column: str | None = None
+        for path in paths:
+            partition_date = next((
+                _as_coverage_date(part.name.split("=", 1)[1])
+                for part in path.relative_to(root).parents
+                if "=" in part.name
+                and part.name.split("=", 1)[0] in _COVERAGE_DATE_COLUMNS
+            ), None)
+            if partition_date is not None:
+                observed.append(partition_date)
+                continue
+            if date_column is None:
+                date_column = _coverage_date_column(path, dataset_id)
+            first, last = _parquet_date_bounds(path, date_column)
+            observed.extend((first, last))
+    if not observed:
+        return None
+    return min(observed).isoformat(), max(observed).isoformat()
+
+
+def probe_retained_coverage(
+    project_root: Path, dataset_id: str,
+) -> tuple[str, str] | None:
+    """Probe retained Parquet coverage without loading providers or row payloads.
+
+    Results are cached per process against the retained partition-directory
+    mtimes. Missing retained roots or Parquet files return ``None``; malformed or
+    unreadable retained data raises so callers can fail closed.
+    """
+
+    roots = _retained_coverage_roots(Path(project_root), dataset_id)
+    if not roots:
+        return None
+    cache_key = tuple((str(root), _directory_mtime(root)) for root in roots)
+    return _probe_retained_coverage_cached(cache_key, dataset_id)
 
 
 def _classification(dataset_id: str) -> DatasetRefreshClass:
@@ -1433,6 +1610,6 @@ __all__ = [
     "OperationalBlockerReason", "PredictivePitStatus", "RefreshPolicy",
     "RegistryDisposition", "SchedulerGroup", "SchedulerManagement",
     "UniverseOperationalStatus", "DATASET_SYMBOL_REGISTRY", "build_dataset_universe",
-    "classify_health_display",
+    "classify_health_display", "probe_retained_coverage",
     "validate_consumer_decision",
 ]

@@ -4,6 +4,7 @@ import argparse
 from collections import Counter
 from datetime import datetime, timezone
 import json
+import logging
 from pathlib import Path
 import sys
 
@@ -12,12 +13,15 @@ if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
 from stock_data.orchestration.daily_operations import DATASET_OPERATIONS, DATASET_UNIVERSE
-from stock_data.orchestration.dataset_universe import classify_health_display
+from stock_data.orchestration.dataset_universe import (
+    classify_health_display,
+    probe_retained_coverage,
+)
 from stock_data.orchestration.expected_latest import resolve_expected_latest
-from stock_data.orchestration.runtime_coverage import validated_runtime_coverage
 
 
 LATEST_UNIVERSE_FILENAME = "universe_data_v2_latest.json"
+LOGGER = logging.getLogger(__name__)
 
 
 def _freshness(row: dict[str, object]) -> str:
@@ -130,28 +134,51 @@ def reconcile_universe(
     as_of = datetime.fromisoformat(as_of_value)
     if as_of.tzinfo is None or as_of.utcoffset() is None:
         raise ValueError("core health report as_of must be timezone-aware")
-    runtime = (
-        validated_runtime_coverage(project_root)
-        if project_root is not None else None
-    )
-    runtime_latest = runtime.latest if runtime is not None else {}
-    runtime_failures = runtime.failures if runtime is not None else {}
+    runtime_failures: dict[str, str] = {}
+    coverage_warnings: list[dict[str, str]] = []
+    coverage_source_counts: Counter[str] = Counter()
     rows = []
     for dataset_id, spec in DATASET_UNIVERSE.items():
         core = core_by_id.get(dataset_id, {})
         core_actual = core.get("actual_latest")
-        runtime_actual = runtime_latest.get(dataset_id)
-        actual = (
-            runtime_actual
-            if isinstance(runtime_actual, str)
-            else max(
-                (
-                    value for value in (core_actual, spec.retained_latest)
-                    if isinstance(value, str)
-                ),
-                default=None,
+        probed_coverage = None
+        if project_root is not None:
+            try:
+                probed_coverage = probe_retained_coverage(project_root, dataset_id)
+            except (OSError, UnicodeError, ValueError) as error:
+                runtime_failures[dataset_id] = type(error).__name__
+        if probed_coverage is not None:
+            coverage_start, actual = probed_coverage
+            coverage_source = "probe"
+            if spec.retained_latest is not None and spec.retained_latest != actual:
+                warning = {
+                    "level": "WARN",
+                    "dataset": dataset_id,
+                    "static_end": spec.retained_latest,
+                    "probed_end": actual,
+                }
+                coverage_warnings.append(warning)
+                LOGGER.warning(
+                    "retained coverage contradicts static table: "
+                    "dataset=%s static_end=%s probed_end=%s",
+                    dataset_id, spec.retained_latest, actual,
+                )
+        elif project_root is None and isinstance(core_actual, str):
+            actual = max(
+                value for value in (core_actual, spec.retained_latest)
+                if isinstance(value, str)
             )
-        )
+            coverage_start = spec.coverage_start
+            coverage_source = (
+                "static_table" if actual == spec.retained_latest else "none"
+            )
+        elif spec.retained_latest is not None:
+            coverage_start, actual = spec.coverage_start, spec.retained_latest
+            coverage_source = "static_table"
+        else:
+            coverage_start = actual = None
+            coverage_source = "none"
+        coverage_source_counts[coverage_source] += 1
         expected = core.get("expected_latest")
         retained_date = None
         if isinstance(actual, str):
@@ -185,7 +212,7 @@ def reconcile_universe(
             else _freshness({"actual_latest": actual, "expected_latest": expected})
         )
         runtime_coverage = (
-            "VALIDATED" if dataset_id in runtime_latest
+            "PROBED" if coverage_source == "probe"
             else f"FAILED:{runtime_failures[dataset_id]}" if dataset_id in runtime_failures
             else "NOT_PROBED"
         )
@@ -206,6 +233,8 @@ def reconcile_universe(
             "dataset": dataset_id,
             "role": spec.data_role.value,
             "grain": spec.data_grain.value,
+            "coverage_start": coverage_start,
+            "coverage_source": coverage_source,
             "latest": actual,
             "expected": expected,
             "freshness": freshness_value,
@@ -283,9 +312,14 @@ def reconcile_universe(
         "core_operation_missing": missing_core_ids,
         "automation_enabled_count": sum(bool(row["automation_enabled"]) for row in rows),
         "actionable_incident_count": actionable_incidents,
-        "runtime_coverage_validated_count": len(runtime_latest),
+        # Compatibility field retained for downstream release checks. Coverage
+        # provenance is now explicit in coverage_source and its summary.
+        "runtime_coverage_validated_count": coverage_source_counts["probe"],
+        "runtime_coverage_probed_count": coverage_source_counts["probe"],
         "runtime_coverage_failure_count": len(runtime_failures),
         "runtime_coverage_failures": dict(sorted(runtime_failures.items())),
+        "coverage_source_summary": dict(sorted(coverage_source_counts.items())),
+        "coverage_warnings": coverage_warnings,
         "dimension_summary": dimensions,
         "datasets": rows,
     }
@@ -315,7 +349,10 @@ def write_universe_health_artifact(
             "status": "SUCCESS", "mode": "universe-only", "api_calls": 0,
             "dataset_count": universe["dataset_count"],
             "runtime_coverage_validated_count": universe["runtime_coverage_validated_count"],
+            "runtime_coverage_probed_count": universe["runtime_coverage_probed_count"],
             "runtime_coverage_failure_count": universe["runtime_coverage_failure_count"],
+            "coverage_source_summary": universe["coverage_source_summary"],
+            "coverage_warnings": universe["coverage_warnings"],
             "source": str(core_artifact), "output": str(universe_output),
             "latest_output": str(latest_output),
         }, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")

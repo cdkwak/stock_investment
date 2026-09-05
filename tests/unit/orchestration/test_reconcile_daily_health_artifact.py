@@ -1,8 +1,10 @@
 import importlib.util
 from datetime import date
 import json
+import logging
 from pathlib import Path
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pandas as pd
 import pytest
@@ -17,10 +19,23 @@ assert SPEC.loader is not None
 SPEC.loader.exec_module(MODULE)
 
 
+@pytest.fixture
+def tmp_path() -> Path:
+    """Avoid Python 3.13's Windows 0700 pytest temporary ACL."""
+
+    root = (
+        Path(__file__).parents[3]
+        / ".tmp/agents/health-retained-coverage-20260905/fixtures"
+        / uuid4().hex
+    )
+    root.mkdir(parents=True)
+    return root
+
+
 def test_universe_writer_also_updates_stable_latest_pointer(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        MODULE, "validated_runtime_coverage",
-        lambda _root: SimpleNamespace(latest={}, failures={}),
+        MODULE, "probe_retained_coverage",
+        lambda _root, _dataset_id: None,
     )
     core = tmp_path / "artifacts/daily_health/core.json"
     core.parent.mkdir(parents=True)
@@ -107,7 +122,7 @@ def test_universe_health_v2_preserves_all_axes_without_inventing_expected_dates(
     outside_core = next(row for row in result["datasets"] if row["dataset"] == "kr_equity_foreign_ownership_daily")
     assert outside_core["freshness"] == "NOT_APPLICABLE"
     assert outside_core["display_status"] == "PRESERVED"
-    assert outside_core["display_reason"] == "수동 수집 전용"
+    assert outside_core["display_reason"] == "수동 수집 전용 · 표는 손으로 적은 값"
     assert outside_core["pit"] == "PIT_BLOCKED"
     assert outside_core["display_consumer_eligibility"] == "BLOCKED"
     assert outside_core["research_consumer_eligibility"] == "LIMITED"
@@ -144,14 +159,11 @@ def test_kr_etf_health_rows_use_retained_latest_and_post_close_expectation(
         "expected_latest": None, "freshness_status": "UNKNOWN",
     } for dataset_id in MODULE.DATASET_OPERATIONS]
     monkeypatch.setattr(
-        MODULE, "validated_runtime_coverage",
-        lambda _root: SimpleNamespace(
-            latest={
+        MODULE, "probe_retained_coverage",
+        lambda _root, dataset_id: {
                 "kr_etf_master": "2026-09-02",
                 "kr_etf_price_daily": "2026-09-02",
-            },
-            failures={},
-        ),
+            }.get(dataset_id) and ("2026-08-24", "2026-09-02"),
     )
 
     result = MODULE.reconcile_universe({
@@ -342,10 +354,9 @@ def test_kr_post_close_outputs_wait_for_2030_occurrence_before_stale(
     } for dataset_id in MODULE.DATASET_OPERATIONS]
     monkeypatch.setattr(
         MODULE,
-        "validated_runtime_coverage",
-        lambda _root: SimpleNamespace(
-            latest={dataset: actual for dataset, (actual, _expected) in cases.items()},
-            failures={},
+        "probe_retained_coverage",
+        lambda _root, dataset_id: (
+            ("2026-08-01", cases[dataset_id][0]) if dataset_id in cases else None
         ),
     )
 
@@ -387,7 +398,7 @@ def test_kr_post_close_outputs_wait_for_2030_occurrence_before_stale(
     } == {dataset: "STALE" for dataset in cases}
 
 
-def test_universe_health_prefers_contract_validated_runtime_coverage(tmp_path, monkeypatch):
+def test_universe_health_prefers_retained_coverage_probe(tmp_path, monkeypatch):
     rows = [{
         "dataset_id": dataset_id, "actual_latest": None,
         "expected_latest": None, "freshness_status": "UNKNOWN",
@@ -396,16 +407,16 @@ def test_universe_health_prefers_contract_validated_runtime_coverage(tmp_path, m
         {"datasets": rows}, run_id="runtime-health",
         as_of="2026-08-18T20:00:00+09:00",
     )
-    monkeypatch.setattr(
-        MODULE, "validated_runtime_coverage",
-        lambda _root: SimpleNamespace(
-            latest={
-                "global_commodity_futures_daily": "2026-08-18",
-                "kr_index_daily": "2026-08-18",
-            },
-            failures={"global_index_price_daily": "PermissionError"},
-        ),
-    )
+    def probe(_root, dataset_id):
+        if dataset_id == "global_index_price_daily":
+            raise PermissionError(dataset_id)
+        latest = {
+            "global_commodity_futures_daily": "2026-08-18",
+            "kr_index_daily": "2026-08-18",
+        }.get(dataset_id)
+        return ("2026-08-01", latest) if latest else None
+
+    monkeypatch.setattr(MODULE, "probe_retained_coverage", probe)
 
     result = MODULE.reconcile_universe(
         core, as_of_override="2026-08-19T19:45:00+09:00",
@@ -424,8 +435,10 @@ def test_universe_health_prefers_contract_validated_runtime_coverage(tmp_path, m
         row for row in result["datasets"] if row["dataset"] == "kr_index_daily"
     )
     assert futures["latest"] == "2026-08-18"
-    assert futures["runtime_coverage"] == "VALIDATED"
+    assert futures["runtime_coverage"] == "PROBED"
+    assert futures["coverage_source"] == "probe"
     assert blocked_probe["runtime_coverage"] == "FAILED:PermissionError"
+    assert blocked_probe["coverage_source"] == "static_table"
     assert blocked_probe["freshness"] == "UNKNOWN"
     assert regressed["latest"] == "2026-08-18"
     assert regressed["expected"] == "2026-08-19"
@@ -436,6 +449,90 @@ def test_universe_health_prefers_contract_validated_runtime_coverage(tmp_path, m
     assert result["runtime_coverage_failure_count"] == 1
 
 
+def test_coverage_resolution_marks_probe_static_and_none_and_warns(
+    tmp_path, monkeypatch, caplog,
+) -> None:
+    def probe(_root, dataset_id):
+        if dataset_id == "global_equity_price_daily":
+            return "2026-07-13", "2026-09-04"
+        return None
+
+    monkeypatch.setattr(MODULE, "probe_retained_coverage", probe)
+    with caplog.at_level(logging.WARNING):
+        result = MODULE.reconcile_universe({
+            "run_id": "coverage-order",
+            "as_of": "2026-09-05T12:50:00+09:00",
+            "datasets": [{
+                "dataset_id": "global_equity_price_daily",
+                "actual_latest": "2026-08-18",
+                "expected_latest": "2026-08-18",
+                "freshness_status": "CURRENT",
+            }],
+        }, project_root=tmp_path)
+
+    by_id = {row["dataset"]: row for row in result["datasets"]}
+    probed = by_id["global_equity_price_daily"]
+    static = by_id["kr_index_daily"]
+    absent = by_id["cboe_daily_pcr_daily"]
+
+    assert (probed["latest"], probed["coverage_source"]) == (
+        "2026-09-04", "probe",
+    )
+    assert (static["latest"], static["coverage_source"]) == (
+        MODULE.DATASET_UNIVERSE["kr_index_daily"].retained_latest,
+        "static_table",
+    )
+    assert "표는 손으로 적은 값" in static["display_reason"]
+    assert (absent["latest"], absent["coverage_source"]) == (None, "none")
+    assert result["coverage_source_summary"] == {
+        "none": 18, "probe": 1, "static_table": 74,
+    }
+    assert result["coverage_warnings"] == [{
+        "level": "WARN",
+        "dataset": "global_equity_price_daily",
+        "static_end": "2026-09-03",
+        "probed_end": "2026-09-04",
+    }]
+    assert "dataset=global_equity_price_daily" in caplog.text
+    assert "static_end=2026-09-03" in caplog.text
+    assert "probed_end=2026-09-04" in caplog.text
+
+
+def test_execution_log_retains_static_probe_contradiction(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        MODULE, "probe_retained_coverage",
+        lambda _root, dataset_id: (
+            ("2026-07-13", "2026-09-04")
+            if dataset_id == "global_equity_price_daily" else None
+        ),
+    )
+    core = tmp_path / "artifacts/daily_health/core.json"
+    output = tmp_path / "artifacts/daily_health/universe.json"
+    execution_log = tmp_path / "artifacts/scheduler_logs/health.json"
+    core.parent.mkdir(parents=True)
+    core.write_text(json.dumps({
+        "run_id": "warn-log",
+        "as_of": "2026-09-05T12:50:00+09:00",
+        "datasets": [],
+    }), encoding="utf-8")
+
+    MODULE.write_universe_health_artifact(
+        project_root=tmp_path,
+        core_artifact=core,
+        universe_output=output,
+        execution_log=execution_log,
+        as_of="2026-09-05T12:50:00+09:00",
+    )
+
+    log = json.loads(execution_log.read_text(encoding="utf-8"))
+    assert log["coverage_warnings"] == [{
+        "level": "WARN",
+        "dataset": "global_equity_price_daily",
+        "static_end": "2026-09-03",
+        "probed_end": "2026-09-04",
+    }]
+
+
 def test_scheduled_manual_publication_observation_is_preserved_when_validated(
     tmp_path, monkeypatch,
 ):
@@ -444,12 +541,11 @@ def test_scheduled_manual_publication_observation_is_preserved_when_validated(
         "expected_latest": None, "freshness_status": "UNKNOWN",
     } for dataset_id in MODULE.DATASET_OPERATIONS]
     monkeypatch.setattr(
-        MODULE, "validated_runtime_coverage",
-        lambda _root: SimpleNamespace(
-            latest={
-                "bok_ecos_kr_treasury_yield_source_observation": "2026-08-13",
-            },
-            failures={},
+        MODULE, "probe_retained_coverage",
+        lambda _root, dataset_id: (
+            ("1998-11-13", "2026-08-13")
+            if dataset_id == "bok_ecos_kr_treasury_yield_source_observation"
+            else None
         ),
     )
 
@@ -576,9 +672,10 @@ def test_credit_stale_normalized_latest_degrades_health_after_lane_cutoff(
         "expected_latest": None, "freshness_status": "UNKNOWN",
     } for dataset_id in MODULE.DATASET_OPERATIONS]
     monkeypatch.setattr(
-        MODULE, "validated_runtime_coverage",
-        lambda _root: SimpleNamespace(
-            latest={"kr_credit_balance_daily": "2026-08-06"}, failures={},
+        MODULE, "probe_retained_coverage",
+        lambda _root, dataset_id: (
+            ("2021-11-09", "2026-08-06")
+            if dataset_id == "kr_credit_balance_daily" else None
         ),
     )
 

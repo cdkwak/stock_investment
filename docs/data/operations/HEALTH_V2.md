@@ -4,6 +4,20 @@ Health V2는 보존 데이터의 존재와 자동화 장애를 분리해 표시�
 투영이다. 원본의 `freshness`·최종성·PIT 필드는 유지하며, 데이터 페이지는 별도
 `display_status`를 사용한다.
 
+`latest`와 `coverage_start`는 먼저 `data/normalized/<dataset>` 또는
+`data/retained/<dataset>`의 Parquet에서 구한다. `date=`·`capture_date=` 같은
+날짜 파티션은 디렉터리명만 읽고, 그 밖의 레이아웃은 날짜 열의 Parquet row-group
+통계를 읽는다. 통계가 없는 파일만 해당 날짜 열 하나를 읽는다. 프로브 결과는
+중첩 파티션 디렉터리 mtime을 키로 프로세스 안에서 캐시하며 네트워크나 Landing,
+provider, core artifact의 오래된 `actual_latest`를 최신일 근거로 사용하지 않는다.
+
+커버리지 결정 순서는 `probe -> _COVERAGE 정적 표 -> none`이다. 모든 행은
+`coverage_source`를 `probe`, `static_table`, `none` 중 하나로 기록한다. 정적 표는
+삭제 전 호환 fallback일 뿐이며 이 경로를 쓴 행의 분류 사유에는
+`표는 손으로 적은 값`을 붙인다. 프로브가 정적 종료일과 다르면 artifact와 실행
+로그의 `coverage_warnings`에 `WARN`, dataset, `static_end`, `probed_end`를 남긴다.
+보존 Parquet도 정적 표도 없는 행은 계속 미수집으로 표시한다.
+
 ## 화면 상태
 
 | 상태 | 기준 |
@@ -66,7 +80,7 @@ amber `#a8621a`, `4`세션 이상은 red `#c0392b`다. 요약의
 ## 사람이 실행할 로컬 재생성
 
 아래 명령은 네트워크를 사용하지 않고 보존된 core artifact와 로컬 자료만 읽는다.
-자동 실행 에이전트는 이 문서 작성 작업에서 실행하지 않는다.
+core artifact의 시각은 `core_reference_time` 계보로만 남고 최신일을 고정하지 않는다.
 
 ```powershell
 $env:PYTHONIOENCODING = "utf-8"
@@ -78,4 +92,5 @@ $env:PYTHONIOENCODING = "utf-8"
 변경할 필요가 없다.
 
 재생성 뒤에는 JSON의 `as_of`, `dataset_count`, `dimension_summary.display_status`,
-`runtime_coverage_failures`와 데이터 페이지의 다섯 타일 및 `미등록 N`을 확인한다.
+`coverage_source_summary`, `coverage_warnings`, `runtime_coverage_failures`와 데이터
+페이지의 다섯 타일 및 `미등록 N`을 확인한다.
