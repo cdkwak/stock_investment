@@ -2304,7 +2304,7 @@ def build_daily_universe_gap_status(
             plan_status=status,
             pre_network_noop=noop,
         ))
-    if len(rows) != 73:
+    if len(rows) != 74:
         raise RuntimeError("daily-grain universe count differs from the typed registry")
     return tuple(rows)
 

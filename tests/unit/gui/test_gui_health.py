@@ -87,7 +87,7 @@ def test_health_artifact_adapter_maps_legacy_fields_from_registry_and_dates(tmp_
     _write_health(tmp_path, [_row('kr_index_daily', 'UNKNOWN', latest='2026-08-14', expected='2026-08-14'), _row('fred_vix_daily', 'UNKNOWN')])
     view = DailyHealthArtifactService(tmp_path).load()
     assert view.artifact_state == 'READY'
-    assert len(view.rows) == 94
+    assert len(view.rows) == 95
     by_id = {row.dataset: row for row in view.rows}
     assert by_id['fred_vix_daily'].role == 'SOURCE'
     assert by_id['fred_vix_daily'].pit == 'PIT_LIMITED'
@@ -105,7 +105,7 @@ def test_health_ignores_one_unregistered_artifact_row_and_reports_warning(tmp_pa
     _write_health(tmp_path, [_row('kr_index_daily', 'CURRENT', latest='2026-09-02', expected='2026-09-02'), _row('future_registry_dataset', 'UNKNOWN', latest=None, expected=None)])
     view = DailyHealthArtifactService(tmp_path).load()
     assert view.artifact_state == 'READY'
-    assert len(view.rows) == 94
+    assert len(view.rows) == 95
     assert view.unregistered_dataset_ids == ('future_registry_dataset',)
     assert 'future_registry_dataset' in str(view.warning)
     assert next((row for row in view.rows if row.dataset == 'kr_index_daily')).display_status == 'CURRENT'
@@ -137,8 +137,8 @@ def test_current_retained_health_artifact_has_useful_compatibility_view():
     root = Path(__file__).resolve().parents[3]
     view = DailyHealthArtifactService(root).load()
     assert view.artifact_state == 'READY'
-    assert len(view.rows) == 94
-    assert len(DailyHealthArtifactService.filter_rows(view.rows, 'DAILY')) == 73
+    assert len(view.rows) == 95
+    assert len(DailyHealthArtifactService.filter_rows(view.rows, 'DAILY')) == 74
     blocked = DailyHealthArtifactService.filter_rows(view.rows, 'BLOCKED')
     assert tuple((row.dataset for row in blocked)) == tuple((dataset for dataset, spec in DATASET_UNIVERSE.items() if spec.operational_status is UniverseOperationalStatus.BLOCKED))
     assert all((row.role != 'UNKNOWN' for row in view.rows))
@@ -198,7 +198,7 @@ def test_current_retained_health_artifact_managed_automation_regression():
     managed_counts = {freshness: sum((row.freshness == freshness for row in managed)) for freshness in ('CURRENT', 'EXPECTED_LAG', 'STALE', 'UNKNOWN', 'NOT_APPLICABLE')}
     dataset_keys = [row.dataset for row in view.rows]
     assert view.artifact_state == 'READY'
-    assert len(view.rows) == 94
+    assert len(view.rows) == 95
     assert all((dataset and dataset == dataset.strip() for dataset in dataset_keys))
     assert len(set(dataset_keys)) == len(dataset_keys)
     assert summary['managed_total'] == sum((spec.automation_enabled for spec in DATASET_UNIVERSE.values()))

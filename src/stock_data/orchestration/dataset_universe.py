@@ -471,7 +471,7 @@ _CLASSIFICATION_IDS = {
         global_commodity_futures_daily tossinvest_us_quote_30m cboe_daily_pcr_daily
         kbsec_transactions_daily
         fred_treasury_yield_daily fred_usd_fx_daily fred_vix_daily
-        bok_ecos_usd_krw_daily
+        bok_ecos_usd_krw_daily bok_ecos_kr_market_rate_daily
         kr_short_selling_balance_daily kr_short_selling_investor_daily kr_market_liquidity_daily
         kr_credit_balance_daily kr_stock_lending_daily kr_stock_lending_market_daily
         kr_stock_lending_participant_daily kr_kospi200_index_daily kr_vkospi_daily
@@ -607,6 +607,7 @@ _COVERAGE = {
     "kr_market_investor_trading_daily": ("2014-07-01", "2026-08-19"),
     "kr_treasury_yield_daily": ("2019-01-02", "2026-08-10"),
     "bok_ecos_kr_treasury_yield_source_observation": ("1998-11-13", "2026-08-13"),
+    "bok_ecos_kr_market_rate_daily": ("1995-01-03", "2026-09-04"),
     "kr_equity_stock_issuance_source_observation": ("2020-07-14", "2026-08-12"),
     "kr_kospi200_futures_investor_net_purchase_daily": ("1999-04-26", "2026-08-13"),
     "us_cftc_legacy_futures_only_raw": ("1986", "2026-08-11"),
@@ -817,6 +818,7 @@ kr_index_fundamental_daily kr_kospi200_constituent_price_daily
 kr_kospi200_futures_provider_bridge_daily kr_kospi200_options_provider_bridge_daily
 kr_market_liquidity_daily kr_short_selling_investor_daily
 kr_stock_lending_participant_daily us_treasury_spread_daily us_vix_term_structure_daily
+bok_ecos_kr_market_rate_daily
 """.split())
 
 
@@ -834,6 +836,7 @@ _INTENTIONALLY_EXCLUDED = frozenset("""
     kr_etf_ohlcv_daily kr_index_fundamental_daily kr_credit_benchmark_yield_daily
     kr_equity_sector_classification
     ls_t1633_program_trading_candidate research_target_price_consensus
+    bok_ecos_kr_market_rate_daily
 """.split())
 
 
@@ -968,6 +971,7 @@ _BLOCK_REASONS = {
 
 
 _HEALTH_PRESERVATION_REASONS: Mapping[str, str] = MappingProxyType({
+    "bok_ecos_kr_market_rate_daily": "수동 백필 보존 · 자동화 미등록",
     "bok_ecos_kr_treasury_yield_source_observation": "수동 발행·확정성 관측",
     "kr_equity_foreign_ownership_daily": "수동 수집 전용",
     "kr_kospi200_futures_investor_net_purchase_daily": "수동 수집 전용",
