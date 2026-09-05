@@ -172,7 +172,8 @@ def test_contract_validation_and_atomic_append_preserve_prior_vintage(
     ]
     unavailable = stored.loc[stored["symbol"].eq("123320")].iloc[0]
     assert unavailable["source"] == KOREAN_UNAVAILABLE_SOURCE
-    assert unavailable["status"] == UNAVAILABLE_SOURCE
+    # A KRX-listed ETF has no analyst target: "해당 없음 (ETF)", not an exchange failure.
+    assert unavailable["status"] == NOT_APPLICABLE_ETF
     with pytest.raises(TargetPriceConsensusError, match="refusing to overwrite"):
         append_target_price_vintages_atomic(first.iloc[[0]].copy(), root)
 
@@ -330,7 +331,7 @@ def test_korean_market_identity_maps_to_yahoo_exchange_suffix(
     assert korean_unavailable_row(
         watchlist[2], run_date=date(2026, 9, 5),
         retrieved_at=datetime(2026, 9, 5, tzinfo=timezone.utc),
-    )["status"] == UNAVAILABLE_SOURCE
+    )["status"] == NOT_APPLICABLE_ETF
 
 
 def test_korean_valid_payload_is_available_krw(

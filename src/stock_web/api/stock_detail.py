@@ -17,7 +17,7 @@ import pandas as pd
 import pyarrow.dataset as pads
 
 from stock_data.gui.services import US_ETF_CHART_IDENTITIES
-from stock_data.research.target_prices import read_target_price_consensus
+from stock_data.research.target_prices import TARGET_PRICE_CARD_TEXT, read_target_price_consensus
 from stock_web.api import datasets as dsx
 from stock_web.api.datasets import field
 from stock_web.api.indicators import rsi_latest
@@ -526,19 +526,23 @@ def _dividends(
 def _target_price(
     project_root: Path, *, symbol: str, korean: bool, price: float | None,
 ) -> dict[str, object]:
-    if korean:
-        return {
-            "available": False,
-            "message": "국내 종목 컨센서스는 보관 가능한 공개 출처가 없어 표시하지 않습니다.",
-        }
+    """Card payload from the retained consensus rows; the wording follows the row's status.
+
+    Korean securities are collected through the same Yahoo path since 2026-09-05 (the
+    former "국내 출처 없음" sentence was wrong), so ``korean`` only picks the fallback
+    currency. Missing rows mean the collector has not run for this symbol — say so.
+    """
+
+    not_collected = {"available": False, "status": "NOT_COLLECTED",
+                     "message": TARGET_PRICE_CARD_TEXT.get("NOT_COLLECTED", "미수집 · 수집기 미실행")}
     root = project_root / "data/normalized/research_target_price_consensus"
     try:
         frame = read_target_price_consensus(root)
     except (FileNotFoundError, OSError, ValueError):
-        return {"available": False, "message": "미수집"}
+        return not_collected
     rows = frame.loc[frame["symbol"].astype(str).str.upper().eq(symbol)].copy()
     if rows.empty:
-        return {"available": False, "message": "미수집"}
+        return not_collected
     rows["_date"] = pd.to_datetime(rows["date"], errors="coerce")
     if "retrieved_at" in rows.columns:
         rows["_retrieved"] = pd.to_datetime(rows["retrieved_at"], utc=True, errors="coerce")
@@ -546,17 +550,28 @@ def _target_price(
     else:
         rows = rows.sort_values("_date", kind="stable")
     row = rows.iloc[-1]
+    status = _text(row.get("status")) if "status" in rows.columns else None
     mean = _finite(row.get("target_mean"))
     count = _finite(row.get("analyst_count"))
     if mean is None or count in (None, 0):
-        return {"available": False, "message": "미수집"}
+        if status and status != "AVAILABLE":
+            return {
+                "available": False, "status": status,
+                "message": TARGET_PRICE_CARD_TEXT.get(status, status),
+                "as_of": _date_text(row.get("date")),
+            }
+        return {"available": False, "status": "NO_COVERAGE",
+                "message": TARGET_PRICE_CARD_TEXT.get("NO_COVERAGE", "커버리지 없음"),
+                "as_of": _date_text(row.get("date"))}
     return {
         "available": True,
+        "status": "AVAILABLE",
         "target_mean": mean,
         "analyst_count": int(count),
         "as_of": _date_text(row.get("date")),
         "upside_pct": (mean / price - 1.0) * 100.0 if price else None,
-        "currency": _text(row.get("currency")) or "USD",
+        "currency": _text(row.get("currency")) or ("KRW" if korean else "USD"),
+        "source": _text(row.get("source")) or None,
     }
 
 

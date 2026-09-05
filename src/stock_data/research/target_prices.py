@@ -273,12 +273,15 @@ def korean_unavailable_row(
         raise TargetPriceConsensusError(
             "Korean unavailable rows require unresolved exchange identity"
         )
+    # A KRX-listed fund (ETF/ETN) has no analyst target regardless of exchange identity:
+    # report "해당 없음 (ETF)" rather than an unresolved-exchange failure.
+    status = NOT_APPLICABLE_ETF if security.is_fund_product else UNAVAILABLE_SOURCE
     return {
         "date": run_date.isoformat(),
         "symbol": security.symbol,
         "market": security.market,
         "source": KOREAN_UNAVAILABLE_SOURCE,
-        "status": UNAVAILABLE_SOURCE,
+        "status": status,
         "target_mean": None,
         "target_high": None,
         "target_low": None,
@@ -527,9 +530,10 @@ def validate_target_price_consensus(frame: pd.DataFrame) -> None:
                 raise TargetPriceConsensusError("Korean symbols must be six digits")
             if currency != "KRW" or terms_ref != KOREAN_TERMS_REF:
                 raise TargetPriceConsensusError("Korean rows require KRW and Korean terms")
-            if status == UNAVAILABLE_SOURCE:
-                if source != KOREAN_UNAVAILABLE_SOURCE:
-                    raise TargetPriceConsensusError("legacy Korean fallback source differs")
+            if status in {UNAVAILABLE_SOURCE, NOT_APPLICABLE_ETF} and source == KOREAN_UNAVAILABLE_SOURCE:
+                pass  # no Yahoo call was made: unresolved exchange, or a KRX fund with no analyst target
+            elif status == UNAVAILABLE_SOURCE:
+                raise TargetPriceConsensusError("legacy Korean fallback source differs")
             elif source != YAHOO_SOURCE:
                 raise TargetPriceConsensusError("collectable Korean rows must identify Yahoo")
         else:
