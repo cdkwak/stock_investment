@@ -283,6 +283,9 @@ def test_build_regime_exposes_scores_components_and_us_subscores(
     # Raw index · short window · long window · contribution, in one row (review 2026-09-06).
     assert korea["evidence"][2]["label"] == "VKOSPI 10년 백분위"
     assert korea["evidence"][2]["value"] == "450.0 · 250일 0% · 10년 50% → 0"
+    # 과매도 강도 shows its three terms so a scale change is legible (review 09-06 01:10).
+    assert korea["evidence"][6]["label"] == "과매도 강도"
+    assert korea["evidence"][6]["value"] == "0.2/10 (RSI14 0.2 · 이격 0.0 · 변동성 0.0)"
     # Every card says which sessions its inputs describe; KOSPI and VKOSPI differ here.
     assert korea["as_of_label"] == "기준 KOSPI 05-10 · VKOSPI 06-20"
     assert united_states["as_of_label"] == "기준 S&P 500 05-10 · VIX 06-20"

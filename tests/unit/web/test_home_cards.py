@@ -355,8 +355,6 @@ def test_regime_rows_have_evidence_flags_hints_and_percentile_labels(
     assert by_label["KRX PER 5년 백분위"]["hint"] == "낮을수록 저평가"
     assert by_label["신용잔고 1년 백분위"]["hint"] == "높을수록 과열"
     assert by_label["과매도 강도"]["hint"].startswith("높을수록 과매도")
-    # The three terms are shown so a scale change (250일 → 10년 volatility) is legible (review 01:10).
-    assert "변동성" in by_label["과매도 강도"]["value"] and by_label["과매도 강도"]["value"].endswith(")")
     assert by_label["실적 모멘텀"]["evidence"] is False
     assert by_label["KOSPI RSI14"]["evidence"] is True
 
