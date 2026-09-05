@@ -379,3 +379,12 @@ def test_stock_chart_returns_full_history_indicators_and_rejects_unknown_names()
     })
     assert rejected.status_code == 400
     assert "not-an-indicator" in rejected.json()["error"]
+
+
+def test_target_price_card_shows_source_and_dates_the_gap_price_separately() -> None:
+    root = Path(__file__).parents[3]
+    script = root.joinpath("src/stock_web/static/stocks.js").read_text(encoding="utf-8")
+    assert "<dt>출처</dt>" in script
+    assert "컨센서스 기준일" in script
+    assert "현재가 ${esc(target.price_as_of)} 종가 기준" in script
+

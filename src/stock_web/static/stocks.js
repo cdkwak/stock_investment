@@ -317,8 +317,11 @@
 
   function renderTarget(target) {
     if (!target.available) { $("stock-target-price").innerHTML = `<div class="unavailable">${esc(target.message)}</div>`; return; }
-    $("stock-target-price").innerHTML = `<div class="target-price-value"><span>평균 목표가</span><b class="num">${esc(target.currency)} ${number(target.target_mean, 2)}</b></div>
-      <dl class="stock-kv-list"><div><dt>표본 수</dt><dd>${number(target.analyst_count, 0)}개</dd></div><div><dt>기준일</dt><dd>${esc(target.as_of)}</dd></div><div><dt>괴리율</dt><dd class="num ${tone(target.upside_pct)}">${pct(target.upside_pct)}</dd></div></dl>`;
+    // Display rule (TARGET_PRICE_CONSENSUS.md): 참고 · 출처 · 기준일 · 표본 n명 · 현재가 대비 괴리율 — always show the source,
+    // and date the gap's price separately from the consensus date.
+    const gapBasis = target.price_as_of ? `현재가 ${esc(target.price_as_of)} 종가 기준` : "현재가 기준일 없음";
+    $("stock-target-price").innerHTML = `<div class="target-price-value"><span>참고 · 평균 목표가</span><b class="num">${esc(target.currency)} ${number(target.target_mean, 2)}</b></div>
+      <dl class="stock-kv-list"><div><dt>출처</dt><dd>${esc(target.source_label || target.source || "출처 미기록")}</dd></div><div><dt>컨센서스 기준일</dt><dd>${esc(target.as_of)}</dd></div><div><dt>표본</dt><dd>${number(target.analyst_count, 0)}명</dd></div><div><dt>괴리율</dt><dd class="num ${tone(target.upside_pct)}">${pct(target.upside_pct)} <small class="muted">(${gapBasis})</small></dd></div></dl>`;
   }
 
   function operatingBars(rows) {

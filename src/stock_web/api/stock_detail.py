@@ -523,8 +523,15 @@ def _dividends(
     }
 
 
+_TARGET_PRICE_SOURCE_LABELS = {
+    "YAHOO_FINANCE_QUOTE_SUMMARY": "야후 파이낸스 quoteSummary (애널리스트 컨센서스 · S&P Global 귀속 · 비공식 경로)",
+    "NONE_COMPLIANT_KR_CONSENSUS_SOURCE": "수집 안 함 (거래소 미확인 또는 ETF)",
+}
+
+
 def _target_price(
     project_root: Path, *, symbol: str, korean: bool, price: float | None,
+    price_as_of: object = None,
 ) -> dict[str, object]:
     """Card payload from the retained consensus rows; the wording follows the row's status.
 
@@ -569,9 +576,12 @@ def _target_price(
         "target_mean": mean,
         "analyst_count": int(count),
         "as_of": _date_text(row.get("date")),
+        # The gap uses the separately dated last close; the consensus date is a different date.
         "upside_pct": (mean / price - 1.0) * 100.0 if price else None,
+        "price_as_of": _date_text(price_as_of) if price_as_of else None,
         "currency": _text(row.get("currency")) or ("KRW" if korean else "USD"),
         "source": _text(row.get("source")) or None,
+        "source_label": _TARGET_PRICE_SOURCE_LABELS.get(str(_text(row.get("source")) or ""), _text(row.get("source")) or "출처 미기록"),
     }
 
 
@@ -644,6 +654,7 @@ def build_stock_detail_payload(
         "investor_flows": investor_flows,
         "target_price": _target_price(
             root, symbol=normalized_symbol, korean=korean, price=headline.get("price"),
+            price_as_of=headline.get("as_of"),
         ),
         "basis": {
             "as_of": as_of,
