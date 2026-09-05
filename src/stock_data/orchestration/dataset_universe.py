@@ -1142,10 +1142,14 @@ def _retained_coverage_roots(project_root: Path, dataset_id: str) -> tuple[Path,
     # Derived datasets (option PCR, walls, breadth, nearest futures …) are retained under
     # data/derived; probing only normalized/retained reported them 8 days stale while the
     # 시장 page showed the fresh 09-03 rows (review 2026-09-05 14:00).
+    # data/published holds the bridge/published tables (canonical universe, investor
+    # net-purchase bridge, KOSPI200 constituents, c007 derivatives bridges); without it
+    # five current datasets read as 8–15 days late from the static table (review 14:00).
     candidates = [
         data_root / "normalized" / dataset_id,
         data_root / "retained" / dataset_id,
         data_root / "derived" / dataset_id,
+        data_root / "published" / dataset_id,
     ]
     for value in _PHYSICAL_OVERRIDES.get(dataset_id, ()):
         clean = value.split("::", 1)[0]
@@ -1153,7 +1157,7 @@ def _retained_coverage_roots(project_root: Path, dataset_id: str) -> tuple[Path,
         if (
             "<" not in clean
             and path.parts
-            and path.parts[0] in {"normalized", "retained", "derived"}
+            and path.parts[0] in {"normalized", "retained", "derived", "published"}
         ):
             candidates.append(data_root / path)
     unique: list[Path] = []
