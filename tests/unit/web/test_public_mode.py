@@ -247,3 +247,21 @@ def test_public_cli_flag_sets_environment_before_app_creation(monkeypatch) -> No
     assert calls["env"] == "1"
     assert calls["warm"] == {"public_mode": True, "interval_seconds": 55}
     assert calls["run"] == {"host": "127.0.0.1", "port": 8790}
+
+
+def test_public_stock_detail_never_reads_or_returns_private_watch_conditions(monkeypatch) -> None:
+    """Audit 2026-09-05: /api/stock-detail leaked the user's watch-condition file to guests."""
+    root = _public_project()
+    monkeypatch.setenv("STOCK_WEB_PUBLIC_MODE", "1")
+    forbidden_calls: list[str] = []
+    monkeypatch.setattr(
+        stocks_page, "load_conditions",
+        lambda _root: forbidden_calls.append("watch conditions") or {"conditions": []},
+    )
+    client = ASGITestClient(create_app(root))
+
+    response = client.get("/api/stock-detail?symbol=SKHY&market=US%20%EC%A3%BC%EC%8B%9D")
+
+    assert forbidden_calls == []
+    if response.status_code == 200:
+        assert response.json().get("conditions") == []

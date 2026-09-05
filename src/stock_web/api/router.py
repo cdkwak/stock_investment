@@ -341,7 +341,7 @@ def build_router(project_root: Path, *, public_mode: bool = False) -> APIRouter:
 
         try:
             return json_response(build_stock_detail_payload(
-                project_root, symbol=symbol, market=market,
+                project_root, symbol=symbol, market=market, public_mode=public_mode,
             ))
         except ValueError as error:
             return json_response({"error": str(error)}, status_code=400)

@@ -582,11 +582,13 @@ def _condition_matches(project_root: Path, metrics: dict[str, object]) -> list[d
     return evaluate_conditions(metrics, conditions, scope="watchlist")
 
 
-def build_stock_detail_payload(project_root: Path, *, symbol: str, market: str = "") -> dict[str, object]:
+def build_stock_detail_payload(
+    project_root: Path, *, symbol: str, market: str = "", public_mode: bool = False,
+) -> dict[str, object]:
     root = Path(project_root).resolve()
     normalized_symbol = _normalize_symbol(symbol)
     normalized_market = str(market or "").strip()
-    cache_key = (str(root), normalized_symbol, normalized_market.upper())
+    cache_key = (str(root), normalized_symbol, normalized_market.upper(), bool(public_mode))
     cached = _DETAIL_CACHE.get(cache_key)
     now = time.monotonic()
     if cached is not None and now - cached[0] < DETAIL_CACHE_TTL_SECONDS:
@@ -622,7 +624,11 @@ def build_stock_detail_payload(project_root: Path, *, symbol: str, market: str =
         supported=korean and not _is_korean_etf(root, normalized_symbol, identity),
     )
     stats["dividend_yield_pct"] = dividends.get("dividend_yield_pct")
-    conditions = _condition_matches(root, {**stats, "change_pct": headline.get("change_pct")})
+    # Guest/public mode never reads the user's private watch-condition file (PUBLIC_MODE.md):
+    # the stocks page already blanks conditions there; this route must too (audit 2026-09-05).
+    conditions = [] if public_mode else _condition_matches(
+        root, {**stats, "change_pct": headline.get("change_pct")},
+    )
     as_of = headline.get("as_of")
     provisional = headline.get("price_basis") == "provisional"
     basis_label = f"{str(as_of)[5:]} 마감" if as_of else "마감 기준 없음"
