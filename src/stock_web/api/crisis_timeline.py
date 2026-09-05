@@ -283,7 +283,7 @@ def _drawn_countries_note(lines: list[dict[str, object]], requested: tuple[str, 
         _COUNTRY_BY_SYMBOL.get(symbol, symbol) for symbol in requested
         if not any(str(item["symbol"]) == symbol and item["data"] for item in lines)
     ]
-    note = "이 창에 그려진 나라: " + (" · ".join(dict.fromkeys(drawn)) or "없음")
+    note = "이 창에 데이터가 있는 나라: " + (" · ".join(dict.fromkeys(drawn)) or "없음")
     if absent:
         note += " (미포함: " + " · ".join(dict.fromkeys(absent)) + ")"
     return note

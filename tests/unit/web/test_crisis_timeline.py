@@ -139,7 +139,7 @@ def test_mode_b_normalizes_each_available_line_at_its_first_window_day() -> None
     )
 
     assert payload["question"] == "같은 위기에 여러 나라는 각각 어떻게 움직였나?"
-    assert payload["drawn_note"] == "이 창에 그려진 나라: 한국 · 미국 · 일본 · 프랑스(유럽)"
+    assert payload["drawn_note"] == "이 창에 데이터가 있는 나라: 한국 · 미국 · 일본 · 프랑스(유럽)"
     assert payload["normalization_caption"] == "구간 시작 = 100"
     assert payload["data_kind_caption"] == "전부 가격지수 기준(배당 제외)"
     assert [line["symbol"] for line in payload["series"]] == [
@@ -165,8 +165,8 @@ def test_mode_b_never_substitutes_dax_and_names_the_absent_country() -> None:
     assert euro["data"] == []
     assert euro["missing_reason"] == "CAC 40 (프랑스): 선택한 구간에 보존 데이터 없음 (retained from 1990-03-01)"
     assert payload["data_kind_caption"] == "전부 가격지수 기준(배당 제외)"
-    assert payload["drawn_note"] == "이 창에 그려진 나라: 한국 · 미국 · 일본 (미포함: 프랑스(유럽))"
-    assert payload["legend_note"].startswith("이 창에 그려진 나라: 한국 · 미국 · 일본 (미포함: 프랑스(유럽)) · 전부 가격지수")
+    assert payload["drawn_note"] == "이 창에 데이터가 있는 나라: 한국 · 미국 · 일본 (미포함: 프랑스(유럽))"
+    assert payload["legend_note"].startswith("이 창에 데이터가 있는 나라: 한국 · 미국 · 일본 (미포함: 프랑스(유럽)) · 전부 가격지수")
 
 
 def test_mode_b_partial_line_says_where_it_starts() -> None:
