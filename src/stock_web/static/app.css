@@ -691,3 +691,8 @@ a { color: inherit; text-decoration: none; }
   .fundamentals-bars { min-width: 410px; }
   .fundamentals-overview { overflow-x: auto; }
 }
+
+/* dated event markers on line charts (계좌 편입 등) */
+.si-event-line { stroke: #b35c00; stroke-width: 1; stroke-dasharray: 3 3; }
+.si-event-label { font-size: 9px; fill: #b35c00; }
+

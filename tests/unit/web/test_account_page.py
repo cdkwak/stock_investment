@@ -960,3 +960,14 @@ def test_scope_change_flows_treat_a_new_source_first_balance_as_an_inflow() -> N
     assert metrics["ALL"]["true_pnl_krw"] == pytest.approx(4.0)
     without = account_page.calculate_return_metrics(history, [], broker_reported_pnl_krw=None)
     assert without["ALL"]["true_pnl_krw"] == pytest.approx(54.0)
+
+
+def test_asset_trend_chart_marks_scope_changes() -> None:
+    root = Path(__file__).parents[3]
+    account_js = root.joinpath("src/stock_web/static/account.js").read_text(encoding="utf-8")
+    app_js = root.joinpath("src/stock_web/static/app.js").read_text(encoding="utf-8")
+    template = root.joinpath("src/stock_web/templates/account.html").read_text(encoding="utf-8")
+    assert "events: (payload.scope_changes || [])" in account_js
+    assert 'class="si-event-line"' in app_js
+    assert "세로 점선: 계좌 편입" in template
+

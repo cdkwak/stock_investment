@@ -2305,6 +2305,12 @@ def build_account_page_data(project_root: Path) -> dict[str, object]:
         "cash_flows": cash_flows,
         "recent_write_attempts": load_web_write_audit(project_root, limit=5),
         "total_asset_history": history,
+        # Scope changes (a source's first observation) for the trend chart markers — dates and
+        # labels only; the synthetic flow amounts stay inside the return computation.
+        "scope_changes": [
+            {"date": flow["date"], "source_id": flow["source_id"], "label": "계좌 편입"}
+            for flow in scope_flows
+        ],
         "benchmark": benchmark,
         "return_metrics": return_metrics,
         "return_period": {

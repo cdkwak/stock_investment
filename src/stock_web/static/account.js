@@ -172,6 +172,8 @@
       ],
       ariaLabel: "총 투자자산과 KOSPI 동기간 추이",
       emptyMessage: "총 투자자산 관측이 2개 이상이면 선이 표시됩니다.",
+      // 계좌 편입(측정 범위 변경) 날짜: the jump on that day is a scope change, not a return.
+      events: (payload.scope_changes || []).filter((item) => !metric.start_date || item.date >= metric.start_date).map((item) => ({ t: item.date, label: item.label || "계좌 편입" })),
     });
     const paths = $("total-asset-chart").querySelectorAll(".si-series-line");
     if (shownNetWorth.length >= 2 && paths.length >= 3) paths[2].classList.add("net-worth-overlay-line");

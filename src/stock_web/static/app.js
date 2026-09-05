@@ -125,6 +125,8 @@
     const tickIndexes = [...new Set([0, Math.floor((orderedTimes.length - 1) / 2), orderedTimes.length - 1])];
     const axisFormatter = options.axisFormatter || ((value) => `${(value / 1e8).toFixed(2)}억`);
     const valueFormatter = options.valueFormatter || ((value) => `₩${Math.round(value).toLocaleString("ko-KR")}`);
+    // Dated events (e.g. 계좌 편입 = scope change) drawn as vertical dashed markers with a label.
+    const events = (options.events || []).map((event) => ({ ...event, ms: Date.parse(`${event.t}T00:00:00Z`) })).filter((event) => Number.isFinite(event.ms) && event.ms >= start && event.ms <= finish).map((event) => ({ ...event, ms: options.xMode === "index" ? (orderedTimes.find((point) => point.ms >= event.ms) || orderedTimes[orderedTimes.length - 1]).ms : event.ms }));
     const barSpecs = specs.filter((spec) => spec.type === "bar");
     const step = plotW / Math.max(orderedTimes.length - 1, 1);
     const barWidth = Math.max(1, Math.min(10, step * .72) / Math.max(barSpecs.length, 1));
@@ -137,6 +139,7 @@
       ${barSpecs.map((spec, seriesIndex) => spec.points.map((point) => { const zero = y(0), py = y(point.v), offset = (seriesIndex - (barSpecs.length - 1) / 2) * barWidth; return `<rect x="${x(point) + offset - barWidth / 2}" y="${Math.min(zero, py)}" width="${barWidth}" height="${Math.max(1, Math.abs(zero - py))}" fill="${esc(spec.color)}" class="si-series-bar"></rect>`; }).join("")).join("")}
       ${specs.filter((spec) => spec.type === "line" && spec.points.length > 1).map((spec, index) => `<path d="${path(spec.points)}" class="${index ? "si-benchmark-line" : "si-value-line"} si-series-line" style="stroke:${esc(spec.color)}"></path>`).join("")}
       ${primary.filter((point) => point.partial).map((point) => `<circle cx="${x(point)}" cy="${y(point.v)}" r="2.5" class="si-partial-point"></circle>`).join("")}
+      ${events.map((event) => `<line x1="${x(event)}" x2="${x(event)}" y1="${top}" y2="${height - bottom}" class="si-event-line"></line><text x="${x(event) + 3}" y="${top + 10}" class="si-event-label">${esc(event.label || "")}</text>`).join("")}
       <g class="si-hover" style="display:none"><line y1="${top}" y2="${height - bottom}" class="si-hover-line"></line><g class="si-tooltip"></g></g>
     </svg>`;
     const svg = host.querySelector("svg"), hover = svg.querySelector(".si-hover"), vertical = hover.querySelector("line"), tooltip = hover.querySelector(".si-tooltip");
