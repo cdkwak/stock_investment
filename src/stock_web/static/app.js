@@ -793,13 +793,14 @@
     const tilesMoreLabel = () => {
       const t = $("tiles"); const all = [...t.querySelectorAll(".tile")];
       const hidden = all.filter((tile) => t.classList.contains("collapsed") && getComputedStyle(tile).display === "none");
-      const names = hidden.map((tile) => (tile.querySelector(".tile-name, .name, b, strong") || tile).textContent.trim().split(/\n/)[0]).filter(Boolean);
+      const names = hidden.map((tile) => ((tile.querySelector(".n") || {}).textContent || "").trim()).filter(Boolean);
       return t.classList.contains("collapsed") ? `지표 더 보기 (${hidden.length}${names.length ? ": " + names.slice(0, 4).join(" · ") : ""}) ▾` : "지표 접기 ▴";
     };
     $("tiles-more").addEventListener("click", () => { $("tiles").classList.toggle("collapsed"); $("tiles-more").textContent = tilesMoreLabel(); });
     window.addEventListener("resize", () => { $("tiles-more").textContent = tilesMoreLabel(); });
     // Tiles render after the home fetch: recompute the label whenever the tile list changes.
-    new MutationObserver(() => { $("tiles-more").textContent = tilesMoreLabel(); }).observe($("tiles"), { childList: true });
+    // Measure after layout (styles apply on the next frame), not inside the mutation callback.
+    new MutationObserver(() => { requestAnimationFrame(() => { $("tiles-more").textContent = tilesMoreLabel(); }); }).observe($("tiles"), { childList: true });
     setTimeout(() => { $("tiles-more").textContent = tilesMoreLabel(); }, 0);
     $("tiles").classList.add("collapsed");
     document.querySelectorAll("#chart-interval button").forEach((b) => b.addEventListener("click", () => { document.querySelectorAll("#chart-interval button").forEach((x) => x.classList.remove("on")); b.classList.add("on"); renderChart(); }));
