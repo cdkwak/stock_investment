@@ -481,23 +481,25 @@ def build_tiles(project_root: Path) -> list[dict[str, object]]:
     yields = dsx.load(project_root, "data/normalized/fred_treasury_yield_daily")
     spread = dsx.load(project_root, "data/derived/us_treasury_spread_daily")
     tiles = [
+        # Order = what the ladder/ammunition work reads first: indices, futures, FX, then the
+        # treasury/volatility tiles inside the first 12 (collapsed view); commodities after (review 09-05 10:30).
         _tile_from_series("KOSPI", "KOSPI", idx("KOSPI"), "close"),
         _tile_from_series("KOSDAQ", "KOSDAQ", idx("KOSDAQ"), "close"),
-        _tile_from_series("밤사이 한국 ETF (EWY)", "EWY", idx("EWY"), "close"),
         _tile_from_series("NASDAQ 100 선물", "NQF", idx("NQF"), "close", fmt="{:,.0f}"),
         _tile_from_series("S&P 500 선물", "ESF", idx("ESF"), "close"),
         _tile_from_series("USD/KRW", None, fx, "dexkous", window_label=fx_window),
         _tile_from_series("미국 10Y", None, yields, "dgs10", fmt="{:.2f}%", change_kind="bp", window_label="FRED 일별"),
         _tile_from_series("10Y-2Y 스프레드", None, spread, "spread_10y_2y", fmt="{:+.2f}%p", change_kind="bp", window_label="FRED 일별"),
-        _tile_from_series("필라델피아 반도체", "SOX", idx("SOX"), "close", fmt="{:,.0f}"),
-        _tile_from_series("다우 선물", "YMF", idx("YMF"), "close", fmt="{:,.0f}"),
-        (_tile_from_series("달러 인덱스", "DXY", idx("DXY"), "close") if idx("DXY") is not None
-         else _placeholder("달러 인덱스", "첫 수집 대기 (DX-Y.NYB)")),
-        _tile_from_series("WTI 선물", "WTI", idx("WTI"), "close"),
         _tile_from_series("미국 2Y", None, yields, "dgs2", fmt="{:.2f}%", change_kind="bp", window_label="FRED 일별"),
         _tile_from_series("미국 30Y", None, yields, "dgs30", fmt="{:.2f}%", change_kind="bp", window_label="FRED 일별"),
         _tile_from_series("VIX", None, vix, "vixcls"),
         _korean_treasury_tile(project_root),
+        _tile_from_series("필라델피아 반도체", "SOX", idx("SOX"), "close", fmt="{:,.0f}"),
+        _tile_from_series("밤사이 한국 ETF (EWY)", "EWY", idx("EWY"), "close"),
+        _tile_from_series("다우 선물", "YMF", idx("YMF"), "close", fmt="{:,.0f}"),
+        (_tile_from_series("달러 인덱스", "DXY", idx("DXY"), "close") if idx("DXY") is not None
+         else _placeholder("달러 인덱스", "첫 수집 대기 (DX-Y.NYB)")),
+        _tile_from_series("WTI 선물", "WTI", idx("WTI"), "close"),
     ]
     for tile in tiles:
         intraday = load_intraday_series(project_root, str(tile["name"]))

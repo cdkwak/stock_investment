@@ -387,7 +387,7 @@ a { color: inherit; text-decoration: none; }
 .market-section { display: flex; flex-direction: column; gap: 9px; }
 .market-section > .card-head { margin-bottom: 0; }
 .market-small-grid { display: grid; gap: 10px; }
-.derivatives-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.derivatives-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: start; } /* panels keep their own height; the taller 투자자 순계약 panel must not stretch its siblings */
 .flow-grid, .valuation-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .market-panel { min-width: 0; border: 1px solid var(--grid); border-radius: 4px; padding: 9px 10px 7px; }
 .market-panel-title { font-size: 12px; font-weight: 600; }
@@ -442,6 +442,9 @@ a { color: inherit; text-decoration: none; }
 @media (max-width: 1500px) {
   #scanner { display: none; }
   .tr.watch > :nth-child(n+7) { display: none; }
+  /* The three 순매수 columns are hidden here, so the compact '외 · 기' line must take over
+     from 1500px down — not only under 600px (review 09-05 17:55: 1440 showed nothing). */
+  .watch-investor-mobile { display: block; }
 }
 @media (max-width: 1099px) {
   .page { padding: 10px 12px 24px; }
