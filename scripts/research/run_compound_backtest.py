@@ -43,6 +43,7 @@ from stock_data.research.leveraged_product import (  # noqa: E402
     synthetic_daily_returns,
     volatility_drag,
 )
+from stock_web.api.research_scenario import select_best_in_scenario  # noqa: E402
 
 
 BASKET_SERIES: dict[str, tuple[str, ...]] = {
@@ -342,7 +343,7 @@ def _build_detailed(
 def _plateau(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     strategy = [
         row for row in rows
-        if row["row_kind"] == "strategy" and row["base_exposure"] == 1.0
+        if row["row_kind"] == "strategy"
     ]
     definitions = (
         (
@@ -366,15 +367,26 @@ def _plateau(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     )
     output: list[dict[str, Any]] = []
     for name, x_key, y_key, fixed in definitions:
-        selected = [row for row in strategy if all(row[key] == value for key, value in fixed.items())]
+        scenario = {
+            **fixed,
+            "base_exposure": 1.0,
+            "product_variant": "synthetic",
+        }
+        try:
+            best = select_best_in_scenario(strategy, scenario=scenario)
+        except ValueError as error:
+            if str(error) == "no rows match scenario with a finite metric":
+                continue
+            raise
+        selected = [
+            row for row in strategy
+            if all(row[key] == value for key, value in scenario.items())
+        ]
         selected = [
             row for row in selected
             if row["fit"]["relative_to_baseline"] is not None
             and math.isfinite(float(row["fit"]["relative_to_baseline"]))
         ]
-        if not selected:
-            continue
-        best = max(selected, key=lambda row: float(row["fit"]["relative_to_baseline"]))
         xs = sorted({row[x_key] for row in selected})
         ys = sorted({row[y_key] for row in selected})
         xi = xs.index(best[x_key])

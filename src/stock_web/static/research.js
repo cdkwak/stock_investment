@@ -753,6 +753,21 @@
     return row[split] || null;
   }
 
+  function selectBestInScenario(rows, scenario, metricFn) {
+    const required = ["cost_enabled", "exit", "base_exposure", "product_variant"];
+    if ((rows || []).some((row) => Object.prototype.hasOwnProperty.call(row, "tax_rate"))) required.push("tax_rate");
+    if (!scenario || required.some((key) => !Object.prototype.hasOwnProperty.call(scenario, key) || scenario[key] == null)) {
+      throw new Error("scenario must fix cost/tax/exit/base_exposure");
+    }
+    const selected = (rows || []).filter((row) => Object.entries(scenario).every(([key, value]) => Object.prototype.hasOwnProperty.call(row, key) && row[key] === value));
+    if (Object.keys(scenario).some((key) => new Set(selected.map((row) => `${typeof row[key]}:${String(row[key])}`)).size > 1)) {
+      throw new Error("scenario must fix cost/tax/exit/base_exposure");
+    }
+    const ranked = selected.filter((row) => finite(metricFn(row)));
+    if (!ranked.length) return null;
+    return ranked.reduce((winner, row) => Number(metricFn(row)) > Number(metricFn(winner)) ? row : winner, ranked[0]);
+  }
+
   function compoundRow(combination) {
     if (!combination) return null;
     const rows = (compoundState.payload || {}).rows || [];
@@ -763,7 +778,7 @@
       && Number(item.leverage_multiple) === combination.leverage_multiple
       && item.exit === combination.exit
       && Boolean(item.cost_enabled) === combination.cost_enabled) || null;
-    return combination.product_variant === "actual_adjusted" && !(row || {}).actual_product_basis ? null : row;
+    return row;
   }
 
   function multipleText(value, digits = 2) {
@@ -780,9 +795,10 @@
   function renderCompoundCurve(row, fit, variant) {
     const host = $("compound-equity-chart");
     const baseline = (compoundState.payload || {}).baseline || {};
+    const basis = variant === "actual_adjusted" ? ((row || {}).actual_product_basis || null) : row;
     const finish = fit && fit.end ? String(fit.end) : "9999-12-31";
     const series = (items) => (items || []).filter((point) => point.date <= finish).map((point) => ({ t: point.date, v: point.wealth }));
-    const mine = variant === "actual_adjusted" ? [] : series(row && row.equity_curve_weekly);
+    const mine = series(basis && basis.equity_curve_weekly);
     const base = series(baseline.equity_curve_weekly);
     if (mine.length < 2 || base.length < 2 || !window.SIChart) {
       host.innerHTML = '<div class="unavailable">이 조합은 이름 붙은 자산 곡선이 캐시에 없습니다.</div>';
@@ -800,7 +816,8 @@
   }
 
   function renderCompoundCycles(row, variant) {
-    const cycles = variant === "actual_adjusted" ? [] : ((row && row.cycles) || []);
+    const basis = variant === "actual_adjusted" ? ((row || {}).actual_product_basis || null) : row;
+    const cycles = (basis && basis.cycles) || [];
     $("compound-cycle-body").innerHTML = cycles.length ? cycles.map((cycle) => `<tr><td>${esc(cycle.entry_date || "—")}</td><td>${number(cycle.max_level_reached, 0)}</td><td>${esc(cycle.exit_date || "open")}</td><td class="${valueClass(cycle.contribution_to_wealth)}">${pct(cycle.contribution_to_wealth)}</td></tr>`).join("") : '<tr><td colspan="4"><div class="unavailable">이 조합의 사이클 상세는 캐시에 없습니다.</div></td></tr>';
   }
 
@@ -821,11 +838,19 @@
     };
     const definition = definitions[mode];
     const scenario = `출구 ${combination.exit} · ${combination.cost_enabled ? "거래비용 포함" : "거래비용 제외"} · 기본 노출 ${combination.base_exposure ?? 1}`;
+    const scenarioValues = {
+      ...definition.fixed,
+      exit: combination.exit,
+      cost_enabled: combination.cost_enabled,
+      base_exposure: combination.base_exposure ?? 1,
+      product_variant: combination.product_variant,
+    };
     const rows = ((compoundState.payload || {}).rows || []).filter((row) => row.row_kind !== "baseline"
       && Number(row.base_exposure) === Number(combination.base_exposure ?? 1)
       && row.exit === combination.exit && row.cost_enabled === combination.cost_enabled
       && Object.entries(definition.fixed).every(([key, value]) => Number(row[key]) === Number(value))
-      && finite((heatMetric(row, combination.product_variant) || {}).relative_to_baseline));
+      && finite((heatMetric(row, combination.product_variant) || {}).relative_to_baseline))
+      .map((row) => ({ ...row, product_variant: combination.product_variant }));
     const host = $("compound-heatmap");
     if (rows.length < 4) {
       // Never let a verdict for another combination stand in: no information beats wrong information.
@@ -835,7 +860,19 @@
     }
     const xs = [...new Set(rows.map((row) => row[definition.x]))].sort((a, b) => Number(a) - Number(b));
     const ys = [...new Set(rows.map((row) => row[definition.y]))].sort((a, b) => Number(a) - Number(b));
-    const best = rows.reduce((winner, row) => Number(heatMetric(row, combination.product_variant).relative_to_baseline) > Number(heatMetric(winner, combination.product_variant).relative_to_baseline) ? row : winner, rows[0]);
+    let best;
+    try {
+      best = selectBestInScenario(rows, scenarioValues, (row) => (heatMetric(row, combination.product_variant) || {}).relative_to_baseline);
+    } catch (_error) {
+      host.innerHTML = '<div class="unavailable">시나리오 고정값이 불완전하여 최적 셀을 고르지 않았습니다.</div>';
+      $("compound-plateau-verdict").textContent = "이 조합의 고원 판정은 아직 계산 안 됨";
+      return;
+    }
+    if (!best) {
+      host.innerHTML = '<div class="unavailable">이 시나리오에는 유효한 FIT 최적 셀이 없습니다.</div>';
+      $("compound-plateau-verdict").textContent = "이 조합의 고원 판정은 아직 계산 안 됨";
+      return;
+    }
     const values = rows.map((row) => Number(heatMetric(row, combination.product_variant).relative_to_baseline));
     const low = Math.min(...values), high = Math.max(...values), span = high - low || 1;
     const cellW = 86, cellH = 46, left = 70, top = 22;
@@ -894,6 +931,17 @@
       return;
     }
     const fit = compoundMetric(row, combination.product_variant, "fit");
+    if (combination.product_variant === "actual_adjusted" && !fit) {
+      $("compound-headline").innerHTML = "<span>FIT · ~2015</span><b>실제 상품 보정 값 없음 · 합성 값을 표시하지 않음</b>";
+      $("compound-fit-metrics").innerHTML = '<div class="unavailable">이 조합에는 실제 상품 보정 수치가 없습니다.</div>';
+      $("compound-holdout-output").hidden = true;
+      $("compound-knob-note").textContent = `${row.underlying || combination.product} · 실제 상품 보정 · 값 없음`;
+      renderCompoundExitCompare(combination);
+      renderCompoundCurve(row, null, combination.product_variant);
+      renderCompoundCycles(row, combination.product_variant);
+      renderCompoundHeatmap(combination);
+      return;
+    }
     const relative = Number(fit.relative_to_baseline);
     $("compound-headline").innerHTML = `<span>FIT · ${esc(fit.start || "—")}~${esc(fit.end || "2015")}</span><b>기준선 ${multipleText(fit.baseline_final_wealth_multiple)} · 내 규칙 ${multipleText(fit.final_wealth_multiple)} · ${pct(relative - 1, 0)}</b>`;
     $("compound-fit-metrics").innerHTML = `<div class="compound-metric"><span>최종 금액 / 기준선</span><b>${multipleText(relative)}</b></div><div class="compound-metric"><span>CAGR</span><b>${pct(fit.cagr)}</b></div><div class="compound-metric"><span>최대낙폭</span><b>${pct(fit.max_drawdown)}</b></div>`;

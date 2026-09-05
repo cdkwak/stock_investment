@@ -11,6 +11,7 @@ import pandas as pd
 import pytest
 
 from stock_web.api import research_page
+from stock_web.api.research_scenario import select_best_in_scenario
 from stock_data.research import rule_leaderboard
 from stock_data.research.rule_candidates import rules_version
 from stock_web.app import create_app
@@ -698,6 +699,54 @@ def test_compound_run_cost_flag_is_preserved_in_grid_and_cli_hint() -> None:
     assert "cost_enabled" in command and "False" in command
 
 
+def test_select_best_in_scenario_requires_complete_and_unmixed_scenario() -> None:
+    base = {
+        "cost_enabled": True, "exit": "a", "base_exposure": 1.0,
+        "product_variant": "synthetic", "fit": {"relative_to_baseline": 1.1},
+    }
+    with pytest.raises(ValueError, match="scenario must fix cost/tax/exit/base_exposure"):
+        select_best_in_scenario([base], scenario={"cost_enabled": True})
+
+    taxed = [{**base, "tax_rate": 0.22}]
+    with pytest.raises(ValueError, match="scenario must fix cost/tax/exit/base_exposure"):
+        select_best_in_scenario(
+            taxed,
+            scenario={
+                "cost_enabled": True, "exit": "a", "base_exposure": 1.0,
+                "product_variant": "synthetic",
+            },
+        )
+
+    mixed = [base, {**base, "cost_enabled": 1, "fit": {"relative_to_baseline": 1.2}}]
+    with pytest.raises(ValueError, match="scenario must fix cost/tax/exit/base_exposure"):
+        select_best_in_scenario(
+            mixed,
+            scenario={
+                "cost_enabled": True, "exit": "a", "base_exposure": 1.0,
+                "product_variant": "synthetic",
+            },
+        )
+
+
+def test_select_best_in_scenario_returns_maximum_only_inside_scenario() -> None:
+    rows = [
+        {
+            "cost_enabled": cost, "exit": "a", "base_exposure": 1.0,
+            "product_variant": "synthetic", "fit": {"relative_to_baseline": value},
+        }
+        for cost, value in ((True, 1.1), (True, 1.3), (False, 9.9))
+    ]
+    best = select_best_in_scenario(
+        rows,
+        scenario={
+            "cost_enabled": True, "exit": "a", "base_exposure": 1.0,
+            "product_variant": "synthetic",
+        },
+    )
+
+    assert best["fit"]["relative_to_baseline"] == 1.3
+
+
 def test_compound_registration_posts_through_existing_candidate_endpoint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -827,7 +876,13 @@ def test_compound_panel_static_contract_uses_cached_frame_render_and_existing_ch
     assert "전 구간 기준선 미달" in script
     assert "이 조합에서는 파라미터가 결과를 바꾸지 않음" in script
     assert 'return "전액 손실"' in script
-    assert "row.exit === combination.exit && row.cost_enabled === combination.cost_enabled" in script
+    assert "function selectBestInScenario(rows, scenario, metricFn)" in script
+    assert "best = selectBestInScenario(rows, scenarioValues" in script
+    assert "scenario must fix cost/tax/exit/base_exposure" in script
+    assert "실제 상품 보정 값 없음 · 합성 값을 표시하지 않음" in script
+    assert 'const fit = compoundMetric(row, combination.product_variant, "fit")' in script
+    assert 'const basis = variant === "actual_adjusted" ? ((row || {}).actual_product_basis || null) : row' in script
+    assert 'variant === "actual_adjusted" ? []' not in script
     assert "item.holdout_relative_to_baseline" in script
     assert "item.holdout_baseline_final_wealth_multiple" in script
     assert '"거래비용 포함" : "거래비용 제외"' in script

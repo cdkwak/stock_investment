@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -20,6 +23,7 @@ from stock_data.research.leveraged_product import (
 from scripts.research.run_compound_backtest import (
     _independent_cycle_counts,
     _parser,
+    _plateau,
     validate_base_sweep_payload,
 )
 
@@ -387,6 +391,36 @@ def test_grid_row_schema_and_baseline_comparison() -> None:
     del broken["exit"]
     with pytest.raises(ValueError, match="missing fields"):
         validate_grid_row(broken)
+
+
+def test_plateau_matches_retained_kr_kospi_summary() -> None:
+    root = Path(__file__).parents[3]
+    rows = json.loads(
+        (root / "artifacts/research/compound_ladder/grid_kr_kospi.json").read_text(
+            encoding="utf-8",
+        )
+    )
+    summary = json.loads(
+        (root / "artifacts/research/compound_ladder/summary.json").read_text(
+            encoding="utf-8",
+        )
+    )
+    retained = next(
+        item for item in summary["baskets"]["KR"] if item["underlying"] == "KOSPI"
+    )["plateau"]
+    recalculated = {item["surface"]: item for item in _plateau(rows)}
+
+    assert set(recalculated) == {item["surface"] for item in retained}
+    for expected in retained:
+        actual = recalculated[expected["surface"]]
+        assert actual["best_x"] == expected["best_x"]
+        assert actual["best_y"] == expected["best_y"]
+        assert (
+            actual["best_fit_relative_to_baseline"]
+            == expected["best_fit_relative_to_baseline"]
+        )
+        assert actual["neighbour_count"] == expected["neighbour_count"]
+        assert actual["neighbourhood_mean"] == expected["neighbourhood_mean"]
 
 
 def test_base_sweep_file_schema_requires_comparisons_references_and_thresholds() -> None:
