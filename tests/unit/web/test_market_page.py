@@ -261,6 +261,34 @@ def test_market_payload_uses_requested_flow_range_and_caches_per_range(
     assert calls == ["60D", "ALL"]
 
 
+def test_market_payload_cache_skips_builders_until_retained_input_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = new_temp_root()
+    retained = root / "data/normalized/kr_credit_balance_daily/year=2026/data.parquet"
+    retained.parent.mkdir(parents=True)
+    retained.write_bytes(b"first")
+    calls: list[str] = []
+
+    def fake_chart_symbols(_root: Path) -> list[dict[str, str]]:
+        calls.append("chart_symbols")
+        return []
+
+    monkeypatch.setattr(market_page, "build_chart_symbols", fake_chart_symbols)
+    monkeypatch.setattr(market_page, "build_derivatives", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(market_page, "build_flows_and_balances", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(market_page, "build_valuation", lambda *_args, **_kwargs: {})
+
+    first = build_market_page_payload(root)
+    second = build_market_page_payload(root)
+    retained.write_bytes(b"second-version")
+    third = build_market_page_payload(root)
+
+    assert second is first
+    assert third is not first
+    assert calls == ["chart_symbols", "chart_symbols"]
+
+
 def test_market_payload_bounds_all_default_series_and_all_returns_longer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -436,6 +464,9 @@ def test_derivatives_payload_uses_near_wall_columns(monkeypatch: pytest.MonkeyPa
                 "volume_pcr": [0.9] * 800, "open_interest_pcr": [1.1] * 800,
                 "observation_status": "AVAILABLE",
             })
+
+        def tail(self, dataset: str, *, rows: int, **kwargs) -> pd.DataFrame:
+            return self.read(dataset, **kwargs).tail(rows).reset_index(drop=True)
 
     class FakeDerivatives:
         def option_wall(self):

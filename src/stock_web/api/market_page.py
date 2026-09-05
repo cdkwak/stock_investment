@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import os
-import time
 from pathlib import Path
 
 import pandas as pd
@@ -32,8 +31,30 @@ RANGE_OFFSETS = {
 FLOW_RANGE_SESSIONS = {"20D": 20, "60D": 60, "1Y": 252, "ALL": None}
 HISTORY_RANGES = {"1Y", "3Y", "5Y", "ALL"}
 MARKET_RANGE_KEYS = {*FLOW_RANGE_SESSIONS, *HISTORY_RANGES}
-_MARKET_CACHE_TTL_SECONDS = 60.0
-_MARKET_CACHE: dict[tuple[str, str, bool], tuple[float, dict[str, object]]] = {}
+_HISTORY_TAIL_ROWS = {"1Y": 520, "3Y": 1_500, "5Y": 2_500}  # ≥2 rows per date (day+night futures sessions): keep a wide margin, _range_view trims by date
+_MARKET_INPUTS = (
+    "artifacts/analysis/kospi200_option_wall_recent_250.csv",
+    "artifacts/daily_health",
+    "data/derived/kr_kospi200_futures_nearest_listed_daily",
+    "data/derived/kr_kospi200_option_pcr_daily",
+    "data/derived/kr_market_breadth_daily",
+    "data/landing/ls_openapi/t8462_daily_raw",
+    "data/landing/ls_openapi/t8462_raw",
+    "data/normalized/cboe_daily_pcr_daily",
+    "data/normalized/global_commodity_futures_daily",
+    "data/normalized/global_etf_price_daily",
+    "data/normalized/global_index_price_daily",
+    "data/normalized/kr_credit_balance_daily",
+    "data/normalized/kr_index_daily",
+    "data/normalized/kr_index_fundamental_daily",
+    "data/normalized/kr_kospi200_index_daily",
+    "data/normalized/kr_market_investor_trading_daily",
+    "data/normalized/kr_stock_lending_market_daily",
+)
+_MARKET_CACHE: dict[
+    tuple[str, str, bool],
+    tuple[tuple[tuple[Path, int, int], ...], dict[str, object]],
+] = {}
 
 _WARNING_TRANSLATIONS = {
     "Raw provider observation; no Normalized/PIT-safe claim":
@@ -134,6 +155,58 @@ def _flow_range_view(frame: pd.DataFrame, range_key: str) -> pd.DataFrame:
 
 def _history_range(range_key: str) -> str:
     return range_key if range_key in HISTORY_RANGES else "1Y"
+
+
+def _input_signature(
+    paths: tuple[Path, ...],
+) -> tuple[tuple[Path, int, int], ...] | None:
+    signature: list[tuple[Path, int, int]] = []
+    try:
+        for path in paths:
+            stat = path.stat()
+            signature.append((path, stat.st_mtime_ns, stat.st_size))
+    except OSError:
+        return None
+    return tuple(signature)
+
+
+def _market_input_paths(project_root: Path) -> tuple[Path, ...]:
+    """Snapshot exact retained files plus their directories after a cache miss.
+
+    Cache hits stat this fixed path set instead of walking every dataset. Parent
+    directories are watched so an atomic nightly replacement or a new partition
+    invalidates the payload even when the prior files themselves are unchanged.
+    """
+    watched: set[Path] = {project_root}
+    for relative in _MARKET_INPUTS:
+        path = project_root / relative
+        if path.is_file():
+            watched.update((path, path.parent))
+            continue
+        if path.is_dir():
+            watched.add(path)
+            for retained in path.rglob("*"):
+                if retained.is_file() and retained.suffix.lower() in {
+                    ".csv", ".json", ".parquet",
+                }:
+                    watched.update((retained, retained.parent))
+            continue
+        if path.parent.is_dir():
+            watched.add(path.parent)
+    return tuple(sorted(watched))
+
+
+def _history_frame(
+    query: object,
+    dataset: str,
+    *,
+    range_key: str,
+    columns: list[str],
+) -> pd.DataFrame:
+    rows = _HISTORY_TAIL_ROWS.get(range_key)
+    if rows is None:
+        return query.read(dataset, columns=columns)
+    return query.tail(dataset, rows=rows, columns=columns)
 
 
 def _localized_warning(value: object) -> str | None:
@@ -365,8 +438,10 @@ def build_derivatives(
     basis = _metric_view(metrics.get("KOSPI200_BASIS"), pattern="{:+,.2f}")
     if basis["status"] == "VALUE":
         try:
-            frame = service.query.read(
+            frame = _history_frame(
+                service.query,
                 "derived/kr_kospi200_futures_nearest_listed_daily",
+                range_key=history_range,
                 columns=["date", "session", "settlement_basis", "basis_status"],
             )
             frame = frame.loc[
@@ -388,8 +463,10 @@ def build_derivatives(
         "oi": _metric_view(metrics.get("OI_PCR"), pattern="{:.2f}"),
     }
     try:
-        pcr = pd.DataFrame() if service is None else service.query.read(
+        pcr = pd.DataFrame() if service is None else _history_frame(
+            service.query,
             "derived/kr_kospi200_option_pcr_daily",
+            range_key=history_range,
             columns=["date", "volume_pcr", "open_interest_pcr", "observation_status"],
         ).sort_values("date")
     except (KeyError, OSError, PermissionError, TypeError, ValueError):
@@ -702,8 +779,13 @@ def build_market_page_payload(
         public_mode = os.environ.get("STOCK_WEB_PUBLIC_MODE") == "1"
     cache_key = (str(root), request_range, public_mode)
     cached = _MARKET_CACHE.get(cache_key)
-    if cached is not None and time.monotonic() - cached[0] < _MARKET_CACHE_TTL_SECONDS:
-        return cached[1]
+    if cached is not None:
+        cached_signature, cached_payload = cached
+        current_signature = _input_signature(
+            tuple(item[0] for item in cached_signature),
+        )
+        if current_signature == cached_signature:
+            return cached_payload
 
     def safely(builder, label: str) -> dict[str, object]:
         try:
@@ -732,7 +814,9 @@ def build_market_page_payload(
             "valuation": safely(lambda: build_valuation(root, range_key=history_range), "밸류에이션"),
         },
     }
-    _MARKET_CACHE[cache_key] = (time.monotonic(), payload)
+    signature = _input_signature(_market_input_paths(root))
+    if signature is not None:
+        _MARKET_CACHE[cache_key] = (signature, payload)
     return payload
 
 

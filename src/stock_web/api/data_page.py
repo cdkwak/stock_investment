@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from datetime import date, datetime, timedelta, timezone
+from functools import lru_cache
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -66,6 +67,16 @@ ROLE = {
 WEB_PRESERVED_DATASETS = {
     "research_target_price_consensus": "종목 상세 화면에서 보존 참고값으로 사용",
 }
+_DATA_CONTEXT_INPUTS = (
+    ".env",
+    "artifacts/daily_health",
+    "artifacts/scheduler_logs",
+    "data/state/provider_scheduler/kr_market_daily_occurrences",
+)
+_DATA_CONTEXT_CACHE: dict[
+    tuple[str, str],
+    tuple[str, tuple[tuple[Path, int, int], ...], dict[str, object]],
+] = {}
 
 _CALENDAR_MARKETS = {
     "XKRX": ExchangeMarket.KR,
@@ -90,6 +101,38 @@ def _enum(raw: object, labels: dict[str, str]) -> dict[str, str]:
         "raw": value,
         "label": labels.get(value, "미확인"),
     }
+
+
+def _input_signature(
+    paths: tuple[Path, ...],
+) -> tuple[tuple[Path, int, int], ...] | None:
+    signature: list[tuple[Path, int, int]] = []
+    try:
+        for path in paths:
+            stat = path.stat()
+            signature.append((path, stat.st_mtime_ns, stat.st_size))
+    except OSError:
+        return None
+    return tuple(signature)
+
+
+def _data_context_input_paths(project_root: Path) -> tuple[Path, ...]:
+    """Collect retained inputs once; cache hits only stat the fixed path set."""
+    watched: set[Path] = set()
+    for relative in _DATA_CONTEXT_INPUTS:
+        path = project_root / relative
+        if path.is_file():
+            watched.update((path, path.parent))
+            continue
+        if path.is_dir():
+            watched.add(path)
+            for retained in path.rglob("*"):
+                if retained.is_file() and retained.suffix.lower() == ".json":
+                    watched.update((retained, retained.parent))
+            continue
+        if path.parent.is_dir():
+            watched.add(path.parent)
+    return tuple(sorted(watched))
 
 
 def _automation(raw: object) -> dict[str, str]:
@@ -125,6 +168,7 @@ def _dataset_subject(dataset: str, role: str) -> str:
     return ROLE.get(role, role)
 
 
+@lru_cache(maxsize=1_024)
 def _age_sessions(
     latest: object, *, today: date, calendar_name: object,
 ) -> int | None:
@@ -490,16 +534,28 @@ def _load_health_metadata(path: Path) -> dict[str, dict[str, object]]:
 def build_data_page_context(
     project_root: Path, status_filter: str, *, now: datetime | None = None,
 ) -> dict[str, object]:
+    root = Path(project_root).resolve()
     reference = now or datetime.now(ZoneInfo("Asia/Seoul"))
     if reference.tzinfo is None or reference.utcoffset() is None:
         raise ValueError("now must be timezone-aware")
     reference = reference.astimezone(ZoneInfo("Asia/Seoul"))
-    latest_artifact = project_root / "artifacts/daily_health/universe_data_v2_latest.json"
+    selected = status_filter if status_filter in FILTERS else "OPERATIONAL"
+    cache_key = (str(root), selected)
+    reference_minute = reference.replace(second=0, microsecond=0).isoformat()
+    cached = _DATA_CONTEXT_CACHE.get(cache_key)
+    if cached is not None:
+        cached_minute, cached_signature, cached_context = cached
+        current_signature = _input_signature(
+            tuple(item[0] for item in cached_signature),
+        )
+        if cached_minute == reference_minute and current_signature == cached_signature:
+            return dict(cached_context)
+
+    latest_artifact = root / "artifacts/daily_health/universe_data_v2_latest.json"
     service = DailyHealthArtifactService(
-        project_root, latest_artifact if latest_artifact.is_file() else None,
+        root, latest_artifact if latest_artifact.is_file() else None,
     )
     view = service.load()
-    selected = status_filter if status_filter in FILTERS else "OPERATIONAL"
     selected_rows = service.filter_rows(view.rows, selected) if view.artifact_state == "READY" else ()
     metadata = _load_health_metadata(service.artifact_path)
     all_projected = tuple(
@@ -525,7 +581,7 @@ def build_data_page_context(
         ))
         if grouped:
             groups.append({"raw": raw, "label": label, "class": css_class, "rows": grouped})
-    receipts = load_scheduler_receipts(project_root, now=reference)
+    receipts = load_scheduler_receipts(root, now=reference)
     bundle_failure_count = count_failed_receipts(receipts)
     freshness_counts = [
         {"raw": raw, "label": label, "class": css_class,
@@ -545,7 +601,7 @@ def build_data_page_context(
             and row["age_sessions"] is not None
         )
     )
-    return {
+    context = {
         "filters": FILTERS,
         "filter_labels": FILTER_LABELS,
         "selected_filter": selected,
@@ -574,8 +630,12 @@ def build_data_page_context(
             for dataset, reason in WEB_PRESERVED_DATASETS.items()
             if dataset in {row.dataset for row in view.rows}
         ),
-        "credential_expiries": load_credential_expiries(project_root),
+        "credential_expiries": load_credential_expiries(root),
     }
+    signature = _input_signature(_data_context_input_paths(root))
+    if signature is not None:
+        _DATA_CONTEXT_CACHE[cache_key] = (reference_minute, signature, context)
+    return dict(context)
 
 
 __all__ = ["FILTERS", "build_data_page_context", "load_credential_expiries", "load_scheduler_receipts"]

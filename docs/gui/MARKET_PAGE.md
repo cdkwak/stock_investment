@@ -76,3 +76,9 @@ LS 원시 관측 경고는 웹 projection 경계에서 한국어로 바꾼다. �
 
 현재 시장 모듈에는 startup/refresh warm hook이 없다. `__main__.py`의 기존 홈
 warmup과 시장 기본 범위 cache warmup을 함께 등록하는 후속 변경을 권장한다.
+
+2026-09-05부터 시장 payload와 데이터 페이지 context는 보존 입력의
+`(path, mtime_ns, size)` 서명으로 프로세스 내 cache를 무효화하며, 기본 파생
+이력은 전체 연도 파일 대신 표시 범위를 충족하는 최신 행만 읽는다. 같은
+프로세스의 최종 TestClient 3회 측정은 `/api/market` 52.1/49.0/46.9ms,
+`/data` 7.8/7.9/8.2ms였고 Market JSON은 변경 전 payload와 일치했다.

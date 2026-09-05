@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+import stock_web.api.data_page as data_page
 from stock_web.api.data_page import (
     FILTER_LABELS,
     FRESHNESS,
@@ -117,6 +118,33 @@ def test_data_page_prefers_stable_latest_health_pointer() -> None:
 
     assert row["latest"] == "2026-09-02"
     assert row["display_reason"].endswith("표는 손으로 적은 값")
+
+
+def test_data_page_context_cache_skips_health_build_until_inputs_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tmp_path = new_temp_root()
+    calls = 0
+    original_load = data_page.DailyHealthArtifactService.load
+
+    def measured_load(service):
+        nonlocal calls
+        calls += 1
+        return original_load(service)
+
+    monkeypatch.setattr(data_page.DailyHealthArtifactService, "load", measured_load)
+    now = datetime(2026, 9, 5, 12, 30, tzinfo=timezone.utc)
+
+    first = build_data_page_context(tmp_path, "ALL", now=now)
+    second = build_data_page_context(tmp_path, "ALL", now=now)
+    scheduler = tmp_path / "artifacts/scheduler_logs"
+    scheduler.mkdir(parents=True)
+    (scheduler / "NEW_last.json").write_text("{}", encoding="utf-8")
+    third = build_data_page_context(tmp_path, "ALL", now=now)
+
+    assert first == second
+    assert third["older_receipts"][0]["task"] == "NEW"
+    assert calls == 2
 
 
 def test_data_page_labels_pending_current_row_with_due_time() -> None:
