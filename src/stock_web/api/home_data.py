@@ -622,6 +622,7 @@ def build_flows(project_root: Path) -> dict[str, object]:
     return {
         "as_of": frame["date"].iloc[-1].strftime("%Y-%m-%d"),
         "market": "KOSPI", "rows": rows, "balances": balances,
+        "us": {"reason": "미표시 · 미국은 투자자 분류 일별 순매수 공시 없음 (2026-08-22 결정 · CFTC COT는 주간 포지션이라 대응 아님)"},
         "lending": lending,
     }
 
@@ -647,10 +648,22 @@ def build_health(project_root: Path) -> dict[str, object]:
     from stock_data.gui.health_service import _effective_display_status
 
     statuses = [_effective_display_status(row) for row in view.rows]
+    # The 데이터 page adds failed bundle occurrences (e.g. a 20:30 bundle that exited 1) to
+    # the 실패 count; the header chip must say the same number (review 09-05 16:00).
+    bundle_failures = 0
+    try:
+        from stock_web.api.data_page import load_scheduler_receipts
+
+        bundle_failures = sum(
+            bool(row.get("failed")) and bool(row.get("occurrence_source"))
+            for row in load_scheduler_receipts(project_root)
+        )
+    except Exception:  # the chip must never break the home page
+        bundle_failures = 0
     return {
         "current": statuses.count("CURRENT"),
         "lag": statuses.count("LATE"),
-        "fail": statuses.count("FAILED"),
+        "fail": statuses.count("FAILED") + bundle_failures,
         "preserved": statuses.count("PRESERVED"),
         "reference": statuses.count("REFERENCE"),
         "labels": {"current": "정시", "late": "지연", "failed": "실패"},

@@ -446,13 +446,18 @@ def build_rules(
     max_nominal = values.get("레버리지 ETF 최대 비중")
     hot_cap = values.get("과열 판정 시 레버리지 상한")
     min_cash = values.get("최소 현금 비중")
+    # "모름" must not read as 0%: when the brokers did not report cash, say 미확인 and flag
+    # that the weights below leave cash out of the denominator (review 09-05 11:40).
+    cash_known = cash is not None
+    cash_caveat = "" if cash_known else " · 현금 미반영(분모 과소 가능)"
     rows = [
         ["레버리지 ETF 비중 (명목)", _fmt(nominal, "{:.0f}%"),
-         f"/ 한도 {max_nominal:.0f}%" if max_nominal is not None else ""],
+         (f"/ 한도 {max_nominal:.0f}%" if max_nominal is not None else "") + cash_caveat],
         ["실효 노출 (비중 x 배수)", _fmt(exposure, "{:.0f}%"),
-         "= 보유 비중 x 확인된 배수"],
-        ["현금 · 단기국채", f"{_fmt(cash, '{:.0f}%')} · {short_treasury:.0f}%",
-         f"/ 최소 {min_cash:.0f}%" if min_cash is not None else ""],
+         "= 보유 비중 x 확인된 배수" + cash_caveat],
+        ["현금 · 단기국채",
+         f"{_fmt(cash, '{:.0f}%') if cash_known else '미확인'} · {short_treasury:.0f}%",
+         (f"/ 최소 {min_cash:.0f}%" if min_cash is not None else "") + ("" if cash_known else " · 현금 미확인이라 한도 판정 보류")],
     ]
     warnings: list[str] = []
     if nominal is not None and max_nominal is not None and nominal > max_nominal:

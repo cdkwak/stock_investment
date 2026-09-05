@@ -63,3 +63,7 @@
   .market-micro-grid { grid-template-columns: 1fr; }
   .market-valuation-chart { height: 286px; }
 }
+
+/* Cboe panel: size to content instead of matching the 215px chart siblings (review 09-05 10:30) */
+#cboe-pcr-panel { align-self: start; min-height: 0; }
+#cboe-pcr-panel .market-panel-table { overflow-x: auto; }

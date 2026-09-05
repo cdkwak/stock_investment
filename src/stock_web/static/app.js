@@ -641,7 +641,10 @@
           const tooltip = [basis ? `${basis} 기준` : "", lagNote].filter(Boolean).join(" · ");
           const changeCell = (change, note) => change === null || change === undefined ? `<small class="muted">${esc(note || "자료 없음")}</small>` : pct(change);
           return `<div class="tr bal" title="${esc(tooltip)}"><div class="muted">${esc(b.name)}</div><div class="num"><span class="balance-value">${esc(value)}${basis ? ` <small class="balance-as-of muted">· ${esc(basis)} 기준</small>` : ""}</span> <small class="${b.hot ? "up" : "muted"}">${esc(b.position || "")}</small></div><div class="r num ${cls(b.d1_pct)}">${changeCell(b.d1_pct, b.d1_note)}</div><div class="r num ${cls(b.d5_pct)}">${changeCell(b.d5_pct, b.d5_note)}</div><div class="r num ${cls(b.d20_pct)}">${changeCell(b.d20_pct, b.d20_note)}</div><div>${sparkline(b.spark || [], 70, 18)}</div></div>`;
-        }).join("") + `</div>` : "");
+        }).join("") + `</div>` : "")
+      // 미국장: there is no free daily investor-class flow disclosure (decision 2026-08-22) — say so
+      // instead of leaving the KR-only card looking like an omission (review 09-05 10:30).
+      + (sec.us && sec.us.reason ? `<div class="sub">미국</div><div class="kv"><span>투자자별 순매수</span><span class="muted">${esc(sec.us.reason)}</span></div>` : "");
   }
   function renderDerivatives(sec) {
     const host = $("derivatives");
@@ -786,7 +789,16 @@
       if (!event.target.closest(".regime-title-line, .regime-toggle")) return;
       applyRegimeEvidenceState($("regime").dataset.expanded !== "true", true);
     });
-    $("tiles-more").addEventListener("click", () => { const t = $("tiles"); t.classList.toggle("collapsed"); $("tiles-more").textContent = t.classList.contains("collapsed") ? "지표 더 보기 ▾" : "지표 접기 ▴"; });
+    // Say how many tiles are folded (and which): the treasury tiles were read as deleted (review 10:30).
+    const tilesMoreLabel = () => {
+      const t = $("tiles"); const all = [...t.querySelectorAll(".tile")];
+      const hidden = all.filter((tile) => t.classList.contains("collapsed") && getComputedStyle(tile).display === "none");
+      const names = hidden.map((tile) => (tile.querySelector(".tile-name, .name, b, strong") || tile).textContent.trim().split(/\n/)[0]).filter(Boolean);
+      return t.classList.contains("collapsed") ? `지표 더 보기 (${hidden.length}${names.length ? ": " + names.slice(0, 4).join(" · ") : ""}) ▾` : "지표 접기 ▴";
+    };
+    $("tiles-more").addEventListener("click", () => { $("tiles").classList.toggle("collapsed"); $("tiles-more").textContent = tilesMoreLabel(); });
+    window.addEventListener("resize", () => { $("tiles-more").textContent = tilesMoreLabel(); });
+    setTimeout(() => { $("tiles-more").textContent = tilesMoreLabel(); }, 0);
     $("tiles").classList.add("collapsed");
     document.querySelectorAll("#chart-interval button").forEach((b) => b.addEventListener("click", () => { document.querySelectorAll("#chart-interval button").forEach((x) => x.classList.remove("on")); b.classList.add("on"); renderChart(); }));
     document.querySelectorAll("#chart-range button").forEach((b) => b.addEventListener("click", () => { document.querySelectorAll("#chart-range button").forEach((x) => x.classList.remove("on")); b.classList.add("on"); loadChart($("chart-symbol").value, b.dataset.v); }));
