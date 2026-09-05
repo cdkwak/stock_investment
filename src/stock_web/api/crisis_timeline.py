@@ -253,6 +253,14 @@ def _data_kind_caption(lines: list[dict[str, object]]) -> str:
     return "지수 기준을 확인할 수 없음"
 
 
+def _starts_late(first_time: str, window_start: str, *, tolerance_days: int = 10) -> bool:
+    """True when a line's first observation is well past the window start (holidays such as
+    2000-03-01 삼일절 shift the first KOSPI print by a day; that is not a data gap)."""
+    from datetime import date
+
+    return (date.fromisoformat(first_time) - date.fromisoformat(window_start)).days > tolerance_days
+
+
 def _drawn_countries_note(lines: list[dict[str, object]], requested: tuple[str, ...]) -> str:
     drawn = [
         _COUNTRY_BY_SYMBOL.get(str(item["symbol"]), str(item["symbol"]))
@@ -457,7 +465,7 @@ def _mode_b(
         lines.append(line)
         if missing:
             missing_notes.append(missing)
-        elif line["data"] and str(line["data"][0]["time"]) > start:
+        elif line["data"] and _starts_late(str(line["data"][0]["time"]), start):
             missing_notes.append(
                 f"{definition['label']}: {line['data'][0]['time']}부터만 표시 — 구간 시작 {start}에는 "
                 f"보존 데이터 없음(retained from {definition['retained_from']}) · 자기 첫 관측일 = 100"
