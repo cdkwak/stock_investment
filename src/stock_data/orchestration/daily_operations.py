@@ -2023,7 +2023,7 @@ CORE_DATASET_SPECS = REPRESENTATIVE_DATASET_SPECS + (
         primary_source="Cboe Daily Market Statistics public daily file",
         contract_id="cboe_daily_pcr_daily",
         contract_version=1,
-        operational_status=OperationalStatus.MANUAL_READY,
+        operational_status=OperationalStatus.AUTO_READY,
         freshness_policy=FreshnessPolicy(
             "cboe_daily_pcr_0630_kst", "Asia/Seoul",
             "latest Cboe observation date due once daily at 06:30 KST",
@@ -2037,7 +2037,7 @@ CORE_DATASET_SPECS = REPRESENTATIVE_DATASET_SPECS + (
         pipeline_dependencies=(),
         idempotency_status=IdempotencyStatus.CONFIRMED,
         pit_status=PitStatus.NON_PREDICTIVE,
-        automation_enabled=False,
+        automation_enabled=True,
         provider_auth_id="cboe_public",
         validation_policy="personal-only, one-call, Landing sha256, exact date/scope, non-negative counts, put/call ratios, atomic promotion",
         dashboard_required=True,

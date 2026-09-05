@@ -1241,6 +1241,7 @@ _AUTO_ENABLED_IDS: frozenset[str] = frozenset({
     "bok_ecos_kr_treasury_yield_source_observation",
     "kr_market_investor_trading_daily",
     "kr_corp_code_map", "kr_fundamentals_quarterly",
+    "cboe_daily_pcr_daily",
 })
 
 

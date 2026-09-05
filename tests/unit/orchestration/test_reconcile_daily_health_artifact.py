@@ -83,7 +83,7 @@ def test_universe_health_v2_preserves_all_axes_without_inventing_expected_dates(
     result = MODULE.reconcile_universe(core)
     assert result["dataset_count"] == 93
     assert result["core_operations_count"] == 49
-    assert result["automation_enabled_count"] == 49
+    assert result["automation_enabled_count"] == 50
     assert result["operations_registry_count"] == 49
     assert result["core_operation_missing"] == []
     assert result["generated_at"] == "2026-08-18T23:00:00+09:00"
