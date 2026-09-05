@@ -1,90 +1,97 @@
-# Korean issuer fundamentals source options
+# Korean issuer fundamentals source
 
-Status: `NO_COMPLIANT_NORMALIZED_SOURCE / NO_LIVE_COMMAND`
+Status: `NORMALIZED_ACTIVE / DISPLAY_AND_SCANNER_ONLY / WEEKLY_AUTOMATION_ACTIVE / PIT_BLOCKED`
 
-Review date: 2026-09-03 KST. This review used checked-in documentation, code,
-contracts, retained Landing directory names, and credential-name presence only.
-It made no network call and did not read or print any credential value.
+Review date: 2026-09-05 KST. This reconciliation used checked-in
+documentation and code plus a read-only PyArrow scan of the retained dataset.
+It made no provider call and did not read or print any credential value.
 
-## Decision
+## Current decision
 
-No source currently registered in this repository can lawfully and
-semantically supply scanner-ready quarterly debt, operating-income, net-income,
-and revenue facts. Do not create a Normalized dataset, Dataset Universe row,
-collector, or scanner values until one source passes the rights and statement
-semantics gates below.
+OpenDART is the implemented source for Korean quarterly issuer fundamentals.
+The official `corpCode.xml` and `fnlttSinglAcntAll.json` APIs feed the
+Landing-first collector and the Normalized `kr_corp_code_map` and
+`kr_fundamentals_quarterly` datasets. At this review,
+`pyarrow.dataset.dataset(..., partitioning=None)` reports 1,506 retained
+fundamentals rows for 158 unique securities.
 
-OpenDART is the best candidate and its credential **name**
-(`OPENDART_API_KEY`) exists in the local `.env`. The provider is already
-approved for bounded disclosure and Raw research, but the active
-[financial-statement pilot](../operations/OPENDART_FINANCIAL_STATEMENT_PILOT.md)
-explicitly records `RIGHTS_AND_REDISTRIBUTION_UNVERIFIED`, unknown publication
-and revision timing, null `usable_from`, and a prohibition on Normalized/GUI
-promotion. That higher-priority gate prevents using the configured key as proof
-of a licensed scanner feed.
+The accepted use remains local display and scanner support only. Filing
+availability, complete revision history, non-calendar fiscal periods, and
+historical point-in-time behavior are not closed, so Backtest and predictive
+use remain blocked.
 
-## Retained investigation
+## Source and rights basis
 
-| Source | Local approval and credential state | Relevant fields actually documented here | Rate limit recorded here | Licence/terms evidence recorded here | Result |
-|---|---|---|---|---|---|
-| OpenDART `fnlttSinglAcnt.json` | Bounded Raw pilot approved; `OPENDART_API_KEY` name present | `rcept_no`, `reprt_code`, `bsns_year`, `corp_code`, statement/account IDs and names, current/prior raw amounts, currency, order, `fs_div`; sufficient raw ingredients in principle, but no accepted quarterly metric mapping | No provider quota is recorded. The frozen project pilot is limited to one GET, 10-second timeout, retry 0. | Official API guide is linked in [OpenDART source notes](opendart/README.md), but retention/redistribution terms are not accepted in-repo. | `RAW_RESEARCH_ONLY`; no retained financial-statement Landing response was found |
-| KRX/pykrx `get_market_fundamental*` / `MDCSTAT03501` | Existing KRX routes and KRX-related key name present | Close, EPS, PER, BPS, PBR, DPS, dividend yield only; no liabilities, equity, revenue, operating income, or net income | No safe quota is recorded for this route | KRX terms are linked in [KRX notes](krx/README.md); pykrx is an adapter, not a licence or stable official contract | Not functionally sufficient |
-| data.go.kr checked-in `1160100` routes | Active approved routes; `DATA_GO_KR_SERVICE_KEY` name present | Prices/universe, derivatives, lending, market liquidity/credit, dividends, and rights; no issuer quarterly statement route is registered | Endpoint-specific; no issuer-statement quota exists because no such checked-in endpoint exists | Public/government inputs are accepted only per registered endpoint contract | Not functionally sufficient |
-| KRX KIND | Official disclosure reference only; no machine endpoint, credential route, parser, or retained statement Landing | Potential filing documents, but no accepted structured field mapping | Not documented | No checked-in automated-use/retention terms decision | Candidate only; not registered |
-| Naver / FnGuide | No approved financial-statement provider route | Screened financial figures may be visible, but no contract-stable fields are retained | Not documented | Scraping/redistribution rights are not accepted | Scraping is not acceptable |
+The [OpenDART source record](opendart/README.md) lists the official developer
+guide, corporation-code API, all-financial-statements API, and OpenDART terms as
+checked on 2026-09-03. It also records the user's 2026-09-03 acceptance of
+personal-use retention for this project. That is the repository's current
+rights basis for the retained local display/scanner route; it does not authorize
+redistribution.
 
-Retained Landing roots include `data/landing/data_go_kr/` and
-`data/landing/krx_open_api/`. Under OpenDART diagnostics, only a corporate-action
-free-issue pilot was found; there is no retained
-`opendart_financial_statement_pilot` response to normalize offline.
+The API key is loaded from the project environment as `OPENDART_API_KEY`, with
+the documented compatibility spelling handled by the collector. Never print
+the key, a key-bearing URL, query parameters containing it, or `.env` contents.
 
-## Registration and evidence needed
+## Implemented contract and consumers
 
-### Recommended: OpenDART
+| Area | Current route |
+|---|---|
+| Provider | OpenDART official API: `corpCode.xml`, `fnlttSinglAcntAll.json` |
+| Collector | `scripts/manual/collect/refresh_kr_fundamentals.py` |
+| Contract/provider/orchestration | `kr_fundamentals.py`, `opendart_fundamentals.py`, `kr_fundamentals_quarterly.py` |
+| Storage | immutable `data/landing/opendart/kr_fundamentals_quarterly/`; `data/normalized/{kr_corp_code_map,kr_fundamentals_quarterly}/` |
+| Stock page | `src/stock_web/api/stock_detail.py` reads the dataset with `partitioning=None` and supplies the quarterly financial table: revenue, operating income, net income, operating margin, and debt ratio |
+| Scanner | `src/stock_web/api/scanner.py` reads `kr_fundamentals_quarterly` for `debt_ratio_pct`, four-quarter operating/net-income signs, revenue trend, financial coverage, and the debt-ratio/value-trap path |
 
-1. Register for the official free OpenDART API and issue a key. This machine
-   already has the expected key name, so no key value should be sent through
-   chat, logs, documentation, or a command line.
-2. The user or licence owner must retain an authoritative terms decision that
-   permits the intended local storage and scanner display/derived use. Public
-   access and a free key alone are not proof of redistribution rights.
-3. Record the provider's current daily/request quota and choose a bounded
-   per-run issuer/report budget below it.
-4. Establish issuer identity (`symbol` to `corp_code`) and report availability,
-   correction/revision lineage, receipt timestamp, consolidation preference,
-   fiscal-year/calendar-quarter handling, cumulative-to-discrete-quarter
-   conversion, and account-ID fallback rules.
-5. Only then add the Landing-first collector, Normalized contract, tests, and a
-   Dataset Universe row with `automation_enabled=False` for the first manual run.
+The revision-preserving key is
+`(symbol, bsns_year, reprt_code, fs_div, rcept_no)`. CFS is preferred; OFS is
+used only after a captured CFS `013`. Q1/Q2/Q3 use the documented three-month
+amount. Q4 is annual less Q3 cumulative within the same scope and currency;
+missing or incompatible operands yield null. `debt_ratio_pct` is liabilities
+divided by equity times 100 and is null for missing or non-positive equity.
 
-### Alternative: KRX KIND
+## Collector commands
 
-Register for an official machine-readable service only if KRX offers the exact
-structured statement fields and grants the required storage/use rights. Retain
-the service identifier, quota, terms, schema, filing timestamp, and correction
-rules before writing code. Manual HTML/PDF scraping is not a substitute.
+The real bounded two-step entry point is documented in the
+[OpenDART source record](opendart/README.md). A live capture uses:
 
-### Rejected: Naver / FnGuide scraping
+```powershell
+$env:PYTHONIOENCODING='utf-8'
+.\.venv\Scripts\python.exe .\scripts\manual\collect\refresh_kr_fundamentals.py --project-root . --years 2024,2025,2026 --max-calls 200 --confirm-live-landing-only
+```
 
-No registration step makes an undocumented scraper acceptable here. A
-licensed, documented API product would require a new source review and explicit
-contract; do not reuse website fields or session cookies.
+After reviewing the returned checkpoint and candidate fingerprints, promotion
+is offline and makes no provider call:
 
-## Intended Normalized boundary after the gate
+```powershell
+$env:PYTHONIOENCODING='utf-8'
+.\.venv\Scripts\python.exe .\scripts\manual\collect\refresh_kr_fundamentals.py --project-root . --promote-checkpoint <checkpoint.json> --confirm-offline-promotion --approval-digest <approval_digest>
+```
 
-A future dataset should retain issuer/report identity, consolidated/separate
-scope, fiscal period, filing receipt and availability timestamp, revision
-lineage, currency/unit, standardized account identity, and source amounts. The
-scanner-facing `debt_ratio`, four discrete-quarter profit booleans, and revenue
-trend must be Derived values with their calculation version and
-`fundamentals_as_of`; they must not be guessed in the collector.
+The active cadence is the [weekly fundamentals lane](../operations/KR_FUNDAMENTALS_WEEKLY.md):
+`KR_FUNDAMENTALS_WEEKLY` runs inside the existing 20:30 `KR_MARKET_DAILY`
+bundle only on the last XKRX session of the ISO week. It prioritizes Korean
+watchlist stocks, unions retained fundamentals symbols, caps the plan at 200
+symbols and 2,600 calls, and otherwise returns `SKIPPED_NOT_REFRESH_DAY` before
+credentials or network. The runbook records the exact dry-run and live lane
+commands.
 
-## First live run
+## Other source decisions
 
-There is **no bounded live command yet**. Running the existing Raw pilot would
-not satisfy the scanner licence or Normalized-contract gate, and no compliant
-collector was created. After the evidence above is accepted, implementation
-must add a real `scripts/manual/collect/` entry point whose first command pins an
-explicit issuer set, business year/report code, maximum request count, timeout,
-retry count, and manual-only mode. Until then, any purported command would be an
-invented and unsafe interface.
+- KRX/pykrx `MDCSTAT03501` supplies daily PER/PBR/EPS/BPS/DPS/dividend-yield
+  facts, not the quarterly liabilities, equity, revenue, operating-income, and
+  net-income statements used here.
+- KRX KIND remains a reference candidate, not the implemented structured
+  machine route.
+- Naver/FnGuide scraping remains rejected. A licensed documented API product
+  would require its own source review and contract.
+
+## Boundaries still in force
+
+- Join only on exact six-digit `stock_code`, never issuer-name text.
+- Keep Raw account rows in immutable Landing responses.
+- Append later receipts as vintages; derive the latest correction at read time.
+- Preserve source scope, currency, period, receipt, and retrieval identity.
+- Do not use the retained data for Backtest, prediction, or redistribution
+  without closing the corresponding PIT or rights question.
