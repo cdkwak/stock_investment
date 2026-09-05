@@ -26,17 +26,24 @@
     <div class="research-meta" id="research-meta" aria-label="평가 메타데이터"></div>
   </section>
   <p class="research-caution">홀드아웃 성적을 보고 규칙을 고치면 과적합입니다 · 시도 횟수가 근거의 일부입니다</p>
+  <nav class="research-tabs" role="tablist" aria-label="검증 보기">
+    <a class="research-tab active" id="research-tab-timeline" href="#timeline" role="tab" aria-controls="research-panel-timeline" aria-selected="true">보기</a>
+    <a class="research-tab" id="research-tab-rules" href="#rules" role="tab" aria-controls="research-panel-rules" aria-selected="false" tabindex="-1"><span>규칙</span><span class="research-tab-status" id="research-tab-rules-status" hidden></span></a>
+    <a class="research-tab" id="research-tab-lab" href="#lab" role="tab" aria-controls="research-panel-lab" aria-selected="false" tabindex="-1">실험</a>
+  </nav>
   <div class="research-empty" id="research-empty" role="status" hidden></div>
 
-  <details class="card research-experiment-card" id="rule-experiment">
-    <summary><span><span class="section-index">00</span><b>규칙 직접 시험해보기 ▾</b></span><span class="experiment-session" id="experiment-session">이번 세션 실험 0회</span></summary>
+  <p class="research-tab-question" id="research-panel-lab" data-research-panel="lab" role="tabpanel" aria-labelledby="research-tab-lab" hidden>돌려본다</p>
+  <details class="card research-experiment-card" id="rule-experiment" data-research-panel="lab" hidden>
+    <summary><span><span class="section-index">00</span><b>규칙 직접 시험해보기 ▾</b></span><span class="experiment-session" id="experiment-session">사용자 결정 대기</span></summary>
     <div class="experiment-body">
-      <div class="experiment-presets" aria-label="규칙 프리셋">
-        <button type="button" data-preset="watchlist">현재 관심종목 조건(RSI≤30 · 60일선 −10% · 고점 −30%)</button>
-        <button type="button" data-preset="drawdown-2">낙폭 2단계</button>
-        <button type="button" data-preset="vol-target-15">변동성 목표 15%</button>
+      <p class="experiment-decision-wait">후보 A–D 순위와 임계값이 결정되기 전에는 새 평가 수치를 만들지 않습니다.</p>
+      <div class="experiment-presets" aria-label="규칙 프리셋" hidden>
+        <button type="button" data-preset="watchlist" disabled>결정 전 비활성</button>
+        <button type="button" data-preset="drawdown-2" disabled>결정 전 비활성</button>
+        <button type="button" data-preset="vol-target-15" disabled>결정 전 비활성</button>
       </div>
-      <div class="experiment-controls">
+      <div class="experiment-controls" hidden>
         <fieldset class="experiment-field"><legend>측</legend><label><input type="radio" name="experiment-side" value="drawdown" checked> 낙폭</label><label><input type="radio" name="experiment-side" value="overheat"> 과열</label></fieldset>
         <label class="experiment-field"><span>바스켓</span><select id="experiment-basket"><option value="KR">한국</option><option value="US_TECH">미국 기술주</option><option value="SEMIS">반도체</option><option value="POOLED">통합</option></select></label>
         <label class="experiment-field"><span>유형</span><select id="experiment-type"><option value="ladder">사다리</option><option value="vol_target">변동성 목표</option><option value="hybrid">혼합</option></select></label>
@@ -44,19 +51,20 @@
         <label class="experiment-field experiment-target-field" hidden><span>목표 변동성</span><select id="experiment-target-vol"><option value="0.10">10%</option><option value="0.15" selected>15%</option><option value="0.20">20%</option><option value="0.25">25%</option></select></label>
         <label class="experiment-field"><span>평가 기간</span><select id="experiment-horizon"><option value="20">20일</option><option value="60" selected>60일</option><option value="90">90일</option></select></label>
       </div>
-      <div class="experiment-indicators" id="experiment-indicators" aria-label="지표 조건">
-        <div class="experiment-indicator-row" data-indicator="drawdown252"><label><input type="checkbox" checked> 252일 낙폭</label><b class="experiment-operator">≤</b><input class="experiment-range" type="range" min="-60" max="0" step="1" value="-30" aria-label="252일 낙폭 임계값"><input class="experiment-number num" type="number" min="-60" max="0" step="1" value="-30" aria-label="252일 낙폭 숫자"><span>%</span></div>
-        <div class="experiment-indicator-row" data-indicator="disp60"><label><input type="checkbox" checked> 60일선 이격</label><b class="experiment-operator">≤</b><input class="experiment-range" type="range" min="-30" max="30" step="1" value="-10" aria-label="60일선 이격 임계값"><input class="experiment-number num" type="number" min="-30" max="30" step="1" value="-10" aria-label="60일선 이격 숫자"><span>%</span></div>
-        <div class="experiment-indicator-row" data-indicator="rsi14"><label><input type="checkbox" checked> RSI14</label><b class="experiment-operator">≤</b><input class="experiment-range" type="range" min="10" max="90" step="1" value="30" aria-label="RSI14 임계값"><input class="experiment-number num" type="number" min="10" max="90" step="1" value="30" aria-label="RSI14 숫자"><span>pt</span></div>
-        <div class="experiment-indicator-row" data-indicator="volidx_pct"><label><input type="checkbox"> 변동성지수 백분위</label><b class="experiment-operator">≤</b><input class="experiment-range" type="range" min="0" max="100" step="1" value="20" aria-label="변동성지수 백분위 임계값"><input class="experiment-number num" type="number" min="0" max="100" step="1" value="20" aria-label="변동성지수 백분위 숫자"><span>%ile</span></div>
+      <div class="experiment-indicators" id="experiment-indicators" aria-label="지표 조건" hidden>
+        <div class="experiment-indicator-row" data-indicator="drawdown252"><label><input type="checkbox" disabled> 252일 낙폭</label><b class="experiment-operator">≤</b><input class="experiment-range" type="range" min="-60" max="0" step="1" disabled aria-label="252일 낙폭 임계값"><input class="experiment-number num" type="number" min="-60" max="0" step="1" disabled aria-label="252일 낙폭 숫자"><span>%</span></div>
+        <div class="experiment-indicator-row" data-indicator="disp60"><label><input type="checkbox" disabled> 60일선 이격</label><b class="experiment-operator">≤</b><input class="experiment-range" type="range" min="-30" max="30" step="1" disabled aria-label="60일선 이격 임계값"><input class="experiment-number num" type="number" min="-30" max="30" step="1" disabled aria-label="60일선 이격 숫자"><span>%</span></div>
+        <div class="experiment-indicator-row" data-indicator="rsi14"><label><input type="checkbox" disabled> RSI14</label><b class="experiment-operator">≤</b><input class="experiment-range" type="range" min="10" max="90" step="1" disabled aria-label="RSI14 임계값"><input class="experiment-number num" type="number" min="10" max="90" step="1" disabled aria-label="RSI14 숫자"><span>pt</span></div>
+        <div class="experiment-indicator-row" data-indicator="volidx_pct"><label><input type="checkbox" disabled> 변동성지수 백분위</label><b class="experiment-operator">≤</b><input class="experiment-range" type="range" min="0" max="100" step="1" disabled aria-label="변동성지수 백분위 임계값"><input class="experiment-number num" type="number" min="0" max="100" step="1" disabled aria-label="변동성지수 백분위 숫자"><span>%ile</span></div>
       </div>
-      <div class="experiment-actions"><button type="button" class="primary" id="experiment-evaluate">평가</button><button type="button" id="experiment-register" disabled title="PC에서만">후보로 등록</button><span id="experiment-status" role="status"></span></div>
-      <p class="experiment-caution">홀드아웃 성적을 보고 임계값을 고치면 과적합입니다 — 후보 등록 시 시도 횟수에 기록됩니다</p>
+      <div class="experiment-actions" hidden><button type="button" class="primary" id="experiment-evaluate" disabled>평가</button><button type="button" id="experiment-register" disabled title="사용자 결정 대기">후보로 등록</button><span id="experiment-status" role="status">미정 · 사용자 결정 대기</span></div>
+      <p class="experiment-caution" hidden>홀드아웃 성적을 보고 임계값을 고치면 과적합입니다 — 후보 등록 시 시도 횟수에 기록됩니다</p>
       <section class="experiment-result" id="experiment-result" aria-live="polite" hidden><div class="experiment-result-head"><b>실험 결과 · 저장되지 않음</b><span id="experiment-result-definition"></span></div><div id="experiment-result-content"></div></section>
     </div>
   </details>
 
-  <section class="card crisis-timeline-card" id="crisis-timeline" aria-labelledby="crisis-timeline-title">
+  <p class="research-tab-question" id="research-panel-timeline" data-research-panel="timeline" role="tabpanel" aria-labelledby="research-tab-timeline">지금 어떤 상태이고 과거엔 어땠나</p>
+  <section class="card crisis-timeline-card" id="crisis-timeline" aria-labelledby="crisis-timeline-title" data-research-panel="timeline">
     <div class="card-head research-section-head crisis-timeline-head">
       <div><span class="section-index">00·TIME</span><b id="crisis-timeline-title">위기 타임라인</b></div>
       <span class="crisis-timeline-privacy">시장 데이터만 · 개인 데이터 없음</span>
@@ -90,11 +98,12 @@
   </section>
 
   {% if not public_mode %}
-  <section class="card crisis-overlay-card" id="crisis-overlay" aria-labelledby="crisis-overlay-title">
+  <section class="card crisis-overlay-card" id="crisis-overlay" aria-labelledby="crisis-overlay-title" data-research-panel="lab" hidden>
     <div class="card-head research-section-head crisis-overlay-head">
       <div><span class="section-index">00·AXIS</span><b id="crisis-overlay-title">위기 정렬 겹쳐보기</b></div>
       <div class="crisis-holdout-actions"><button type="button" id="crisis-holdout">홀드아웃 위기 보기</button><span id="crisis-view-count">홀드아웃 열람 0회</span></div>
     </div>
+    <div class="legacy-banner-slot" id="crisis-overlay-legacy-banner"></div>
     <p class="crisis-intro">각 독립 2단계 신호를 <b>x = 0</b>에 맞춥니다. 기본값은 핵심 실탄 표와 같은 보유시작 기준이며, 신호일 기준으로도 바꿔 볼 수 있습니다. WORST@T는 항상 보유시작 기준값으로 판정합니다.</p>
     <div class="crisis-presets" aria-label="위기 겹쳐보기 프리셋">
       <button type="button" data-crisis-preset="equity-yield">주식 vs 10년 금리</button>
@@ -114,14 +123,26 @@
       <div id="crisis-legend" class="crisis-legend" aria-label="차트 범례"></div>
     </div>
     <p class="crisis-basis-caption" id="crisis-basis-caption">보유시작 = 100 · 핵심 실탄 표의 valuation 열과 일치합니다.</p>
-    <div class="crisis-command"><span>미계산이면 저장소 루트에서 실행</span><code id="crisis-command">.venv\Scripts\python.exe scripts/research/run_crisis_overlay.py --project-root .</code></div>
+      <div class="crisis-command"><span>다섯 값 결정 뒤 저장소 루트에서 실행</span><code id="crisis-command">.venv\Scripts\python.exe scripts/research/run_crisis_overlay.py --project-root . --drawdown-threshold &lt;결정값&gt; --disp60-threshold &lt;결정값&gt; --product-share-at-max &lt;결정값&gt; --levels &lt;결정값&gt; --base-exposure &lt;결정값&gt;</code></div>
   </section>
 
-  <section class="card compound-lab-card" id="compound-lab" aria-labelledby="compound-lab-title">
+  <section class="card compound-lab-card" id="compound-lab" aria-labelledby="compound-lab-title" data-research-panel="lab" hidden>
     <div class="card-head research-section-head compound-lab-head">
-      <div><span class="section-index">00·LAB</span><b id="compound-lab-title">파라미터 실험</b></div>
+      <div><span class="section-index">00·LAB</span><b id="compound-lab-title">파라미터 손잡이</b></div>
       <span class="compound-view-count" id="compound-view-count">홀드아웃 열람 0회 (이 세션 0회)</span>
     </div>
+    <div class="legacy-banner-slot" id="compound-legacy-banner"></div>
+    <section class="undecided-knobs" aria-labelledby="undecided-knobs-title">
+      <div class="compound-subhead"><b id="undecided-knobs-title">재구축 결정 손잡이</b><span>현재값으로 대체하지 않음</span></div>
+      <div class="undecided-knob-list">
+        <div class="undecided-knob-row"><span>낙폭 임계</span><b>미정 · 사용자 결정 대기</b><small>볼트 「지금 정할 것.md」 · 큐 사용자 결정 줄에서 결정</small></div>
+        <div class="undecided-knob-row"><span>60일선 이격 임계</span><b>미정 · 사용자 결정 대기</b><small>볼트 「지금 정할 것.md」 · 큐 사용자 결정 줄에서 결정</small></div>
+        <div class="undecided-knob-row"><span>최고 단계 레버리지 상품 비중</span><b>미정 · 사용자 결정 대기</b><small>볼트 「지금 정할 것.md」 · 큐 사용자 결정 줄에서 결정</small></div>
+        <div class="undecided-knob-row"><span>단계 수</span><b>미정 · 사용자 결정 대기</b><small>볼트 「지금 정할 것.md」 · 큐 사용자 결정 줄에서 결정</small></div>
+        <div class="undecided-knob-row"><span>기본 노출</span><b>미정 · 사용자 결정 대기</b><small>볼트 「지금 정할 것.md」 · 큐 사용자 결정 줄에서 결정</small></div>
+        <div class="undecided-knob-row derived"><span>실효 노출 = 비중 × 배수</span><b>미정</b><small>최고 단계 레버리지 상품 비중 결정 뒤 계산</small></div>
+      </div>
+    </section>
     <div class="compound-howto">
       <b>복리 사다리 빠른 사용법</b>
       <span>낙폭·이격도는 진입 문턱, 분할 수와 배율은 위기 때 옮길 노출을 정합니다.</span>
@@ -131,7 +152,7 @@
 
     <div class="compound-lab-grid">
       <form class="compound-knobs" id="compound-knobs">
-        <h3>조절판</h3>
+        <h3>재구축 전 캐시 탐색</h3>
         <label><span>바스켓 · 지수</span><select id="compound-basket" aria-label="바스켓과 지수"></select></label>
         <label><span>상품</span><select id="compound-product">
           <option value="index_1x">지수 1x</option>
@@ -141,8 +162,8 @@
         </select></label>
         <label class="compound-range-field"><span>낙폭 임계값 <output id="compound-drawdown-value">—</output></span><input id="compound-drawdown" type="range" min="0" max="0" step="1" value="0"></label>
         <label class="compound-range-field"><span>이격도 임계값 <output id="compound-disp60-value">—</output></span><input id="compound-disp60" type="range" min="0" max="0" step="1" value="0"></label>
-        <label><span>분할 수</span><select id="compound-levels"><option>1</option><option selected>2</option><option>3</option><option>4</option></select></label>
-        <label><span>레버리지 배율</span><select id="compound-multiple"><option>1</option><option selected>2</option><option>3</option></select></label>
+        <label><span>분할 수</span><select id="compound-levels"><option value="">재구축 전 캐시 로드 후 표시</option></select></label>
+        <label><span>레버리지 배율</span><select id="compound-multiple"><option value="">재구축 전 캐시 로드 후 표시</option></select></label>
         <label><span>출구 방식</span><select id="compound-exit">
           <option value="a">a 점수 역주행</option><option value="b60">b60</option><option value="b120">b120</option><option value="c">c 목표수익 분할</option><option value="d">d 안 팔기</option>
         </select></label>
@@ -180,15 +201,17 @@
     </div>
 
     <details class="compound-run" id="compound-run">
-      <summary><b>계산 실행</b><span>retained data only · 공급자 호출 없음</span></summary>
+      <summary><b>계산 실행 · 사용자 결정 대기</b><span>다섯 손잡이 모두 명시할 때만 허용</span></summary>
       <div class="compound-run-body">
         <fieldset><legend>바스켓</legend><label><input type="checkbox" name="compound-run-basket" value="KR" checked> KR</label><label><input type="checkbox" name="compound-run-basket" value="US_TECH"> US_TECH</label><label><input type="checkbox" name="compound-run-basket" value="SEMIS"> SEMIS</label><label><input type="checkbox" name="compound-run-basket" value="FOREIGN"> FOREIGN</label></fieldset>
         <label><span>상품</span><select id="compound-run-product"><option value="index_1x">지수 1x</option><option value="synthetic_2x" selected>합성 2x</option><option value="synthetic_3x">합성 3x</option><option value="actual_adjusted">실제 상품 보정</option></select></label>
-        <label><span>낙폭 임계값 (쉼표)</span><input id="compound-run-drawdowns" placeholder="-0.10,-0.15,-0.20,-0.25,-0.30,-0.35"></label>
-        <label><span>이격도 임계값 (쉼표)</span><input id="compound-run-disp60" placeholder="-0.05,-0.10,-0.15"></label>
-        <label><span>분할 수 (쉼표)</span><input id="compound-run-levels" placeholder="1,2,3,4"></label>
-        <label><span>배율 (쉼표)</span><input id="compound-run-multiples" placeholder="1,2,3"></label>
-        <div class="compound-run-actions"><button type="button" class="primary" id="compound-run-start">계산 시작</button><span id="compound-run-status" role="status">대기</span></div>
+        <label><span>낙폭 임계값 (쉼표)</span><input id="compound-run-drawdowns" placeholder="사용자 결정값" readonly></label>
+        <label><span>이격도 임계값 (쉼표)</span><input id="compound-run-disp60" placeholder="사용자 결정값" readonly></label>
+        <label><span>최고 단계 레버리지 상품 비중 (쉼표)</span><input id="compound-run-product-share" placeholder="사용자 결정값" readonly></label>
+        <label><span>분할 수 (쉼표)</span><input id="compound-run-levels" placeholder="사용자 결정값" readonly></label>
+        <label><span>기본 노출 (쉼표)</span><input id="compound-run-base-exposure" placeholder="사용자 결정값" readonly></label>
+        <label><span>배율 (쉼표)</span><input id="compound-run-multiples" placeholder="명시값" readonly></label>
+        <div class="compound-run-actions"><button type="button" class="primary" id="compound-run-start" disabled>계산 시작</button><span id="compound-run-status" role="status">미정 · 사용자 결정 대기</span></div>
         <div class="compound-command"><b>명령줄로 돌리기</b><code id="compound-command"></code></div>
         <pre id="compound-run-log" class="compound-run-log" aria-label="계산 진행 로그">아직 실행 기록이 없습니다.</pre>
       </div>
@@ -197,32 +220,43 @@
   </section>
   {% endif %}
 
-  <section class="card research-leaderboard-card" aria-labelledby="leaderboard-title">
+  <p class="research-tab-question" id="research-panel-rules" data-research-panel="rules" role="tabpanel" aria-labelledby="research-tab-rules" hidden>후보들이 어떻게 하고 있나</p>
+  <section class="card research-leaderboard-card" aria-labelledby="leaderboard-title" data-research-panel="rules" hidden>
     <div class="card-head research-section-head">
       <div><span class="section-index">01</span><b id="leaderboard-title">규칙 후보 순위</b></div>
       <span class="muted">홀드아웃 성과 방향 기준 · 과열 규칙은 <b>낮을수록 좋음</b></span>
     </div>
+    <div class="legacy-banner-slot" id="leaderboard-legacy-banner"></div>
     <div class="research-table-wrap">
       <table class="research-table leaderboard-table">
         <thead><tr><th>규칙</th><th>홀드아웃 표본</th><th>60일 평균 (기준 대비)</th><th>최종금액/기준선 (홀드아웃)</th><th>고원 판정 (적합 구간)</th><th>측</th><th>바스켓</th><th>상태</th><th>상승확률</th><th>변동성</th><th>최대낙폭</th><th>적합 60일 차이</th><th><span class="sr-only">경고</span>⚠</th></tr></thead>
         <tbody id="leaderboard-body"></tbody>
       </table>
     </div>
-    <p class="leaderboard-wealth-note">60일 평균 우위와 최종금액은 다른 질문에 답합니다 — 채택 판단은 최종금액 열을 우선 보세요. 최종금액/기준선은 합성 2배 · 출구 a · 거래비용 포함 · 기본 노출 1.0 조합의 홀드아웃 값이며 바스켓의 지수를 모두 보여줍니다(KR = KOSPI·KOSPI200). 독립 사건 = 90일 이상 떨어진 신호 묶음 수(바스켓 합산). 고원 판정은 적합 구간(~2015) 표면의 모양이고 최종금액은 홀드아웃(2016~) 값이라 서로 다른 창입니다.</p>
+    <p class="leaderboard-wealth-note">이 표의 최종금액·고원·점수는 재구축 전 artifact를 읽은 값이며 현재 결정값이 아닙니다. 바스켓의 지수는 모두 보여주고(KR = KOSPI·KOSPI200), 독립 사건은 90일 이상 떨어진 신호 묶음 수(바스켓 합산)입니다.</p>
   </section>
 
-  <section class="card research-detail-card" id="research-detail" aria-labelledby="detail-title">
+  <section class="card research-result-cards" aria-labelledby="result-cards-title" data-research-panel="rules" hidden>
+    <div class="card-head research-section-head">
+      <div><span class="section-index">02</span><b id="result-cards-title">결과 카드</b></div>
+      <span class="muted">재구축 scoring.result_card 계약</span>
+    </div>
+    <div id="result-cards-content" aria-live="polite">결과 카드 없음 — 후보 순위·임계 결정 뒤 생성</div>
+  </section>
+
+  <section class="card research-detail-card" id="research-detail" aria-labelledby="detail-title" data-research-panel="rules" hidden>
     <div class="card-head research-section-head">
       <div><span class="section-index">02</span><b id="detail-title">후보 상세</b></div>
       <span class="muted" id="detail-reason">순위에서 규칙을 선택하세요</span>
     </div>
+    <div class="legacy-banner-slot" id="detail-legacy-banner"></div>
     <div id="detail-content" class="research-detail-empty">선택된 규칙이 없습니다.</div>
     <div class="research-verdict-key" aria-label="사이클 판정 색상 범례">
       <span class="verdict-hit">hit · 적중</span><span class="verdict-miss">miss · 미적중</span><span class="verdict-none">none · 신호 없음</span>
     </div>
   </section>
 
-  <section class="card research-forward-card" aria-labelledby="forward-title">
+  <section class="card research-forward-card" aria-labelledby="forward-title" data-research-panel="rules" hidden>
     <div class="card-head research-section-head">
       <div><span class="section-index">03</span><b id="forward-title">포워드 테스트</b></div>
       <span class="muted">규칙 버전별 · 이후 20/60/90거래일 마감</span>
@@ -231,9 +265,17 @@
     <div id="forward-content"></div>
   </section>
 
-  <section class="card research-history-card" aria-labelledby="history-title">
+  <section class="card research-adoption-card" aria-labelledby="adoption-title" data-research-panel="rules" hidden>
     <div class="card-head research-section-head">
-      <div><span class="section-index">04</span><b id="history-title">변경 기록</b></div>
+      <div><span class="section-index">04</span><b id="adoption-title">채택 상태</b></div>
+      <span class="muted">후보와 채택을 구분</span>
+    </div>
+    <div id="adoption-content"></div>
+  </section>
+
+  <section class="card research-history-card" aria-labelledby="history-title" data-research-panel="rules" hidden>
+    <div class="card-head research-section-head">
+      <div><span class="section-index">05</span><b id="history-title">변경 기록</b></div>
       <span class="muted">후보 추가·변경·폐기 이력</span>
     </div>
     <div id="history-content"></div>

@@ -46,15 +46,8 @@ _COMPOUND_SESSION_VIEWS: dict[tuple[str, str], int] = defaultdict(int)
 _COMPOUND_RUN_STATE: dict[str, dict[str, object]] = {}
 _COMPOUND_TOKEN = re.compile(r"^[a-zA-Z0-9_]+$")
 _COMPOUND_BASKETS = ("KR", "US_TECH", "SEMIS", "FOREIGN")
-_COMPOUND_DEFAULT_GRID: dict[str, tuple[object, ...]] = {
-    "drawdown_threshold": (-0.10, -0.15, -0.20, -0.25, -0.30, -0.35),
-    "disp60_threshold": (-0.05, -0.10, -0.15),
-    "levels": (1, 2, 3, 4),
-    "leverage_multiple": (1, 2, 3),
-    "base_exposure": (0.0, 1.0),
-    "exit": ("a", "b60", "b120", "c", "d"),
-    "cost_enabled": (False, True),
-}
+_REBUILD_AT = datetime(2026, 9, 6, tzinfo=timezone.utc)
+_LEGACY_BANNER_REASON = "2026-09-06 재구축 이전 산출물"
 EXPERIMENT_CAUTION = (
     "홀드아웃 성적을 보고 임계값을 고치면 과적합입니다 — "
     "후보 등록 시 시도 횟수에 기록됩니다"
@@ -211,8 +204,8 @@ def parse_experiment_query(params: object) -> dict[str, object]:
         if len(parts) != 3:
             raise ResearchInputError("지표는 key:op:threshold 형식이어야 합니다.")
         raw_indicators.append({"key": parts[0], "op": parts[1], "threshold": parts[2]})
-    levels_text = _query_value(params, "levels", str(len(raw_indicators) or 1))
-    target_text = _query_value(params, "target_vol", "0.15")
+    levels_text = _query_value(params, "levels")
+    target_text = _query_value(params, "target_vol")
     definition = normalise_experiment_definition(
         side=side,
         definition_type=definition_type,
@@ -220,7 +213,7 @@ def parse_experiment_query(params: object) -> dict[str, object]:
         levels=levels_text,
         target_vol=target_text,
     )
-    horizon_text = _query_value(params, "horizon", "60")
+    horizon_text = _query_value(params, "horizon")
     try:
         horizon = int(horizon_text)
     except ValueError as error:
@@ -376,6 +369,50 @@ def _format_kst_timestamp(value: object) -> str | None:
     return parsed.astimezone(_KST).strftime("%m-%d %H:%M")
 
 
+def _parsed_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed
+
+
+def _legacy_number_metadata(
+    document: Mapping[str, object],
+    *,
+    rows: Sequence[Mapping[str, object]] = (),
+    required_document_fields: Sequence[str] = (),
+    required_row_fields: Sequence[str] = (),
+    row_context: str = "행",
+) -> dict[str, object]:
+    """Derive the visible rebuild warning from artifact evidence, never a card id."""
+
+    reasons: list[str] = []
+    generated_at = _parsed_timestamp(document.get("generated_at"))
+    if generated_at is not None and generated_at.astimezone(timezone.utc) < _REBUILD_AT:
+        reasons.append(_LEGACY_BANNER_REASON)
+    missing_document = [
+        field for field in required_document_fields
+        if field not in document or document.get(field) is None
+    ]
+    if missing_document:
+        reasons.append(f"산출물 필드 없음: {', '.join(missing_document)}")
+    missing_rows = sorted({
+        field
+        for row in rows
+        for field in required_row_fields
+        if field not in row
+    })
+    if missing_rows:
+        reasons.append(f"{row_context} 필드 없음: {', '.join(missing_rows)}")
+    return {
+        "legacy_numbers": bool(reasons),
+        "legacy_reason": " · ".join(reasons) if reasons else None,
+    }
+
+
 def _candidate_rank(candidate: dict[str, object]) -> float:
     results = candidate.get("results")
     holdout = results.get("holdout") if isinstance(results, dict) else None
@@ -447,6 +484,7 @@ def _empty_research(history: list[dict[str, object]] | None = None) -> dict[str,
         "warning_count": 0,
         "history": history or [],
         "current_status": ["규칙 평가 없음"],
+        "result_cards": [],
     }
 
 
@@ -528,6 +566,22 @@ def build_research_payload(project_root: Path) -> dict[str, object]:
         "warning_count": len(warning_rows),
         "history": history,
         "current_status": _status_lines(document),
+        "result_cards": [
+            deepcopy(item) for item in document.get("result_cards", [])
+            if isinstance(item, dict)
+        ] if isinstance(document.get("result_cards"), list) else [],
+        "tab_status": {
+            "rules": {
+                "candidate_count": len(candidates),
+                "adopted_count": sum(item.get("status") == "adopted" for item in candidates),
+            },
+        },
+        **_legacy_number_metadata(
+            document,
+            rows=candidates,
+            required_row_fields=("product_share_at_max", "effective_exposure_max"),
+            row_context="후보 행",
+        ),
     }
     _RESEARCH_CACHE[key] = (signature, payload)
     return deepcopy(payload)
@@ -749,7 +803,10 @@ def _compound_summary(project_root: Path) -> dict[str, object]:
         return {}
     return {
         key: summary.get(key)
-        for key in ("schema_version", "experiment", "fit_window", "holdout_window", "quick")
+        for key in (
+            "schema_version", "experiment", "generated_at", "fit_window",
+            "holdout_window", "quick",
+        )
     }
 
 
@@ -776,6 +833,10 @@ def build_crisis_overlay_payload(project_root: Path) -> dict[str, object]:
             "미계산 · python scripts/research/run_crisis_overlay.py --project-root ."
         )
     output = deepcopy(payload)
+    output.setdefault("signal_definition", None)
+    output.update(_legacy_number_metadata(
+        output, required_document_fields=("signal_definition",),
+    ))
     output["holdout_views"] = _persistent_holdout_views(project_root)
     return output
 
@@ -817,17 +878,27 @@ def build_compound_grid_payload(
         "disp60_thresholds": sorted({row.get("disp60_threshold") for row in strategy if _finite(row.get("disp60_threshold")) is not None}),
         "levels": sorted({row.get("levels") for row in strategy if isinstance(row.get("levels"), int)}),
         "leverage_multiples": sorted({row.get("leverage_multiple") for row in strategy if isinstance(row.get("leverage_multiple"), int)}),
+        "base_exposures": sorted({row.get("base_exposure") for row in strategy if _finite(row.get("base_exposure")) is not None}),
+        "product_shares_at_max": sorted({row.get("product_share_at_max") for row in strategy if _finite(row.get("product_share_at_max")) is not None}),
         "exits": sorted({str(row.get("exit")) for row in strategy if row.get("exit") is not None}),
         "cost_enabled": sorted({bool(row.get("cost_enabled")) for row in strategy}),
     }
     baseline = next((row for row in rows if row.get("row_kind") == "baseline"), None)
+    all_rows = [*strategy, *([baseline] if isinstance(baseline, dict) else [])]
+    summary = _compound_summary(project_root)
     return {
         "basket": clean_basket,
         "product": clean_product,
-        "summary": _compound_summary(project_root),
+        "summary": summary,
         "cached_values": cached_values,
         "baseline": baseline,
         "rows": strategy,
+        **_legacy_number_metadata(
+            summary,
+            rows=all_rows,
+            required_row_fields=("product_share_at_max", "effective_exposure_max"),
+            row_context="grid 행",
+        ),
     }
 
 
@@ -851,12 +922,17 @@ def _compound_combination(value: object) -> dict[str, object]:
         raise ResearchInputError("분할 수와 배율을 숫자로 보내 주세요.") from error
     drawdown = _finite(value.get("drawdown_threshold"))
     disp60 = _finite(value.get("disp60_threshold"))
-    if drawdown is None or disp60 is None or levels not in {1, 2, 3, 4} or multiple not in {1, 2, 3}:
+    base_exposure = _finite(value.get("base_exposure"))
+    if (
+        drawdown is None or disp60 is None
+        or levels not in {1, 2, 3, 4} or multiple not in {1, 2, 3}
+    ):
         raise ResearchInputError("임계값·분할 수·배율 조합이 올바르지 않습니다.")
     return {
         "basket": basket, "product": product,
         "drawdown_threshold": drawdown, "disp60_threshold": disp60,
         "levels": levels, "leverage_multiple": multiple,
+        "base_exposure": base_exposure,
         "exit": exit_variant, "cost_enabled": bool(value.get("cost_enabled")),
         "product_variant": product_variant,
     }
@@ -920,16 +996,20 @@ def record_compound_holdout_view(
             project_root,
             basket=str(combination["basket"]), product=str(combination["product"]),
         )
-        matched = next((
+        matched_rows = [
             row for row in grid["rows"]
-            if row.get("base_exposure") == 1.0
-            and row.get("drawdown_threshold") == combination["drawdown_threshold"]
+            if row.get("drawdown_threshold") == combination["drawdown_threshold"]
             and row.get("disp60_threshold") == combination["disp60_threshold"]
             and row.get("levels") == combination["levels"]
             and row.get("leverage_multiple") == combination["leverage_multiple"]
             and row.get("exit") == combination["exit"]
             and row.get("cost_enabled") is combination["cost_enabled"]
-        ), None)
+            and (
+                combination["base_exposure"] is None
+                or row.get("base_exposure") == combination["base_exposure"]
+            )
+        ]
+        matched = matched_rows[0] if len(matched_rows) == 1 else None
         if matched is None or (
             combination["product_variant"] == "actual_adjusted"
             and not isinstance(matched.get("actual_product_basis"), dict)
@@ -1005,11 +1085,13 @@ def normalise_compound_run(body: object) -> dict[str, object]:
     if product not in {"index_1x", "synthetic_2x", "synthetic_3x", "actual_adjusted"}:
         raise ResearchInputError("상품 선택이 올바르지 않습니다.")
     ranges = body.get("ranges") if isinstance(body.get("ranges"), Mapping) else body
-    grid = dict(_COMPOUND_DEFAULT_GRID)
+    grid: dict[str, tuple[object, ...]] = {}
     specs = (
         ("drawdown_threshold", "낙폭 임계값", False, -0.90, -0.01),
         ("disp60_threshold", "이격도 임계값", False, -0.90, 0.50),
+        ("product_share_at_max", "최고 단계 레버리지 상품 비중", False, 0.0, 1.0),
         ("levels", "분할 수", True, 1, 4),
+        ("base_exposure", "기본 노출", False, 0.0, 3.0),
         ("leverage_multiple", "배율", True, 1, 3),
     )
     for key, label, integers, minimum, maximum in specs:
@@ -1017,24 +1099,20 @@ def normalise_compound_run(body: object) -> dict[str, object]:
             ranges.get(key), name=label, integers=integers,
             minimum=minimum, maximum=maximum,
         )
-        if parsed is not None:
-            grid[key] = parsed
+        if parsed is None:
+            raise ResearchInputError(f"{label}은 미정입니다 · 규칙 ⑥ 사용자 결정이 필요합니다.")
+        grid[key] = parsed
     cost_enabled = body.get("cost_enabled")
-    if cost_enabled is not None:
-        if not isinstance(cost_enabled, bool):
-            raise ResearchInputError("거래비용 포함 여부는 참/거짓이어야 합니다.")
-        grid["cost_enabled"] = (cost_enabled,)
+    if not isinstance(cost_enabled, bool):
+        raise ResearchInputError("거래비용 포함 여부는 참/거짓이어야 합니다.")
+    grid["cost_enabled"] = (cost_enabled,)
+    grid["exit"] = tuple(str(item) for item in body.get("exits", ("a", "b60", "b120", "c", "d")))
     return {"baskets": baskets, "product": product, "grid": grid}
 
 
 def _compound_command(spec: Mapping[str, object]) -> str:
     baskets = tuple(spec["baskets"])
     grid = dict(spec["grid"])
-    if grid == _COMPOUND_DEFAULT_GRID:
-        return (
-            ".venv\\Scripts\\python.exe scripts\\research\\run_compound_backtest.py "
-            f"--project-root . --baskets {','.join(baskets)}"
-        )
     code = (
         "from pathlib import Path; "
         "from scripts.research import run_compound_backtest as m; "

@@ -139,6 +139,12 @@ def test_research_payload_shape_directional_sorting_history_and_status() -> None
     assert payload["status"] == "READY"
     assert payload["rules_version"] == "1234567890abcdef"
     assert payload["warning_count"] == 1
+    assert payload["legacy_numbers"] is True
+    assert "재구축 이전" in payload["legacy_reason"]
+    assert payload["result_cards"] == []
+    assert payload["tab_status"]["rules"] == {
+        "candidate_count": 2, "adopted_count": 0,
+    }
     assert [row["id"] for row in payload["candidates"]] == ["us_hot_1", "kr_dd_ladder_2"]
     assert payload["candidates"][0]["direction_hint"] == "낮을수록 좋음"
     assert payload["candidates"][0]["warn_small_sample"] is True
@@ -213,6 +219,24 @@ def test_research_payload_cache_is_invalidated_by_either_file_mtime(
     os.utime(config_path, ns=(current + 1_000_000_000, current + 1_000_000_000))
     research_page.build_research_payload(root)
     assert len(calls) == 4
+
+
+def test_research_payload_does_not_mark_post_rebuild_artifact_legacy() -> None:
+    root = _root()
+    _write_research_fixture(root)
+    path = root / research_page.LEADERBOARD_RELATIVE
+    document = json.loads(path.read_text(encoding="utf-8"))
+    document["generated_at"] = "2026-09-07T00:00:00+00:00"
+    for candidate in document["candidates"]:
+        candidate["product_share_at_max"] = None
+        candidate["effective_exposure_max"] = None
+    path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+    research_page._RESEARCH_CACHE.clear()
+
+    payload = research_page.build_research_payload(root)
+
+    assert payload["legacy_numbers"] is False
+    assert payload["legacy_reason"] is None
 
 
 def test_forward_returns_use_exact_normalized_sessions_and_expose_summary() -> None:
@@ -432,16 +456,17 @@ def test_candidate_post_returns_queued_when_regeneration_exceeds_wait(
         assert finished.wait(2)
 
 
-def test_research_template_contains_collapsed_experiment_and_three_presets() -> None:
+def test_research_template_keeps_direct_experiment_in_decision_wait_state() -> None:
     text = (
         Path(__file__).parents[3] / "src/stock_web/templates/research.html"
     ).read_text(encoding="utf-8")
 
-    assert '<details class="card research-experiment-card" id="rule-experiment">' in text
+    assert '<details class="card research-experiment-card" id="rule-experiment"' in text
     assert "규칙 직접 시험해보기 ▾" in text
-    assert "현재 관심종목 조건(RSI≤30 · 60일선 −10% · 고점 −30%)" in text
+    assert "후보 A–D 순위와 임계값이 결정되기 전에는 새 평가 수치를 만들지 않습니다." in text
     assert 'data-preset="drawdown-2"' in text
     assert 'data-preset="vol-target-15"' in text
+    assert 'id="experiment-evaluate" disabled' in text
 
 
 def test_every_dashboard_navigation_places_research_after_data() -> None:
@@ -567,6 +592,27 @@ def test_crisis_overlay_endpoint_returns_fixture_and_missing_is_korean_404(
     assert response.json()["series"] == expected["series"]
     assert response.json()["schema_version"] == 2
     assert response.json()["holdout_views"] == 0
+    assert response.json()["signal_definition"] is None
+    assert response.json()["legacy_numbers"] is True
+    assert "signal_definition" in response.json()["legacy_reason"]
+
+
+def test_crisis_overlay_post_rebuild_fields_clear_legacy_marker() -> None:
+    root = _root()
+    payload = _write_crisis_overlay_fixture(root)
+    payload["generated_at"] = "2026-09-07T00:00:00+00:00"
+    payload["signal_definition"] = {
+        "kind": "B", "source": "caller",
+        "drawdown_threshold": -.24, "disp60_threshold": -.08,
+        "product_share_at_max": .45, "levels": 3, "base_exposure": .75,
+    }
+    path = root / research_page.CRISIS_OVERLAY_RELATIVE
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+    result = research_page.build_crisis_overlay_payload(root)
+
+    assert result["legacy_numbers"] is False
+    assert result["legacy_reason"] is None
 
 
 def _compound_combination(**overrides: object) -> dict[str, object]:
@@ -604,10 +650,33 @@ def test_compound_grid_endpoint_returns_fixture_rows_and_missing_is_korean_404(
     assert response.json()["rows"] == [_compound_row()]
     assert response.json()["baseline"]["row_kind"] == "baseline"
     assert response.json()["cached_values"]["drawdown_thresholds"] == [-.2]
+    assert response.json()["legacy_numbers"] is True
+    assert "effective_exposure_max" in response.json()["legacy_reason"]
     assert missing.status_code == 404
     assert "미계산 조합" in missing.json()["error"]
     assert missing_row.status_code == 404
     assert "미계산 조합" in missing_row.json()["error"]
+
+
+def test_compound_grid_post_rebuild_fields_clear_legacy_marker() -> None:
+    root = _root()
+    _write_compound_fixture(root)
+    output = root / research_page.COMPOUND_RELATIVE
+    grid_path = output / "grid_kr_kospi.json"
+    rows = json.loads(grid_path.read_text(encoding="utf-8"))
+    for row in rows:
+        row["product_share_at_max"] = .45 if row["row_kind"] == "strategy" else None
+        row["effective_exposure_max"] = 1.45 if row["row_kind"] == "strategy" else 1.0
+    grid_path.write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
+    summary_path = output / "summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["generated_at"] = "2026-09-07T00:00:00+00:00"
+    summary_path.write_text(json.dumps(summary, ensure_ascii=False), encoding="utf-8")
+
+    result = research_page.build_compound_grid_payload(root, basket="KR", product="kospi")
+
+    assert result["legacy_numbers"] is False
+    assert result["legacy_reason"] is None
 
 
 def test_compound_holdout_view_counter_increments_session_and_persists(
@@ -693,12 +762,40 @@ def test_compound_registration_builds_forward_definition_and_metadata() -> None:
 def test_compound_run_cost_flag_is_preserved_in_grid_and_cli_hint() -> None:
     spec = research_page.normalise_compound_run({
         "baskets": ["KR"], "product": "synthetic_2x", "cost_enabled": False,
-        "ranges": {"levels": "2"},
+        "ranges": {
+            "drawdown_threshold": "-.24", "disp60_threshold": "-.08",
+            "product_share_at_max": ".45", "levels": "2",
+            "base_exposure": ".75", "leverage_multiple": "2",
+        },
     })
 
     assert spec["grid"]["cost_enabled"] == (False,)
     command = research_page._compound_command(spec)
     assert "cost_enabled" in command and "False" in command
+
+
+@pytest.mark.parametrize(("missing", "label"), (
+    ("drawdown_threshold", "낙폭 임계값"),
+    ("disp60_threshold", "이격도 임계값"),
+    ("product_share_at_max", "최고 단계 레버리지 상품 비중"),
+    ("levels", "분할 수"),
+    ("base_exposure", "기본 노출"),
+))
+def test_compound_run_never_supplies_an_undecided_ladder_default(
+    missing: str, label: str,
+) -> None:
+    ranges = {
+        "drawdown_threshold": "-.24", "disp60_threshold": "-.08",
+        "product_share_at_max": ".45", "levels": "2",
+        "base_exposure": ".75", "leverage_multiple": "2",
+    }
+    del ranges[missing]
+
+    with pytest.raises(research_page.ResearchInputError, match=label):
+        research_page.normalise_compound_run({
+            "baskets": ["KR"], "product": "synthetic_2x",
+            "cost_enabled": True, "ranges": ranges,
+        })
 
 
 def test_select_best_in_scenario_requires_complete_and_unmixed_scenario() -> None:
@@ -799,8 +896,12 @@ def test_compound_run_is_single_background_job_and_reports_log(
     monkeypatch.setattr(research_page, "_run_compound_engine", fake_engine)
     client = ASGITestClient(create_app(tmp_path))
     body = {
-        "baskets": ["KR"], "product": "synthetic_2x",
-        "ranges": {"levels": "2,4"},
+        "baskets": ["KR"], "product": "synthetic_2x", "cost_enabled": True,
+        "ranges": {
+            "drawdown_threshold": "-.24", "disp60_threshold": "-.08",
+            "product_share_at_max": ".45", "levels": "2,4",
+            "base_exposure": ".75", "leverage_multiple": "2",
+        },
     }
     try:
         first = client.post(
@@ -857,10 +958,11 @@ def test_compound_panel_static_contract_uses_cached_frame_render_and_existing_ch
     script = (web / "static/research.js").read_text(encoding="utf-8")
     style = (web / "static/research.css").read_text(encoding="utf-8")
 
-    assert "파라미터 실험" in template
+    assert "파라미터 손잡이" in template
     assert "적합 구간(~2015)은 자유롭게 탐색" in template
     assert "홀드아웃 열람 0회 (이 세션 0회)" in template
     assert "명령줄로 돌리기" in template
+    assert "미정 · 사용자 결정 대기" in template
     assert "cache: new Map()" in script
     assert "requestAnimationFrame(renderCompound)" in script
     assert "window.SIChart.renderLineChart" in script
@@ -892,6 +994,7 @@ def test_compound_panel_static_contract_uses_cached_frame_render_and_existing_ch
     assert '"거래비용 포함" : "거래비용 제외"' in script
     assert 'product_basis' in Path(__file__).parents[3].joinpath("src/stock_web/api/research_page.py").read_text(encoding="utf-8")
     assert "cost_enabled: [payload.cost_enabled]" in script
+    assert "compoundDefaults" not in script
     assert ".compound-lab-grid { display: grid; grid-template-columns:" in style
     assert ".compound-lab-grid { grid-template-columns: 1fr; }" in style
 

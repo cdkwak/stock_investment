@@ -12,13 +12,15 @@
   const valueClass = (value) => !finite(value) ? "muted" : Number(value) > 0 ? "up" : Number(value) < 0 ? "down" : "muted";
   const sideLabels = { drawdown: "낙폭", overheat: "과열", hybrid: "혼합" };
   const basketLabels = { KR: "한국", US_TECH: "미국 기술주", SEMIS: "반도체", POOLED: "통합" };
-  const statusLabels = { active: "운영", experimental: "실험", retired: "종료" };
+  const statusLabels = { active: "운영", adopted: "채택", experimental: "실험", retired: "종료" };
   const actionLabels = { add: "추가", update: "변경", change: "변경", retire: "폐기", retired: "폐기", remove: "삭제" };
   const verdictLabels = { hit: "적중", miss: "미적중", none: "신호 없음" };
   const indicatorLabels = {
     drawdown252: "252일 낙폭", disp60: "60일 이격", rsi14: "RSI14", volidx_pct: "변동성지수 백분위(VIX/VKOSPI)",
   };
   const emptyMessage = "아직 평가 결과가 없습니다 · `scripts/research/run_rule_leaderboard.py` 실행 후 표시";
+  const resultCardEmptyMessage = "결과 카드 없음 — 후보 순위·임계 결정 뒤 생성";
+  const legacyBannerText = "재구축 전 수치 — 폐기 예정 · 판단에 참고 금지 (2026-09-06 재구축 스펙)";
   let research = null;
   let selectedId = null;
   let lastExperiment = null;
@@ -26,6 +28,155 @@
   function emptyMarkup(message) {
     const parts = String(message || emptyMessage).split("`");
     return parts.map((part, index) => index % 2 ? `<code>${esc(part)}</code>` : esc(part)).join("");
+  }
+
+  function setResearchTab(name) {
+    const selected = ["timeline", "rules", "lab"].includes(name) ? name : "timeline";
+    document.querySelectorAll("[data-research-panel]").forEach((panel) => {
+      panel.hidden = panel.dataset.researchPanel !== selected;
+    });
+    document.querySelectorAll(".research-tab").forEach((tab) => {
+      const active = tab.getAttribute("href") === `#${selected}`;
+      tab.classList.toggle("active", active);
+      tab.setAttribute("aria-selected", String(active));
+      tab.tabIndex = active ? 0 : -1;
+    });
+  }
+
+  function bindResearchTabs() {
+    const sync = () => setResearchTab(String(window.location.hash || "#timeline").slice(1));
+    window.addEventListener("hashchange", sync);
+    sync();
+  }
+
+  function renderTabStatus(payload) {
+    const host = $("research-tab-rules-status");
+    if (!host) return;
+    const status = ((payload || {}).tab_status || {}).rules;
+    if (!status || !finite(status.candidate_count) || !finite(status.adopted_count)) {
+      host.hidden = true;
+      host.textContent = "";
+      return;
+    }
+    host.textContent = `(후보 ${number(status.candidate_count, 0)} · 채택 ${number(status.adopted_count, 0)})`;
+    host.hidden = false;
+  }
+
+  // Pre-rebuild numbers are collapsed by default (vault 151b422: a small label loses to a big
+  // number). The card keeps its head, this banner and any "undecided knob" block; everything
+  // else stays hidden until the reader expands it. Nothing is deleted — the old numbers are
+  // needed to compare against the recomputation later.
+  function renderLegacyBanner(hostId, payload) {
+    const host = $(hostId);
+    if (!host) return;
+    const card = host.closest(".card");
+    if (!(payload || {}).legacy_numbers) {
+      host.innerHTML = "";
+      host.hidden = true;
+      if (card) card.classList.remove("legacy-collapsed", "legacy-expanded");
+      return;
+    }
+    host.hidden = false;
+    if (card && !card.classList.contains("legacy-expanded")) card.classList.add("legacy-collapsed");
+    const expanded = Boolean(card && card.classList.contains("legacy-expanded"));
+    host.innerHTML = `<div class="legacy-number-banner" role="note" title="${esc(payload.legacy_reason || "")}"><span>${esc(expanded ? legacyBannerText : "재구축 전 수치 (폐기 예정) — 판단에 참고 금지")}</span><button type="button" class="legacy-toggle" aria-expanded="${expanded}">${expanded ? "접기" : "펼치기"}</button></div>`;
+    const toggle = host.querySelector(".legacy-toggle");
+    if (toggle && card) {
+      toggle.addEventListener("click", () => {
+        const nowExpanded = card.classList.toggle("legacy-expanded");
+        card.classList.toggle("legacy-collapsed", !nowExpanded);
+        renderLegacyBanner(hostId, payload);
+      });
+    }
+  }
+
+  function requireResultFields(value, fields, context) {
+    const missing = fields.filter((field) => !Object.prototype.hasOwnProperty.call(value || {}, field));
+    if (missing.length) throw new Error(`${context} 필수 필드 누락: ${missing.join(", ")}`);
+  }
+
+  function normaliseResultCard(card) {
+    requireResultFields(card, ["claim", "events_total", "events_independent", "table", "average_path"], "카드");
+    if (!Number.isInteger(card.events_total) || !Number.isInteger(card.events_independent)) {
+      throw new Error("사건 수(events_total/events_independent)는 정수여야 합니다");
+    }
+    if (!Array.isArray(card.table) || card.table.length !== 4) {
+      throw new Error("표는 1·3·6·12개월 네 행이어야 합니다");
+    }
+    const side = card.side === "sell" ? "sell" : "buy";
+    const common = ["label", "horizon_sessions", "events_mature", "events_total", "events_independent"];
+    const measures = side === "sell"
+      ? ["mean_realized_volatility", "median_realized_volatility", "mean_max_drawdown", "median_max_drawdown"]
+      : ["mean_return", "median_return", "win_rate"];
+    card.table.forEach((row, index) => {
+      requireResultFields(row, [...common, ...measures], `${index + 1}번째 표 행`);
+      for (const field of ["events_mature", "events_total", "events_independent"]) {
+        if (!Number.isInteger(row[field])) throw new Error(`${index + 1}번째 표 행 사건 수가 정수가 아닙니다`);
+      }
+    });
+    if (!Array.isArray(card.average_path) || !card.average_path.length) {
+      throw new Error("평균 경로가 없습니다");
+    }
+    card.average_path.forEach((point, index) => {
+      requireResultFields(point, ["offset_sessions", "mean_index", "events"], `${index + 1}번째 평균 경로 점`);
+      if (!Number.isInteger(point.events)) throw new Error(`${index + 1}번째 평균 경로 사건 수가 정수가 아닙니다`);
+    });
+    return { ...card, side };
+  }
+
+  function resultPathFigure(card, figureId) {
+    const points = card.average_path.filter((point) => finite(point.offset_sessions) && finite(point.mean_index));
+    if (!points.length) throw new Error("평균 경로에 표시 가능한 점이 없습니다");
+    const width = 720, height = 230, left = 48, right = 18, top = 18, bottom = 34;
+    const minX = Math.min(...points.map((point) => Number(point.offset_sessions)));
+    const maxX = Math.max(...points.map((point) => Number(point.offset_sessions)));
+    const values = [100, ...points.map((point) => Number(point.mean_index))];
+    const minY = Math.min(...values), maxY = Math.max(...values);
+    const xSpan = maxX - minX || 1, ySpan = maxY - minY || 1;
+    const x = (value) => left + ((Number(value) - minX) / xSpan) * (width - left - right);
+    const y = (value) => top + ((maxY - Number(value)) / ySpan) * (height - top - bottom);
+    const path = points.map((point) => `${x(point.offset_sessions).toFixed(2)},${y(point.mean_index).toFixed(2)}`).join(" ");
+    const eventCounts = points.map((point) => point.events);
+    const eventSummary = `경로별 사건 수 ${Math.min(...eventCounts)}~${Math.max(...eventCounts)}`;
+    return `<figure class="result-path"><svg viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="${esc(figureId)}-title ${esc(figureId)}-desc"><title id="${esc(figureId)}-title">신호일 100 기준 평균 경로</title><desc id="${esc(figureId)}-desc">${esc(eventSummary)}</desc><line class="result-path-baseline" x1="${left}" x2="${width - right}" y1="${y(100)}" y2="${y(100)}"></line><line class="result-path-signal" x1="${x(0)}" x2="${x(0)}" y1="${top}" y2="${height - bottom}"></line><polyline class="result-path-line" points="${path}"></polyline><text x="${left}" y="${height - 8}">${number(minX, 0)} session</text><text x="${width - right}" y="${height - 8}" text-anchor="end">+${number(maxX, 0)} session</text><text x="${x(0) + 5}" y="${top + 12}">신호일</text></svg><figcaption>신호일 100 기준 ±252-session 평균 경로 · ${esc(eventSummary)}</figcaption></figure>`;
+  }
+
+  function resultCardMarkup(rawCard, index = 0) {
+    try {
+      const card = normaliseResultCard(rawCard);
+      const sell = card.side === "sell";
+      const headers = sell
+        ? ["평균 변동성", "중앙 변동성", "평균 최대낙폭", "중앙 최대낙폭", "성숙 사건", "총 사건", "독립 사건"]
+        : ["평균 수익률", "중앙값", "승률", "성숙 사건", "총 사건", "독립 사건"];
+      const rows = card.table.map((row) => {
+        const measures = sell
+          ? [pctUnsigned(row.mean_realized_volatility), pctUnsigned(row.median_realized_volatility), pct(row.mean_max_drawdown), pct(row.median_max_drawdown)]
+          : [pct(row.mean_return), pct(row.median_return), pctUnsigned(row.win_rate)];
+        return `<tr><th>${esc(row.label)}<small>${number(row.horizon_sessions, 0)} sessions</small></th>${measures.map((value) => `<td>${value}</td>`).join("")}<td>${number(row.events_mature, 0)}</td><td>${number(row.events_total, 0)}</td><td>${number(row.events_independent, 0)}</td></tr>`;
+      }).join("");
+      return `<article class="result-card ${sell ? "sell" : "buy"}"><p class="result-card-claim">${esc(card.claim)}</p><p class="result-card-counts">총 사건 <b>${number(card.events_total, 0)}</b> · 독립 사건 <b>${number(card.events_independent, 0)}</b></p><div class="research-table-wrap"><table class="research-table result-card-table"><thead><tr><th>기간</th>${headers.map((header) => `<th>${esc(header)}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>${resultPathFigure(card, `result-path-${index}`)}</article>`;
+    } catch (error) {
+      return `<article class="result-card-error" role="alert"><b>결과 카드 오류</b><span>${esc(error.message || "필수 사건 수 또는 중앙값 필드 누락")}</span></article>`;
+    }
+  }
+
+  function renderResultCards(cards) {
+    const host = $("result-cards-content");
+    if (!host) return;
+    host.innerHTML = Array.isArray(cards) && cards.length
+      ? cards.map((card, index) => resultCardMarkup(card, index)).join("")
+      : `<div class="unavailable">${esc(resultCardEmptyMessage)}</div>`;
+  }
+
+  function renderAdoption(lines) {
+    const host = $("adoption-content");
+    if (!host) return;
+    host.innerHTML = `<div class="adoption-list">${(lines || []).map((line) => `<p>${esc(line)}</p>`).join("") || "<p>규칙 평가 없음</p>"}</div>`;
+  }
+
+  if (typeof window !== "undefined") {
+    window.__researchResultCardTest = { normaliseResultCard, resultCardMarkup };
+    window.__researchTabsTest = { setResearchTab, renderTabStatus };
   }
 
   function renderMeta(payload) {
@@ -55,6 +206,7 @@
   }
 
   function renderLeaderboard(payload) {
+    renderLegacyBanner("leaderboard-legacy-banner", payload);
     const candidates = payload.candidates || [];
     $("leaderboard-body").innerHTML = candidates.map((candidate) => {
       const holdout = result(candidate, "holdout"), fit = result(candidate, "fit");
@@ -174,6 +326,7 @@
   }
 
   function renderDetail(candidate) {
+    renderLegacyBanner("detail-legacy-banner", research || {});
     if (!candidate) {
       $("detail-content").innerHTML = '<div class="research-detail-empty">선택된 규칙이 없습니다.</div>';
       return;
@@ -224,7 +377,7 @@
     document.querySelector(".experiment-target-field").hidden = !needsTarget;
     $("experiment-indicators").hidden = !needsLadder;
     const selected = experimentRows().filter((row) => row.querySelector('input[type="checkbox"]').checked);
-    $("experiment-levels").value = String(Math.max(1, selected.length));
+    $("experiment-levels").value = String(selected.length);
     const operator = experimentSide() === "drawdown" ? "≤" : "≥";
     experimentRows().forEach((row) => {
       const checked = row.querySelector('input[type="checkbox"]').checked;
@@ -256,25 +409,9 @@
     $("experiment-status").textContent = "조건이 바뀌었습니다. 다시 평가해 주세요.";
   }
 
-  function applyPreset(name) {
+  function applyPreset(_name) {
     invalidateExperiment();
-    experimentRows().forEach((row) => setIndicator(row.dataset.indicator, false));
-    setExperimentSide("drawdown");
-    $("experiment-basket").value = "KR";
-    if (name === "watchlist") {
-      $("experiment-type").value = "ladder";
-      setIndicator("rsi14", true, 30);
-      setIndicator("disp60", true, -10);
-      setIndicator("drawdown252", true, -30);
-    } else if (name === "drawdown-2") {
-      $("experiment-type").value = "ladder";
-      setIndicator("drawdown252", true, -20);
-      setIndicator("disp60", true, -10);
-    } else {
-      $("experiment-type").value = "vol_target";
-      $("experiment-target-vol").value = "0.15";
-    }
-    syncExperimentControls();
+    $("experiment-status").textContent = "미정 · 사용자 결정 대기";
   }
 
   function experimentQuery() {
@@ -962,7 +1099,7 @@
 
   async function initCrisisOverlay() {
     if (!$("crisis-overlay")) return;
-    $("crisis-command").textContent = ".venv\\Scripts\\python.exe scripts/research/run_crisis_overlay.py --project-root .";
+    $("crisis-command").textContent = ".venv\\Scripts\\python.exe scripts/research/run_crisis_overlay.py --project-root . --drawdown-threshold <결정값> --disp60-threshold <결정값> --product-share-at-max <결정값> --levels <결정값> --base-exposure <결정값>";
     $("crisis-basis").addEventListener("change", () => { crisisState.basis = crisisBasis(); renderCrisis(); });
     document.querySelectorAll('[name="crisis-mode"]').forEach((input) => input.addEventListener("change", () => { crisisState.preset = ""; renderCrisis(); }));
     $("crisis-asset").addEventListener("change", () => { crisisState.preset = ""; renderCrisis(); });
@@ -973,6 +1110,7 @@
       const response = await fetch("/api/research/crisis-overlay");
       if (!response.ok) throw new Error(await readError(response));
       crisisState.payload = await response.json();
+      renderLegacyBanner("crisis-overlay-legacy-banner", crisisState.payload);
       const coverage = (assetId) => {
         const payload = crisisState.payload || {};
         const years = (payload.episodes || []).filter((episode) => ((((payload.series || {}).hold_start || {})[episode.id] || {})[assetId] || []).some((value) => value !== null)).map((episode) => String(episode.signal_date || "").slice(0, 4)).filter(Boolean);
@@ -993,12 +1131,6 @@
   const compoundState = {
     catalog: [], cache: new Map(), payload: null, frame: 0,
     holdoutVisible: false, sessionViews: 0, pollTimer: 0, wasRunning: false,
-  };
-  const compoundDefaults = {
-    drawdown_threshold: [-.10, -.15, -.20, -.25, -.30, -.35],
-    disp60_threshold: [-.05, -.10, -.15], levels: [1, 2, 3, 4],
-    leverage_multiple: [1, 2, 3], base_exposure: [0, 1],
-    exit: ["a", "b60", "b120", "c", "d"], cost_enabled: [false, true],
   };
   let compoundToastTimer = 0;
 
@@ -1034,6 +1166,8 @@
       disp60_threshold: sliderValue("compound-disp60", cachedList("disp60_thresholds")),
       levels: Number($("compound-levels").value),
       leverage_multiple: Number($("compound-multiple").value),
+      base_exposure: cachedList("base_exposures")[0],
+      product_share_at_max: cachedList("product_shares_at_max")[0] ?? null,
       exit: $("compound-exit").value, cost_enabled: $("compound-cost").checked,
       product_variant: $("compound-product").value,
     };
@@ -1063,7 +1197,7 @@
   function compoundRow(combination) {
     if (!combination) return null;
     const rows = (compoundState.payload || {}).rows || [];
-    const row = rows.find((item) => item.base_exposure === 1
+    const row = rows.find((item) => Number(item.base_exposure) === Number(combination.base_exposure)
       && Number(item.drawdown_threshold) === Number(combination.drawdown_threshold)
       && Number(item.disp60_threshold) === Number(combination.disp60_threshold)
       && Number(item.levels) === combination.levels
@@ -1129,16 +1263,16 @@
       threshold_x_multiple: { x: "drawdown_threshold", y: "leverage_multiple", fixed: { disp60_threshold: combination.disp60_threshold, levels: combination.levels } },
     };
     const definition = definitions[mode];
-    const scenario = `출구 ${combination.exit} · ${combination.cost_enabled ? "거래비용 포함" : "거래비용 제외"} · 기본 노출 ${combination.base_exposure ?? 1}`;
+    const scenario = `출구 ${combination.exit} · ${combination.cost_enabled ? "거래비용 포함" : "거래비용 제외"} · 기본 노출 ${combination.base_exposure}`;
     const scenarioValues = {
       ...definition.fixed,
       exit: combination.exit,
       cost_enabled: combination.cost_enabled,
-      base_exposure: combination.base_exposure ?? 1,
+      base_exposure: combination.base_exposure,
       product_variant: combination.product_variant,
     };
     const rows = ((compoundState.payload || {}).rows || []).filter((row) => row.row_kind !== "baseline"
-      && Number(row.base_exposure) === Number(combination.base_exposure ?? 1)
+      && Number(row.base_exposure) === Number(combination.base_exposure)
       && row.exit === combination.exit && row.cost_enabled === combination.cost_enabled
       && Object.entries(definition.fixed).every(([key, value]) => Number(row[key]) === Number(value))
       && finite((heatMetric(row, combination.product_variant) || {}).relative_to_baseline))
@@ -1319,13 +1453,18 @@
     host.innerHTML = `<h3>홀드아웃 · ${esc(metric.start || "2016")}~</h3><p>기준선 ${multipleText(metric.baseline_final_wealth_multiple)} · 내 규칙 ${multipleText(metric.final_wealth_multiple)} · ${pct(Number(metric.relative_to_baseline) - 1, 0)} · CAGR ${pct(metric.cagr)} · MDD ${pct(metric.max_drawdown)}</p>${full ? `<p class="muted">전체 · 내 규칙 ${multipleText(full.final_wealth_multiple)} / 기준선 ${multipleText(full.baseline_final_wealth_multiple)} · CAGR ${pct(full.cagr)} · MDD ${pct(full.max_drawdown)}</p>` : ""}`;
   }
 
-  function setCompoundSlider(id, values, preferred) {
+  function setCompoundSlider(id, values) {
     const slider = $(id);
     slider.min = "0";
     slider.max = String(Math.max(values.length - 1, 0));
-    const exact = values.findIndex((value) => Number(value) === Number(preferred));
-    slider.value = String(exact >= 0 ? exact : Math.max(values.length - 1, 0));
+    slider.value = "0";
     slider.disabled = values.length < 2;
+  }
+
+  function setCompoundOptions(id, values) {
+    const select = $(id);
+    select.innerHTML = values.map((value) => `<option value="${esc(value)}">${esc(value)}</option>`).join("");
+    select.disabled = values.length < 2;
   }
 
   async function loadCompoundGrid() {
@@ -1342,8 +1481,14 @@
         compoundState.cache.set(key, payload);
       }
       compoundState.payload = payload;
-      setCompoundSlider("compound-drawdown", cachedList("drawdown_thresholds"), -.20);
-      setCompoundSlider("compound-disp60", cachedList("disp60_thresholds"), -.10);
+      renderLegacyBanner("compound-legacy-banner", payload);
+      $("compound-register").disabled = Boolean(payload.legacy_numbers);
+      $("compound-register").title = payload.legacy_numbers ? "재구축 전 조합은 새 후보로 등록하지 않습니다" : "";
+      setCompoundSlider("compound-drawdown", cachedList("drawdown_thresholds"));
+      setCompoundSlider("compound-disp60", cachedList("disp60_thresholds"));
+      setCompoundOptions("compound-levels", cachedList("levels"));
+      setCompoundOptions("compound-multiple", cachedList("leverage_multiples"));
+      syncCompoundProduct();
       compoundState.holdoutVisible = false;
       compoundState.frame = 0;
       renderCompound();
@@ -1384,6 +1529,10 @@
 
   async function registerCompoundCandidate() {
     const combination = compoundCombination();
+    if ((compoundState.payload || {}).legacy_numbers) {
+      compoundToast("재구축 전 조합은 폐기 예정이라 후보로 등록하지 않습니다.", true);
+      return;
+    }
     if (!compoundRow(combination)) { compoundToast("미계산 조합은 후보로 등록할 수 없습니다.", true); return; }
     if (combination.basket === "FOREIGN") { compoundToast("FOREIGN은 현재 포워드 테스트 바스켓 계약 밖입니다.", true); return; }
     const entry = compoundEntry(), button = $("compound-register");
@@ -1414,7 +1563,9 @@
       ranges: {
         drawdown_threshold: $("compound-run-drawdowns").value.trim(),
         disp60_threshold: $("compound-run-disp60").value.trim(),
+        product_share_at_max: $("compound-run-product-share").value.trim(),
         levels: $("compound-run-levels").value.trim(),
+        base_exposure: $("compound-run-base-exposure").value.trim(),
         leverage_multiple: $("compound-run-multiples").value.trim(),
       },
     };
@@ -1422,14 +1573,20 @@
 
   function compoundCommand() {
     const payload = compoundRunPayload();
-    const values = (value, fallback, integer = false) => value ? value.split(",").map((item) => integer ? Number.parseInt(item.trim(), 10) : Number(item.trim())) : fallback;
+    const values = (value, integer = false) => value ? value.split(",").map((item) => integer ? Number.parseInt(item.trim(), 10) : Number(item.trim())) : null;
     const grid = {
-      drawdown_threshold: values(payload.ranges.drawdown_threshold, compoundDefaults.drawdown_threshold),
-      disp60_threshold: values(payload.ranges.disp60_threshold, compoundDefaults.disp60_threshold),
-      levels: values(payload.ranges.levels, compoundDefaults.levels, true),
-      leverage_multiple: values(payload.ranges.leverage_multiple, compoundDefaults.leverage_multiple, true),
-      base_exposure: [0, 1], exit: compoundDefaults.exit, cost_enabled: [payload.cost_enabled],
+      drawdown_threshold: values(payload.ranges.drawdown_threshold),
+      disp60_threshold: values(payload.ranges.disp60_threshold),
+      product_share_at_max: values(payload.ranges.product_share_at_max),
+      levels: values(payload.ranges.levels, true),
+      base_exposure: values(payload.ranges.base_exposure),
+      leverage_multiple: values(payload.ranges.leverage_multiple, true),
+      exit: ["a", "b60", "b120", "c", "d"],
+      cost_enabled: [payload.cost_enabled],
     };
+    if (Object.values(grid).some((items) => items === null || !items.length)) {
+      return "미정 · 다섯 사용자 결정값을 모두 입력한 뒤에만 명령을 생성합니다.";
+    }
     const pyValue = (value) => typeof value === "string" ? `'${value}'` : typeof value === "boolean" ? (value ? "True" : "False") : String(value);
     const pyTuple = (items) => `(${items.map(pyValue).join(",")}${items.length === 1 ? "," : ""})`;
     const python = `{${Object.entries(grid).map(([key, items]) => `'${key}':${pyTuple(items)}`).join(",")}}`;
@@ -1437,7 +1594,16 @@
     return `.venv\\Scripts\\python.exe -c "from pathlib import Path; from scripts.research import run_compound_backtest as m; m.FULL_GRID=${python}; m.run(Path('.'), ${baskets}, quick=False)"`;
   }
 
-  function updateCompoundCommand() { $("compound-command").textContent = compoundCommand(); }
+  function compoundRunReady() {
+    // The decision source is intentionally not wired yet; visible fields stay read-only.
+    return false;
+  }
+
+  function updateCompoundCommand() {
+    $("compound-command").textContent = compoundCommand();
+    $("compound-run-start").disabled = !compoundRunReady() || compoundState.wasRunning;
+    if (!compoundRunReady()) $("compound-run-status").textContent = "미정 · 사용자 결정 대기";
+  }
 
   async function pollCompoundRun() {
     clearTimeout(compoundState.pollTimer);
@@ -1447,7 +1613,7 @@
       const status = await response.json();
       $("compound-run-log").textContent = (status.progress_lines || []).join("\n") || "아직 실행 기록이 없습니다.";
       $("compound-run-status").textContent = status.running ? `실행 중 · ${status.started_at || ""}` : status.last_error ? `실패 · ${status.last_error}` : status.last_finished_at ? `완료 · ${status.last_finished_at}` : "대기";
-      $("compound-run-start").disabled = status.running;
+      $("compound-run-start").disabled = status.running || !compoundRunReady();
       if (compoundState.wasRunning && !status.running && !status.last_error) {
         const entry = compoundEntry();
         if (entry) compoundState.cache.delete(`${entry.basket}|${entry.product}`);
@@ -1463,6 +1629,10 @@
 
   async function startCompoundRun() {
     const button = $("compound-run-start");
+    if (!compoundRunReady()) {
+      $("compound-run-status").textContent = "미정 · 다섯 사용자 결정값이 모두 필요합니다.";
+      return;
+    }
     button.disabled = true;
     try {
       const response = await fetch("/api/research/compound/run", {
@@ -1518,7 +1688,7 @@
   }
 
   async function boot() {
-    bindExperiment();
+    bindResearchTabs();
     initCompound();
     initCrisisTimeline();
     initCrisisOverlay();
@@ -1532,9 +1702,12 @@
       forward = { status: "EMPTY", message: emptyMessage, groups: [] };
     }
     renderMeta(research);
+    renderTabStatus(research);
     renderLeaderboard(research);
     renderForward(forward);
     renderHistory(research.history);
+    renderAdoption(research.current_status);
+    renderResultCards(research.result_cards);
     if (research.status !== "READY") {
       $("research-empty").hidden = false;
       $("research-empty").innerHTML = emptyMarkup(research.message);
