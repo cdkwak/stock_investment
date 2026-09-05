@@ -15,7 +15,8 @@ NOTE = Path(
 )
 TRIGGER = re.compile(r"다음|할\s*일|뭐\s*해야|todo|남은\s*작업|작업\s*큐", re.IGNORECASE)
 SECTION_START = "## 작업 큐"
-MAX_CHARS = 6000
+MAX_CHARS = 40000
+DONE_LINES_KEPT = 10  # 완료 is history; 진행 중·대기 are the live queue and go in whole
 
 
 def _queue_section(text: str) -> str:
@@ -26,6 +27,15 @@ def _queue_section(text: str) -> str:
     # The section ends at the next H2 heading.
     next_h2 = re.search(r"\n## (?!작업 큐)", rest)
     section = rest if next_h2 is None else rest[: next_h2.start()]
+    section = section.replace("\r\n", "\n").replace("\r", "\n")
+    # Keep the live sections whole; cap the 완료 history to its most recent lines.
+    done_at = section.find("### 완료")
+    if done_at >= 0:
+        head, done = section[:done_at], section[done_at:]
+        done_lines = done.split("\n")
+        kept = done_lines[: DONE_LINES_KEPT + 1]
+        omitted = len([line for line in done_lines[DONE_LINES_KEPT + 1:] if line.strip()])
+        section = head + "\n".join(kept) + (f"\n- … (완료 {omitted}건 생략 — 파일 직접 참조)" if omitted else "")
     return section.strip()[:MAX_CHARS]
 
 

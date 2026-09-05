@@ -1139,9 +1139,13 @@ def _retained_coverage_roots(project_root: Path, dataset_id: str) -> tuple[Path,
     """Return only contract-authorized retained Parquet roots for coverage."""
 
     data_root = Path(project_root).resolve() / "data"
+    # Derived datasets (option PCR, walls, breadth, nearest futures …) are retained under
+    # data/derived; probing only normalized/retained reported them 8 days stale while the
+    # 시장 page showed the fresh 09-03 rows (review 2026-09-05 14:00).
     candidates = [
         data_root / "normalized" / dataset_id,
         data_root / "retained" / dataset_id,
+        data_root / "derived" / dataset_id,
     ]
     for value in _PHYSICAL_OVERRIDES.get(dataset_id, ()):
         clean = value.split("::", 1)[0]
@@ -1149,7 +1153,7 @@ def _retained_coverage_roots(project_root: Path, dataset_id: str) -> tuple[Path,
         if (
             "<" not in clean
             and path.parts
-            and path.parts[0] in {"normalized", "retained"}
+            and path.parts[0] in {"normalized", "retained", "derived"}
         ):
             candidates.append(data_root / path)
     unique: list[Path] = []
