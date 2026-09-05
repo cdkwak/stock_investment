@@ -516,8 +516,14 @@
   }
   function watchlistInvestorMobile(row) {
     const investor = row.investor;
-    if (!investor) return '<div class="watch-investor-mobile muted">외 — · 기 —</div>';
-    return `<div class="watch-investor-mobile"><span class="${cls(investor.foreign_1d)}">외 ${signedEok(investor.foreign_1d, 0)}</span> · <span class="${cls(investor.institution_1d)}">기 ${signedEok(investor.institution_1d, 0)}</span></div>`;
+    if (!investor) return '<div class="watch-investor-mobile muted">외 — · 기 — · 개 —</div>';
+    // Compact line = all three investors (the user asked for 외국인·기관·개인), with the
+    // 5일·20일 sums and the basis date in the tooltip like the desktop cells (review 09-05 19:55).
+    const tip = ["외국인", "기관", "개인"].map((label, index) => {
+      const key = ["foreign", "institution", "individual"][index];
+      return `${label} 1일 ${signedEok(investor[`${key}_1d`], 0)} · 5일 ${signedEok(investor[`${key}_5d`], 0)} · 20일 ${signedEok(investor[`${key}_20d`], 0)}`;
+    }).join(" | ") + (investor.as_of ? " | 기준일 " + investor.as_of : "");
+    return `<div class="watch-investor-mobile" title="${esc(tip)}"><span class="${cls(investor.foreign_1d)}">외 ${signedEok(investor.foreign_1d, 0)}</span> · <span class="${cls(investor.institution_1d)}">기 ${signedEok(investor.institution_1d, 0)}</span> · <span class="${cls(investor.individual_1d)}">개 ${signedEok(investor.individual_1d, 0)}</span></div>`;
   }
   function renderWatchlist(sec) {
     const host = $("watchlist");
