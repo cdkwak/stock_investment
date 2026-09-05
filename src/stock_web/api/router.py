@@ -141,10 +141,27 @@ def build_router(project_root: Path, *, public_mode: bool = False) -> APIRouter:
         return json_response(build_changes(project_root, public_mode=public_mode))
 
     @router.get("/chart")
-    def chart(symbol: str = "KOSPI", range: str = "6M") -> Response:
+    def chart(
+        symbol: str = "KOSPI", range: str = "6M", interval: str = "day",
+        indicators: str | None = None,
+    ) -> Response:
         from stock_web.api import home_data
 
-        return json_response(home_data.build_chart_payload(project_root, symbol=symbol, range_key=range))
+        try:
+            # Keep the home chart's legacy call shape stable when the stock-only
+            # interval and indicator parameters are absent.
+            if indicators is None and interval == "day":
+                payload = home_data.build_chart_payload(
+                    project_root, symbol=symbol, range_key=range,
+                )
+            else:
+                payload = home_data.build_chart_payload(
+                    project_root, symbol=symbol, range_key=range,
+                    interval=interval, indicators=indicators,
+                )
+        except home_data.ChartRequestError as error:
+            return json_response({"error": str(error)}, status_code=400)
+        return json_response(payload)
 
     @router.get("/market")
     def market(flows_range: str = "60D") -> Response:

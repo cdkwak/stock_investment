@@ -101,6 +101,51 @@ def test_latest_percentile_uses_only_the_last_2520_sessions() -> None:
     assert regime._latest_percentile(values) == 100.0
 
 
+def test_latest_percentile_matches_the_prior_pandas_rank_result_with_ties_and_nans() -> None:
+    values = pd.Series([99_999.0, *range(2_515), 2_510.0, None, 2_510.0, 2_510.0, 2_510.0])
+    retained = pd.to_numeric(values, errors="coerce").dropna().tail(2_520)
+    expected = float(retained.rank(pct=True).iloc[-1] * 100.0)
+
+    assert regime._latest_percentile(values) == expected
+
+
+def test_regime_cache_reuses_matching_parquet_signature_and_invalidates_on_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = new_temp_root().resolve()
+    source = root / "data.parquet"
+    source.write_bytes(b"one")
+    calls: list[Path] = []
+    now = [100.0]
+
+    def build(path: Path) -> tuple[list[dict[str, object]], tuple[Path, ...]]:
+        calls.append(path)
+        return [{"title": "cached", "call": len(calls)}], (source,)
+
+    monkeypatch.setattr(regime, "_build_regime_markets", build)
+    monkeypatch.setattr(regime, "build_rules", lambda *_args: None)
+    monkeypatch.setattr(regime.time, "monotonic", lambda: now[0])
+    regime.clear_regime_cache()
+
+    first = regime.build_regime(root, {})
+    now[0] = 110.0
+    second = regime.build_regime(root, {})
+    assert first == second
+    assert first is not second
+    assert calls == [root]
+
+    source.write_bytes(b"changed-size")
+    now[0] = 120.0
+    third = regime.build_regime(root, {})
+    assert third["markets"][0]["call"] == 2
+    assert calls == [root, root]
+
+    now[0] = 181.0
+    fourth = regime.build_regime(root, {})
+    assert fourth["markets"][0]["call"] == 3
+    assert calls == [root, root, root]
+
+
 @pytest.mark.parametrize(
     ("score", "expected"),
     [
@@ -129,6 +174,15 @@ def test_build_regime_exposes_scores_components_and_us_subscores(
     })
 
     class Query:
+        def __init__(self) -> None:
+            self.files_read: list[Path] = []
+
+        def read(self, _dataset: str, **kwargs: object) -> pd.DataFrame:
+            partition = next(iter(kwargs.get("partitions", {}).values()))
+            result = index_frame.copy()
+            result["symbol"] = partition
+            return result
+
         def tail(self, dataset: str, **_kwargs: object) -> pd.DataFrame:
             if dataset.endswith("kr_credit_balance_daily"):
                 return pd.DataFrame({
@@ -170,6 +224,7 @@ def test_build_regime_exposes_scores_components_and_us_subscores(
             return {"KOSPI": SimpleNamespace(rolling_windows=())}
 
     root = new_temp_root()
+    regime.clear_regime_cache()
     monkeypatch.setattr(regime, "DashboardService", Service)
     monkeypatch.setattr(regime, "rsi_latest", lambda _series: 48.6)
     monkeypatch.setenv("STOCK_WEB_RULES_PATH", str(root / "missing-rules.md"))

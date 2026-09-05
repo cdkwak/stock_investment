@@ -6,6 +6,7 @@ absent section (or a ``reason``), never a substituted number.
 from __future__ import annotations
 
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 import math
 import json
 import os
@@ -22,7 +23,12 @@ from stock_web.api import datasets as dsx
 from stock_web.api.changes import build_changes
 from stock_web.api.datasets import field
 from stock_web.api.fmt import KST, format_kst
-from stock_web.api.indicators import rsi_wilder
+from stock_web.api.indicators import (
+    calculate_indicators,
+    normalize_indicators,
+    resample_ohlcv,
+    rsi_wilder,
+)
 from stock_web.api.intraday import load_intraday_series
 
 _HOME_CACHE_TTL_SECONDS = 60.0
@@ -31,6 +37,32 @@ _PUBLIC_REGIME_LOCK = threading.Lock()
 _PUBLIC_SCANNER_LOCK = threading.Lock()
 
 RANGE_SESSIONS = {"3M": 63, "6M": 126, "1Y": 252, "3Y": 756, "ALL": None}
+STOCK_CHART_INDICATORS = frozenset({
+    "ma5", "ma20", "ma60", "ma120", "rsi14", "volume",
+})
+STOCK_CHART_INTERVALS = {
+    "day": "1d", "week": "1w", "month": "1M",
+    "1d": "1d", "1w": "1w", "1M": "1M",
+}
+STOCK_CHART_RANGE_BARS = {
+    "1d": RANGE_SESSIONS,
+    "1w": {"3M": 13, "6M": 26, "1Y": 52, "3Y": 156, "ALL": None},
+    "1M": {"3M": 3, "6M": 6, "1Y": 12, "3Y": 36, "ALL": None},
+}
+
+
+class ChartRequestError(ValueError):
+    """A stock-chart query contains a value outside its closed allowlist."""
+
+
+def _stock_chart_indicators(value: str | None) -> tuple[str, ...]:
+    if value is None:
+        return ("ma5", "ma20", "ma60", "ma120", "volume")
+    raw = tuple(part.strip().lower() for part in value.split(",") if part.strip())
+    unknown = tuple(dict.fromkeys(item for item in raw if item not in STOCK_CHART_INDICATORS))
+    if unknown:
+        raise ChartRequestError(f"지원하지 않는 지표입니다: {', '.join(unknown)}")
+    return tuple(item for item in normalize_indicators(raw) if item in STOCK_CHART_INDICATORS)
 
 # symbol -> (dataset root, filter column, filter value, display name)
 INDEX_SOURCES = {
@@ -150,13 +182,48 @@ def _indicators(frame: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def build_chart_payload(project_root: Path, *, symbol: str, range_key: str) -> dict[str, object]:
+def _chart_indicator_points(frame: pd.DataFrame, column: str) -> list[dict[str, object]]:
+    if column not in frame:
+        return []
+    return [
+        {"t": pd.Timestamp(observed).strftime("%Y-%m-%d"), "v": value}
+        for observed, raw in zip(frame["date"], frame[column])
+        if (value := _nan_to_none(raw)) is not None
+    ]
+
+
+def build_chart_payload(
+    project_root: Path,
+    *,
+    symbol: str,
+    range_key: str,
+    interval: str = "1d",
+    indicators: str | None = None,
+) -> dict[str, object]:
+    """Build stock OHLCV plus strict, server-computed technical indicators.
+
+    Resampling and indicator calculation happen before the requested range is
+    selected. The warm-up history therefore remains available to MA120 and
+    RSI14 even for a three-month view.
+    """
+    selected = _stock_chart_indicators(indicators)
+    safe_interval = STOCK_CHART_INTERVALS.get(interval, "1d")
     frame, name = _ohlcv(project_root, symbol)
     if frame is None or frame.empty or "close" not in frame.columns:
-        return {"symbol": symbol, "symbol_name": name, "reason": "보존 데이터 없음"}
-    frame = frame.dropna(subset=["close"])
-    ind = _indicators(frame)
-    n = RANGE_SESSIONS.get(range_key, 126)
+        return {
+            "symbol": symbol, "symbol_name": name, "interval": safe_interval,
+            "range": range_key, "active_indicators": selected,
+            "reason": "보존 데이터 없음",
+        }
+    frame = frame.dropna(subset=["date", "close"]).sort_values("date", kind="stable")
+    bars = resample_ohlcv(frame, safe_interval)
+    ind = calculate_indicators(bars)
+    close = pd.to_numeric(ind["close"], errors="coerce")
+    ind["disp60_pct"] = (close / ind["ma60"] - 1) * 100
+    ind["high_252"] = close.rolling(252, min_periods=20).max()
+    ind["drawdown_pct"] = (close / ind["high_252"] - 1) * 100
+    safe_range = range_key if range_key in RANGE_SESSIONS else "6M"
+    n = STOCK_CHART_RANGE_BARS[safe_interval][safe_range]
     view = ind.iloc[-n:] if n else ind
     dates = view["date"].dt.strftime("%Y-%m-%d")
     candles = []
@@ -167,7 +234,21 @@ def build_chart_payload(project_root: Path, *, symbol: str, range_key: str) -> d
             "l": _nan_to_none(getattr(row, "low", None)) or o, "c": _nan_to_none(row.close),
             "v": _nan_to_none(getattr(row, "volume", None)),
         })
-    ma = {f"ma{w}": [{"t": d, "v": _nan_to_none(v)} for d, v in zip(dates, view[f"ma{w}"])] for w in (5, 20, 60, 120)}
+    ma = {
+        f"ma{w}": [
+            {"t": d, "v": _nan_to_none(v)}
+            for d, v in zip(dates, view[f"ma{w}"])
+        ]
+        for w in (5, 20, 60, 120)
+    }
+    indicator_payload: dict[str, object] = {}
+    for name_key in ("ma5", "ma20", "ma60", "ma120", "rsi14"):
+        if name_key in selected:
+            indicator_payload[name_key] = _chart_indicator_points(view, name_key)
+    if "volume" in selected:
+        indicator_payload["volume"] = [
+            {"t": candle["t"], "v": candle["v"]} for candle in candles
+        ]
     last = ind.iloc[-1]
     stats: dict[str, object] = {
         "rsi14": _nan_to_none(last["rsi14"]), "disp60_pct": _nan_to_none(last["disp60_pct"]),
@@ -175,14 +256,17 @@ def build_chart_payload(project_root: Path, *, symbol: str, range_key: str) -> d
     }
     stats.update(_valuation(project_root, symbol))
     return {
-        "symbol": symbol, "symbol_name": name, "range": range_key,
+        "symbol": symbol, "symbol_name": name, "interval": safe_interval,
+        "range": safe_range, "active_indicators": selected,
         "as_of": str(dates.iloc[-1]),
         "provisional_dates": (
             view.loc[view["provisional"].fillna(False).astype(bool), "date"]
             .dt.strftime("%Y-%m-%d").tolist()
             if "provisional" in view.columns else []
         ),
-        "candles": candles, "ma": ma, "stats": stats,
+        "candles": candles, "ma": ma, "indicators": indicator_payload,
+        **({"rsi14": indicator_payload["rsi14"]} if "rsi14" in indicator_payload else {}),
+        "stats": stats,
     }
 
 
@@ -916,7 +1000,55 @@ def build_derivatives(
 
     service = DashboardService(project_root)
     try:
-        metrics = service.dashboard_metrics(DailyHealthArtifactService(project_root).load())
+        health = DailyHealthArtifactService(project_root).load()
+        def home_metrics() -> dict[str, object]:
+            if not hasattr(service, "_local_derivative_metric"):
+                return service.dashboard_metrics(health)
+            health_rows = {
+                row.dataset: row for row in getattr(health, "rows", ())
+            }
+
+            def health_expected(dataset_id: str) -> str | None:
+                expected = getattr(health_rows.get(dataset_id), "expected", None)
+                return expected if isinstance(expected, str) and expected != "N/A" else None
+
+            # Home consumes only these four metrics. Avoid constructing every dashboard
+            # metric (and both exchange calendars) merely to discard the rest.
+            return {
+                "KOSPI200_BASIS": service._local_derivative_metric(
+                    "KOSPI200_BASIS", "KOSPI200 선물 Basis",
+                    "kr_kospi200_futures_nearest_listed_daily", "source-native difference",
+                    service._read_basis_metric,
+                    automation_policy="DEPENDENCY_DRIVEN", automation_enabled=True,
+                    expected_as_of=health_expected(
+                        "kr_kospi200_futures_nearest_listed_daily"
+                    ),
+                    require_expected_as_of=True,
+                ),
+                "VOLUME_PCR": service._local_derivative_metric(
+                    "VOLUME_PCR", "KOSPI200 옵션 거래량 P/C",
+                    "kr_kospi200_option_pcr_daily", "ratio",
+                    service._read_volume_pcr_metric,
+                    automation_policy="DEPENDENCY_DRIVEN", automation_enabled=True,
+                    expected_as_of=health_expected("kr_kospi200_option_pcr_daily"),
+                    require_expected_as_of=True,
+                ),
+                "OI_PCR": service._local_derivative_metric(
+                    "OI_PCR", "KOSPI200 옵션 OI P/C",
+                    "kr_kospi200_option_pcr_daily", "ratio",
+                    service._read_oi_pcr_metric,
+                    automation_policy="DEPENDENCY_DRIVEN", automation_enabled=True,
+                    expected_as_of=health_expected("kr_kospi200_option_pcr_daily"),
+                    require_expected_as_of=True,
+                ),
+                "LS_FUTURES_FOREIGN_NET": service._local_derivative_metric(
+                    "LS_FUTURES_FOREIGN_NET", "LS 선물 외국인 순계약",
+                    "ls_t8462_daily_raw", "contracts",
+                    service._read_ls_futures_foreign_net_metric,
+                ),
+            }
+
+        metrics = home_metrics()
     except (KeyError, OSError, PermissionError, TypeError, ValueError):
         metrics = {}
 
@@ -1149,56 +1281,81 @@ def _build_home_payload_uncached(
     from stock_web.api.regime import build_regime
 
     sections: dict[str, object] = {}
-    if public_mode:
-        sections["account"] = {"guest": True}
-        sections["regime"] = _safe_home_section(
-            lambda: _build_public_regime(project_root),
-            "시장 국면 근거를 읽을 수 없습니다.",
+    # These retained-data projections are independent. Building them together lets
+    # the expensive first exchange-calendar construction overlap local Parquet I/O.
+    with ThreadPoolExecutor(max_workers=10, thread_name_prefix="home-build") as pool:
+        account_future = pool.submit(
+            lambda: {"guest": True} if public_mode else _safe_home_section(
+                lambda: build_account(project_root), "계좌 데이터를 읽을 수 없습니다.",
+            )
         )
-    else:
-        account = _safe_home_section(
-            lambda: build_account(project_root), "계좌 데이터를 읽을 수 없습니다.",
+        derivatives_future = pool.submit(
+            _safe_home_section,
+            lambda: build_derivatives(project_root, public_mode=public_mode),
+            "파생 지표를 읽을 수 없습니다.",
         )
+        health_future = pool.submit(build_health, project_root)
+        schedule_future = pool.submit(
+            _safe_home_section,
+            lambda: build_schedule(project_root),
+            "오늘 브리핑을 읽을 수 없습니다.",
+        )
+        changes_future = pool.submit(
+            _safe_home_section,
+            lambda: build_changes(project_root, public_mode=public_mode),
+            "오늘 변화 데이터를 읽을 수 없습니다.",
+        )
+        scanner_future = pool.submit(build_scanner, project_root, public_mode=public_mode)
+        watchlist_future = pool.submit(
+            _safe_home_section,
+            lambda: build_watchlist(project_root, public_mode=public_mode),
+            "관심종목을 읽을 수 없습니다.",
+        )
+        tiles_future = pool.submit(
+            _safe_home_section,
+            lambda: build_tiles(project_root),
+            "시장 지표를 읽을 수 없습니다.",
+        )
+        chart_symbols_future = pool.submit(build_chart_symbols, project_root)
+        flows_future = pool.submit(
+            _safe_home_section,
+            lambda: build_flows(project_root),
+            "수급 데이터를 읽을 수 없습니다.",
+        )
+
+        account = account_future.result()
         if not isinstance(account, dict):
             account = {"reason": "계좌 데이터를 읽을 수 없습니다."}
-        sections["account"] = account
-        sections["regime"] = _safe_home_section(
-            lambda: _attach_research_current(
+        regime_future = pool.submit(
+            _safe_home_section,
+            (lambda: _build_public_regime(project_root)) if public_mode else
+            (lambda: _attach_research_current(
                 project_root,
-                _normalize_regime_cash_label(build_regime(project_root, account), account),
-            ),
+                _normalize_regime_cash_label(
+                    build_regime(project_root, account), account,
+                ),
+            )),
             "시장 국면 근거를 읽을 수 없습니다.",
         )
-    sections["derivatives"] = _safe_home_section(
-        lambda: build_derivatives(project_root, public_mode=public_mode),
-        "파생 지표를 읽을 수 없습니다.",
-    )
-    sections["health"] = build_health(project_root)
-    sections["schedule"] = _safe_home_section(
-        lambda: build_schedule(project_root), "오늘 브리핑을 읽을 수 없습니다.",
-    )
+
+        sections["account"] = account
+        sections["regime"] = regime_future.result()
+        sections["derivatives"] = derivatives_future.result()
+        sections["health"] = health_future.result()
+        sections["schedule"] = schedule_future.result()
+
     if not public_mode:
         brief = build_brief(project_root)
         if brief is not None:
             sections["brief"] = brief
-    sections["changes"] = _safe_home_section(
-        lambda: build_changes(project_root, public_mode=public_mode),
-        "오늘 변화 데이터를 읽을 수 없습니다.",
-    )
     # Retain the existing API projection for older local consumers and the
     # guest-mode scanner path; Home renders only the changes section.
-    sections["scanner"] = build_scanner(project_root, public_mode=public_mode)
-    sections["watchlist"] = _safe_home_section(
-        lambda: build_watchlist(project_root, public_mode=public_mode),
-        "관심종목을 읽을 수 없습니다.",
-    )
-    sections["tiles"] = _safe_home_section(
-        lambda: build_tiles(project_root), "시장 지표를 읽을 수 없습니다.",
-    )
-    sections["chart_symbols"] = build_chart_symbols(project_root)
-    sections["flows"] = _safe_home_section(
-        lambda: build_flows(project_root), "수급 데이터를 읽을 수 없습니다.",
-    )
+    sections["changes"] = changes_future.result()
+    sections["scanner"] = scanner_future.result()
+    sections["watchlist"] = watchlist_future.result()
+    sections["tiles"] = tiles_future.result()
+    sections["chart_symbols"] = chart_symbols_future.result()
+    sections["flows"] = flows_future.result()
     kospi = _ohlcv(project_root, "KOSPI")[0]
     as_of = kospi["date"].iloc[-1].strftime("%Y-%m-%d") if kospi is not None and not kospi.empty else None
     return {
@@ -1211,6 +1368,8 @@ def _build_home_payload_uncached(
 
 _HOME_REFRESH_LOCK = threading.Lock()
 _HOME_REFRESHING: set[str] = set()
+_HOME_WARM_LOCK = threading.Lock()
+_HOME_WARM_THREADS: dict[str, threading.Thread] = {}
 
 
 def _home_cache_key(project_root: Path, *, public_mode: bool) -> str:
@@ -1274,22 +1433,35 @@ def build_home_payload(
 def warm_home_payload(
     project_root: Path, *, public_mode: bool | None = None,
     interval_seconds: float | None = None,
-) -> threading.Thread:
+) -> threading.Thread | None:
     """Build the home document off the request path; optionally keep it fresh forever."""
+    if os.environ.get("STOCK_WEB_WARMUP", "1") != "1":
+        return None
     root = Path(project_root).resolve()
     if public_mode is None:
         public_mode = os.environ.get("STOCK_WEB_PUBLIC_MODE") == "1"
+    key = _home_cache_key(root, public_mode=public_mode)
 
     def run() -> None:
-        while True:
-            try:
-                build_home_payload(root, public_mode=public_mode)
-            except Exception as error:
-                print(f"stock_web: home payload warmup failed: {type(error).__name__}: {error}", file=sys.stderr)
-            if interval_seconds is None:
-                return
-            time.sleep(interval_seconds)
+        try:
+            while True:
+                try:
+                    build_home_payload(root, public_mode=public_mode)
+                except Exception as error:
+                    print(f"stock_web: home payload warmup failed: {type(error).__name__}: {error}", file=sys.stderr)
+                if interval_seconds is None:
+                    return
+                time.sleep(interval_seconds)
+        finally:
+            with _HOME_WARM_LOCK:
+                if _HOME_WARM_THREADS.get(key) is threading.current_thread():
+                    _HOME_WARM_THREADS.pop(key, None)
 
-    thread = threading.Thread(target=run, name="home-payload-warmup", daemon=True)
-    thread.start()
-    return thread
+    with _HOME_WARM_LOCK:
+        existing = _HOME_WARM_THREADS.get(key)
+        if existing is not None and existing.is_alive():
+            return existing
+        thread = threading.Thread(target=run, name="home-payload-warmup", daemon=True)
+        _HOME_WARM_THREADS[key] = thread
+        thread.start()
+        return thread

@@ -400,6 +400,15 @@ def test_stocks_posts_refuse_non_loopback_and_page_renders() -> None:
     assert 'id="scanner-fundamentals-only"' in page.text
     assert 'id="add-selected-stock"' in page.text
     assert "검색 결과에서 종목을 선택하세요." in page.text
+    assert 'href="/static/stocks.css?' in page.text
+    assert 'id="stock-indicator-picker-button"' in page.text
+    assert 'id="stock-indicator-menu"' in page.text
+    assert 'id="stock-chart-legend"' in page.text
+    assert "＋ 지표 추가" in page.text
+    assert "겹쳐 보기" in page.text
+    assert "아래 창" in page.text
+    assert 'id="stock-rsi-chart"' not in page.text
+    assert 'id="stock-rsi-title"' not in page.text
 
 
 def test_stocks_search_selection_and_new_row_flash_are_client_side() -> None:
@@ -425,6 +434,15 @@ def test_stocks_search_selection_and_new_row_flash_are_client_side() -> None:
     assert 'type: "custom"' in shared_script
     assert 'options.xMode === "index"' in shared_script
     assert '정식 종가 기준 (${String(result.as_of).slice(5)}) · 잠정 미포함' in script
+    assert 'localStorage.getItem("stock-web-stock-indicators-v1")' in script
+    assert "payload.indicators" in script
+    assert "payload.rsi14" in script
+    assert "function panelMargins" in script
+    assert "series.createPriceLine" in script
+    assert 'data-remove-stock-indicator' in script
+    assert 'stock-rsi-chart' not in script
+    assert "slice(windowSize - 1)" not in script
+    assert script.count("LightweightCharts.createChart") == 1
 
 
 def test_home_symbol_query_is_embedded_for_chart_preselection() -> None:

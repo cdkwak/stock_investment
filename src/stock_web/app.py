@@ -7,6 +7,7 @@ through the typed services in ``stock_web.api``.
 """
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import hashlib
 import hmac
 import ipaddress
@@ -123,7 +124,23 @@ def _project_root() -> Path:
 def create_app(project_root: Path | None = None) -> FastAPI:
     root = (project_root or _project_root()).resolve()
     public_mode = os.environ.get("STOCK_WEB_PUBLIC_MODE") == "1"
-    app = FastAPI(title="Stock Investment Dashboard", docs_url=None, redoc_url=None)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        if os.environ.get("STOCK_WEB_WARMUP") == "1":
+            try:
+                from stock_web.api.home_data import warm_home_payload
+
+                warm_home_payload(root, public_mode=public_mode)
+            except Exception:
+                # Warm-up is only an optimization; startup must stay available.
+                pass
+        yield
+
+    app = FastAPI(
+        title="Stock Investment Dashboard", docs_url=None, redoc_url=None,
+        lifespan=lifespan,
+    )
     app.state.project_root = root
     app.state.public_mode = public_mode
     app.mount("/static", StaticFiles(directory=PACKAGE_ROOT / "static"), name="static")

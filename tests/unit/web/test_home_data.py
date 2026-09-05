@@ -121,6 +121,48 @@ def test_home_payload_cache_is_keyed_by_root_and_lasts_sixty_seconds(
     assert fourth["call"] == 2
 
 
+def test_home_warmup_failure_stays_in_background_and_does_not_escape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = new_temp_root().resolve()
+    monkeypatch.setenv("STOCK_WEB_WARMUP", "1")
+    monkeypatch.setattr(
+        home_data, "build_home_payload",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(FileNotFoundError("missing")),
+    )
+    home_data._HOME_WARM_THREADS.clear()
+
+    thread = home_data.warm_home_payload(root)
+
+    assert thread is not None
+    thread.join(timeout=2)
+    assert not thread.is_alive()
+
+
+def test_app_startup_warmup_respects_the_environment_switch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi.testclient import TestClient
+
+    from stock_web.app import create_app
+
+    root = new_temp_root().resolve()
+    calls: list[tuple[Path, bool | None]] = []
+    monkeypatch.setattr(
+        home_data, "warm_home_payload",
+        lambda path, *, public_mode=None, **_kwargs: calls.append((path, public_mode)),
+    )
+    monkeypatch.setenv("STOCK_WEB_WARMUP", "1")
+    with TestClient(create_app(root)):
+        pass
+    assert calls == [(root, False)]
+
+    monkeypatch.setenv("STOCK_WEB_WARMUP", "0")
+    with TestClient(create_app(root)):
+        pass
+    assert calls == [(root, False)]
+
+
 def test_home_watchlist_preserves_investor_flow_from_hive_directory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

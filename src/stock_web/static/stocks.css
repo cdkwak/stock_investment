@@ -1,0 +1,46 @@
+/* Stock-detail chart additions stay page-scoped; shared dashboard CSS remains unchanged. */
+.stock-chart-card { padding-bottom: 8px; }
+.stock-chart-head { position: relative; z-index: 3; }
+.stock-chart-shell { position: relative; min-width: 0; }
+.stock-price-chart { height: 500px; }
+.stock-chart-legend {
+  position: absolute;
+  top: 8px;
+  left: 12px;
+  right: 72px;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  pointer-events: none;
+}
+.stock-chart-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, .9);
+  pointer-events: auto;
+}
+.stock-chart-legend i { display: inline-block; width: 11px; height: 2px; }
+.stock-indicator-label button {
+  border: 0;
+  padding: 0 0 0 2px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  line-height: 10px;
+}
+
+@media (max-width: 700px) {
+  .stock-indicator-picker { position: static; }
+  .stock-indicator-picker .indicator-menu { left: 0; right: 0; width: auto; }
+  .stock-price-chart { height: 360px; }
+  .stock-chart-legend { top: 4px; left: 4px; right: 46px; max-height: 48px; overflow: hidden; }
+}

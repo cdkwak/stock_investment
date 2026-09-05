@@ -1,8 +1,13 @@
 """Pure, provider-free market-regime projections for the local web UI."""
 from __future__ import annotations
 
+import copy
+import json
 import os
 import re
+import threading
+import time
+from dataclasses import dataclass
 from math import log, sqrt
 from pathlib import Path
 
@@ -20,6 +25,18 @@ WEB_SETTINGS_RELATIVE = Path("artifacts/local_user/web_settings.json")
 REGIME_HISTORY_SESSIONS = 2_520
 REGIME_MIN_SESSIONS = 750
 REALIZED_VOLATILITY_SESSIONS = 20
+REGIME_CACHE_TTL_SECONDS = 60.0
+
+
+@dataclass(frozen=True)
+class _RegimeCacheEntry:
+    created_at: float
+    signature: tuple[tuple[Path, int, int], ...]
+    markets: list[dict[str, object]]
+
+
+_REGIME_CACHE: dict[str, _RegimeCacheEntry] = {}
+_REGIME_CACHE_LOCK = threading.Lock()
 
 
 def resolve_rules_path(project_root: Path | None = None) -> Path:
@@ -455,41 +472,145 @@ def build_rules(
     }
 
 
-def _index_regime_metrics(
-    service: object, symbol: str, moving_average_days: int,
-) -> dict[str, float | None]:
-    """Read one retained index history and calculate its provider-free inputs."""
-    from stock_data.gui.services import DASHBOARD_ASSETS
-
-    key = next(
-        (name for name, spec in DASHBOARD_ASSETS.items()
-         if spec.get("kind") == "global" and spec.get("symbol") == symbol),
-        symbol,
-    )
+def _retained_price_history(
+    query: LocalParquetQuery,
+    dataset: str,
+    *,
+    partition: tuple[str, str],
+) -> pd.DataFrame:
+    """Read one exact retained symbol/market partition with only regime columns."""
+    partition_name, partition_value = partition
     try:
-        frame = service.index.asset_series(key, "MAX")
-    except (KeyError, OSError, PermissionError, TypeError, ValueError):
-        frame = pd.DataFrame()
+        frame = query.read(
+            dataset,
+            columns=["date", "symbol", "close"],
+            partitions={partition_name: partition_value},
+        )
+    except (AttributeError, KeyError, OSError, PermissionError, TypeError, ValueError):
+        return pd.DataFrame()
+    if frame.empty or "symbol" not in frame:
+        return pd.DataFrame()
+    frame = frame.loc[frame["symbol"].astype(str).eq(partition_value)].copy()
+    if frame.empty:
+        return frame
+    frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
+    frame["close"] = pd.to_numeric(frame["close"], errors="coerce")
+    return frame.dropna(subset=["date", "close"]).sort_values("date").reset_index(drop=True)
+
+
+def _index_regime_metrics(
+    service: DashboardService, symbol: str, moving_average_days: int,
+) -> dict[str, float | None]:
+    """Read one exact retained index partition and calculate its inputs once."""
+    frame = _retained_price_history(
+        service.query,
+        "normalized/global_index_price_daily",
+        partition=("symbol", symbol),
+    )
+    if frame.empty:
+        from stock_data.gui.services import DASHBOARD_ASSETS
+
+        key = next(
+            (name for name, spec in DASHBOARD_ASSETS.items()
+             if spec.get("kind") == "global" and spec.get("symbol") == symbol),
+            symbol,
+        )
+        try:
+            frame = service.index.asset_series(key, "MAX")
+        except (KeyError, OSError, PermissionError, TypeError, ValueError):
+            frame = pd.DataFrame()
     return _price_regime_metrics(frame, moving_average_days)
 
 
-def build_regime(project_root: Path, account: dict[str, object]) -> dict[str, object]:
+def _market_valuation_percentile(
+    project_root: Path, service: DashboardService,
+) -> tuple[float | None, tuple[Path, ...]]:
+    """Use the retained Health/state agreement to avoid rebuilding XKRX calendars."""
+    state_path = project_root / "data/state/kr_index_fundamental_daily.json"
+    health_path = project_root / "artifacts/daily_health/universe_data_v2_20260819.json"
+    try:
+        from stock_data.contracts.kr_index_fundamental_daily import (
+            KR_INDEX_FUNDAMENTAL_DAILY,
+        )
+
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        health = json.loads(health_path.read_text(encoding="utf-8"))
+        accepted = state["last_accepted_market_date"]
+        row = next(
+            item for item in health["datasets"]
+            if item.get("dataset", item.get("dataset_id")) == "kr_index_fundamental_daily"
+        )
+        if (
+            state.get("schema_version") != 1
+            or state.get("status") != "ACCEPTED_DESCRIPTIVE_NON_PREDICTIVE"
+            or state.get("predictive_eligibility") != "NON_PREDICTIVE"
+            or not isinstance(accepted, str)
+            or row.get("latest") != accepted
+            or row.get("expected") != accepted
+            or row.get("display_status") != "CURRENT"
+        ):
+            raise ValueError("retained valuation freshness agreement differs")
+        frame = service.query.read(
+            "normalized/kr_index_fundamental_daily",
+            columns=list(KR_INDEX_FUNDAMENTAL_DAILY.column_names),
+        )
+        if len(frame) != state.get("rows"):
+            raise ValueError("retained valuation row count differs")
+        frame = frame.copy()
+        frame["date"] = pd.to_datetime(frame["date"], errors="coerce").dt.strftime(
+            "%Y-%m-%d"
+        )
+        frame = frame.sort_values(
+            list(KR_INDEX_FUNDAMENTAL_DAILY.sort_key), kind="stable",
+        ).reset_index(drop=True)
+        views = service.build_market_valuation_views(
+            frame, as_of=accepted, expected_as_of=accepted,
+        )
+    except (
+        FileNotFoundError, StopIteration, json.JSONDecodeError, KeyError, OSError,
+        PermissionError, TypeError, ValueError,
+    ):
+        views = service.market_valuation_views()
+    valuation = views.get("KOSPI")
+    window = next(
+        (item for item in getattr(valuation, "rolling_windows", ())
+         if getattr(item, "window_years", None) == 5),
+        None,
+    )
+    return _number(getattr(window, "per_percentile", None)), (state_path, health_path)
+
+
+def _build_regime_markets(
+    project_root: Path,
+) -> tuple[list[dict[str, object]], tuple[Path, ...]]:
     service = DashboardService(project_root)
     query = service.query
 
-    try:
-        kospi = service.index.series("KOSPI", "MAX")
-    except (KeyError, OSError, PermissionError, TypeError, ValueError):
-        kospi = pd.DataFrame()
+    kospi = _retained_price_history(
+        query,
+        "normalized/kr_index_daily",
+        partition=("market", "KOSPI"),
+    )
+    if kospi.empty:
+        try:
+            kospi = service.index.series("KOSPI", "MAX")
+        except (KeyError, OSError, PermissionError, TypeError, ValueError):
+            kospi = pd.DataFrame()
     kr_metrics = _price_regime_metrics(kospi, 60)
     kr_rsi = kr_metrics["rsi"]
     kr_distance = kr_metrics["distance_pct"]
     kr_trend_pct = kr_metrics["trend_percentile"]
 
-    try:
-        sp500 = service.index.asset_series("SP500", "MAX")
-    except (KeyError, OSError, PermissionError, TypeError, ValueError):
-        sp500 = pd.DataFrame()
+    sp500 = _retained_price_history(
+        query,
+        "normalized/global_index_price_daily",
+        partition=("symbol", "SP500"),
+    )
+    if sp500.empty:
+        try:
+            sp500 = service.index.asset_series("SP500", "MAX")
+        except (KeyError, OSError, PermissionError, TypeError, ValueError):
+            sp500 = pd.DataFrame()
     us_metrics = _price_regime_metrics(sp500, 200)
     us_rsi = us_metrics["rsi"]
     us_distance = us_metrics["distance_pct"]
@@ -502,17 +623,12 @@ def build_regime(project_root: Path, account: dict[str, object]) -> dict[str, ob
     vk_pct = _number(volatility.get("VKOSPI", {}).get("percentile_250d"))
     vix_pct = _number(volatility.get("VIX", {}).get("percentile_250d"))
 
-    valuation_pct = None
     try:
-        valuation = service.market_valuation_views().get("KOSPI")
-        window = next(
-            (item for item in getattr(valuation, "rolling_windows", ())
-             if getattr(item, "window_years", None) == 5),
-            None,
+        valuation_pct, valuation_inputs = _market_valuation_percentile(
+            project_root, service,
         )
-        valuation_pct = _number(getattr(window, "per_percentile", None))
     except (KeyError, OSError, PermissionError, TypeError, ValueError):
-        pass
+        valuation_pct, valuation_inputs = None, ()
 
     credit = query.tail(
         "normalized/kr_credit_balance_daily", rows=370,
@@ -701,10 +817,75 @@ def build_regime(project_root: Path, account: dict[str, object]) -> dict[str, ob
             "evidence": global_evidence,
         },
     ]
-    return {"markets": markets, "rules": build_rules(account, markets, project_root)}
+    parquet_inputs = tuple(dict.fromkeys(
+        Path(path) for path in getattr(query, "files_read", ())
+        if Path(path).suffix.lower() == ".parquet"
+    ))
+    watched_inputs: list[Path] = []
+    for path in parquet_inputs:
+        watched_inputs.extend((path, path.parent, path.parent.parent))
+    inputs_read = tuple(dict.fromkeys((*watched_inputs, *valuation_inputs)))
+    return markets, tuple(dict.fromkeys(inputs_read))
+
+
+def _input_signature(
+    paths: tuple[Path, ...],
+) -> tuple[tuple[Path, int, int], ...] | None:
+    signature: list[tuple[Path, int, int]] = []
+    try:
+        for path in paths:
+            stat = path.stat()
+            signature.append((path, stat.st_mtime_ns, stat.st_size))
+    except OSError:
+        return None
+    return tuple(signature)
+
+
+def clear_regime_cache(project_root: Path | None = None) -> None:
+    """Clear cached market calculations, mainly for tests and explicit refreshes."""
+    with _REGIME_CACHE_LOCK:
+        if project_root is None:
+            _REGIME_CACHE.clear()
+        else:
+            _REGIME_CACHE.pop(str(Path(project_root).resolve()), None)
+
+
+def build_regime(project_root: Path, account: dict[str, object]) -> dict[str, object]:
+    """Build account-independent market evidence once per retained-data signature."""
+    root = Path(project_root).resolve()
+    cache_key = str(root)
+    now = time.monotonic()
+    with _REGIME_CACHE_LOCK:
+        cached = _REGIME_CACHE.get(cache_key)
+        if cached is not None:
+            current_signature = _input_signature(
+                tuple(item[0] for item in cached.signature),
+            )
+            if (
+                now - cached.created_at < REGIME_CACHE_TTL_SECONDS
+                and current_signature == cached.signature
+            ):
+                markets = copy.deepcopy(cached.markets)
+            else:
+                markets, paths = _build_regime_markets(root)
+                signature = _input_signature(paths) or ()
+                _REGIME_CACHE[cache_key] = _RegimeCacheEntry(
+                    created_at=time.monotonic(),
+                    signature=signature,
+                    markets=copy.deepcopy(markets),
+                )
+        else:
+            markets, paths = _build_regime_markets(root)
+            signature = _input_signature(paths) or ()
+            _REGIME_CACHE[cache_key] = _RegimeCacheEntry(
+                created_at=time.monotonic(),
+                signature=signature,
+                markets=copy.deepcopy(markets),
+            )
+    return {"markets": markets, "rules": build_rules(account, markets, root)}
 
 
 __all__ = [
-    "build_regime", "build_rules", "global_risk_temperature",
+    "build_regime", "build_rules", "clear_regime_cache", "global_risk_temperature",
     "market_score", "oversold_strength", "score_label", "temperature_label",
 ]

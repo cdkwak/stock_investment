@@ -337,3 +337,45 @@ def test_relayed_clients_can_read_both_stock_detail_endpoints() -> None:
     assert detail.status_code == sparklines.status_code == 200
     assert detail.json()["identity"]["symbol"] == "005930"
     assert len(sparklines.json()["sparklines"]["005930"]) == 30
+
+
+def test_stock_chart_returns_full_history_indicators_and_rejects_unknown_names() -> None:
+    root = _make_detail_project()
+    dates = pd.date_range(end="2026-09-02", periods=420, freq="B")
+    close = pd.Series([100.0 + index for index in range(len(dates))])
+    _write_parquet(
+        root, "data/normalized/global_etf_price_daily/year=2026/detail.parquet",
+        pd.DataFrame({
+            "date": dates, "symbol": ["QQQ"] * len(dates),
+            "open": close - 1, "high": close + 2, "low": close - 2,
+            "close": close, "volume": [2_000_000] * len(dates),
+        }),
+    )
+    client = ASGITestClient(create_app(root))
+
+    response = client.get("/api/chart", params={
+        "symbol": "QQQ", "range": "3M", "interval": "day",
+        "indicators": "ma120,rsi14",
+    })
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["active_indicators"] == ["ma120", "rsi14"]
+    assert set(payload["indicators"]) == {"ma120", "rsi14"}
+    assert payload["rsi14"] == payload["indicators"]["rsi14"]
+    assert payload["indicators"]["ma120"][0]["t"] == payload["candles"][0]["t"]
+    assert payload["indicators"]["rsi14"][0]["t"] == payload["candles"][0]["t"]
+
+    for interval, normalized in (("week", "1w"), ("month", "1M")):
+        interval_payload = client.get("/api/chart", params={
+            "symbol": "QQQ", "range": "ALL", "interval": interval,
+            "indicators": "rsi14",
+        }).json()
+        assert interval_payload["interval"] == normalized
+        assert interval_payload["indicators"]["rsi14"]
+
+    rejected = client.get("/api/chart", params={
+        "symbol": "QQQ", "indicators": "ma5,not-an-indicator",
+    })
+    assert rejected.status_code == 400
+    assert "not-an-indicator" in rejected.json()["error"]
