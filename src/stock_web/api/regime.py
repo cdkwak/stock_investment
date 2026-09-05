@@ -80,7 +80,14 @@ def oversold_strength(
     ma60_distance: float | None,
     volatility_percentile: float | None,
 ) -> tuple[float, tuple[tuple[str, float], ...]] | None:
-    """Port of ``MainWindow._oversold_strength`` without importing Qt."""
+    """0–10 oversold gauge: RSI14 (≤4) + moving-average distance (≤3) + volatility (≤3).
+
+    The desktop ``MainWindow._oversold_strength`` this was ported from no longer exists; this
+    function is the only definition. Since 2026-09-05 the volatility term takes the same
+    10-year percentile as the regime score (it was the 250-session percentile before), so
+    the Korean gauge moved 2.4 → 5.0 that day without any price change — the evidence row
+    shows the three terms so the reader can see which one moved.
+    """
     if rsi is None or ma60_distance is None or volatility_percentile is None:
         return None
     rsi_points = min(4.0, max(0.0, (50.0 - rsi) / 35.0 * 4.0))
@@ -94,6 +101,20 @@ def oversold_strength(
         ("변동성", volatility_points),
     )
     return round(sum(value for _label, value in components), 1), components
+
+
+OVERSOLD_HINT = "높을수록 과매도 · 변동성 항은 10년 백분위(09-05 척도 변경 · 이전 250일)"
+
+
+def _oversold_evidence_value(
+    oversold: tuple[float, tuple[tuple[str, float], ...]] | None,
+) -> str | None:
+    """'5.0/10 (RSI14 0.2 · 이격 2.2 · 변동성 2.6)' — the terms explain any jump."""
+    if oversold is None:
+        return None
+    total, components = oversold
+    terms = " · ".join(f"{label} {value:.1f}" for label, value in components)
+    return f"{total:.1f}/10 ({terms})"
 
 
 def _market_score_components(
@@ -877,9 +898,7 @@ def _build_regime_markets(
             None if foreign_streak is None else f"{foreign_streak}일",
         ),
         _evidence_row(
-            "과매도 강도",
-            None if kr_oversold is None else f"{kr_oversold[0]:.1f}/10",
-            hint="높을수록 과매도",
+            "과매도 강도", _oversold_evidence_value(kr_oversold), hint=OVERSOLD_HINT,
         ),
         _evidence_row("실적 모멘텀", "근거 없음"),
     ]
@@ -949,9 +968,7 @@ def _build_regime_markets(
             hint="낮을수록 안정",
         ),
         _evidence_row(
-            "과매도 강도",
-            None if us_oversold is None else f"{us_oversold[0]:.1f}/10",
-            hint="높을수록 과매도",
+            "과매도 강도", _oversold_evidence_value(us_oversold), hint=OVERSOLD_HINT,
         ),
         _evidence_row("밸류에이션", "수집 추가 필요"),
         _evidence_row("실적 모멘텀", "근거 없음"),
