@@ -361,6 +361,58 @@ def test_latest_kr_bundle_terminal_or_stale_claim_is_failed_receipt_and_kpi() ->
     assert context["kpi_total"] == 94
 
 
+def test_bundle_claim_envelope_status_key_counts_as_stale_and_does_not_hide_yesterdays_failure() -> None:
+    """Review 09-06 02:30: the claim file written before lanes carries ``status`` (not
+    ``occurrence_status``); a fresh claim is not a failure, a 90-minute-old one is, and an
+    unfinished claim never masks the previous terminal failure of the same slot."""
+    from stock_web.api.data_page import _latest_kr_bundle_failures, count_failed_receipts
+
+    tmp_path = new_temp_root()
+    occurrence_root = tmp_path / "data/state/provider_scheduler/kr_market_daily_occurrences"
+    occurrence_root.mkdir(parents=True)
+    fixtures = {
+        "20260904T113000Z-2030.json": {
+            "scheduled_slot": "20:30", "scheduled_for": "2026-09-04T20:30:00+09:00",
+            "claimed_at_utc": "2026-09-04T11:30:02+00:00", "occurrence_status": "TERMINAL_FAILURE",
+            "terminal_exit_code": 1,
+        },
+        "20260905T113000Z-2030.json": {  # real envelope shape of a bundle that died before lanes
+            "bundle": "KR_MARKET_DAILY", "claimed_at_utc": "2026-09-05T11:30:02.111701+00:00",
+            "lane_contract_version": 10, "scheduled_for": "2026-09-05T20:30:00+09:00",
+            "scheduled_slot": "20:30", "schema_version": 1, "status": "CLAIMED_BEFORE_LANES",
+        },
+        "20260905T051000Z-1410.json": {
+            "scheduled_slot": "14:10", "scheduled_for": "2026-09-05T14:10:00+09:00",
+            "claimed_at_utc": "2026-09-05T05:10:00+00:00", "finished_at_utc": "2026-09-05T05:12:00+00:00",
+            "occurrence_status": "TERMINAL_SUCCESS", "terminal_exit_code": 0,
+        },
+    }
+    for name, payload in fixtures.items():
+        (occurrence_root / name).write_text(json.dumps(payload), encoding="utf-8")
+
+    fresh = _latest_kr_bundle_failures(tmp_path, now=datetime(2026, 9, 5, 12, 0, tzinfo=timezone.utc))
+    assert [row["occurrence_source"] for row in fresh] == ["20260904T113000Z-2030.json"]
+
+    stale = _latest_kr_bundle_failures(tmp_path, now=datetime(2026, 9, 5, 14, 21, tzinfo=timezone.utc))
+    assert sorted(row["occurrence_source"] for row in stale) == [
+        "20260904T113000Z-2030.json", "20260905T113000Z-2030.json",
+    ]
+    assert all(row["failed"] for row in stale)
+    assert count_failed_receipts(stale) == 2
+
+
+def test_count_failed_receipts_counts_recent_lane_failures_not_retired_ones() -> None:
+    from stock_web.api.data_page import count_failed_receipts
+
+    receipts = [
+        {"failed": True, "older_than_7_days": False},                # lane FAIL this week
+        {"failed": True, "older_than_7_days": True},                 # retired lane from August
+        {"failed": False, "older_than_7_days": False},               # success
+        {"failed": True, "older_than_7_days": True, "occurrence_source": "x.json"},  # bundle row
+    ]
+    assert count_failed_receipts(receipts) == 2
+
+
 def test_missing_scheduler_result_code_uses_dash() -> None:
     tmp_path = new_temp_root()
     root = tmp_path / "artifacts/scheduler_logs"

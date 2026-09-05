@@ -207,7 +207,11 @@
     // Show the first four (the score components come first), separated with spaces, and say
     // how many more the expanded table holds.
     const shown = items.slice(0, 4), rest = items.length - shown.length;
-    return shown.map((row) => `<span class="ev-compact-item"><span class="k">${esc(row.label)}</span> <b>${esc(row.value)}</b></span>`).join('<span class="sep"> · </span>')
+    // Collapsed strip keeps each item short: the volatility row's long form
+    // "39.3 · 250일 40% · 10년 93% → −1" becomes "VKOSPI 10년 93% → −1" (the expanded table keeps the full row).
+    const compactLabel = (label) => String(label).replace(/ 10년 백분위$/, "");
+    const compactValue = (value) => String(value).replace(/^.*? · (?=10년 )/, "");
+    return shown.map((row) => `<span class="ev-compact-item"><span class="k">${esc(compactLabel(row.label))}</span> <b>${esc(compactValue(row.value))}</b></span>`).join('<span class="sep"> · </span>')
       + (rest > 0 ? `<span class="sep"> · </span><span class="muted">외 ${rest} · 펼치면 전부</span>` : "");
   }
   const regimeEvidenceStorageKey = "si.regime.evidence";

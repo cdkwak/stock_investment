@@ -59,8 +59,13 @@ a { color: inherit; text-decoration: none; }
 .regime-card .ev-compact { display: none; margin-top: 6px; font-size: 12px; line-height: 1.6; color: #d8d3ca; }
 .regime-card .ev-compact .k { color: #b5aea4; }
 .regime-card .ev-compact b { font-weight: 600; color: #f4f2ee; }
-.regime-card .ev-compact .sep { color: #6f6a62; margin: 0 2px; white-space: pre; }
-.regime-card .ev-compact .ev-compact-item { white-space: nowrap; }
+/* Review 09-06 02:10 (상): `white-space: pre` on the separator removed every line-break opportunity and
+   the card had no min-width, so the min-content of the collapsed summary (~890px) widened the 3fr
+   grid tracks and the whole home page scrolled horizontally at 1440. Items may wrap; the card is
+   allowed to shrink below its content. */
+.regime-card { min-width: 0; }
+.regime-card .ev-compact { overflow-wrap: anywhere; }
+.regime-card .ev-compact .sep { color: #6f6a62; margin: 0 3px; }
 .regime[data-expanded="false"] .ev-compact, .regime[data-expanded="auto"] .ev-compact { display: block; }
 .regime[data-expanded="true"] .ev-compact { display: none; }
 .regime-rule-card { grid-column: 1 / -1; }

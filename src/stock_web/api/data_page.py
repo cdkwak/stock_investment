@@ -341,11 +341,31 @@ def _receipt_failed(payload: dict[str, object]) -> bool:
     return any(token in statuses for token in ("FAIL", "ERROR", "BLOCKED"))
 
 
+def _occurrence_status(payload: dict[str, object]) -> str:
+    """Bundle occurrence envelopes carry the status under two keys.
+
+    A bundle that finishes writes ``occurrence_status`` (TERMINAL_SUCCESS/TERMINAL_FAILURE);
+    a bundle that dies before its lanes leaves only the claim envelope whose key is
+    ``status`` (CLAIMED_BEFORE_LANES). Reading one key made the 90-minute stale-claim guard
+    unreachable (review 09-06 02:30: a 171-minute-old claim counted as 실패 0).
+    """
+    return str(
+        payload.get("occurrence_status") or payload.get("status") or "UNKNOWN"
+    ).upper()
+
+
 def _latest_kr_bundle_failures(
     project_root: Path, *, now: datetime,
 ) -> list[dict[str, object]]:
     occurrence_root = project_root / "data/state/provider_scheduler/kr_market_daily_occurrences"
-    latest_by_slot: dict[str, tuple[float, Path, dict[str, object]]] = {}
+    reference_utc = now.astimezone(timezone.utc)
+    cutoff = reference_utc - timedelta(days=7)
+    # Per slot: the latest TERMINAL occurrence decides (a later success clears an earlier
+    # failure), while every unfinished claim is judged on its own — a claim that has not reached
+    # a terminal state must never hide the previous terminal failure of the same slot
+    # (review 09-06 02:30: today's stuck 20:30 claim masked yesterday's exit-1 failure).
+    latest_terminal_by_slot: dict[str, tuple[float, Path, dict[str, object], str]] = {}
+    claims: list[tuple[float, Path, dict[str, object], str]] = []
     for path in occurrence_root.glob("*.json"):
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
@@ -356,28 +376,32 @@ def _latest_kr_bundle_failures(
         slot = str(payload.get("scheduled_slot") or "").strip()
         if not slot:
             continue
+        occurrence_status = _occurrence_status(payload)
         observed = _receipt_time(payload)
         sort_time = _sort_time(observed)
         if sort_time == float("-inf"):
             sort_time = path.stat().st_mtime
-        previous = latest_by_slot.get(slot)
-        if previous is None or sort_time > previous[0]:
-            latest_by_slot[slot] = (sort_time, path, payload)
+        entry = (sort_time, path, payload, occurrence_status)
+        if occurrence_status.startswith("TERMINAL_"):
+            previous = latest_terminal_by_slot.get(slot)
+            if previous is None or sort_time > previous[0]:
+                latest_terminal_by_slot[slot] = entry
+        else:
+            claims.append(entry)
 
-    reference_utc = now.astimezone(timezone.utc)
-    cutoff = reference_utc - timedelta(days=7)
+    candidates = list(latest_terminal_by_slot.values()) + claims
     failures: list[dict[str, object]] = []
-    for slot, (_, path, payload) in latest_by_slot.items():
-        occurrence_status = str(payload.get("occurrence_status") or "UNKNOWN").upper()
+    for _, path, payload, occurrence_status in candidates:
         claimed_at = str(payload.get("claimed_at_utc") or payload.get("scheduled_for") or "")
         claimed_timestamp = _sort_time(claimed_at)
         stale_claim = (
-            occurrence_status == "CLAIMED_BEFORE_LANES"
+            occurrence_status.startswith("CLAIMED")
             and claimed_timestamp != float("-inf")
             and reference_utc.timestamp() - claimed_timestamp > timedelta(minutes=90).total_seconds()
         )
         if occurrence_status != "TERMINAL_FAILURE" and not stale_claim:
             continue
+        slot = str(payload.get("scheduled_slot") or "").strip()
         finished = _receipt_time(payload)
         result_code = payload.get("terminal_exit_code", "—")
         manual_review = payload.get("manual_review")
