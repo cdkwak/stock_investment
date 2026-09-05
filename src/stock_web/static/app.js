@@ -800,7 +800,9 @@
     window.addEventListener("resize", () => { $("tiles-more").textContent = tilesMoreLabel(); });
     // Tiles render after the home fetch: recompute the label whenever the tile list changes.
     // Measure after layout (styles apply on the next frame), not inside the mutation callback.
-    new MutationObserver(() => { requestAnimationFrame(() => { $("tiles-more").textContent = tilesMoreLabel(); }); }).observe($("tiles"), { childList: true });
+    const refreshTilesMore = () => { $("tiles-more").textContent = tilesMoreLabel(); };
+    new MutationObserver(() => { requestAnimationFrame(refreshTilesMore); setTimeout(refreshTilesMore, 400); }).observe($("tiles"), { childList: true, attributes: true, attributeFilter: ["class"] });
+    window.addEventListener("load", refreshTilesMore);
     setTimeout(() => { $("tiles-more").textContent = tilesMoreLabel(); }, 0);
     $("tiles").classList.add("collapsed");
     document.querySelectorAll("#chart-interval button").forEach((b) => b.addEventListener("click", () => { document.querySelectorAll("#chart-interval button").forEach((x) => x.classList.remove("on")); b.classList.add("on"); renderChart(); }));
