@@ -445,6 +445,291 @@
     if ($("compound-view-count")) $("compound-view-count").textContent = text;
   }
 
+  const crisisTimelineState = {
+    mode: "A", country: "US", crisis: null, indexChoice: "NASDAQ100",
+    payload: null, fullPayload: null, chart: null, chartSeries: [], bandSeries: null,
+    bandCallback: null, resizeObserver: null, enabled: new Set(), loadSequence: 0,
+  };
+  const crisisTimelineColors = {
+    KOSPI: "#b3342b", NASDAQ100: "#315f8a", SP500: "#315f8a",
+    NIKKEI225: "#4d7c59", EURO_STOXX50: "#76558a", DAX: "#8a6a2f",
+    DGS2: "#9a5b45", DGS10: "#2b7a78", DGS30: "#76558a",
+    KR_3Y: "#9a5b45", KR_10Y: "#2b7a78",
+  };
+
+  function crisisTimelineMode() {
+    return (document.querySelector('input[name="crisis-timeline-mode"]:checked') || {}).value || "A";
+  }
+
+  function crisisTimelineParams(crisis = crisisTimelineState.crisis) {
+    const params = new URLSearchParams({
+      mode: crisisTimelineState.mode,
+      country: crisisTimelineState.country,
+      index_choice: crisisTimelineState.indexChoice,
+    });
+    if (crisis) params.set("crisis", crisis);
+    return params;
+  }
+
+  function destroyCrisisTimelineChart() {
+    if (crisisTimelineState.resizeObserver) crisisTimelineState.resizeObserver.disconnect();
+    if (crisisTimelineState.chart && crisisTimelineState.bandCallback) {
+      crisisTimelineState.chart.timeScale().unsubscribeVisibleTimeRangeChange(crisisTimelineState.bandCallback);
+    }
+    if (crisisTimelineState.chart) crisisTimelineState.chart.remove();
+    crisisTimelineState.chart = null;
+    crisisTimelineState.chartSeries = [];
+    crisisTimelineState.bandSeries = null;
+    crisisTimelineState.bandCallback = null;
+    crisisTimelineState.resizeObserver = null;
+    $("crisis-timeline-chart").innerHTML = "";
+  }
+
+  function crisisTimelineBandWindows(payload) {
+    if ((payload || {}).mode === "B") {
+      const selected = payload.selected_window || {};
+      return selected.start ? [{
+        id: selected.id, label: ((payload.windows || []).find((item) => item.id === selected.id) || {}).label || selected.id,
+        start: selected.start, end: selected.end,
+      }] : [];
+    }
+    return payload.windows || [];
+  }
+
+  function drawCrisisTimelineBands() {
+    const chart = crisisTimelineState.chart;
+    const payload = crisisTimelineState.payload || {};
+    const canvas = $("crisis-timeline-bands");
+    const frame = $("crisis-timeline-chart-frame");
+    if (!chart || !canvas || !frame) return;
+    const ratio = window.devicePixelRatio || 1;
+    const width = Math.max(1, frame.clientWidth), height = Math.max(1, frame.clientHeight);
+    canvas.width = Math.round(width * ratio); canvas.height = Math.round(height * ratio);
+    const context = canvas.getContext("2d");
+    context.setTransform(ratio, 0, 0, ratio, 0, 0);
+    context.clearRect(0, 0, width, height);
+    context.font = "600 10px system-ui, sans-serif";
+    context.textBaseline = "top";
+    crisisTimelineBandWindows(payload).forEach((item, index) => {
+      const start = chart.timeScale().timeToCoordinate(item.start);
+      const end = chart.timeScale().timeToCoordinate(item.end);
+      if (!finite(start) || !finite(end)) return;
+      const left = Math.max(0, Math.min(Number(start), Number(end)));
+      const right = Math.min(width, Math.max(Number(start), Number(end)));
+      if (right < 0 || left > width || right - left < 1) return;
+      context.fillStyle = index % 2 ? "rgba(179,52,43,.075)" : "rgba(216,179,107,.13)";
+      context.fillRect(left, 0, Math.max(1, right - left), height - 26);
+      context.fillStyle = index % 2 ? "#8b2f27" : "#79520f";
+      const label = String(item.label || item.id || "");
+      context.save();
+      context.beginPath(); context.rect(left, 34, Math.max(1, right - left), 18); context.clip();
+      context.fillText(label, left + 4, 36);
+      context.restore();
+    });
+  }
+
+  function mergeCrisisTimelinePayload(full, selected) {
+    const merged = JSON.parse(JSON.stringify(full));
+    const selectedById = new Map((selected.series || []).map((item) => [item.id, item]));
+    (merged.series || []).forEach((line) => {
+      const daily = selectedById.get(line.id);
+      if (!daily) return;
+      const byDate = new Map((line.data || []).map((point) => [point.time, point]));
+      (daily.data || []).forEach((point) => byDate.set(point.time, point));
+      line.data = Array.from(byDate.values()).sort((left, right) => String(left.time).localeCompare(String(right.time)));
+      line.missing_reason = daily.missing_reason;
+    });
+    merged.selected_crisis = selected.selected_crisis;
+    merged.selected_window = selected.selected_window;
+    merged.missing_notes = selected.missing_notes || [];
+    merged.resolution = "weekly_last_with_daily_window";
+    merged.resolution_caption = `${selected.resolution_caption} · 선택 구간 밖 전체 이력은 주별 마지막 관측값`;
+    return merged;
+  }
+
+  function renderCrisisTimelineControls(payload) {
+    const modeA = payload.mode === "A";
+    $("crisis-timeline-countries").hidden = !modeA;
+    document.querySelectorAll("[data-timeline-country]").forEach((button) => {
+      const active = button.dataset.timelineCountry === crisisTimelineState.country;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+    const buttons = [];
+    if (modeA) buttons.push({ id: "ALL", label: "전체 기간" });
+    buttons.push(...(payload.windows || []));
+    $("crisis-timeline-crises").innerHTML = buttons.map((item) => {
+      const active = String(payload.selected_crisis || "ALL") === String(item.id);
+      const title = item.duration_note || `${item.start || "전체"}${item.end ? ` → ${item.end}` : ""}`;
+      return `<button type="button" class="${active ? "active" : ""}" data-timeline-crisis="${esc(item.id)}" aria-pressed="${active}" title="${esc(title)}">${esc(item.label)}</button>`;
+    }).join("");
+    document.querySelectorAll("[data-timeline-crisis]").forEach((button) => button.addEventListener("click", () => selectCrisisTimelineWindow(button.dataset.timelineCrisis)));
+
+    const assets = $("crisis-timeline-assets");
+    assets.hidden = !modeA;
+    if (modeA) {
+      assets.innerHTML = `<legend>표시할 선 · 최대 4개</legend>${(payload.series || []).map((item) => `<label><input type="checkbox" data-timeline-series="${esc(item.id)}" ${crisisTimelineState.enabled.has(item.id) ? "checked" : ""} ${item.missing_reason ? "disabled" : ""}> ${esc(item.label)}</label>`).join("")}`;
+      assets.querySelectorAll("[data-timeline-series]").forEach((input) => input.addEventListener("change", () => {
+        if (input.checked) crisisTimelineState.enabled.add(input.dataset.timelineSeries);
+        else crisisTimelineState.enabled.delete(input.dataset.timelineSeries);
+        renderCrisisTimelineChart();
+      }));
+    }
+  }
+
+  function renderCrisisTimelineLegend(payload, visible) {
+    const kindWarning = String(payload.data_kind_caption || "").includes("총수익지수");
+    $("crisis-timeline-legend").innerHTML = visible.map((item) => {
+      const color = crisisTimelineColors[item.symbol] || "#5d6d7e";
+      const kind = item.index_kind === "total_return" ? " · 총수익(배당 포함)" : "";
+      return `<span class="crisis-timeline-legend-row" style="color:${esc(color)}"><i class="crisis-timeline-legend-swatch"></i><span>${esc(item.label)}${esc(kind)}</span></span>`;
+    }).join("") + `<span class="crisis-timeline-legend-kind${kindWarning ? " warning" : ""}">${esc(payload.legend_note || payload.data_kind_caption || "")}</span>`;
+  }
+
+  function renderCrisisTimelineCaption(payload) {
+    const missing = (payload.missing_notes || []).map((note) => `<span class="warning">누락: ${esc(note)}</span>`).join("");
+    const duration = payload.duration_note ? `<span>${esc(payload.duration_note)}</span>` : "";
+    $("crisis-timeline-caption").innerHTML = `<span>${esc(payload.question)} · ${esc(payload.resolution_caption)}</span>${duration}${missing}<span class="privacy">${esc(payload.privacy)}</span>`;
+    $("crisis-timeline-caption").title = payload.resolution_caption || "";
+  }
+
+  function renderCrisisTimelineChart() {
+    const payload = crisisTimelineState.payload;
+    if (!payload) return;
+    destroyCrisisTimelineChart();
+    const allSeries = payload.series || [];
+    const visible = allSeries.filter((item) => !item.missing_reason && (
+      payload.mode === "B" || crisisTimelineState.enabled.has(item.id)
+    ));
+    renderCrisisTimelineLegend(payload, visible);
+    renderCrisisTimelineCaption(payload);
+    $("crisis-timeline-left-axis").textContent = (payload.axis || {}).left || "";
+    $("crisis-timeline-right-axis").textContent = (payload.axis || {}).right || "";
+    $("crisis-timeline-right-axis").hidden = !(payload.axis || {}).right;
+    $("crisis-timeline-basis").textContent = payload.normalization_caption || "";
+    $("crisis-timeline-kind").textContent = payload.data_kind_caption || "";
+    $("crisis-timeline-kind").classList.toggle("warning", String(payload.data_kind_caption || "").includes("총수익지수"));
+    if (!visible.length) {
+      $("crisis-timeline-chart").innerHTML = '<div class="unavailable">선택한 구간에 표시할 데이터가 없습니다.</div>';
+      return;
+    }
+    if (!window.LightweightCharts) {
+      $("crisis-timeline-chart").innerHTML = '<div class="unavailable">차트 라이브러리를 불러오지 못했습니다.</div>';
+      return;
+    }
+    const host = $("crisis-timeline-chart");
+    const frame = $("crisis-timeline-chart-frame");
+    const chart = LightweightCharts.createChart(host, {
+      width: Math.max(320, frame.clientWidth), height: Math.max(360, frame.clientHeight),
+      layout: { background: { color: "#ffffff" }, textColor: "#6e6962", fontSize: 11 },
+      localization: { locale: "ko-KR" },
+      grid: { vertLines: { color: "#f0ede7" }, horzLines: { color: "#e9e5de" } },
+      crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+      timeScale: { borderColor: "#9f9990", rightOffset: 1, barSpacing: 5, minBarSpacing: .5 },
+      leftPriceScale: { visible: true, borderColor: "#9f9990", autoScale: true, scaleMargins: { top: .12, bottom: .08 } },
+      rightPriceScale: { visible: payload.mode === "A", borderColor: "#9f9990", autoScale: true, scaleMargins: { top: .12, bottom: .08 } },
+      handleScroll: true, handleScale: true,
+    });
+    crisisTimelineState.chart = chart;
+    chart.priceScale("left").applyOptions({
+      mode: payload.axis.left_scale === "logarithmic" ? LightweightCharts.PriceScaleMode.Logarithmic : LightweightCharts.PriceScaleMode.Normal,
+      autoScale: true,
+    });
+    if (payload.mode === "A") chart.priceScale("right").applyOptions({ mode: LightweightCharts.PriceScaleMode.Normal, autoScale: true });
+    visible.forEach((item) => {
+      const color = crisisTimelineColors[item.symbol] || "#5d6d7e";
+      const line = chart.addLineSeries({
+        color, lineWidth: item.measure === "price_index" ? 2 : 1.5,
+        priceScaleId: item.axis, priceLineVisible: false, lastValueVisible: true,
+        title: item.label,
+        priceFormat: { type: "custom", formatter: (value) => payload.mode === "B" ? Number(value).toFixed(1) : item.axis === "right" ? `${Number(value).toFixed(2)}%` : Number(value).toLocaleString("ko-KR", { maximumFractionDigits: 1 }) },
+      });
+      line.setData(item.data || []);
+      crisisTimelineState.chartSeries.push(line);
+    });
+    const bandWindows = crisisTimelineBandWindows(payload);
+    const anchors = Array.from(new Set(bandWindows.flatMap((item) => [item.start, item.end]))).sort().map((time) => ({ time }));
+    const bandSeries = chart.addLineSeries({ visible: false, priceScaleId: "bands", priceLineVisible: false, lastValueVisible: false });
+    bandSeries.setData(anchors);
+    crisisTimelineState.bandSeries = bandSeries;
+    chart.priceScale("bands").applyOptions({ visible: false, autoScale: false });
+    chart.timeScale().fitContent();
+    if (payload.selected_window) chart.timeScale().setVisibleRange({ from: payload.selected_window.start, to: payload.selected_window.end });
+    crisisTimelineState.bandCallback = drawCrisisTimelineBands;
+    chart.timeScale().subscribeVisibleTimeRangeChange(crisisTimelineState.bandCallback);
+    crisisTimelineState.resizeObserver = new ResizeObserver(() => {
+      if (!crisisTimelineState.chart) return;
+      crisisTimelineState.chart.applyOptions({ width: Math.max(320, frame.clientWidth), height: Math.max(360, frame.clientHeight) });
+      requestAnimationFrame(drawCrisisTimelineBands);
+    });
+    crisisTimelineState.resizeObserver.observe(frame);
+    requestAnimationFrame(drawCrisisTimelineBands);
+  }
+
+  function acceptCrisisTimelinePayload(payload, { resetAssets = false } = {}) {
+    crisisTimelineState.payload = payload;
+    if (resetAssets || !crisisTimelineState.enabled.size) {
+      crisisTimelineState.enabled = new Set((payload.series || []).filter((item) => item.default_visible && !item.missing_reason).map((item) => item.id));
+    }
+    renderCrisisTimelineControls(payload);
+    $("crisis-timeline-status").textContent = `${payload.selected_crisis === "ALL" ? "전체 기간" : payload.selected_crisis} · ${payload.date_range.start || "—"} → ${payload.date_range.end || "—"}`;
+    renderCrisisTimelineChart();
+  }
+
+  async function loadCrisisTimeline({ crisis = crisisTimelineState.crisis, resetAssets = false } = {}) {
+    const sequence = ++crisisTimelineState.loadSequence;
+    $("crisis-timeline-status").textContent = "보존 데이터를 불러오는 중…";
+    try {
+      const response = await fetch(`/api/research/crisis-timeline?${crisisTimelineParams(crisis)}`);
+      if (!response.ok) throw new Error(await readError(response));
+      const payload = await response.json();
+      if (sequence !== crisisTimelineState.loadSequence) return;
+      if (payload.mode === "A" && !crisis) crisisTimelineState.fullPayload = payload;
+      const rendered = payload.mode === "A" && crisis && crisisTimelineState.fullPayload
+        ? mergeCrisisTimelinePayload(crisisTimelineState.fullPayload, payload) : payload;
+      acceptCrisisTimelinePayload(rendered, { resetAssets });
+    } catch (error) {
+      if (sequence !== crisisTimelineState.loadSequence) return;
+      destroyCrisisTimelineChart();
+      $("crisis-timeline-status").textContent = error.message || "위기 타임라인을 불러오지 못했습니다.";
+      $("crisis-timeline-chart").innerHTML = `<div class="unavailable">${esc(error.message || "위기 타임라인을 불러오지 못했습니다.")}</div>`;
+    }
+  }
+
+  function selectCrisisTimelineWindow(crisis) {
+    if (crisis === "ALL") {
+      crisisTimelineState.crisis = null;
+      if (crisisTimelineState.fullPayload) acceptCrisisTimelinePayload(crisisTimelineState.fullPayload);
+      else loadCrisisTimeline();
+      return;
+    }
+    crisisTimelineState.crisis = crisis;
+    loadCrisisTimeline({ crisis });
+  }
+
+  function initCrisisTimeline() {
+    if (!$("crisis-timeline")) return;
+    document.querySelectorAll('input[name="crisis-timeline-mode"]').forEach((input) => input.addEventListener("change", () => {
+      crisisTimelineState.mode = crisisTimelineMode();
+      crisisTimelineState.crisis = crisisTimelineState.mode === "B" ? "2008" : null;
+      crisisTimelineState.fullPayload = null;
+      loadCrisisTimeline({ resetAssets: true });
+    }));
+    document.querySelectorAll("[data-timeline-country]").forEach((button) => button.addEventListener("click", () => {
+      crisisTimelineState.country = button.dataset.timelineCountry;
+      crisisTimelineState.crisis = null;
+      crisisTimelineState.fullPayload = null;
+      loadCrisisTimeline({ resetAssets: true });
+    }));
+    $("crisis-timeline-index").addEventListener("change", (event) => {
+      crisisTimelineState.indexChoice = event.target.value;
+      crisisTimelineState.crisis = crisisTimelineState.mode === "B" ? (crisisTimelineState.crisis || "2008") : null;
+      crisisTimelineState.fullPayload = null;
+      loadCrisisTimeline({ resetAssets: true });
+    });
+    loadCrisisTimeline({ resetAssets: true });
+  }
+
   // Default = 주식 vs 10년 금리: the only preset whose assets cover every crisis (TLT ETF is retained from 2022 only).
   const crisisState = { payload: null, revealed: false, preset: "equity-yield", basis: "hold_start" };
   const crisisPalette = ["#315f8a", "#8a6a2f", "#4d7c59", "#76558a", "#2b7a78", "#9a5b45", "#5d6d7e", "#8f7b52", "#41729f", "#6f8f72", "#695b8f", "#3c7f86", "#936b55", "#58718a"];
@@ -1228,6 +1513,7 @@
   async function boot() {
     bindExperiment();
     initCompound();
+    initCrisisTimeline();
     initCrisisOverlay();
     let forward = null;
     try {

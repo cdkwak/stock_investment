@@ -621,6 +621,25 @@ def build_router(project_root: Path, *, public_mode: bool = False) -> APIRouter:
             return json_response({"error": str(error)}, status_code=404)
         return json_response(payload)
 
+    @router.get("/research/crisis-timeline")
+    def research_crisis_timeline(request: Request) -> Response:
+        from stock_web.api.crisis_timeline import (
+            CrisisTimelineInputError,
+            build_crisis_timeline_payload,
+        )
+
+        try:
+            payload = build_crisis_timeline_payload(
+                project_root,
+                mode=str(request.query_params.get("mode") or "A"),
+                country=str(request.query_params.get("country") or "US"),
+                crisis=str(request.query_params.get("crisis") or "") or None,
+                index_choice=str(request.query_params.get("index_choice") or "NASDAQ100"),
+            )
+        except CrisisTimelineInputError as error:
+            return json_response({"error": str(error)}, status_code=400)
+        return json_response(payload)
+
     @router.post("/research/compound/holdout-view")
     async def research_compound_holdout_view(request: Request) -> Response:
         from stock_web.api.research_page import (

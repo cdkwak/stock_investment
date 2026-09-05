@@ -56,6 +56,39 @@
     </div>
   </details>
 
+  <section class="card crisis-timeline-card" id="crisis-timeline" aria-labelledby="crisis-timeline-title">
+    <div class="card-head research-section-head crisis-timeline-head">
+      <div><span class="section-index">00·TIME</span><b id="crisis-timeline-title">위기 타임라인</b></div>
+      <span class="crisis-timeline-privacy">시장 데이터만 · 개인 데이터 없음</span>
+    </div>
+    <div class="crisis-timeline-questions" aria-label="이 화면이 답하려는 질문">
+      <p><b>Mode A:</b> 주식이 크게 빠진 구간마다, 만기별 금리는 어떻게 움직였나?</p>
+      <p><b>Mode B:</b> 같은 위기에 여러 나라는 각각 어떻게 움직였나? <small>(한국·미국·일본·유럽 중 그 구간에 데이터가 있는 나라만 — 창마다 표시)</small></p>
+    </div>
+    <div class="crisis-timeline-toolbar">
+      <fieldset class="crisis-timeline-modes"><legend>보기 방식</legend><label><input type="radio" name="crisis-timeline-mode" value="A" checked> Mode A · 한 국가 × 지수·금리</label><label><input type="radio" name="crisis-timeline-mode" value="B"> Mode B · 한 위기 × 여러 국가</label></fieldset>
+      <label class="crisis-timeline-index"><span>미국 가격지수</span><select id="crisis-timeline-index" aria-label="미국 가격지수"><option value="NASDAQ100" selected>NASDAQ100</option><option value="SP500">S&amp;P 500</option></select></label>
+      <div class="crisis-timeline-countries" id="crisis-timeline-countries" role="group" aria-label="국가"><button type="button" class="active" data-timeline-country="US" aria-pressed="true">미국</button><button type="button" data-timeline-country="KR" aria-pressed="false">한국</button></div>
+      <span class="crisis-timeline-status" id="crisis-timeline-status" role="status">보존 데이터를 불러오는 중…</span>
+    </div>
+    <div class="crisis-timeline-crises" id="crisis-timeline-crises" aria-label="위기 기간"></div>
+    <fieldset class="crisis-timeline-assets" id="crisis-timeline-assets"><legend>표시할 선</legend></fieldset>
+    <div class="crisis-timeline-chart-card">
+      <div class="crisis-timeline-chart-frame" id="crisis-timeline-chart-frame">
+        <div class="crisis-timeline-chart" id="crisis-timeline-chart" aria-label="실제 날짜 위기 타임라인 차트"></div>
+        <canvas class="crisis-timeline-bands" id="crisis-timeline-bands" aria-hidden="true"></canvas>
+        <span class="crisis-timeline-axis-title left" id="crisis-timeline-left-axis">가격지수 · 로그</span>
+        <span class="crisis-timeline-axis-title right" id="crisis-timeline-right-axis">국채 금리 (%)</span>
+        <div class="crisis-timeline-chart-notes">
+          <span id="crisis-timeline-basis">원지수 · 금리(%)</span>
+          <span id="crisis-timeline-kind">가격지수와 금리 수준</span>
+        </div>
+      </div>
+      <div class="crisis-timeline-legend" id="crisis-timeline-legend" aria-label="위기 타임라인 범례"></div>
+      <div class="crisis-timeline-caption" id="crisis-timeline-caption"></div>
+    </div>
+  </section>
+
   {% if not public_mode %}
   <section class="card crisis-overlay-card" id="crisis-overlay" aria-labelledby="crisis-overlay-title">
     <div class="card-head research-section-head crisis-overlay-head">
@@ -217,6 +250,7 @@
   </form>
 </dialog>
 
+<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
 <script src="/static/app.js?v={{ static_version }}"></script>
 <script src="/static/research.js?v={{ static_version }}"></script>
 </body>
