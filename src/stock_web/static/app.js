@@ -552,7 +552,8 @@
     const renderedRows = orderedRows.map((r) => {
       const prefix = !insertedLive && liveLine && isUs(r) ? (insertedLive = true, liveLine) : "";
       const overnight = liveBySymbol.get(String(r.symbol || "").toUpperCase());
-      const overnightPrice = overnight ? `<small class="muted">밤사이 ${overnight.currency === "USD" ? "$" : `${esc(overnight.currency)} `}${fmt(overnight.last_price, 2)} (${pct(overnight.change_pct)})</small>` : "";
+      const overnightText = overnight ? `밤사이 ${overnight.currency === "USD" ? "$" : `${overnight.currency} `}${fmt(overnight.last_price, 2)} (${pct(overnight.change_pct)})` : "";
+      const overnightPrice = overnight ? `<small class="muted" title="${esc(overnightText)}">${esc(overnightText)}</small>` : "";
       return `${prefix}<div class="tr watch">
         <div title="${esc(r.name || r.symbol || "")}"><div>${esc(watchlistName(r))}</div>${watchlistInvestorMobile(r)}${r.flag ? `<div class="flag">조건 도달 · ${esc(r.flag)}</div>` : ""}</div>
         <div class="watch-status">${!publicMode && r.held ? '<span class="badge held-badge">보유</span>' : '<span class="muted">관심</span>'}</div>
@@ -755,7 +756,11 @@
     const text = !h || h.reason
       ? (h && h.reason ? `데이터 갱신 상태 미확인 · ${h.reason}` : "데이터 갱신 상태 미확인")
       : `데이터 갱신: ${(h.labels && h.labels.current) || "정시"} ${h.current ?? 0} · ${(h.labels && h.labels.late) || "지연"} ${h.lag ?? 0} · ${(h.labels && h.labels.failed) || "실패"} ${h.fail ?? 0} ▸`;
-    chip.textContent = text;
+    // Phone (≤599px) hides the "데이터 갱신: " prefix instead of clipping the numbers — the chip
+    // used to lose exactly "실패 N" at 390px (review 09-06 07:10).
+    chip.innerHTML = text.startsWith("데이터 갱신: ")
+      ? `<span class="chip-prefix">데이터 갱신: </span>${esc(text.slice("데이터 갱신: ".length))}`
+      : esc(text);
     chip.title = text;
   }
 

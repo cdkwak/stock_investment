@@ -283,6 +283,6 @@ def test_tile_source_notes_and_intraday_difference_threshold(monkeypatch) -> Non
     treasury = next(item for item in tiles if item["name"] == "미국 10Y")
 
     assert "latest_intraday" not in kospi
-    assert vix["sub_note"].startswith("FRED 마감 ")
+    assert vix["sub_note"].startswith("장중 ^VIX ")  # headline value first (review 09-06 07:10)
     assert "장중 ^VIX 15.6" in vix["sub_note"]
     assert "^TNX 지수" in treasury["sub_note"]

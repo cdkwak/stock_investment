@@ -109,7 +109,7 @@ a { color: inherit; text-decoration: none; }
 .tile .spark small { flex: 0 1 auto; max-width: 60%; overflow: hidden; text-overflow: ellipsis; border-radius: 3px; background: #f4f2ee; padding: 1px 4px; font-size: 8.5px; color: var(--muted); white-space: nowrap; }
 .tile .note { height: 22px; font-size: 11px; color: var(--muted); display: flex; align-items: center; white-space: nowrap; overflow: hidden; }
 .tile-sub-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11px; line-height: 1.25; min-height: 12px; }
-.watch-price small { display: block; font-size: 10px; font-weight: 400; line-height: 1.3; white-space: nowrap; }
+.watch-price small { display: block; font-size: 10px; font-weight: 400; line-height: 1.3; white-space: normal; overflow-wrap: anywhere; } /* 밤사이 시세는 잘라내지 않고 줄바꿈 (review 09-06 07:10: clip이라 '…'도 없이 등락률이 사라졌음) */
 .tiles.collapsed .tile:nth-child(n+9) { display: none; }
 .tiles-caption { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; font-size: 12px; color: var(--muted); padding: 0 4px; }
 .sectors { margin-left: auto; display: flex; gap: 12px; }
@@ -508,7 +508,8 @@ a { color: inherit; text-decoration: none; }
   .nav { min-width: 0; overflow-x: auto; flex-wrap: nowrap; white-space: nowrap; scrollbar-width: thin; }
   .nav a { flex: 0 0 auto; }
   .topbar-right { flex: 0 0 auto; }
-  .topbar-right .chip { max-width: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .topbar-right .chip { max-width: none; font-size: 10px; padding: 2px 5px; white-space: nowrap; } /* numbers stay visible; the prefix goes (review 09-06 07:10) */
+  .topbar-right .chip .chip-prefix { display: none; }
   .page { overflow-x: clip; }
   .tiles-caption { font-size: 11px; }
   .home-left-support { grid-template-columns: 1fr; gap: 10px; }
@@ -597,7 +598,7 @@ a { color: inherit; text-decoration: none; }
 .sidebar-item-bottom svg { flex: 0 0 90px; width: 90px; height: 24px; }
 .sidebar-spark-empty { width: 90px; color: var(--muted); font-size: 10px; }
 .sidebar-flags { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px; min-width: 0; }
-.sidebar-flags i { border: 1px solid var(--amber); border-radius: 8px; color: var(--amber); font-size: 9px; font-style: normal; line-height: 1.2; max-width: 92px; overflow: hidden; padding: 1px 4px; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-flags i { border: 1px solid var(--amber); border-radius: 8px; color: var(--amber); font-size: 9px; font-style: normal; line-height: 1.2; padding: 1px 4px; white-space: normal; overflow-wrap: anywhere; text-align: right; } /* no 92px clip: '−30% 이하' vs '이상' is the whole condition, it may wrap (review 09-06 07:10) */
 .sidebar-empty { line-height: 1.5; }
 .stock-detail-column { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
 .stock-detail-loading { min-height: 142px; display: flex; align-items: center; justify-content: center; color: var(--muted); }

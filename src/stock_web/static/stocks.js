@@ -162,7 +162,7 @@
         && selectedIdentity.market === row.market && row.list_id === selectedListId;
       return `<button type="button" role="listitem" class="watchlist-sidebar-item${selected ? " on" : ""}" data-symbol="${esc(row.symbol)}" data-market="${esc(row.market)}" data-list-id="${esc(row.list_id)}">
         <span class="sidebar-item-top"><span><b>${esc(name)}</b><small>${esc(subtitle)}</small></span><span class="sidebar-quote"><b>${price(row)}</b><small class="${tone(row.change_pct)}">${arrow(row.change_pct)} ${pct(row.change_pct)}</small></span></span>
-        <span class="sidebar-item-bottom">${sparklineSvg(sparklines[row.symbol])}<span class="sidebar-flags">${flags.map((item) => `<i>${esc(item.name)}</i>`).join("")}</span></span>
+        <span class="sidebar-item-bottom">${sparklineSvg(sparklines[row.symbol])}<span class="sidebar-flags">${flags.map((item) => `<i title="${esc(item.name)}">${esc(item.name)}</i>`).join("")}</span></span>
       </button>`;
     }).join("") : '<div class="unavailable sidebar-empty">관심종목이 없습니다.<br>위 검색에서 상세를 열 수 있습니다.</div>';
   }

@@ -566,9 +566,11 @@ def build_tiles(project_root: Path) -> list[dict[str, object]]:
                     f" ({close_change:+.2f}% 마감 대 마감)"
                     if isinstance(close_change, (int, float)) else ""
                 )
+                # The value that explains the headline comes first: the note is truncated at
+                # ~200px and used to lose exactly "장중 ^VIX 14.53" (review 09-06 07:10).
                 tile["sub_note"] = (
-                    f"FRED 마감 {format_kst(daily_date)} {_compact_number(daily_value)}{close_tail}"
-                    f" · 장중 ^VIX {_compact_number(latest_value)}"
+                    f"장중 ^VIX {_compact_number(latest_value)}"
+                    f" · FRED 마감 {format_kst(daily_date)} {_compact_number(daily_value)}{close_tail}"
                 )
             elif tile["name"] == "미국 10Y" and daily_value is not None:
                 tile["window"] = f"24h · {latest_clock} KST"
