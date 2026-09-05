@@ -44,7 +44,7 @@ from stock_data.orchestration.kr_fundamentals_quarterly import (
     plan_weekly_fundamentals_refresh,
     run_weekly_fundamentals_refresh,
 )
-from stock_data.orchestration.kr_etf_daily import run_kr_etf_scheduler_lane
+from stock_data.orchestration.kr_etf_daily import KrEtfDailyError, run_kr_etf_scheduler_lane
 from stock_data.orchestration.kr_equity_investor_flow_daily import (
     plan_kr_equity_investor_flow_daily,
     run_kr_equity_investor_flow_scheduler_lane,
@@ -436,7 +436,12 @@ def _run_kr_etf_price_phase(
 ) -> dict[str, object]:
     if phase != "kr_etf_prices" or not isinstance(target, date):
         raise ProviderSchedulerError("invalid Korean ETF price scheduler phase")
-    result = run_kr_etf_scheduler_lane(project_root, target_session=target)
+    try:
+        result = run_kr_etf_scheduler_lane(project_root, target_session=target)
+    except KrEtfDailyError as error:
+        # Our own selection/validation message (no provider text) — surface it in the receipt;
+        # the 2026-09-05 20:30 failure left only error_type=ValueError and no cause.
+        raise ProviderSchedulerError(f"KR_ETF_PRICE_DAILY: {error}") from error
     master_refresh = (
         _refresh_kr_etf_master_once(project_root, target)
         if result.get("status") == "ALREADY_CURRENT"

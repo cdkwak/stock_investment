@@ -19,7 +19,7 @@ ETF universe and does not replace the retained full-market Raw
   `security_type="ETF"`) and symbols already present in
   `data/normalized/kr_etf_master`.
 - Symbols must be six-character uppercase KRX codes; alphanumeric codes such
-  as `0193M0` are valid. The union remains capped at 10 symbols.
+  as `0193M0` are valid. The union is capped at 25 symbols per run (raised from 10 on 2026-09-05 after the watchlist + retained master + manual-account ETFs reached 12 and the 20:30 lane failed with `symbols must contain between 1 and 10 values`). Past the cap, watched and held ETFs are selected first and retained-master leftovers are dropped (`symbols_dropped` in the result); only more than 25 watched/held ETFs raises (`KrEtfSelectionError`, whose message is written to the scheduler receipt).
 
 To add an ETF, add a matching KRX/ETF entry to the local watchlist. The lane
 discovers it on its next run; no scheduler or registry edit is required.
@@ -64,7 +64,7 @@ run performs no provider calls:
 $env:PYTHONIOENCODING='utf-8'; .venv\Scripts\python.exe scripts\maintenance\run_provider_scheduler.py --project-root . --lane KR_ETF_PRICE_DAILY --dry-run
 ```
 
-First bounded live lane run (the lane itself enforces at most 10 symbols, 30
+First bounded live lane run (the lane itself enforces at most 25 symbols, 30
 XKRX sessions per symbol, and retry zero):
 
 ```powershell

@@ -591,6 +591,20 @@ def test_equity_investor_flow_phase_projects_provider_lag_and_call_count(
     assert result["reason"] == "EXPECTED_PROVIDER_LAG"
 
 
+def test_kr_etf_lane_selection_errors_reach_the_receipt_as_scheduler_errors(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    from stock_data.orchestration.kr_etf_daily import KrEtfSelectionError
+
+    def boom(*_args, **_kwargs):
+        raise KrEtfSelectionError("30 watched/held Korean ETFs exceed the lane cap of 25")
+
+    monkeypatch.setattr(scheduler, "run_kr_etf_scheduler_lane", boom)
+
+    with pytest.raises(scheduler.ProviderSchedulerError, match="KR_ETF_PRICE_DAILY: 30 watched"):
+        scheduler._run_kr_etf_price_phase(tmp_path, "kr_etf_prices", date(2026, 9, 4))
+
+
 def test_kr_etf_provider_lag_remains_an_expected_lane_outcome(
     tmp_path: Path, monkeypatch,
 ) -> None:

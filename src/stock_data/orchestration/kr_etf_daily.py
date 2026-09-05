@@ -37,7 +37,12 @@ MASTER_ROOT = Path("data/normalized/kr_etf_master")
 PRICE_ROOT = Path("data/normalized/kr_etf_price_daily")
 STATE_SCHEMA = "stock_data.kr_etf_daily_state.v1"
 CHECKPOINT_SCHEMA = "stock_data.kr_etf_daily_checkpoint.v1"
-MAX_SYMBOLS = 10
+# Per-run symbol budget (one pykrx call per symbol per window). Raised 10 → 25 on
+# 2026-09-05: the union of watchlist (3) + retained master + manual-account ETFs (9) reached
+# 12 and the 20:30 lane died with ValueError("symbols must contain between 1 and 10 values")
+# — every later run would have failed the same way. Selection now also degrades instead of
+# raising: watched/held ETFs come first and master-only leftovers are dropped past the cap.
+MAX_SYMBOLS = 25
 MAX_CALENDAR_DAYS = 10
 MAX_SCHEDULER_SESSIONS = 30
 MARKET = "KRX"
@@ -57,6 +62,10 @@ PYKRX_PRICE_COLUMNS = {
 
 class KrEtfDailyError(RuntimeError):
     pass
+
+
+class KrEtfSelectionError(KrEtfDailyError, ValueError):
+    """More watched/held ETFs than the lane can price in one run (our own message, receipt-safe)."""
 
 
 @dataclass(frozen=True)
@@ -92,7 +101,16 @@ def validate_window(
 
 
 def resolve_kr_etf_symbols(project_root: Path) -> tuple[str, ...]:
-    """Return the bounded union of watchlisted and retained current-list ETFs."""
+    """Return the bounded union of watchlisted, held and retained current-list ETFs."""
+
+    return resolve_kr_etf_symbol_plan(project_root)[0]
+
+
+def resolve_kr_etf_symbol_plan(
+    project_root: Path,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """(selected, dropped): the union sorted when it fits ``MAX_SYMBOLS``; otherwise watched
+    and held ETFs first, then retained-master leftovers until the cap, the rest dropped."""
 
     root = project_root.resolve()
     selected: set[str] = set()
@@ -111,18 +129,27 @@ def resolve_kr_etf_symbols(project_root: Path) -> tuple[str, ...]:
                 if item.get("market") == MARKET and item.get("security_type") == "ETF":
                     selected.add(str(item.get("symbol", "")).strip())
 
+    master_symbols: set[str] = set()
     master_root = root / MASTER_ROOT
     if master_root.exists() and any(master_root.rglob("data.parquet")):
         master = read_dataset(master_root, KR_ETF_MASTER, validate_kr_etf_master)
-        selected.update(master["symbol"].astype(str))
+        master_symbols = set(master["symbol"].astype(str))
 
     # Manual (web-entered) accounts: any Korean ETF the user holds is priced by this
     # lane too, so the 내 계좌 page never needs a hand-typed 현재가 for KRX ETFs.
-    selected.update(_manual_account_etf_symbols(root))
-
-    if not selected:
-        return ()
-    return normalize_symbols(sorted(selected))
+    priority = selected | _manual_account_etf_symbols(root)
+    union = priority | master_symbols
+    if not union:
+        return (), ()
+    if len(union) <= MAX_SYMBOLS:
+        return normalize_symbols(sorted(union)), ()
+    if len(priority) > MAX_SYMBOLS:
+        raise KrEtfSelectionError(
+            f"{len(priority)} watched/held Korean ETFs exceed the lane cap of {MAX_SYMBOLS}"
+            " symbols per run; trim the watchlist or raise MAX_SYMBOLS"
+        )
+    ordered = sorted(priority) + sorted(master_symbols - priority)
+    return normalize_symbols(ordered[:MAX_SYMBOLS]), tuple(ordered[MAX_SYMBOLS:])
 
 
 MANUAL_ACCOUNT_PATHS = (
@@ -220,7 +247,7 @@ def run_kr_etf_scheduler_lane(
     """Run the bounded selected-ETF lane for one completed KRX target session."""
 
     root = project_root.resolve()
-    symbols = resolve_kr_etf_symbols(root)
+    symbols, dropped = resolve_kr_etf_symbol_plan(root)
     if not symbols:
         return _scheduler_result(
             status="NO_SYMBOLS_CONFIGURED", target_session=target_session,
@@ -234,7 +261,7 @@ def run_kr_etf_scheduler_lane(
         return _scheduler_result(
             status="ALREADY_CURRENT", target_session=target_session,
             latest_before=latest_before, latest_after=latest_before,
-            api_calls=0, symbols=symbols,
+            api_calls=0, symbols=symbols, symbols_dropped=dropped,
         )
 
     active = tuple(window.symbol for window in windows)
@@ -274,6 +301,7 @@ def run_kr_etf_scheduler_lane(
         api_calls=int(operation.get("provider_calls", 0) or 0),
         symbols=symbols,
         provider_gap_dates=gaps or None,
+        symbols_dropped=dropped,
     )
 
 
@@ -744,6 +772,7 @@ def _scheduler_result(
     api_calls: int,
     symbols: tuple[str, ...],
     provider_gap_dates: Mapping[str, list[str]] | None = None,
+    symbols_dropped: tuple[str, ...] = (),
 ) -> dict[str, object]:
     result: dict[str, object] = {
         "schema_version": 1,
@@ -765,6 +794,9 @@ def _scheduler_result(
     }
     if provider_gap_dates:
         result["provider_gap_dates"] = dict(provider_gap_dates)
+    if symbols_dropped:
+        # Retained-master ETFs that are neither watched nor held and did not fit the cap.
+        result["symbols_dropped"] = list(symbols_dropped)
     return result
 
 

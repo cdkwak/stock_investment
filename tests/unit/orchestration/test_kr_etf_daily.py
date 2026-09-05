@@ -202,6 +202,38 @@ def test_scheduler_symbol_resolution_unions_watchlist_and_retained_master(tmp_pa
     assert resolve_kr_etf_symbols(tmp_path) == ("0193M0", "123320", "243880")
 
 
+def test_scheduler_symbol_resolution_keeps_watched_first_and_drops_master_leftovers_past_the_cap(
+    tmp_path, monkeypatch,
+) -> None:
+    from stock_data.orchestration import kr_etf_daily
+
+    # 2026-09-05 20:30: watchlist + master + held ETFs reached 12 > cap and the lane raised.
+    monkeypatch.setattr(kr_etf_daily, "MAX_SYMBOLS", 4)
+    _write_watchlist(tmp_path, "123320", "243880")
+    _write_master(tmp_path, {
+        "0015B0": "A", "329200": "B", "456600": "C", "123320": "TIGER 레버리지",
+    }, date(2026, 9, 4))
+
+    selected, dropped = kr_etf_daily.resolve_kr_etf_symbol_plan(tmp_path)
+
+    assert selected == ("123320", "243880", "0015B0", "329200")
+    assert dropped == ("456600",)
+    assert kr_etf_daily.resolve_kr_etf_symbols(tmp_path) == selected
+
+
+def test_scheduler_symbol_resolution_raises_a_receipt_safe_error_when_watched_exceed_the_cap(
+    tmp_path, monkeypatch,
+) -> None:
+    from stock_data.orchestration import kr_etf_daily
+
+    monkeypatch.setattr(kr_etf_daily, "MAX_SYMBOLS", 2)
+    _write_watchlist(tmp_path, "123320", "243880", "139260")
+
+    with pytest.raises(kr_etf_daily.KrEtfSelectionError, match="3 watched/held"):
+        kr_etf_daily.resolve_kr_etf_symbols(tmp_path)
+    assert issubclass(kr_etf_daily.KrEtfSelectionError, ValueError)
+
+
 def test_scheduler_windows_cover_current_partial_and_empty_retained_symbols(tmp_path) -> None:
     target = date(2026, 9, 2)
     symbols = ("0193M0", "123320", "243880")
