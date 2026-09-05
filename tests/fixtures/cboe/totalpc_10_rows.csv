@@ -1,13 +1,13 @@
-Volume and Put/Call Ratio data is compiled for the convenience of site visitors and is furnished without responsibility for accuracy and is accepted by the site visitor on the condition that transmission or omissions shall not be made the basis for any claim demand or cause for action.  Historical index volume from November 1 2006 through May 31 2012 is based on cleared volume as reported by the OCC. The volume data reflected after May 31 2012 below is based upon preliminary reported volume rather than cleared volume. The information and data was obtained from sources believed to be reliable but accuracy is not guaranteed. Your use of Cboe Volume and Put/Call Ratio data is subject to the Terms and Conditions of Cboe Websites.,,,,
-, PRODUCT: TOTAL,,EXCHANGE: Cboe,
+SYNTHETIC TEST FIXTURE - invented round numbers in the layout of a legacy volume/put-call archive CSV (two preamble lines then a DATE header). Not Cboe data.,,,,
+, PRODUCT: TOTAL,,EXCHANGE: TEST,
 DATE,CALLS,PUTS,TOTAL,P/C Ratio
-11/1/2006,1401036,1271445,2672481,0.91
-11/2/2006,1348240,1218592,2566832,0.9
-11/3/2006,1317371,1197794,2515165,0.91
-11/6/2006,1260832,960752,2221584,0.76
-11/7/2006,1463685,1158790,2622475,0.79
-09/30/2019, 1554467, 1812353, 3366820, 1.17
-10/01/2019, 2031626, 2215232, 4246858, 1.09
-10/02/2019, 2830814, 3591241, 6422055, 1.27
-10/03/2019, 2097645, 2882751, 4980396, 1.37
-10/04/2019, 2175006, 2289715, 4464721, 1.05
+11/1/2006,1000000,900000,1900000,0.9
+11/2/2006,1000000,800000,1800000,0.8
+11/3/2006,1000000,910000,1910000,0.91
+11/6/2006,1000000,760000,1760000,0.76
+11/7/2006,1000000,790000,1790000,0.79
+09/30/2019, 1000000, 1170000, 2170000, 1.17
+10/01/2019, 1000000, 1090000, 2090000, 1.09
+10/02/2019, 1000000, 1270000, 2270000, 1.27
+10/03/2019, 1000000, 1370000, 2370000, 1.37
+10/04/2019, 1000000, 1050000, 2050000, 1.05

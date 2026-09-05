@@ -27,15 +27,15 @@ def test_parser_extracts_split_flight_json_scopes_ratios_and_selected_date() -> 
         "TOTAL", "INDEX", "ETP", "EQUITY", "VIX", "SPX_SPXW",
     ]
     assert {row["date"] for row in rows} == {date(2026, 9, 3)}
-    assert rows[0]["volume_pcr"] == pytest.approx(6011424 / 7924751)
-    assert rows[0]["oi_pcr"] == pytest.approx(286459001 / 377122646)
-    assert rows[-1]["call_volume"] == 2762278
-    assert rows[-1]["put_oi"] == 13908229
+    assert rows[0]["volume_pcr"] == pytest.approx(6000000 / 8000000)
+    assert rows[0]["oi_pcr"] == pytest.approx(300000000 / 400000000)
+    assert rows[-1]["call_volume"] == 2500000
+    assert rows[-1]["put_oi"] == 10000000
 
 
 def test_parser_fails_closed_for_published_ratio_or_requested_date_mismatch() -> None:
     with pytest.raises(CboeDailyPcrError, match="published volume ratio mismatch"):
-        parse_daily_pcr(FLIGHT_HTML.replace(b'0.76', b'0.77', 1), retrieved_at=NOW)
+        parse_daily_pcr(FLIGHT_HTML.replace(b'0.75', b'0.77', 1), retrieved_at=NOW)
     with pytest.raises(CboeDailyPcrError, match="differs from requested date"):
         parse_daily_pcr(
             FLIGHT_HTML, observation_date=date(2026, 9, 4), retrieved_at=NOW,
@@ -51,10 +51,10 @@ def test_parser_requires_all_scopes_and_nulls_a_zero_denominator() -> None:
 
     zero_call = (
         FLIGHT_HTML
-        .replace(b'7924751', b'0', 1)
-        .replace(b'6011424', b'5', 1)
-        .replace(b'13936175', b'5', 1)
-        .replace(b'0.76', b'0.00', 1)
+        .replace(b'8000000', b'0', 1)
+        .replace(b'6000000', b'5', 1)
+        .replace(b'14000000', b'5', 1)
+        .replace(b'0.75', b'0.00', 1)
     )
     total = parse_daily_pcr(zero_call, retrieved_at=NOW)[0]
     assert total["call_volume"] == 0
@@ -87,7 +87,7 @@ def test_archive_parser_handles_preamble_and_space_padded_rows() -> None:
     assert len(rows) == 10
     assert rows[0]["date"] == date(2006, 11, 1)
     assert rows[-1]["date"] == date(2019, 10, 4)
-    assert rows[-1]["call_volume"] == 2175006
-    assert rows[-1]["volume_pcr"] == pytest.approx(2289715 / 2175006)
+    assert rows[-1]["call_volume"] == 1000000
+    assert rows[-1]["volume_pcr"] == pytest.approx(1050000 / 1000000)
     assert rows[-1]["call_oi"] is None and rows[-1]["oi_pcr"] is None
     assert {row["provider"] for row in rows} == {ARCHIVE_PROVIDER}
