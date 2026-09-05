@@ -6,6 +6,8 @@ end-of-day observation; callers own the T+1 strategy execution clock.
 
 from __future__ import annotations
 
+import warnings
+
 from dataclasses import dataclass
 import hashlib
 from pathlib import Path
@@ -39,6 +41,55 @@ REAL_PRODUCT_MAP: Mapping[tuple[str, int], str] = {
     ("NASDAQ100", 3): "TQQQ",
     ("SOX", 3): "SOXL",
 }
+
+# Products that are knowingly shared across underlyings. Empty on purpose: the 2026-09-05
+# review found 123320 (TIGER 레버리지, a KOSPI200 tracker) calibrating BOTH the KOSPI and
+# KOSPI200 baskets — the KOSPI row's +12.5%/yr "tracking gap" was mostly the KOSPI vs
+# KOSPI200 return difference. Until the KOSPI mapping is removed or replaced (backtest work
+# is paused), the shared entry is reported by ``validate_real_product_map`` at import.
+SHARED_PRODUCT_ALLOWLIST: frozenset[str] = frozenset()
+
+
+def shared_real_products(
+    mapping: Mapping[tuple[str, int], str] = REAL_PRODUCT_MAP,
+    *, allowlist: frozenset[str] = SHARED_PRODUCT_ALLOWLIST,
+) -> dict[str, tuple[str, ...]]:
+    """Return {product_symbol: (underlyings…)} for products mapped to more than one underlying."""
+
+    by_product: dict[str, list[str]] = {}
+    for (underlying, _multiple), symbol in mapping.items():
+        by_product.setdefault(symbol, [])
+        if underlying not in by_product[symbol]:
+            by_product[symbol].append(underlying)
+    return {
+        symbol: tuple(underlyings)
+        for symbol, underlyings in by_product.items()
+        if len(underlyings) > 1 and symbol not in allowlist
+    }
+
+
+def validate_real_product_map(
+    mapping: Mapping[tuple[str, int], str] = REAL_PRODUCT_MAP,
+    *, allowlist: frozenset[str] = SHARED_PRODUCT_ALLOWLIST, strict: bool = False,
+) -> dict[str, tuple[str, ...]]:
+    """Warn (or raise when ``strict``) if a real product calibrates several underlyings.
+
+    A product tracks exactly one index, so a shared mapping makes the "tracking gap" of
+    the other underlying mostly an index-return difference, not a product effect.
+    """
+
+    shared = shared_real_products(mapping, allowlist=allowlist)
+    if shared:
+        message = "real product mapped to several underlyings (tracking gap becomes an index difference): " + ", ".join(
+            f"{symbol} → {'/'.join(underlyings)}" for symbol, underlyings in sorted(shared.items())
+        )
+        if strict:
+            raise ValueError(message)
+        warnings.warn(message, RuntimeWarning, stacklevel=2)
+    return shared
+
+
+validate_real_product_map()
 
 
 @dataclass(frozen=True, slots=True)
@@ -286,6 +337,9 @@ __all__ = [
     "DEFAULT_SHORT_RATE",
     "FOREIGN_SYMBOLS",
     "REAL_PRODUCT_MAP",
+    "SHARED_PRODUCT_ALLOWLIST",
+    "shared_real_products",
+    "validate_real_product_map",
     "ShortRateSeries",
     "TrackingGap",
     "load_index_universe",
