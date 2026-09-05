@@ -69,5 +69,40 @@ fields `incm_tx`/`rsdnt_tx`. 2025-01-01..2026-09-04 needed 34 calls (201 rows).
 Dividends would appear as their own 요약 rows; none existed on the account at the
 time. `SWQM2412` (row detail by `dl_sq`) and `SRQM3051` (해외 권리내역, `rgt_clsf`
 `"1"`) follow the samples under `docs/archive/.../kb/official/samples/`.
-Amounts, sequence numbers and account identifiers must never be logged; a future
-cash-flow lane may write the amounts only into the local manual ledger.
+Amounts, sequence numbers and account identifiers must never be logged; the
+cash-flow lane may write amounts only into identifier-free Landing and the local ledger.
+
+## KB transaction cash-flow daily lane
+
+- Dataset/contract: `kbsec_transactions_daily`,
+  `src/stock_data/contracts/kbsec_transactions.py` v1.
+- Provider: `src/stock_data/providers/kbsec/transactions.py`; it reuses the
+  existing in-memory KB OAuth client and only calls read-only `SWQA2301`.
+- Lane: `KB_TRANSACTIONS_DAILY`, due daily at 07:20 KST after the 07:00 Toss and
+  07:10 KB balance snapshots. It is `MANUAL_READY` with automation disabled
+  until the coordinator reviews one live run.
+- Window: prior calendar day back through seven overlapping days, extended to
+  cover any gap after the last retained row; the first run starts 2025-01-01.
+  Pagination follows `dataBody.nxt_key`, accepts at most six rows per page, and
+  stops after at most 40 page calls.
+- Privacy/storage: every page is projected to an identifier-free Landing file
+  before classification. Raw-row SHA-256 is the idempotency key. Amounts exist
+  only in those Landing pages and `artifacts/local_user/cash_flows.json`; state,
+  receipts, documentation, and logs contain no amounts or direct identifiers.
+- Ledger entries retain the existing JSON v1 shape and use `account="kb_auto"`.
+  Existing manual entries are not rewritten; `OTHER` rows remain in Landing and
+  identifier-free state only, so buys, sells, and interest do not alter returns.
+
+Provider-free plan:
+
+```powershell
+$env:PYTHONIOENCODING='utf-8'
+.\.venv\Scripts\python.exe -m stock_data.orchestration.kbsec_transactions_daily --dry-run
+```
+
+First coordinator-run live command:
+
+```powershell
+$env:PYTHONIOENCODING='utf-8'
+.\.venv\Scripts\python.exe -m stock_data.orchestration.kbsec_transactions_daily --confirm-live
+```

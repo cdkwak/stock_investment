@@ -26,8 +26,17 @@ from stock_data.providers.yahoo import GLOBAL_MARKET_60M_REGISTRY
 
 def test_contract_registry_has_unique_names_and_layer_formats() -> None:
     assert len(CONTRACTS)==len(set(CONTRACTS))
-    assert all(contract.storage_format=="parquet" for contract in CONTRACTS.values())
-    assert all(contract.layer in {"normalized","derived","published"} for contract in CONTRACTS.values())
+    local = CONTRACTS["kbsec_transactions_daily"]
+    assert local.storage_format == "json" and local.layer == "local_user"
+    assert all(
+        contract.storage_format == "parquet"
+        for name, contract in CONTRACTS.items()
+        if name != local.name
+    )
+    assert all(
+        contract.layer in {"normalized", "derived", "published", "local_user"}
+        for contract in CONTRACTS.values()
+    )
     assert not any("label" in contract.column_names for contract in CONTRACTS.values())
 
 

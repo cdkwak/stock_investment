@@ -1608,6 +1608,15 @@ DAILY_LANE_READINESS = (
         "confirmed one-call ceiling, date idempotency, strict scope/count validation, and API-zero dry run",
         "personal local display only; guest/public and redistribution forbidden", True, None,
         "run daily after 06:30 KST only after one coordinator curl verifies the configured machine URL"),
+    LaneReadiness("KB_TRANSACTIONS_DAILY", LaneReadinessStatus.MANUAL_ONLY,
+        "KB Securities SWQA2301", "calendar daily at 07:20 KST",
+        "as-retrieved through the prior calendar day; seven-day overlap plus retained-row gap",
+        "read-only paginated POST with at most 40 page calls",
+        "identifier-free Landing, row-hash state, local cash-flow ledger, and last receipt",
+        "raw-row sha256 idempotency, daily occurrence claim, and API-zero dry run",
+        "local account return cash-flow input; OTHER rows excluded", False,
+        "first coordinator live run pending",
+        "run --confirm-live once, inspect the receipt and local ledger, then enable automation"),
     LaneReadiness("GLOBAL_COMMODITY_DAILY", LaneReadinessStatus.READY,
         "Yahoo chart", "global futures completed daily", "next US business day after 08:00 ET",
         "global_current_refresh yahoo_dashboard_futures prepare/promote", "run checkpoint plus promotion journal",
@@ -2033,6 +2042,36 @@ CORE_DATASET_SPECS = REPRESENTATIVE_DATASET_SPECS + (
         validation_policy="personal-only, one-call, Landing sha256, exact date/scope, non-negative counts, put/call ratios, atomic promotion",
         dashboard_required=True,
     ),
+    DatasetOperationSpec(
+        dataset_id="kbsec_transactions_daily",
+        economic_variable="Identifier-free KB account cash-flow transaction history",
+        cadence=Cadence.KR_DAILY,
+        tier=DatasetTier.TIER_3_DELAYED,
+        primary_source="KB Securities SWQA2301",
+        contract_id="kbsec_transactions_daily",
+        contract_version=1,
+        operational_status=OperationalStatus.MANUAL_READY,
+        freshness_policy=FreshnessPolicy(
+            "kbsec_transactions_0720_kst", "Asia/Seoul",
+            "prior calendar day covered once daily at 07:20 KST",
+            FinalityPolicy(
+                FinalityEvidence.AS_RETRIEVED, "Asia/Seoul",
+                provider_available_rule="blank nxt_key after at most 40 six-row pages",
+                provider_final_rule="as-retrieved read-only transaction history",
+                collection_window="daily at 07:20 KST after the 07:00/07:10 balance snapshots",
+            ),
+        ),
+        pipeline_dependencies=(),
+        idempotency_status=IdempotencyStatus.CONFIRMED,
+        pit_status=PitStatus.NON_PREDICTIVE,
+        automation_enabled=False,
+        provider_auth_id="kbsec",
+        validation_policy=(
+            "Landing-first identifier-free projection, strict pagination/page ceiling, "
+            "raw-row sha256 merge, atomic local-ledger write, and prior-valid preservation"
+        ),
+        dashboard_required=True,
+    ),
     _registered_manual_spec(
         "kr_etf_master", "Current Korean ETF identities", "KRX/pykrx",
         1, provider_auth_id="pykrx_login", status=OperationalStatus.AUTO_READY,
@@ -2244,7 +2283,7 @@ def build_daily_universe_gap_status(
             plan_status=status,
             pre_network_noop=noop,
         ))
-    if len(rows) != 71:
+    if len(rows) != 72:
         raise RuntimeError("daily-grain universe count differs from the typed registry")
     return tuple(rows)
 

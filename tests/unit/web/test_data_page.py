@@ -326,7 +326,7 @@ def test_latest_kr_bundle_terminal_or_stale_claim_is_failed_receipt_and_kpi() ->
     assert context["health_summary"]["display_failed"] == 2
     assert next(item for item in context["freshness_counts"] if item["raw"] == "FAILED")["count"] == 2
     assert context["selected_filter_label"] == "운영 데이터"
-    assert context["kpi_total"] == 92
+    assert context["kpi_total"] == 93
 
 
 def test_missing_scheduler_result_code_uses_dash() -> None:

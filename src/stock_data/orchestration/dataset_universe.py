@@ -463,6 +463,7 @@ _CLASSIFICATION_IDS = {
         kr_etf_master kr_etf_price_daily
         global_index_price_daily global_etf_price_daily global_equity_price_daily
         global_commodity_futures_daily tossinvest_us_quote_30m cboe_daily_pcr_daily
+        kbsec_transactions_daily
         fred_treasury_yield_daily fred_usd_fx_daily fred_vix_daily
         bok_ecos_usd_krw_daily
         kr_short_selling_balance_daily kr_short_selling_investor_daily kr_market_liquidity_daily
@@ -666,6 +667,7 @@ _LANE_GROUPS = {
     "GLOBAL_EQUITY_DAILY": frozenset({"global_equity_price_daily"}),
     "TOSSINVEST_US_QUOTES_30M": frozenset({"tossinvest_us_quote_30m"}),
     "CBOE_DAILY_PCR": frozenset({"cboe_daily_pcr_daily"}),
+    "KB_TRANSACTIONS_DAILY": frozenset({"kbsec_transactions_daily"}),
     "KR_ETF_PRICE_DAILY": frozenset({"kr_etf_master", "kr_etf_price_daily"}),
     "GLOBAL_COMMODITY_DAILY": frozenset({"global_commodity_futures_daily"}),
     "VKOSPI_DAILY": frozenset({"kr_vkospi_daily"}),
@@ -780,6 +782,7 @@ _DIRECT_GUI = frozenset("""
     market_price_60m_observation
     kr_index_daily kr_kospi200_index_daily global_index_price_daily global_etf_price_daily
     global_equity_price_daily tossinvest_us_quote_30m cboe_daily_pcr_daily
+    kbsec_transactions_daily
     bok_ecos_kr_treasury_yield_source_observation bok_ecos_usd_krw_daily
     fred_treasury_yield_daily fred_usd_fx_daily
     global_commodity_futures_daily kr_market_breadth_daily
@@ -841,6 +844,7 @@ _NON_PREDICTIVE = frozenset("""
     kb_global_symbol_snapshot ls_t1633_program_trading_candidate ls_t8462_daily_raw
     kr_equity_price_provisional_daily
     cboe_daily_pcr_daily
+    kbsec_transactions_daily
 """.split())
 
 
@@ -1037,6 +1041,12 @@ def classify_health_display(
 
 
 _PHYSICAL_OVERRIDES = {
+    "kbsec_transactions_daily": (
+        "landing/kbsec/transactions/date=<YYYY-MM-DD>/<run_id>",
+        "data/state/kbsec_transactions_daily/state.json",
+        "artifacts/local_user/cash_flows.json",
+        "artifacts/scheduler_logs/STOCK_DATA_KB_TRANSACTIONS_DAILY_last.json",
+    ),
     "cboe_daily_pcr_daily": (
         "landing/cboe/daily_pcr/date=<YYYY-MM-DD>/<run_id>",
         "normalized/cboe_daily_pcr_daily",

@@ -10,24 +10,24 @@ Select one row from the active route in Data Status, then read only its listed
 contract, checkpoint/state, and active runbook if one is routed. Coverage is
 the retained artifact boundary, not a publication-time or PIT claim.
 
-The typed Dataset Universe contains 92 logical dataset records: 81 contracted
+The typed Dataset Universe contains 93 logical dataset records: 82 contracted
 catalog rows plus 12 retained Raw/research records, with one overlapping identity.
 Three ORATS U.S. option P/C schemas are deliberately unregistered
 `contract_only_no_entitlement` drafts and are excluded from both counts until
 subscription, root-scope, finality, and Data-operation gates are approved.
-The typed operations registry contains 48 rows. Its post-baseline rows
+The typed operations registry contains 49 rows. Its post-baseline rows
 are the KRX broad-index valuation row, the exact KOSPI200
 constituent/price/breadth dependency chain, the Toss market-investor source,
 the Toss Korean Treasury OHLC source, the BOK Treasury source observation, the
 BOK USD/KRW daily source, the same-day provisional Korean equity price source,
-and the two current-list Korean ETF datasets; all eleven now have explicit operational
-ownership. The dated pre-ETF row-level audit is
+the two current-list Korean ETF datasets, and the manual-ready KB transaction
+ledger lane; all now have explicit operational ownership. The dated pre-ETF row-level audit is
 [`artifacts/data_inventory/full_dataset_universe_multiaxis_20260818.csv`](../../artifacts/data_inventory/full_dataset_universe_multiaxis_20260818.csv).
 It remains historical reconciliation evidence; the typed registry and this
-navigation view contain the nine later rows.
-Physical coverage does not imply daily automation: exactly 46 typed-universe
-records are explicitly `automation_enabled=True` and all map to 21 scheduler
-lanes. The human-readable task-to-lane-to-dataset relationship and all 42
+navigation view contain the thirteen later rows.
+Physical coverage does not imply daily automation: exactly 49 typed-universe
+records are explicitly `automation_enabled=True` and all map to 22 active scheduler
+lanes. The human-readable task-to-lane-to-dataset relationship and all 44
 automation-disabled dispositions are in the
 [Scheduler Data Map](SCHEDULER_DATA_MAP.md). The retained
 `market_price_60m_observation` history is `STATIC_COMPLETE / NO_REFRESH` and is
@@ -38,23 +38,22 @@ history or Backtest data. Every other record remains disabled. The retained
 deprecated compatibility projection and must not drive operations, scheduling,
 GUI, or backtest eligibility.
 
-자동화 비활성 42개는 하나의 “대체됨” 묶음이 아니다. 기존 묶음 후보 7개와
-실제로 같은 레인이 갱신하던 투자자 원천 1개는 자동화로 이동했다. 남은 구성은
-수동 게이트 14개, 연구 전용 11개, 계약·의미 미확정 8개,
+자동화 비활성 44개는 하나의 “대체됨” 묶음이 아니다. 현재 구성은
+수동 게이트 16개, 연구 전용 11개, 계약·의미 미확정 8개,
 자동 갱신하지 않는 보존 자료 9개다. 특히
 `kr_equity_*` 연구 계약 4개와 `kr_investor_flow_daily`는 완전 대체가 확인되지
 않았고, 세 과거 구간 데이터셋은 현재 브리지의 상류 입력이므로 삭제 대상이 아니다.
 
-Each of the 88 rows also carries an explicit consumer triad with a bounded
+Each of the 93 rows also carries an explicit consumer triad with a bounded
 reason code. Display eligibility is evidenced only by `gui_use`; research
 eligibility is evidenced only by an accepted contract and/or retained local
 evidence; predictive eligibility is evidenced only by positive PIT safety.
-The current totals are display `28 ELIGIBLE / 19 LIMITED / 41 BLOCKED`, research
-`61 ELIGIBLE / 27 LIMITED / 0 BLOCKED`, and predictive
-`9 ELIGIBLE / 0 LIMITED / 79 BLOCKED`. `PIT_LIMITED`, collection readiness,
+The current totals are display `32 ELIGIBLE / 20 LIMITED / 41 BLOCKED`, research
+`64 ELIGIBLE / 29 LIMITED / 0 BLOCKED`, and predictive
+`9 ELIGIBLE / 0 LIMITED / 84 BLOCKED`. `PIT_LIMITED`, collection readiness,
 automation, and freshness never imply predictive eligibility.
 
-The typed 88-row registry in this document is the canonical dataset navigation
+The typed 93-row registry in this document is the canonical dataset navigation
 view. Its retained dated reconciliation inputs, which predate the two Korean
 ETF rows, are
 [`full_dataset_universe_20260818.csv`](../../artifacts/data_inventory/full_dataset_universe_20260818.csv)
@@ -81,42 +80,42 @@ eligibility by inference.
 
 | Measure | Count | Definition |
 |---|---:|---|
-| Logical dataset universe | 88 | 72 registered contracts + 16 retained/research records without a registered contract; the two OpenDART identity/fundamentals contracts are manual and not yet retained |
-| Economic-variable families | 57 | Same variable across provider-specific observations and canonical/bridge layers grouped once; their datasets remain separate rows |
-| Typed physical-artifact scopes | 85 | Unique layer/Landing scopes declared by the typed registry; provider call/file counts are excluded. |
-| Operations registry before/after | 33 / 44 | KRX broad-index valuation, exact KOSPI200 breadth chain, Toss investor source, Toss Treasury OHLC, BOK Treasury and USD/KRW observations, same-day provisional Korean equity prices, and current-list Korean ETF datasets have explicit operation ownership |
-| Typed universe registry before/after | 33 / 88 | 19 current operation-registry omissions and 25 intentional exclusions remain explicit catalog rows; later accepted contracts are preserved |
+| Logical dataset universe | 93 | 82 contracted catalog rows plus 12 retained/research rows without a registered contract, with one overlapping identity |
+| Economic-variable families | 60 | Same variable across provider-specific observations and canonical/bridge layers grouped once; their datasets remain separate rows |
+| Typed physical-artifact scopes | 95 | Unique layer/Landing/state/local-user scopes declared by the typed registry; provider call/file counts are excluded. |
+| Operations registry before/after | 48 / 49 | The KB SWQA2301 cash-flow lane is registered `MANUAL_READY`; its automation flag remains off pending the first coordinator live run |
+| Typed universe registry before/after | 92 / 93 | 19 current operation-registry omissions and 25 intentional exclusions remain explicit catalog rows; the new KB transaction row is registered |
 | Registry missing after reconciliation | 0 | Every logical dataset is known by the typed universe registry |
 
 | Data role | Count |
 |---|---:|
-| `SOURCE` | 47 |
+| `SOURCE` | 51 |
 | `SOURCE_OBSERVATION` | 8 |
 | `RAW_OBSERVATION` | 12 |
-| `DERIVED` | 6 |
+| `DERIVED` | 7 |
 | `PUBLISHED_BRIDGE` | 5 |
 | `SNAPSHOT` | 7 |
 | `HISTORICAL_SEGMENT` | 3 |
-| **Total** | **88** |
+| **Total** | **93** |
 
 | Grain | Count |
 |---|---:|
-| `DAILY` | 68 |
+| `DAILY` | 72 |
 | `WEEKLY` | 6 |
 | `EVENT_DRIVEN` | 5 |
 | `SNAPSHOT` | 7 |
-| `INTRADAY` | 2 |
-| **Total** | **88** |
+| `INTRADAY` | 3 |
+| **Total** | **93** |
 
 | Operational readiness | Count |
 |---|---:|
 | `READY_WITH_FINALITY_GATE` | 19 |
-| `READY_WITH_LIMITS` | 20 |
+| `READY_WITH_LIMITS` | 24 |
 | `READY` | 7 |
-| `MANUAL_ONLY` | 20 |
+| `MANUAL_ONLY` | 21 |
 | `BLOCKED` | 8 |
 | `NOT_APPLICABLE` | 14 |
-| **Total** | **88** |
+| **Total** | **93** |
 
 | Dataset / group | Primary source | Coverage | Contract | Artifact / Landing path | High-level state |
 |---|---|---|---|---|---|
@@ -144,7 +143,8 @@ eligibility by inference.
 | `global_etf_price_daily` | Yahoo chart | SOXX 2025-08-18..2026-08-18; EWY first collected/promoted 2026-09-02; SOXL/TQQQ/QLD/TLT/QQQ/SPY/SGOV/VGLT plus VNQ/IEF/SHY registered, not yet collected; VNQ onboarding starts 2004-09-29 and IEF/SHY 2002-07-30 | `global_etf.py` | `data/normalized/global_etf_price_daily/`; capture-first Landing/state retained | all thirteen symbols are in the 06:10 registry; VNQ is NYSE Arca CUSIP 922908553, IEF is NASDAQ CUSIP 464287440, and SHY is NASDAQ CUSIP 464287457; each has explicit leverage multiple 1. The explicit-period Yahoo route uses one call per symbol (no 5-year chunking); identity/currency/exchange/daily granularity fail closed; predictive use remains blocked. |
 | `global_equity_price_daily` | Yahoo chart | SKHY retained 2026-07-13..2026-09-03 | `global_equity.py` v1; SKHY is `EQUITY` / `DEPOSITARY_RECEIPT`, NASDAQ, ISIN `US78392B2060`, underlying `000660`; ADR ratio is unknown and remains `None` | `data/landing/global_current_refresh/`; `data/normalized/global_equity_price_daily/symbol=SKHY/year=YYYY/` | `HEALTH_REGISTERED / GLOBAL_EQUITY_DAILY / GLOBAL_DAILY_FINAL`; one-call under-one-year onboarding via `yahoo_equity`; Yahoo identity requires USD and exchange `NMS/NGM/NASDAQ/NasdaqGM`; predictive use remains blocked |
 | `tossinvest_us_quote_30m` | Toss Securities Open API `/api/v1/prices` | first retained observation 2026-09-04 22:21 KST | inline v1 contract in `tossinvest_us_quotes.py`; `(retrieved_at,symbol)` run key; positive finite USD quote | `data/landing/tossinvest/us_quotes_30m/`; `data/normalized/tossinvest_us_quote_30m/date=YYYY-MM-DD/`; `artifacts/intraday/tossinvest_us_quotes_latest.json` | `HEALTH_REGISTERED / TOSSINVEST_US_QUOTES_30M / GLOBAL_30M`; `PT30M` during `[17:00,06:00)` KST; one call, retry zero, valid-empty/prior-valid preservation, descriptive pre/regular/after/closed hint; never an official bar or close |
-| `cboe_daily_pcr_daily` | Cboe Daily Market Statistics public daily CSV/JSON; Historical Options Data URL is a coordinator-verification placeholder | no retained rows before the first human-run collection | `us_option_pcr.py` v1; `(date,scope)`; scopes `TOTAL/INDEX/ETP/EQUITY/VIX` plus optional `SPX_SPXW`; non-negative contract counts; volume/OI P/C = put ÷ call and null for zero call | sha256-bound `data/landing/cboe/daily_pcr/date=YYYY-MM-DD/<run_id>/`; `data/normalized/cboe_daily_pcr_daily/year=YYYY/`; `artifacts/scheduler_logs/STOCK_DATA_CBOE_DAILY_PCR_last.json` | `AUTOMATION_ENABLED / CBOE_DAILY_PCR / 06:30 KST DUE`; at most one request per date; private personal non-commercial display only; exact label `Cboe 거래소 합계 · 지수 · ETP · 개별주 · VIX`; guest/public, redistribution, and predictive use forbidden; live lane requires one coordinator curl plus `--endpoint-verified` |
+| `cboe_daily_pcr_daily` | Cboe Daily Market Statistics public daily CSV/JSON; Historical Options Data URL is a coordinator-verification placeholder | no retained rows before the first human-run collection | `us_option_pcr.py` v1; `(date,scope)`; scopes `TOTAL/INDEX/ETP/EQUITY/VIX` plus optional `SPX_SPXW`; non-negative contract counts; volume/OI P/C = put ÷ call and null for zero call | sha256-bound `data/landing/cboe/daily_pcr/date=YYYY-MM-DD/<run_id>/`; `data/normalized/cboe_daily_pcr_daily/year=YYYY/`; `artifacts/scheduler_logs/STOCK_DATA_CBOE_DAILY_PCR_last.json` | `MANUAL_READY / AUTOMATION_DISABLED / CBOE_DAILY_PCR`; at most one request per date; private personal non-commercial display only; exact label `Cboe 거래소 합계 · 지수 · ETP · 개별주 · VIX`; guest/public, redistribution, and predictive use forbidden; live lane requires one coordinator curl plus `--endpoint-verified` |
+| `kbsec_transactions_daily` | KB Securities read-only `SWQA2301` transaction history | no retained rows before the first coordinator live run | `kbsec_transactions.py` v1; raw-row SHA-256 key; identifier-free date/direction/category/amount/tax/summary/type-code projection | identifier-free `data/landing/kbsec/transactions/date=YYYY-MM-DD/<run_id>/`; `data/state/kbsec_transactions_daily/state.json`; `artifacts/local_user/cash_flows.json`; `artifacts/scheduler_logs/STOCK_DATA_KB_TRANSACTIONS_DAILY_last.json` | `MANUAL_READY / AUTOMATION_DISABLED / KB_TRANSACTIONS_DAILY / 07:20 KST`; prior-day seven-day overlap plus any retained-row gap, initial 2025-01-01, six rows/page via `nxt_key`, at most 40 calls, Landing-first, `kb_auto` row-hash merge, manual ledger entries untouched, `OTHER` excluded from return cash flows |
 | `kr_etf_master`, `kr_etf_price_daily` | KRX via pykrx current ETF endpoints | `123320`, `243880` retained for 2026-08-24..2026-09-02; five-call verified first run | `kr_etf.py` | `data/landing/pykrx/kr_etf_daily/`; `data/normalized/{kr_etf_master,kr_etf_price_daily}/`; exact state | `AUTOMATION_ACTIVE / KR_ETF_PRICE_DAILY / DAILY / DISPLAY_ONLY / PIT_BLOCKED`; selected-symbol union of local KRX/ETF watchlist and retained master, max 10 symbols, per-symbol 30-XKRX-session catch-up, target-missing valid-empty is `EXPECTED_PROVIDER_LAG`; see [runbook](operations/KR_ETF_DAILY.md) |
 | `market_price_60m_observation` | exact Yahoo registry | 457 finalized bars across `KRW=X`, `ZT=F`, `ZN=F`, `ZB=F`; latest 2026-08-19 12:00 UTC | `market_60m.py` v2 retained-history parser | `data/normalized/market_price_60m_observation/`; immutable Landing and state retained | `STATIC_COMPLETE / NO_REFRESH / AUTOMATION_DISABLED / PIT_BLOCKED`; the separate [current-display operation](operations/GLOBAL_MARKET_CURRENT_60M.md) writes no Normalized history or Backtest data and does not reactivate this retained dataset; Treasury rows are futures prices, not yields; equity 1Y backfill remains blocked |
 | `market_price_15m_observation` | exact Yahoo seven-symbol registry | retained Normalized segment 2026-08-19..2026-08-21; four accepted native-grid series | `market_15m.py` v1 active | `data/normalized/market_price_15m_observation/`; immutable Landing remains under `data/landing/global_market_15m/` | `STATIC_COMPLETE / INDICATIVE_DELAYED / PIT_BLOCKED`; this old retained segment is not the active polling dataset. The unified `STOCK_DATA_YAHOO_MARKET_30M` current-only task polls every 30 minutes, preserving provider-native 15-minute `^VIX/^FVX/^TNX/^TYX` bars without resampling; Treasury quote indices are not official yields. |
