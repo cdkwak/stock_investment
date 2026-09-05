@@ -235,7 +235,7 @@ def test_representative_registry_is_typed_unique_and_contract_bound() -> None:
         "kr_stock_lending_participant_daily", "kr_vkospi_daily",
         "kr_index_daily", "kr_kospi200_index_daily",
         "kr_index_fundamental_daily", "global_etf_price_daily",
-        "global_equity_price_daily", "tossinvest_us_quote_30m", "cboe_daily_pcr_daily",
+        "global_equity_price_daily", "tossinvest_us_quote_30m", "cboe_daily_pcr_daily", "kbsec_transactions_daily",
         "kr_etf_master", "kr_etf_price_daily",
         "global_index_price_daily",
         "kr_market_investor_net_purchase_bridge_daily",
@@ -300,8 +300,8 @@ def test_full_dataset_universe_reconciles_contracts_retained_research_and_operat
     assert Counter(item.operational_status for item in DATASET_UNIVERSE.values()) == {
         UniverseOperationalStatus.READY: 7,
         UniverseOperationalStatus.READY_WITH_FINALITY_GATE: 19,
-        UniverseOperationalStatus.READY_WITH_LIMITS: 24,
-        UniverseOperationalStatus.MANUAL_ONLY: 21,
+        UniverseOperationalStatus.READY_WITH_LIMITS: 25,
+        UniverseOperationalStatus.MANUAL_ONLY: 20,
         UniverseOperationalStatus.BLOCKED: 8,
         UniverseOperationalStatus.NOT_APPLICABLE: 14,
     }
@@ -313,12 +313,12 @@ def test_full_dataset_universe_reconciles_contracts_retained_research_and_operat
         PredictivePitStatus.RESEARCH_ONLY: 2,
     }
     assert Counter(item.automation_policy for item in DATASET_UNIVERSE.values()) == {
-        AutomationPolicy.MANUAL_GATE: 15,
+        AutomationPolicy.MANUAL_GATE: 14,
         AutomationPolicy.DEPENDENCY_DRIVEN: 12,
         AutomationPolicy.NO_REFRESH: 9,
         AutomationPolicy.RESEARCH_ONLY: 11,
         AutomationPolicy.DISABLED: 8,
-        AutomationPolicy.AUTO_ELIGIBLE: 38,
+        AutomationPolicy.AUTO_ELIGIBLE: 39,
     }
     assert all(sum(counts.values()) == 93 for counts in (
         Counter(item.data_role for item in DATASET_UNIVERSE.values()),
@@ -340,7 +340,7 @@ def test_full_dataset_universe_reconciles_contracts_retained_research_and_operat
         "kr_stock_lending_participant_daily", "kr_vkospi_daily",
         "kr_index_daily", "kr_kospi200_index_daily",
         "kr_index_fundamental_daily", "global_etf_price_daily",
-        "global_equity_price_daily", "tossinvest_us_quote_30m", "cboe_daily_pcr_daily",
+        "global_equity_price_daily", "tossinvest_us_quote_30m", "cboe_daily_pcr_daily", "kbsec_transactions_daily",
         "kr_etf_master", "kr_etf_price_daily",
         "global_index_price_daily", "global_commodity_futures_daily",
         "kr_market_investor_net_purchase_bridge_daily",
@@ -408,6 +408,7 @@ def test_dated_dataset_universe_artifact_remains_a_compatible_snapshot() -> None
         "kr_corp_code_map", "kr_fundamentals_quarterly",
         "us_vix_term_structure_daily",
         "global_equity_price_daily", "tossinvest_us_quote_30m", "cboe_daily_pcr_daily",
+        "kbsec_transactions_daily",
     }
     assert all(row["data_role"] and row["data_grain"] and row["refresh_policy"] for row in rows)
     def artifact_value(value: object) -> str:
@@ -657,7 +658,7 @@ def test_disabled_sox_like_candidate_onboards_without_core_branch() -> None:
         "kr_stock_lending_participant_daily", "kr_vkospi_daily",
         "kr_index_daily", "kr_kospi200_index_daily",
         "kr_index_fundamental_daily", "global_etf_price_daily",
-        "global_equity_price_daily", "tossinvest_us_quote_30m", "cboe_daily_pcr_daily",
+        "global_equity_price_daily", "tossinvest_us_quote_30m", "cboe_daily_pcr_daily", "kbsec_transactions_daily",
         "kr_etf_master", "kr_etf_price_daily",
         "global_index_price_daily",
         "kr_market_investor_net_purchase_bridge_daily",
@@ -947,7 +948,7 @@ def test_daily_lane_readiness_is_complete_and_fail_closed_for_scheduler() -> Non
             "FRED_DAILY", "LENDING_DAILY", "VKOSPI_DAILY", "KR_INDEX_DAILY",
             "KR_INDEX_FUNDAMENTAL_DAILY",
             "GLOBAL_INDEX_DAILY", "GLOBAL_ETF_DAILY", "GLOBAL_EQUITY_DAILY",
-            "GLOBAL_COMMODITY_DAILY", "TOSSINVEST_US_QUOTES_30M", "CBOE_DAILY_PCR",
+            "GLOBAL_COMMODITY_DAILY", "TOSSINVEST_US_QUOTES_30M", "CBOE_DAILY_PCR", "KB_TRANSACTIONS_DAILY",
             "KR_ETF_PRICE_DAILY", "KR_EQUITY_PROVISIONAL_DAILY",
             "MARKET_INVESTOR_DAILY",
             "SHORT_SELLING_DAILY",
@@ -1006,11 +1007,12 @@ def test_daily_lane_readiness_is_complete_and_fail_closed_for_scheduler() -> Non
         item for item in DAILY_LANE_READINESS
         if item.lane == "KB_TRANSACTIONS_DAILY"
     )
-    assert transactions_lane.status is LaneReadinessStatus.MANUAL_ONLY
-    assert transactions_lane.scheduler_eligible is False
+    # Automation turned on 2026-09-05 after the first live run (34 calls, 201 rows, COMPLETE).
+    assert transactions_lane.status is LaneReadinessStatus.READY
+    assert transactions_lane.scheduler_eligible is True
     transactions = DATASET_OPERATIONS["kbsec_transactions_daily"]
-    assert transactions.operational_status is OperationalStatus.MANUAL_READY
-    assert transactions.automation_enabled is False
+    assert transactions.operational_status is OperationalStatus.AUTO_READY
+    assert transactions.automation_enabled is True
 
 
 def test_new_global_price_datasets_have_typed_operation_and_display_routes() -> None:
@@ -1072,7 +1074,7 @@ def test_core_registry_covers_each_retained_operations_family_without_enabling_s
         "kr_stock_lending_participant_daily", "kr_vkospi_daily",
         "kr_index_daily", "kr_kospi200_index_daily",
         "kr_index_fundamental_daily", "global_etf_price_daily",
-        "global_equity_price_daily", "tossinvest_us_quote_30m", "cboe_daily_pcr_daily",
+        "global_equity_price_daily", "tossinvest_us_quote_30m", "cboe_daily_pcr_daily", "kbsec_transactions_daily",
         "kr_etf_master", "kr_etf_price_daily",
         "global_index_price_daily",
         "kr_market_investor_net_purchase_bridge_daily",

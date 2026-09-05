@@ -115,3 +115,21 @@ def test_landing_projection_removes_identifiers_before_normalization() -> None:
 def test_unknown_direction_fails_closed_instead_of_guessing() -> None:
     with pytest.raises(KBSecTransactionContractError, match="without guessing"):
         classify_transaction("새로운 미확인 요약", "77", "999")
+
+
+def test_transaction_history_page_accepts_the_continuation_process_code() -> None:
+    """KB answers processCode 0015 ("조회가 계속됩니다") on every page except the last."""
+    from stock_data.providers.kbsec.transactions import KBSecTransactionsClient
+
+    client = KBSecTransactionsClient(
+        base_url="https://example.invalid", app_key="key", app_secret="secret",
+    )
+    client.access_token = lambda: "token"  # type: ignore[method-assign]
+    client._post = lambda path, *, headers=None, body: ({  # type: ignore[method-assign]
+        "dataHeader": {"resultCode": "200", "processCode": "0015",
+                       "resultMessage": "성공", "processMessage": "조회가 계속됩니다."},
+        "dataBody": {"nxt_key": "abc", "Record1": []},
+    }, 200)
+
+    response = client.transaction_history_page(date(2025, 1, 1), date(2025, 1, 31))
+    assert response.process_code == "0015"

@@ -1608,15 +1608,15 @@ DAILY_LANE_READINESS = (
         "confirmed one-call ceiling, date idempotency, strict scope/count validation, and API-zero dry run",
         "personal local display only; guest/public and redistribution forbidden", True, None,
         "run daily after 06:30 KST only after one coordinator curl verifies the configured machine URL"),
-    LaneReadiness("KB_TRANSACTIONS_DAILY", LaneReadinessStatus.MANUAL_ONLY,
+    LaneReadiness("KB_TRANSACTIONS_DAILY", LaneReadinessStatus.READY,
         "KB Securities SWQA2301", "calendar daily at 07:20 KST",
         "as-retrieved through the prior calendar day; seven-day overlap plus retained-row gap",
         "read-only paginated POST with at most 40 page calls",
         "identifier-free Landing, row-hash state, local cash-flow ledger, and last receipt",
         "raw-row sha256 idempotency, daily occurrence claim, and API-zero dry run",
-        "local account return cash-flow input; OTHER rows excluded", False,
-        "first coordinator live run pending",
-        "run --confirm-live once, inspect the receipt and local ledger, then enable automation"),
+        "local account return cash-flow input; OTHER rows excluded", True, None,
+        "first live run 2026-09-05 COMPLETE (34 calls, 201 rows, 28 ledger entries); "
+        "Windows task STOCK_DATA_KB_TRANSACTIONS_DAILY daily 07:20 KST"),
     LaneReadiness("GLOBAL_COMMODITY_DAILY", LaneReadinessStatus.READY,
         "Yahoo chart", "global futures completed daily", "next US business day after 08:00 ET",
         "global_current_refresh yahoo_dashboard_futures prepare/promote", "run checkpoint plus promotion journal",
@@ -2050,7 +2050,7 @@ CORE_DATASET_SPECS = REPRESENTATIVE_DATASET_SPECS + (
         primary_source="KB Securities SWQA2301",
         contract_id="kbsec_transactions_daily",
         contract_version=1,
-        operational_status=OperationalStatus.MANUAL_READY,
+        operational_status=OperationalStatus.AUTO_READY,
         freshness_policy=FreshnessPolicy(
             "kbsec_transactions_0720_kst", "Asia/Seoul",
             "prior calendar day covered once daily at 07:20 KST",
@@ -2064,7 +2064,7 @@ CORE_DATASET_SPECS = REPRESENTATIVE_DATASET_SPECS + (
         pipeline_dependencies=(),
         idempotency_status=IdempotencyStatus.CONFIRMED,
         pit_status=PitStatus.NON_PREDICTIVE,
-        automation_enabled=False,
+        automation_enabled=True,
         provider_auth_id="kbsec",
         validation_policy=(
             "Landing-first identifier-free projection, strict pagination/page ceiling, "

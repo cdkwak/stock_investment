@@ -918,7 +918,7 @@ _FINALITY_GATE_IDS = frozenset({
 })
 _READY_WITH_LIMITS_IDS = frozenset({
     "global_index_price_daily", "global_etf_price_daily", "global_equity_price_daily",
-    "global_commodity_futures_daily", "tossinvest_us_quote_30m", "cboe_daily_pcr_daily",
+    "global_commodity_futures_daily", "tossinvest_us_quote_30m", "cboe_daily_pcr_daily", "kbsec_transactions_daily",
     "kr_etf_master", "kr_etf_price_daily", "kr_equity_price_provisional_daily",
     "kr_equity_investor_flow_daily",
     "fred_treasury_yield_daily", "fred_usd_fx_daily", "fred_vix_daily",
@@ -1242,6 +1242,7 @@ _AUTO_ENABLED_IDS: frozenset[str] = frozenset({
     "kr_market_investor_trading_daily",
     "kr_corp_code_map", "kr_fundamentals_quarterly",
     "cboe_daily_pcr_daily",
+    "kbsec_transactions_daily",
 })
 
 

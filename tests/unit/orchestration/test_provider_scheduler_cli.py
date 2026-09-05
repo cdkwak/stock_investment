@@ -432,7 +432,7 @@ def test_every_automation_enabled_dataset_lane_has_a_scheduler_route() -> None:
         for lane in lanes
     } | {
         "FRED_DAILY", "GLOBAL_ETF_DAILY", "GLOBAL_EQUITY_DAILY",
-        "TOSSINVEST_US_QUOTES_30M", "CBOE_DAILY_PCR", "GLOBAL_INDEX_DAILY",
+        "TOSSINVEST_US_QUOTES_30M", "CBOE_DAILY_PCR", "KB_TRANSACTIONS_DAILY", "GLOBAL_INDEX_DAILY",
         "GLOBAL_COMMODITY_DAILY", "BOK_TREASURY_OBSERVATION_DAILY",
         "BOK_FX_DAILY",
     }

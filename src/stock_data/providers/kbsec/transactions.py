@@ -90,7 +90,9 @@ class KBSecTransactionsClient(KBSecClient):
         process_code = self._safe(header.get("processCode")) or ""
         result_message = self._safe(header.get("resultMessage"))
         process_message = self._safe(header.get("processMessage"))
-        if result_code != "200" or process_code != "0011":
+        # 0011 = complete; 0015 = "조회가 계속됩니다 · 다음키" (more pages follow, nxt_key set).
+        # Verified live 2026-09-05: the first SWQA2301 page of a multi-page window answers 0015.
+        if result_code != "200" or process_code not in {"0011", "0015"}:
             raise KBSecBusinessError(
                 "KB transaction history rejected",
                 http_status=http_status,
