@@ -566,9 +566,11 @@
     document.querySelectorAll("[data-timeline-crisis]").forEach((button) => button.addEventListener("click", () => selectCrisisTimelineWindow(button.dataset.timelineCrisis)));
 
     const assets = $("crisis-timeline-assets");
-    assets.hidden = !modeA;
-    if (modeA) {
-      assets.innerHTML = `<legend>표시할 선 · 최대 4개</legend>${(payload.series || []).map((item) => `<label><input type="checkbox" data-timeline-series="${esc(item.id)}" ${crisisTimelineState.enabled.has(item.id) ? "checked" : ""} ${item.missing_reason ? "disabled" : ""}> ${esc(item.label)}</label>`).join("")}`;
+    // The picker follows the payload's series in BOTH modes (review 09-06: Mode B kept showing the
+    // Mode A checkboxes — '미국 10Y' checked with no such line, and no way to toggle the countries).
+    assets.hidden = false;
+    {
+      assets.innerHTML = `<legend>${modeA ? "표시할 선 · 최대 4개" : "표시할 나라"}</legend>${(payload.series || []).map((item) => `<label><input type="checkbox" data-timeline-series="${esc(item.id)}" ${crisisTimelineState.enabled.has(item.id) ? "checked" : ""} ${item.missing_reason ? "disabled" : ""}> ${esc(item.label)}${item.missing_reason ? " (자료 없음)" : ""}</label>`).join("")}`;
       assets.querySelectorAll("[data-timeline-series]").forEach((input) => input.addEventListener("change", () => {
         if (input.checked) crisisTimelineState.enabled.add(input.dataset.timelineSeries);
         else crisisTimelineState.enabled.delete(input.dataset.timelineSeries);
@@ -582,7 +584,8 @@
     $("crisis-timeline-legend").innerHTML = visible.map((item) => {
       const color = crisisTimelineColors[item.symbol] || "#5d6d7e";
       const kind = item.index_kind === "total_return" ? " · 총수익(배당 포함)" : "";
-      return `<span class="crisis-timeline-legend-row" style="color:${esc(color)}"><i class="crisis-timeline-legend-swatch"></i><span>${esc(item.label)}${esc(kind)}</span></span>`;
+      const suffix = item.legend_suffix ? ` ${item.legend_suffix}` : "";
+      return `<span class="crisis-timeline-legend-row" style="color:${esc(color)}"><i class="crisis-timeline-legend-swatch"></i><span>${esc(item.label)}${esc(suffix)}${esc(kind)}</span></span>`;
     }).join("") + `<span class="crisis-timeline-legend-kind${kindWarning ? " warning" : ""}">${esc(payload.legend_note || payload.data_kind_caption || "")}</span>`;
   }
 
@@ -598,9 +601,7 @@
     if (!payload) return;
     destroyCrisisTimelineChart();
     const allSeries = payload.series || [];
-    const visible = allSeries.filter((item) => !item.missing_reason && (
-      payload.mode === "B" || crisisTimelineState.enabled.has(item.id)
-    ));
+    const visible = allSeries.filter((item) => !item.missing_reason && crisisTimelineState.enabled.has(item.id));
     renderCrisisTimelineLegend(payload, visible);
     renderCrisisTimelineCaption(payload);
     $("crisis-timeline-left-axis").textContent = (payload.axis || {}).left || "";
@@ -667,8 +668,12 @@
   }
 
   function acceptCrisisTimelinePayload(payload, { resetAssets = false } = {}) {
+    const previous = crisisTimelineState.payload;
     crisisTimelineState.payload = payload;
-    if (resetAssets || !crisisTimelineState.enabled.size) {
+    const modeChanged = !previous || previous.mode !== payload.mode || previous.country !== payload.country;
+    const known = new Set((payload.series || []).map((item) => item.id));
+    const stillValid = [...crisisTimelineState.enabled].some((id) => known.has(id));
+    if (resetAssets || modeChanged || !stillValid) {
       crisisTimelineState.enabled = new Set((payload.series || []).filter((item) => item.default_visible && !item.missing_reason).map((item) => item.id));
     }
     renderCrisisTimelineControls(payload);

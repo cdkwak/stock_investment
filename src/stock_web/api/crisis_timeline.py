@@ -348,9 +348,21 @@ def _kr_yield_frames(
 def _line(
     *, series_id: str, label: str, symbol: str, index_kind: str | None,
     axis: str, default_visible: bool, frame: pd.DataFrame, retained_from: str,
-    normalize: bool = False, source: str,
+    normalize: bool = False, source: str, window_start: str | None = None,
 ) -> tuple[dict[str, object], str | None]:
     missing = _missing_reason(label, retained_from) if frame.empty else None
+    partial_note: str | None = None
+    legend_suffix: str | None = None
+    if not frame.empty and window_start is not None:
+        first_time = pd.Timestamp(frame.iloc[0]["date"]).date().isoformat()
+        if _starts_late(first_time, window_start):
+            partial_note = (
+                f"{label}: {first_time}부터만 표시 — 구간 시작 {window_start}에는 "
+                f"보존 데이터 없음(retained from {retained_from})"
+            )
+            if normalize:
+                partial_note += " · 자기 첫 관측일 = 100"
+                legend_suffix = f"({first_time} = 100)"
     return ({
         "id": series_id,
         "label": label,
@@ -363,8 +375,10 @@ def _line(
         "retained_from": retained_from,
         "source": source,
         "missing_reason": missing,
+        "partial_note": partial_note,
+        "legend_suffix": legend_suffix,
         "data": _points(frame, normalize=normalize),
-    }, missing)
+    }, missing or partial_note)
 
 
 def _mode_a(
@@ -383,7 +397,7 @@ def _mode_a(
         series_id=index_symbol.lower(), label=definition["label"], symbol=index_symbol,
         index_kind=definition["index_kind"], axis="left", default_visible=True,
         frame=index_frame, retained_from=definition["retained_from"], normalize=False,
-        source="retained normalized price index",
+        source="retained normalized price index", window_start=start,
     ))
     if country == "US":
         raw = query.read(
@@ -395,7 +409,7 @@ def _mode_a(
                 series_id=column, label=label, symbol=column.upper(), index_kind=None,
                 axis="right", default_visible=default_visible,
                 frame=_series_frame(raw, column), retained_from=retained_from,
-                normalize=False, source="FRED",
+                normalize=False, source="FRED", window_start=start,
             ))
     else:
         kr_yields = _kr_yield_frames(query, start=start, end=end)
@@ -405,7 +419,7 @@ def _mode_a(
                 index_kind=None, axis="right", default_visible=default_visible,
                 frame=kr_yields[tenor],
                 retained_from=retained_from, normalize=False,
-                source="BOK ECOS · BOK 마지막 관측 이후 Toss 연장",
+                source="BOK ECOS · BOK 마지막 관측 이후 Toss 연장", window_start=start,
             ))
         market_rates = query.read(
             "normalized/bok_ecos_kr_market_rate_daily",
@@ -420,7 +434,7 @@ def _mode_a(
                 series_id=series_id, label=label, symbol=series_key, index_kind=None,
                 axis="right", default_visible=False, frame=_series_frame(part, "rate_percent"),
                 retained_from=retained_from, normalize=False,
-                source="BOK ECOS 817Y002 · 국고채와 별도 계열(이어 붙이지 않음)",
+                source="BOK ECOS 817Y002 · 국고채와 별도 계열(이어 붙이지 않음)", window_start=start,
             ))
     series = [item[0] for item in frames]
     missing = [item[1] for item in frames if item[1]]
@@ -488,16 +502,11 @@ def _mode_b(
             series_id=symbol.lower(), label=definition["label"], symbol=symbol,
             index_kind=definition["index_kind"], axis="left", default_visible=True,
             frame=frame, retained_from=definition["retained_from"], normalize=True,
-            source="retained normalized price index",
+            source="retained normalized price index", window_start=start,
         )
         lines.append(line)
         if missing:
             missing_notes.append(missing)
-        elif line["data"] and _starts_late(str(line["data"][0]["time"]), start):
-            missing_notes.append(
-                f"{definition['label']}: {line['data'][0]['time']}부터만 표시 — 구간 시작 {start}에는 "
-                f"보존 데이터 없음(retained from {definition['retained_from']}) · 자기 첫 관측일 = 100"
-            )
     data_kind_caption = _data_kind_caption(lines)
     drawn_note = _drawn_countries_note(lines, requested)
     selected = CRISIS_WINDOWS[crisis]

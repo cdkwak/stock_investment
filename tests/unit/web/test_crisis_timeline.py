@@ -180,6 +180,7 @@ def test_mode_b_partial_line_says_where_it_starts() -> None:
     euro = next(line for line in payload["series"] if line["symbol"] == "CAC40")
     assert euro["data"][0]["time"] == "1990-03-01" and euro["data"][0]["value"] == pytest.approx(100.0)
     assert any(note.startswith("CAC 40 (프랑스): 1990-03-01부터만 표시 — 구간 시작 1989-12-01") for note in payload["missing_notes"])
+    assert euro["legend_suffix"] == "(1990-03-01 = 100)"   # blog captures carry the axis label, so the legend says whose 100 differs
 
 
 def test_mode_b_refuses_to_mix_price_and_total_return_bases() -> None:
@@ -269,4 +270,26 @@ def test_mode_a_korea_carries_separate_market_rate_lines_for_1997() -> None:
     assert corp["axis"] == "right" and corp["default_visible"] is False
     assert "별도 계열" in corp["source"]
     assert corp["missing_reason"] == "회사채 3년(AA−): 선택한 구간에 보존 데이터 없음 (retained from 1995-01-03)"
+
+
+def test_mode_a_flags_a_line_that_starts_inside_the_window() -> None:
+    """Review 09-06: in the 1997 window 한국 3Y began 1998-11 (last third of the window) with no
+    note — the partial-start rule now lives in _line() and applies to both modes."""
+    root = _root()
+    _fixtures(root)
+    kr_root = root / "data/normalized/bok_ecos_kr_treasury_yield_source_observation"
+    dates = pd.bdate_range("1998-11-13", "1999-06-30")
+    _write(root, "normalized/bok_ecos_kr_treasury_yield_source_observation", pd.DataFrame({
+        "date": dates, "tenor": ["3Y"] * len(dates), "yield_percent": [7.0] * len(dates),
+    }))
+
+    payload = build_crisis_timeline_payload(root, mode="A", country="KR", crisis="1997", index_choice="NASDAQ100")
+
+    kr3y = next(line for line in payload["series"] if line["id"] == "kr3y")
+    assert kr3y["missing_reason"] is None
+    assert kr3y["partial_note"] == (
+        "한국 3Y: 1998-11-13부터만 표시 — 구간 시작 1997-06-01에는 보존 데이터 없음(retained from 1998-11-13)"
+    )
+    assert kr3y["legend_suffix"] is None            # Mode A is not normalised: no "= 100" tail
+    assert kr3y["partial_note"] in payload["missing_notes"]
 
