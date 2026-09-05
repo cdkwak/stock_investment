@@ -1025,7 +1025,7 @@ def build_derivatives(
                 expected = getattr(health_rows.get(dataset_id), "expected", None)
                 return expected if isinstance(expected, str) and expected != "N/A" else None
 
-            # Home consumes only these four metrics. Avoid constructing every dashboard
+            # Home consumes only these three guarded metrics. Avoid constructing every dashboard
             # metric (and both exchange calendars) merely to discard the rest.
             return {
                 "KOSPI200_BASIS": service._local_derivative_metric(
@@ -1054,11 +1054,6 @@ def build_derivatives(
                     expected_as_of=health_expected("kr_kospi200_option_pcr_daily"),
                     require_expected_as_of=True,
                 ),
-                "LS_FUTURES_FOREIGN_NET": service._local_derivative_metric(
-                    "LS_FUTURES_FOREIGN_NET", "LS 선물 외국인 순계약",
-                    "ls_t8462_daily_raw", "contracts",
-                    service._read_ls_futures_foreign_net_metric,
-                ),
             }
 
         metrics = home_metrics()
@@ -1085,6 +1080,27 @@ def build_derivatives(
             value = pattern.format(float(metric.value))
             return f"{value} · {format_kst(metric.as_of)}" if metric.as_of else value
         return unavailable(getattr(metric, "unavailable_reason", None))
+
+    def ls_investor_summary() -> str:
+        try:
+            raw = service.derivatives.ls_flow("K2I_F_U")
+            rows = raw.get("rows") or []
+            latest = rows[-1]
+            observed = pd.to_datetime(latest.get("date"), errors="coerce")
+            if pd.isna(observed):
+                raise ValueError("LS t8462 latest date missing")
+
+            def contracts(key: str) -> str:
+                value = pd.to_numeric(latest.get(key), errors="coerce")
+                return "—" if pd.isna(value) else f"{float(value):+,.0f}"
+
+            return (
+                f"외 {contracts('foreign_contracts')} · "
+                f"기 {contracts('institution_contracts')} · "
+                f"개 {contracts('individual_contracts')} · {observed:%m-%d}"
+            )
+        except (AttributeError, IndexError, KeyError, OSError, PermissionError, TypeError, ValueError):
+            return "보존 데이터 없음"
 
     from stock_web.api.home_cards import build_vix_term_structure_rows
 
@@ -1122,7 +1138,7 @@ def build_derivatives(
             ["선물 Basis", display("KOSPI200_BASIS", "{:+.2f}")],
             ["거래량 PCR", display("VOLUME_PCR", "{:.3f}")],
             ["미결제약정 PCR", display("OI_PCR", "{:.3f}")],
-            ["LS 선물 외국인 순계약", display("LS_FUTURES_FOREIGN_NET", "{:+,.0f}")],
+            ["선물 순계약 외국인/기관/개인", ls_investor_summary()],
         ]},
         {"title": "미국", "rows": us_rows},
     ]}
@@ -1217,7 +1233,18 @@ def build_watchlist(project_root: Path, *, public_mode: bool = False) -> dict[st
     if public_mode:
         from stock_web.api.stocks_page import build_home_watchlist
 
-        return build_home_watchlist(project_root, public_mode=True)
+        payload = build_home_watchlist(project_root, public_mode=True)
+        rows = payload.get("rows")
+        if isinstance(rows, list):
+            payload["rows"] = [
+                {
+                    key: value for key, value in row.items()
+                    if key not in {"flow_foreign", "flow_inst", "flow_indiv"}
+                }
+                if isinstance(row, dict) else row
+                for row in rows
+            ]
+        return payload
     from stock_web.api.home_cards import build_watchlist as build_watchlist_card
 
     return build_watchlist_card(project_root)

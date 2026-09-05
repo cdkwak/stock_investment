@@ -439,35 +439,54 @@ def _held_symbols(project_root: Path, account_page_payload: Mapping[str, object]
 
 
 def _investor_flow_summaries(
-    project_root: Path, symbols: set[str],
+    project_root: Path, symbols: set[str], *, etf: bool = False,
 ) -> dict[str, dict[str, object]]:
     """Return raw-won 1/5/20-session net-purchase sums by Korean symbol."""
-    root = project_root / "data/normalized/kr_equity_investor_flow_daily"
+    if etf:
+        root = project_root / "data/normalized/kr_etf_investor_flow_daily"
+        value_columns = {
+            "foreign_net_krw": "foreign_net",
+            "institution_net_krw": "institution_net",
+            "individual_net_krw": "individual_net",
+        }
+        timestamp_column = "retrieved_at"
+    else:
+        root = project_root / "data/normalized/kr_equity_investor_flow_daily"
+        value_columns = {
+            "foreign_net": "foreign_net",
+            "institution_net": "institution_net",
+            "individual_net": "individual_net",
+        }
+        timestamp_column = "captured_at"
     if not symbols or not root.is_dir():
         return {}
+    source_columns = ["date", "symbol", *value_columns]
     columns = ["date", "symbol", "foreign_net", "institution_net", "individual_net"]
     try:
         dataset = pads.dataset(root, format="parquet", partitioning=None)
-        read_columns = [*columns]
-        if "captured_at" in dataset.schema.names:
-            read_columns.append("captured_at")
+        read_columns = [*source_columns]
+        if timestamp_column in dataset.schema.names:
+            read_columns.append(timestamp_column)
         frame = dataset.to_table(
             columns=read_columns,
             filter=pads.field("symbol").isin(sorted(symbols)),
         ).to_pandas()
     except Exception:
         return {}
-    if frame.empty or not set(columns).issubset(frame.columns):
+    if frame.empty or not set(source_columns).issubset(frame.columns):
         return {}
+    frame = frame.rename(columns=value_columns)
     frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
     for column in columns[2:]:
         frame[column] = pd.to_numeric(frame[column], errors="coerce")
     frame["symbol"] = frame["symbol"].astype(str).map(_kr_symbol)
     frame = frame.dropna(subset=["date", *columns[2:]])
     sort_columns = ["date"]
-    if "captured_at" in frame.columns:
-        frame["captured_at"] = pd.to_datetime(frame["captured_at"], utc=True, errors="coerce")
-        sort_columns.append("captured_at")
+    if timestamp_column in frame.columns:
+        frame[timestamp_column] = pd.to_datetime(
+            frame[timestamp_column], utc=True, errors="coerce",
+        )
+        sort_columns.append(timestamp_column)
     summaries: dict[str, dict[str, object]] = {}
     for symbol, rows in frame.groupby("symbol", sort=False):
         rows = (
@@ -500,12 +519,22 @@ def build_watchlist(project_root: Path) -> dict[str, object]:
             return {"reason": str(payload.get("reason") or "관심종목을 읽을 수 없습니다.")}
         account_payload = build_account_page_data(project_root)
         kr, us = _held_symbols(project_root, account_payload)
-        symbols = {
+        equity_symbols = {
             _kr_symbol(row.get("symbol")) for row in rows
             if isinstance(row, Mapping)
             and re.fullmatch(r"\d{6}", _kr_symbol(row.get("symbol")))
+            and row.get("security_type") != "ETF"
         }
-        investor_by_symbol = _investor_flow_summaries(project_root, symbols)
+        etf_symbols = {
+            _kr_symbol(row.get("symbol")) for row in rows
+            if isinstance(row, Mapping)
+            and re.fullmatch(r"\d{6}", _kr_symbol(row.get("symbol")))
+            and row.get("security_type") == "ETF"
+        }
+        equity_investor = _investor_flow_summaries(project_root, equity_symbols)
+        etf_investor = _investor_flow_summaries(
+            project_root, etf_symbols, etf=True,
+        )
         held_count = 0
         projected: list[dict[str, object]] = []
         for row in rows:
@@ -514,8 +543,16 @@ def build_watchlist(project_root: Path) -> dict[str, object]:
             symbol = str(row.get("symbol") or "").strip().upper()
             held = _kr_symbol(symbol) in kr if len(symbol) == 6 and symbol[0:1].isdigit() else symbol in us
             held_count += int(held)
-            projected_row = {**row, "held": held, "weight_pct": None}
-            investor = investor_by_symbol.get(_kr_symbol(symbol))
+            projected_row = {
+                key: value for key, value in row.items()
+                if key not in {"flow_foreign", "flow_inst", "flow_indiv"}
+            }
+            projected_row.update(held=held, weight_pct=None)
+            investor = (
+                etf_investor.get(_kr_symbol(symbol))
+                if row.get("security_type") == "ETF"
+                else equity_investor.get(_kr_symbol(symbol))
+            )
             if investor is not None:
                 projected_row["investor"] = investor
             projected.append(projected_row)

@@ -241,6 +241,23 @@ def test_korean_equity_investor_flow_contract_is_registered_at_symbol_date_grain
     )
 
 
+def test_korean_etf_investor_flow_contract_keeps_etf_native_participants_separate() -> None:
+    contract = CONTRACTS["kr_etf_investor_flow_daily"]
+    assert contract.primary_key == ("date", "symbol")
+    assert contract.partition_by == ("symbol", "year")
+    assert contract.column_names == (
+        "date", "symbol", "institution_net_krw",
+        "other_corporation_net_krw", "individual_net_krw",
+        "foreign_net_krw", "total_net_krw", "provider", "retrieved_at",
+    )
+    assert all(
+        column.dtype == "int64" and column.unit == "KRW"
+        for column in contract.columns[2:7]
+    )
+    assert "기관합계" not in contract.source
+    assert "MDCSTAT04902" in contract.source
+
+
 def test_first_global_equity_registry_entry_is_exact_skhy_adr_identity() -> None:
     assert GLOBAL_EQUITY_DAILY_SYMBOLS == ("SKHY",)
     assert CONTRACTS["global_equity_price_daily"] is GLOBAL_EQUITY_PRICE_DAILY

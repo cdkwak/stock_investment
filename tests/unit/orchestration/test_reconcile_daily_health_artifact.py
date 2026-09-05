@@ -64,7 +64,7 @@ def test_freshness_is_independent_of_operational_block():
 
 
 def test_reconcile_rejects_partial_registry():
-    with pytest.raises(ValueError, match="49-entry"):
+    with pytest.raises(ValueError, match="50-entry"):
         MODULE.reconcile({"datasets": []}, run_id="x", as_of="2026-08-18T18:00:00+09:00")
 
 
@@ -96,19 +96,19 @@ def test_universe_health_v2_preserves_all_axes_without_inventing_expected_dates(
         {"datasets": rows}, run_id="universe-v2", as_of="2026-08-18T23:00:00+09:00",
     )
     result = MODULE.reconcile_universe(core)
-    assert result["dataset_count"] == 93
-    assert result["core_operations_count"] == 49
+    assert result["dataset_count"] == 94
+    assert result["core_operations_count"] == 50
     assert result["automation_enabled_count"] == 51
-    assert result["operations_registry_count"] == 49
+    assert result["operations_registry_count"] == 50
     assert result["core_operation_missing"] == []
     assert result["generated_at"] == "2026-08-18T23:00:00+09:00"
     assert result["core_reference_time"] == "2026-08-18T23:00:00+09:00"
-    assert result["dimension_summary"]["grain"]["DAILY"] == 72
+    assert result["dimension_summary"]["grain"]["DAILY"] == 73
     assert result["dimension_summary"]["operational"]["BLOCKED"] == 8
     assert result["schema_version"] == 2
-    assert sum(result["dimension_summary"]["display_consumer_eligibility"].values()) == 93
-    assert sum(result["dimension_summary"]["research_consumer_eligibility"].values()) == 93
-    assert sum(result["dimension_summary"]["predictive_consumer_eligibility"].values()) == 93
+    assert sum(result["dimension_summary"]["display_consumer_eligibility"].values()) == 94
+    assert sum(result["dimension_summary"]["research_consumer_eligibility"].values()) == 94
+    assert sum(result["dimension_summary"]["predictive_consumer_eligibility"].values()) == 94
     assert all(
         row["display_consumer_eligibility"]
         and row["display_consumer_reason"]
@@ -254,9 +254,9 @@ def test_universe_health_accepts_historical_core_subset_and_exposes_registry_gap
         "datasets": rows,
     })
 
-    assert result["dataset_count"] == 93
-    assert result["core_operations_count"] == 46
-    assert result["operations_registry_count"] == 49
+    assert result["dataset_count"] == 94
+    assert result["core_operations_count"] == 47
+    assert result["operations_registry_count"] == 50
     assert result["core_operation_missing"] == sorted(omitted)
     bounded = next(
         row for row in result["datasets"]
@@ -496,7 +496,7 @@ def test_coverage_resolution_marks_probe_static_and_none_and_warns(
     assert "표는 손으로 적은 값" in static["display_reason"]
     assert (absent["latest"], absent["coverage_source"]) == (None, "none")
     assert result["coverage_source_summary"] == {
-        "none": 18, "probe": 1, "static_table": 74,
+        "none": 19, "probe": 1, "static_table": 74,
     }
     assert result["coverage_warnings"] == [{
         "level": "WARN",

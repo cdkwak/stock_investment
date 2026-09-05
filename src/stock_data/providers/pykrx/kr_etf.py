@@ -32,6 +32,10 @@ class KrEtfProvider(Protocol):
         self, start: date, end: date, symbol: str,
     ) -> pd.DataFrame: ...
 
+    def get_etf_investor_flow_by_date(
+        self, start: date, end: date, symbol: str,
+    ) -> pd.DataFrame: ...
+
 
 def _sanitize(value: object) -> str:
     text = str(value)
@@ -113,6 +117,23 @@ class PykrxEtfClient:
         )
         if not isinstance(value, pd.DataFrame):
             raise KrEtfProviderError(f"pykrx ETF OHLCV type differs: {symbol}")
+        return value.copy(deep=True)
+
+    def get_etf_investor_flow_by_date(
+        self, start: date, end: date, symbol: str,
+    ) -> pd.DataFrame:
+        if not re.fullmatch(r"[0-9A-Z]{6}", symbol):
+            raise ValueError("Korean ETF symbol must be a six-character KRX code")
+        value = self._call(
+            "get_etf_trading_volume_and_value",
+            start.strftime("%Y%m%d"),
+            end.strftime("%Y%m%d"),
+            symbol,
+            "거래대금",
+            "순매수",
+        )
+        if not isinstance(value, pd.DataFrame):
+            raise KrEtfProviderError(f"pykrx ETF investor-flow type differs: {symbol}")
         return value.copy(deep=True)
 
 

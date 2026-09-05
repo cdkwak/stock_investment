@@ -35,6 +35,17 @@ class FakeStock:
             index=pd.to_datetime(["2026-09-01"]),
         )
 
+    @classmethod
+    def get_etf_trading_volume_and_value(cls, *args):
+        cls.calls.append(("investor", *args))
+        return pd.DataFrame(
+            {
+                "기관": [100], "기타법인": [20], "개인": [-70],
+                "외국인": [-50], "전체": [0],
+            },
+            index=pd.to_datetime(["2026-09-01"]),
+        )
+
 
 def _client() -> PykrxEtfClient:
     return PykrxEtfClient(
@@ -67,3 +78,18 @@ def test_pykrx_etf_adapter_preserves_raw_frames_and_exact_call_arguments() -> No
 def test_pykrx_etf_live_adapter_is_disabled_without_explicit_manual_mode() -> None:
     with pytest.raises(PykrxAutomationDisabledError, match="automation is disabled"):
         PykrxEtfClient(manual=False, requested_days=1)
+
+
+def test_pykrx_etf_adapter_calls_exact_investor_net_value_overload() -> None:
+    FakeStock.calls.clear()
+    client = _client()
+
+    frame = client.get_etf_investor_flow_by_date(
+        date(2026, 8, 24), date(2026, 9, 2), "123320",
+    )
+
+    assert list(frame.columns) == ["기관", "기타법인", "개인", "외국인", "전체"]
+    assert FakeStock.calls == [(
+        "investor", "20260824", "20260902", "123320", "거래대금", "순매수",
+    )]
+    assert client.request_count == 1

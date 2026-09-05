@@ -191,6 +191,86 @@ def test_watchlist_adds_plain_column_investor_flow_session_sums(
     assert "investor" not in rows[1]
 
 
+def test_watchlist_reads_separate_etf_investor_flows_for_three_tiger_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = new_temp_root()
+    dates = pd.date_range("2026-08-01", periods=20)
+    symbols = ("123320", "243880", "139260")
+    units = pd.Series(range(1, 21), dtype="int64") * 100_000_000
+    frames = []
+    for symbol in symbols:
+        frames.append(pd.DataFrame({
+            "date": dates,
+            "symbol": [symbol] * 20,
+            "institution_net_krw": -units * 2,
+            "other_corporation_net_krw": units - units,
+            "individual_net_krw": units,
+            "foreign_net_krw": units,
+            "total_net_krw": units - units,
+            "provider": ["pykrx"] * 20,
+            "retrieved_at": pd.to_datetime(["2026-09-05T07:20:00Z"] * 20),
+        }))
+    _write_parquet(
+        root,
+        "data/normalized/kr_etf_investor_flow_daily/data.parquet",
+        pd.concat(frames, ignore_index=True),
+    )
+    monkeypatch.setattr(stocks_page, "build_home_watchlist", lambda _root: {
+        "rows": [{
+            "name": name,
+            "symbol": symbol,
+            "market": "KRX",
+            "security_type": "ETF",
+            "flow_foreign": None,
+            "flow_inst": None,
+            "flow_indiv": None,
+        } for name, symbol in (
+            ("TIGER 레버리지", "123320"),
+            ("TIGER 200IT레버리지", "243880"),
+            ("TIGER 200 IT", "139260"),
+        )],
+        "held_count": 0,
+        "watch_count": 3,
+    })
+    monkeypatch.setattr(account_page, "build_account_page_data", lambda _root: {
+        "manual_accounts": {"accounts": []},
+    })
+
+    rows = home_cards.build_watchlist(root)["rows"]
+
+    assert [row["symbol"] for row in rows] == list(symbols)
+    assert all(row["investor"]["as_of"] == "2026-08-20" for row in rows)
+    assert all(row["investor"]["foreign_1d"] == 2_000_000_000 for row in rows)
+    assert all(row["investor"]["institution_5d"] == -18_000_000_000 for row in rows)
+    assert all(row["investor"]["individual_20d"] == 21_000_000_000 for row in rows)
+    assert all(
+        not {"flow_foreign", "flow_inst", "flow_indiv"}.intersection(row)
+        for row in rows
+    )
+
+
+def test_public_home_watchlist_removes_dead_null_flow_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        stocks_page,
+        "build_home_watchlist",
+        lambda _root, *, public_mode: {
+            "rows": [{
+                "symbol": "123320", "security_type": "ETF",
+                "flow_foreign": None, "flow_inst": None, "flow_indiv": None,
+            }],
+            "public_mode": public_mode,
+        },
+    )
+
+    payload = home_data.build_watchlist(new_temp_root(), public_mode=True)
+
+    assert payload["public_mode"] is True
+    assert payload["rows"] == [{"symbol": "123320", "security_type": "ETF"}]
+
+
 def test_account_extras_use_existing_source_and_cash_flow_fields_only() -> None:
     payload = {
         "summary": {"sources": [{
@@ -310,6 +390,33 @@ def test_derivatives_translate_provider_warning_and_hide_us_missing_values(
     assert [row[1] for row in result["groups"][1]["rows"]] == [
         "미표시", "미표시 · 보존된 Cboe 일별 통계 없음 (수집 전 · 기계 URL 확인 대기)",
     ]
+
+
+def test_home_derivatives_show_latest_three_ls_futures_investors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from stock_data.gui import health_service, services
+
+    class FakeDerivatives:
+        @staticmethod
+        def ls_flow(_scope: str) -> dict[str, object]:
+            return {"rows": [{
+                "date": pd.Timestamp("2026-09-04"),
+                "foreign_contracts": 1234,
+                "institution_contracts": -567,
+                "individual_contracts": 89,
+                "other_contracts": -756,
+            }]}
+
+    fake_service = SimpleNamespace(
+        dashboard_metrics=lambda _health: {}, derivatives=FakeDerivatives(),
+    )
+    monkeypatch.setattr(health_service, "DailyHealthArtifactService", lambda _root: SimpleNamespace(load=lambda: None))
+    monkeypatch.setattr(services, "DashboardService", lambda _root: fake_service)
+
+    rows = dict(home_data.build_derivatives(new_temp_root(), public_mode=True)["groups"][0]["rows"])
+
+    assert rows["선물 순계약 외국인/기관/개인"] == "외 +1,234 · 기 -567 · 개 +89 · 09-04"
 
 
 def test_home_derivatives_show_retained_cboe_pcr_only_in_private_mode() -> None:

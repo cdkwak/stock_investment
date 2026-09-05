@@ -1553,6 +1553,15 @@ DAILY_LANE_READINESS = (
         "confirmed offline symbol/window/lag/idempotency fixtures and retained-date replay",
         "AS_RETRIEVED display-only health adapter", True, None,
         "run immediately after canonical equity in the 20:30 KST bundle; at most 10 selected symbols and never the full ETF universe"),
+    LaneReadiness("KR_ETF_INVESTOR_FLOW_DAILY", LaneReadinessStatus.MANUAL_ONLY,
+        "KRX MDCSTAT04902[13207] via pykrx", "KR trading daily",
+        "as-retrieved completed-date values; publication/revision finality unresolved",
+        "per-symbol ETF 거래대금/순매수 calls in at-most-10-calendar-day windows",
+        "immutable Landing frames plus atomic Normalized dataset and last receipt",
+        "confirmed strict ETF columns, retained-key idempotency, read-back, and API-zero dry run",
+        "watchlist investor summaries; descriptive only and predictive PIT blocked", False,
+        "first coordinator live receipt and publication-time check are pending",
+        "run the first bounded live collection manually, verify the receipt/current XKRX date, then consider the proposed 16:20 KST schedule"),
     LaneReadiness("KR_INDEX_FUNDAMENTAL_DAILY", LaneReadinessStatus.READY,
         "KRX MDCSTAT00702", "KR trading daily", "prior completed XKRX session",
         "two-ticker retry-zero range capture then joint normalized/state promotion",
@@ -2085,6 +2094,17 @@ CORE_DATASET_SPECS = REPRESENTATIVE_DATASET_SPECS + (
         pit=PitStatus.PIT_BLOCKED, idempotency=IdempotencyStatus.CONFIRMED,
         automation_enabled=True,
     ),
+    _registered_manual_spec(
+        "kr_etf_investor_flow_daily",
+        "Selected Korean ETF investor net-purchase amounts",
+        "KRX MDCSTAT04902[13207] via pykrx",
+        1,
+        provider_auth_id="pykrx_login",
+        pit=PitStatus.PIT_BLOCKED,
+        idempotency=IdempotencyStatus.CONFIRMED,
+        dashboard_required=True,
+        automation_enabled=False,
+    ),
     _registered_manual_spec("kr_vkospi_daily", "Official KRX VKOSPI daily", "KRX MDCSTAT01201:1300",
         1, provider_auth_id="krx_open_api", status=OperationalStatus.AUTO_READY,
         pit=PitStatus.PIT_LIMITED, idempotency=IdempotencyStatus.CONFIRMED,
@@ -2283,7 +2303,7 @@ def build_daily_universe_gap_status(
             plan_status=status,
             pre_network_noop=noop,
         ))
-    if len(rows) != 72:
+    if len(rows) != 73:
         raise RuntimeError("daily-grain universe count differs from the typed registry")
     return tuple(rows)
 

@@ -466,7 +466,7 @@ _CLASSIFICATION_IDS = {
         kr_index_daily kr_index_fundamental_daily kr_equity_price_daily
         kr_equity_price_provisional_daily kr_equity_investor_flow_daily
         kr_equity_market_cap_daily kr_equity_universe_daily
-        kr_etf_master kr_etf_price_daily
+        kr_etf_master kr_etf_price_daily kr_etf_investor_flow_daily
         global_index_price_daily global_etf_price_daily global_equity_price_daily
         global_commodity_futures_daily tossinvest_us_quote_30m cboe_daily_pcr_daily
         kbsec_transactions_daily
@@ -675,6 +675,7 @@ _LANE_GROUPS = {
     "CBOE_DAILY_PCR": frozenset({"cboe_daily_pcr_daily"}),
     "KB_TRANSACTIONS_DAILY": frozenset({"kbsec_transactions_daily"}),
     "KR_ETF_PRICE_DAILY": frozenset({"kr_etf_master", "kr_etf_price_daily"}),
+    "KR_ETF_INVESTOR_FLOW_DAILY": frozenset({"kr_etf_investor_flow_daily"}),
     "GLOBAL_COMMODITY_DAILY": frozenset({"global_commodity_futures_daily"}),
     "VKOSPI_DAILY": frozenset({"kr_vkospi_daily"}),
     "LS_T8462_DAILY": frozenset({"ls_t8462_daily_raw"}),
@@ -736,6 +737,7 @@ _ECONOMIC_GROUPS = {
     ),
     "kr_equity_investor_flow": ("kr_equity_investor_flow_daily",),
     "kr_etf_identity_price": ("kr_etf_master", "kr_etf_price_daily"),
+    "kr_etf_investor_flow": ("kr_etf_investor_flow_daily",),
     "kr_index_membership": ("kr_index_constituent_daily",),
     "kr_market_breadth": (
         "kr_market_breadth_daily", "kb_market_breadth_snapshot",
@@ -766,6 +768,7 @@ _ECONOMIC_LABELS = {
     "kr_equity_price": "Korean equity daily prices",
     "kr_equity_investor_flow": "Korean per-equity investor net-purchase flow",
     "kr_etf_identity_price": "Korean ETF current identity and daily prices",
+    "kr_etf_investor_flow": "Korean per-ETF investor net-purchase flow",
     "kr_index_membership": "Korean index exact-date membership",
     "kr_market_breadth": "Korean equity market breadth",
     "kr_market_investor_flow": "Korean market investor net trading flow",
@@ -798,7 +801,7 @@ _DIRECT_GUI = frozenset("""
     kr_kospi200_futures_nearest_listed_daily
     kr_kospi200_futures_investor_net_purchase_daily kr_equity_price_daily
     kr_equity_price_provisional_daily tossinvest_us_quote_30m
-    kr_etf_master
+    kr_etf_master kr_etf_investor_flow_daily
     kr_short_selling_trading_daily kr_short_selling_balance_daily kr_stock_lending_daily
     kr_stock_lending_market_daily ls_t8462_daily_raw
 """.split())
@@ -925,7 +928,8 @@ _FINALITY_GATE_IDS = frozenset({
 _READY_WITH_LIMITS_IDS = frozenset({
     "global_index_price_daily", "global_etf_price_daily", "global_equity_price_daily",
     "global_commodity_futures_daily", "tossinvest_us_quote_30m", "cboe_daily_pcr_daily", "kbsec_transactions_daily",
-    "kr_etf_master", "kr_etf_price_daily", "kr_equity_price_provisional_daily",
+    "kr_etf_master", "kr_etf_price_daily", "kr_etf_investor_flow_daily",
+    "kr_equity_price_provisional_daily",
     "kr_equity_investor_flow_daily",
     "fred_treasury_yield_daily", "fred_usd_fx_daily", "fred_vix_daily",
     "bok_ecos_usd_krw_daily",
@@ -1076,6 +1080,11 @@ _PHYSICAL_OVERRIDES = {
     "kr_equity_investor_flow_daily": (
         "landing/kr_equity_investor_flow_daily/<run_id>",
         "normalized/kr_equity_investor_flow_daily",
+    ),
+    "kr_etf_investor_flow_daily": (
+        "landing/pykrx/kr_etf_investor_flow_daily/range=<start>_<end>/<run_id>",
+        "normalized/kr_etf_investor_flow_daily",
+        "artifacts/scheduler_logs/STOCK_DATA_KR_ETF_INVESTOR_FLOW_DAILY_last.json",
     ),
     "research_target_price_consensus": (
         "landing/research/target_prices/<run_id>",
