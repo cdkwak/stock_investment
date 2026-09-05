@@ -4,7 +4,7 @@ Status: `CBOE_PERSONAL_DISPLAY_SUPPORTED / REDISTRIBUTION_AND_PREDICTIVE_USE_FOR
 
 Decision date: `2026-08-26 KST`
 
-Evidence check date: `2026-08-26 KST`
+Evidence check date: `2026-09-05 KST`
 
 Personal-use supersession check: `2026-09-05 KST`
 
@@ -15,7 +15,7 @@ The current user instruction supersedes this decision's 2026-08-26
 display of Cboe's venue-scoped daily statistics. The Cboe website terms checked
 2026-09-05 allow viewing/downloading one copy of website materials for personal
 non-commercial use and contain no explicit automated-access clause. This route
-therefore permits at most one fetch per observation date, lossless sha256-bound
+therefore permits at most one page fetch per U.S. Eastern calendar date, lossless sha256-bound
 Landing retention, contract-valid local Normalized promotion, and display in
 private mode. Guest/public display, redistribution, remote publication,
 Backtest/ML input, and every predictive/PIT claim remain forbidden.
@@ -23,17 +23,30 @@ Backtest/ML input, and every predictive/PIT claim remain forbidden.
 The display identity is exactly `Cboe 거래소 합계 · 지수 · ETP · 개별주 · VIX`;
 it is never called the whole U.S. market. Every ratio is computed as put divided
 by call and is null when the call count is zero. Volume and OI ratios remain
-separate. No retained archive evidence identified a stable machine endpoint.
-The provider consequently defaults to the following Historical Options Data
-CSV placeholder, which the coordinator must verify with one curl before passing
-the live lane's explicit `--endpoint-verified` gate:
+separate. The published `Ratios` values are volume P/C checks, not OI ratios.
 
-`https://www.cboe.com/us/options/market_statistics/historical_data/?download=csv&date={date}`
+Coordinator verification on 2026-09-05 established the live source as one GET
+of Cboe's official [Daily Market Statistics page](https://www.cboe.com/markets/us/options/market-statistics/daily).
+It returned HTTP 200 and `text/html`; the 444 KB Next.js server render embeds the
+daily object in escaped `self.__next_f.push([1,"..."])` flight chunks. That
+object supplied the six accepted group tables, the published ratios, and
+`selectedDate=2026-09-03`. The browser issued no JSON or CSV XHR. Inspection of
+the retained HTML/scripts found no date query parameter used by the date picker,
+so `--date` is an assertion against `selectedDate`, not a request parameter. The
+old `historical_data/?download=csv&date=` placeholder returned HTML and is
+removed.
 
-An identified page XHR or stable `cdn.cboe.com/data/us/options/market_statistics/daily/`
-CSV/JSON route should replace that placeholder without changing the contract.
-The rest of this document remains the 2026-08-26 historical decision and does
-not override this narrow personal-display exception.
+The five official archive files at
+`cdn.cboe.com/resources/options/volume_and_call_put_ratios/{totalpc,indexpc,equitypc,etppc,vixpc}.csv`
+were also verified. They were last modified 2020-10-30 and end at 2019-10-04;
+they are accepted only for a one-time `2006-11-01..2019-10-04` historical
+backfill for `TOTAL`, `INDEX`, `EQUITY`, `ETP`, and `VIX`. They do not fill the
+2019-10-07-to-present gap, carry no OI, and are not the live source. There is no
+verified machine JSON endpoint or recoverable day-by-day page history. The
+personal, non-commercial, one-fetch-per-day, no-redistribution, venue-scoped
+terms basis above is unchanged. The rest of this document remains the
+2026-08-26 historical decision and does not override this narrow
+personal-display exception.
 
 The following is the superseded 2026-08-26 documentation-only decision. It did not accept website visibility as
 an API or data licence, buy or activate a product, call a provider, retain a
