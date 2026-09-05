@@ -2242,17 +2242,37 @@ def test_us_etf_original_frame_rejects_adjustment_conflation_and_pre_inception_r
         service._validated_original_frame(pre_inception, qqqi)
 
 
-def test_ls_session_switch_and_institutional_complex(tmp_path):
+def test_ls_flow_returns_full_daily_four_investor_series_and_available_scopes(tmp_path):
     directory = tmp_path / "data/landing/ls_openapi/t8462_raw/run"
     directory.mkdir(parents=True)
-    payload = {"t8462OutBlock1": [{"date": "20260814", "sv_08": 1, "sv_17": 2, "sv_18": 3, "sv_07": 4, "sa_17": "5", "sa_18": "6", "sa_07": "7"}]}
+    payload = {"t8462OutBlock1": [
+        {"date": "20260815", "sv_08": -11, "sv_17": 12, "sv_18": -13, "sv_07": 14, "sa_17": "15", "sa_18": "16", "sa_07": "17"},
+        {"date": "20260814", "sv_08": 1, "sv_17": 2, "sv_18": 3, "sv_07": 4, "sa_17": "5", "sa_18": "6", "sa_07": "7"},
+    ]}
     (directory / "01_K2I_F_N.response.json").write_text(json.dumps(payload), encoding="utf-8")
-    row = DerivativesDashboardService(tmp_path, LocalParquetQuery(tmp_path / "data")).ls_flow("N")
-    assert row["institutional_complex_contracts"] == 7
-    assert row["institutional_complex_amount_100m_krw"] == 13
+    (directory / "02_MKI_C_D.response.json").write_text(json.dumps(payload), encoding="utf-8")
+    service = DerivativesDashboardService(tmp_path, LocalParquetQuery(tmp_path / "data"))
+    row = service.ls_flow("N")
+
+    assert [item["date"].strftime("%Y-%m-%d") for item in row["rows"]] == [
+        "2026-08-14", "2026-08-15",
+    ]
+    assert row["rows"][-1] == {
+        "date": pd.Timestamp("2026-08-15"),
+        "foreign_contracts": 12,
+        "institution_contracts": -13,
+        "individual_contracts": -11,
+        "other_contracts": 14,
+    }
+    assert row["institutional_complex_contracts"] == 1
+    assert row["institutional_complex_amount_100m_krw"] == 33
     assert row["status"] == "RAW_DESCRIPTIVE_ONLY"
     assert row["route"] == "HISTORICAL_RESEARCH_RAW"
     assert row["predictive_status"].startswith("PIT_BLOCKED")
+    assert service.ls_flow_scopes() == [
+        {"scope": "K2I_F_N", "scope_label": "KOSPI200 선물 N(야간)"},
+        {"scope": "MKI_C_D", "scope_label": "미니 KOSPI200 콜 D(주간)"},
+    ]
 
     (directory / "02_K2I_F_U.response.json").write_text(
         json.dumps(payload), encoding="utf-8",
@@ -2260,8 +2280,8 @@ def test_ls_session_switch_and_institutional_complex(tmp_path):
     value, as_of, source = DashboardService(
         tmp_path
     )._read_ls_futures_foreign_net_metric()
-    assert value == 2
-    assert as_of == "2026-08-14"
+    assert value == 12
+    assert as_of == "2026-08-15"
     assert "LS OpenAPI t8462" in source
 
 

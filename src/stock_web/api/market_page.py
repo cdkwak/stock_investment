@@ -37,7 +37,7 @@ _MARKET_CACHE: dict[tuple[str, str, bool], tuple[float, dict[str, object]]] = {}
 
 _WARNING_TRANSLATIONS = {
     "Raw provider observation; no Normalized/PIT-safe claim":
-        "원시 관측값 · 정규화 전 · 수동 검증 전에는 표시하지 않습니다",
+        "원시 관측값 · 설명용 · 예측 신호 아님",
 }
 
 METRIC_EXPLANATIONS = {
@@ -45,7 +45,7 @@ METRIC_EXPLANATIONS = {
     "futures_basis": "선물 Basis는 KOSPI200 선물 정산가와 기초지수의 차이입니다. 양수·음수는 두 가격의 상대적 위치를 설명하며 방향 신호가 아닙니다.",
     "volume_pcr": "거래량 PCR은 풋 거래량 ÷ 콜 거래량입니다. 1보다 크면 해당일 풋 거래가 콜보다 많았다는 뜻입니다.",
     "oi_pcr": "미결제약정 PCR은 풋 미결제약정 ÷ 콜 미결제약정입니다. 1보다 크면 풋 잔고가 많다는 뜻으로, 하방 헤지 수요가 큰 상태로 읽습니다.",
-    "ls_futures_foreign_net": "LS 선물 외국인 순계약은 보존된 정규장 원시 관측의 외국인 순계약 수입니다. 세션 최종성 검증 전 설명용 수치이며 신호가 아닙니다.",
+    "ls_futures_foreign_net": "LS t8462 투자자 순계약은 외국인·기관·개인·기타법인의 일별 순계약 수입니다. 상품과 세션별 설명용 원시 관측이며 예측 신호가 아닙니다.",
     "call_wall": "Call Wall은 기초자산 ±15% 안에서 콜 미결제약정이 가장 큰 행사가입니다. 현재가와의 거리는 위치 관계를 보여줄 뿐 지지·저항을 보장하지 않습니다.",
     "put_wall": "Put Wall은 기초자산 ±15% 안에서 풋 미결제약정이 가장 큰 행사가입니다. 현재가와의 거리는 위치 관계를 보여줄 뿐 지지·저항을 보장하지 않습니다.",
     "credit_balance": "신용잔고는 신용융자로 매수한 주식의 남은 금액입니다. 증가는 레버리지 자금이 늘어난 상태를 뜻하지만 방향 신호는 아닙니다.",
@@ -319,10 +319,33 @@ def _market_derivative_metrics(service: object, project_root: Path) -> dict[str,
             "strike", lambda: service._read_wall_metric("put"),
             expected_as_of=health_expected("kr_kospi200_option_walls_daily"), **managed,
         ),
-        "LS_FUTURES_FOREIGN_NET": service._local_derivative_metric(
-            "LS_FUTURES_FOREIGN_NET", "LS 선물 외국인 순계약",
-            "ls_t8462_daily_raw", "contracts", service._read_ls_futures_foreign_net_metric,
-        ),
+    }
+
+
+def _ls_investor_scope(raw: dict[str, object], range_key: str) -> dict[str, object]:
+    frame = pd.DataFrame(raw.get("rows") or [])
+    if frame.empty or "date" not in frame:
+        return _unavailable(raw.get("reason") or "LS t8462 보존 이력이 없습니다.")
+    frame = _range_view(frame.sort_values("date"), range_key)
+    rows = [{
+        "date": _date(row.get("date")),
+        "foreign": _nan_to_none(row.get("foreign_contracts")),
+        "institution": _nan_to_none(row.get("institution_contracts")),
+        "individual": _nan_to_none(row.get("individual_contracts")),
+        "other": _nan_to_none(row.get("other_contracts")),
+    } for row in frame.to_dict(orient="records")]
+    rows = [row for row in rows if row["date"] is not None]
+    if not rows:
+        return _unavailable("선택 기간의 LS t8462 보존 이력이 없습니다.")
+    return {
+        "status": "VALUE",
+        "scope": raw.get("scope"),
+        "scope_label": raw.get("scope_label"),
+        "rows": rows,
+        "as_of": rows[-1]["date"],
+        "basis_label": "LS t8462 · 당일 저녁 수집 · 순계약",
+        "unit": "계약",
+        "warning": _localized_warning(raw.get("warning")),
     }
 
 
@@ -425,17 +448,26 @@ def build_derivatives(
         reasons = [str(item.get("reason")) for item in (call_metric, put_metric) if item.get("reason")]
         wall = _unavailable(" / ".join(dict.fromkeys(reasons)) or "Wall 표시 상태가 차단되었습니다.")
 
-    ls = _metric_view(metrics.get("LS_FUTURES_FOREIGN_NET"), pattern="{:+,.0f}")
-    if ls["status"] == "VALUE":
+    ls_scopes: list[dict[str, object]] = []
+    if service is not None:
         try:
-            raw = service.derivatives.ls_flow()
-            ls.update({
-                "source_status": raw.get("status"),
-                "warning": _localized_warning(raw.get("warning")),
-                "basis_label": _basis_label(ls.get("as_of"), d_plus_one=True),
-            })
+            for available_scope in service.derivatives.ls_flow_scopes():
+                raw = service.derivatives.ls_flow(str(available_scope["scope"]))
+                view = _ls_investor_scope(raw, history_range)
+                if view.get("status") == "VALUE":
+                    ls_scopes.append(view)
         except (KeyError, OSError, PermissionError, TypeError, ValueError):
-            ls = _unavailable("LS 선물 외국인 순계약 보존 행을 읽을 수 없습니다.")
+            ls_scopes = []
+    default_ls = next(
+        (view for view in ls_scopes if view.get("scope") == "K2I_F_U"),
+        ls_scopes[0] if ls_scopes else None,
+    )
+    ls_futures_investors = (
+        {**default_ls, "available_scopes": ls_scopes}
+        if default_ls is not None
+        else _unavailable("LS t8462 투자자 순계약 보존 이력을 읽을 수 없습니다.")
+        | {"available_scopes": []}
+    )
 
     if public_mode is None:
         public_mode = os.environ.get("STOCK_WEB_PUBLIC_MODE") == "1"
@@ -465,7 +497,7 @@ def build_derivatives(
             }
         except (KeyError, OSError, PermissionError, RuntimeError, TypeError, ValueError):
             cboe_pcr = _unavailable("Cboe 일별 통계를 읽을 수 없습니다.")
-    parts = [basis, *pcr_views.values(), wall, ls]
+    parts = [basis, *pcr_views.values(), wall, ls_futures_investors]
     available = any(part.get("status") == "VALUE" for part in parts) or (
         cboe_pcr is not None and cboe_pcr.get("status") == "VALUE"
     )
@@ -475,7 +507,7 @@ def build_derivatives(
         "basis": basis,
         "pcr": pcr_views,
         "wall": wall,
-        "ls_flow": ls,
+        "ls_futures_investors": ls_futures_investors,
     }
     if cboe_pcr is not None:
         result["cboe_pcr"] = cboe_pcr

@@ -55,6 +55,13 @@
   white-space: nowrap;
 }
 
+.market-ls-flow-panel { grid-column: 1 / -1; }
+.market-ls-scope-select { min-width: 220px; max-width: 290px; }
+.market-ls-flow-meta { align-items: flex-end; }
+.market-ls-flow-meta small { display: inline-block; margin-top: 2px; color: var(--muted); }
+.market-ls-series-legend { flex-wrap: wrap; justify-content: flex-end; }
+.market-ls-series-legend > span { white-space: nowrap; }
+
 @media (min-width: 1600px) {
   .market-page > .card { padding: 9px 11px; }
 }
@@ -62,6 +69,10 @@
 @media (max-width: 900px) {
   .market-micro-grid { grid-template-columns: 1fr; }
   .market-valuation-chart { height: 286px; }
+  .market-ls-flow-panel .market-panel-head,
+  .market-ls-flow-meta { align-items: flex-start; flex-direction: column; }
+  .market-ls-scope-select { min-width: 0; width: 100%; max-width: none; }
+  .market-ls-series-legend { justify-content: flex-start; }
 }
 
 /* Cboe panel: size to content instead of matching the 215px chart siblings (review 09-05 10:30) */

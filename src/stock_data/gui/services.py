@@ -3243,6 +3243,14 @@ class DerivativesDashboardService:
     project_root: Path
     query: LocalParquetQuery
 
+    _LS_T8462_SCOPE_LABELS = {
+        f"{underlying}_{product}_{session}":
+            f"{underlying_label} {product_label} {session}({session_label})"
+        for underlying, underlying_label in (("K2I", "KOSPI200"), ("MKI", "미니 KOSPI200"))
+        for product, product_label in (("F", "선물"), ("C", "콜"), ("P", "풋"))
+        for session, session_label in (("D", "주간"), ("N", "야간"), ("U", "전체"))
+    }
+
     def option_wall(self) -> tuple[pd.DataFrame, dict]:
         path = self.project_root / "artifacts/analysis/kospi200_option_wall_recent_250.csv"
         if not path.exists():
@@ -3262,22 +3270,86 @@ class DerivativesDashboardService:
             frame[f"{col}_percentile"] = frame[col].rank(pct=True) * 100
         return frame
 
+    @staticmethod
+    def _ls_contracts(value: object) -> int | float | None:
+        number = pd.to_numeric(value, errors="coerce")
+        if pd.isna(number):
+            return None
+        numeric = float(number)
+        return int(numeric) if numeric.is_integer() else numeric
+
+    def ls_flow_scopes(self) -> list[dict[str, str]]:
+        daily_root = self.project_root / "data/landing/ls_openapi/t8462_daily_raw"
+        historical_root = self.project_root / "data/landing/ls_openapi/t8462_raw"
+        return [
+            {"scope": scope, "scope_label": label}
+            for scope, label in self._LS_T8462_SCOPE_LABELS.items()
+            if any(daily_root.rglob(f"*_{scope}.response.json"))
+            or any(historical_root.rglob(f"*_{scope}.response.json"))
+        ]
+
     def ls_flow(self, session: str = "U") -> dict:
-        daily = sorted((self.project_root / "data/landing/ls_openapi/t8462_daily_raw").rglob(f"*_K2I_F_{session}.response.json"))
-        historical = sorted((self.project_root / "data/landing/ls_openapi/t8462_raw").rglob(f"*_K2I_F_{session}.response.json"))
+        scope = session if session in self._LS_T8462_SCOPE_LABELS else f"K2I_F_{session}"
+        if scope not in self._LS_T8462_SCOPE_LABELS:
+            return {"status": "N/A", "reason": f"unsupported LS t8462 scope: {scope}"}
+        daily = sorted((self.project_root / "data/landing/ls_openapi/t8462_daily_raw").rglob(f"*_{scope}.response.json"))
+        historical = sorted((self.project_root / "data/landing/ls_openapi/t8462_raw").rglob(f"*_{scope}.response.json"))
         candidates = daily or historical
         if not candidates:
             return {"status": "N/A", "reason": "retained LS session response missing"}
         selected = candidates[-1]
         payload = json.loads(selected.read_text(encoding="utf-8"))
-        row = payload.get("t8462OutBlock1", [{}])[0]
+        raw_rows = payload.get("t8462OutBlock1", [])
+        if not isinstance(raw_rows, list):
+            return {"status": "N/A", "reason": "retained LS session response rows invalid"}
+        rows = []
+        for raw in raw_rows:
+            observed = pd.to_datetime(raw.get("date"), format="%Y%m%d", errors="coerce")
+            if pd.isna(observed):
+                continue
+            rows.append({
+                "date": observed,
+                "foreign_contracts": self._ls_contracts(raw.get("sv_17")),
+                "institution_contracts": self._ls_contracts(raw.get("sv_18")),
+                "individual_contracts": self._ls_contracts(raw.get("sv_08")),
+                "other_contracts": self._ls_contracts(raw.get("sv_07")),
+            })
+        rows.sort(key=lambda item: item["date"])
+        if not rows:
+            return {"status": "N/A", "reason": "retained LS session response has no dated rows"}
+        latest = rows[-1]
+        latest_raw = next(
+            raw for raw in raw_rows
+            if pd.to_datetime(raw.get("date"), format="%Y%m%d", errors="coerce") == latest["date"]
+        )
         provenance_path = selected.with_name(selected.name.replace(".response.json", ".provenance.json"))
         provenance = json.loads(provenance_path.read_text(encoding="utf-8")) if provenance_path.exists() else {}
-        institution = pd.to_numeric(row.get("sv_18"), errors="coerce")
-        other = pd.to_numeric(row.get("sv_07"), errors="coerce")
-        institution_amount = pd.to_numeric(row.get("sa_18"), errors="coerce")
-        other_amount = pd.to_numeric(row.get("sa_07"), errors="coerce")
-        return {"date": pd.to_datetime(row.get("date"), format="%Y%m%d", errors="coerce"), "individual_contracts": pd.to_numeric(row.get("sv_08"), errors="coerce"), "foreign_contracts": pd.to_numeric(row.get("sv_17"), errors="coerce"), "institutional_complex_contracts": None if pd.isna(institution) or pd.isna(other) else institution + other, "foreign_amount_100m_krw": pd.to_numeric(row.get("sa_17"), errors="coerce"), "institutional_complex_amount_100m_krw": None if pd.isna(institution_amount) or pd.isna(other_amount) else institution_amount + other_amount, "status": "RAW_DESCRIPTIVE_ONLY", "source": "LS_OPENAPI:t8462", "route": "DAILY_RAW" if daily else "HISTORICAL_RESEARCH_RAW", "session_code": session, "availability_at": provenance.get("captured_at"), "predictive_status": "PIT_BLOCKED_SESSION_FINALITY_REVISION_UNRESOLVED", "warning": "Raw provider observation; no Normalized/PIT-safe claim"}
+        institution_amount = self._ls_contracts(latest_raw.get("sa_18"))
+        other_amount = self._ls_contracts(latest_raw.get("sa_07"))
+        institutional_complex_amount = (
+            None if institution_amount is None or other_amount is None
+            else institution_amount + other_amount
+        )
+        return {
+            **latest,
+            "institutional_complex_contracts": (
+                None
+                if latest["institution_contracts"] is None or latest["other_contracts"] is None
+                else latest["institution_contracts"] + latest["other_contracts"]
+            ),
+            "foreign_amount_100m_krw": self._ls_contracts(latest_raw.get("sa_17")),
+            "institutional_complex_amount_100m_krw": institutional_complex_amount,
+            "rows": rows,
+            "scope": scope,
+            "scope_label": self._LS_T8462_SCOPE_LABELS[scope],
+            "status": "RAW_DESCRIPTIVE_ONLY",
+            "source": "LS_OPENAPI:t8462",
+            "route": "DAILY_RAW" if daily else "HISTORICAL_RESEARCH_RAW",
+            "session_code": scope.rsplit("_", 1)[-1],
+            "availability_at": provenance.get("captured_at"),
+            "predictive_status": "PIT_BLOCKED_SESSION_FINALITY_REVISION_UNRESOLVED",
+            "warning": "Raw provider observation; no Normalized/PIT-safe claim",
+        }
 
 
 @dataclass

@@ -156,6 +156,12 @@ def test_market_chart_uses_compact_height_and_panel_proportions() -> None:
     assert "Math.abs(Number(value)) >= 10000" in script
     assert 'id="breadth-rows"' in template
     assert 'id="lending-summary-rows"' in template
+    assert 'id="ls-flow-scope"' in template
+    assert 'data-range-card="ls-flow"' in template
+    assert "renderLsInvestorFlow" in script
+    assert 'let selectedLsScope = "K2I_F_U"' in script
+    assert "showLsOther = !showLsOther" in script
+    assert ".market-ls-flow-panel" in market_css
     valuation_markup = template.split('id="valuation-section"', 1)[1]
     assert valuation_markup.count('data-explanation="valuation_panel"') == 2
     assert 'data-explanation="weighted_per"' not in valuation_markup
@@ -458,9 +464,30 @@ def test_derivatives_payload_uses_near_wall_columns(monkeypatch: pytest.MonkeyPa
                 },
             ]), {"status": "RAW"}
 
-        def ls_flow(self):
+        @staticmethod
+        def ls_flow_scopes():
+            return [
+                {"scope": "K2I_F_U", "scope_label": "KOSPI200 선물 U(전체)"},
+                {"scope": "MKI_C_D", "scope_label": "미니 KOSPI200 콜 D(주간)"},
+            ]
+
+        @staticmethod
+        def ls_flow(scope="K2I_F_U"):
+            dates = pd.date_range(end="2026-09-04", periods=400)
             return {
                 "status": "RAW_DESCRIPTIVE_ONLY",
+                "scope": scope,
+                "scope_label": (
+                    "KOSPI200 선물 U(전체)" if scope == "K2I_F_U"
+                    else "미니 KOSPI200 콜 D(주간)"
+                ),
+                "rows": [{
+                    "date": observed,
+                    "foreign_contracts": index,
+                    "institution_contracts": -index,
+                    "individual_contracts": index * 2,
+                    "other_contracts": -index * 2,
+                } for index, observed in enumerate(dates)],
                 "warning": "Raw provider observation; no Normalized/PIT-safe claim",
             }
 
@@ -496,7 +523,15 @@ def test_derivatives_payload_uses_near_wall_columns(monkeypatch: pytest.MonkeyPa
     assert payload["wall"]["basis_label"] == "기준일 2026-09-04 · D+1 공개"
     assert rows["2026-09-02"]["near_wall_note"] == "근접 Wall은 2026-09-03부터 계산 (이전 행은 미계산)"
     assert rows["2026-09-04"]["near_wall_note"] == "±15% 창 안에 양의 미결제약정이 없습니다."
-    assert payload["ls_flow"]["warning"] == "원시 관측값 · 정규화 전 · 수동 검증 전에는 표시하지 않습니다"
+    investors = payload["ls_futures_investors"]
+    assert investors["scope"] == "K2I_F_U"
+    assert investors["scope_label"] == "KOSPI200 선물 U(전체)"
+    assert investors["as_of"] == "2026-09-04"
+    assert investors["basis_label"] == "LS t8462 · 당일 저녁 수집 · 순계약"
+    assert set(investors["rows"][-1]) == {"date", "foreign", "institution", "individual", "other"}
+    assert len(investors["rows"]) < len(full["ls_futures_investors"]["rows"]) == 400
+    assert [item["scope"] for item in investors["available_scopes"]] == ["K2I_F_U", "MKI_C_D"]
+    assert "ls_flow" not in payload
     assert len(payload["basis"]["series"]) < len(full["basis"]["series"]) == 800
     assert len(payload["pcr"]["volume"]["series"]) < len(full["pcr"]["volume"]["series"]) == 800
 

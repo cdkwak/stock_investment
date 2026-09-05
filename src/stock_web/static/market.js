@@ -31,6 +31,7 @@
   };
   const chartIndicatorSuperset = Object.keys(indicatorDefaults).sort();
   const flowColors = { foreigner: "#4a3aa7", institution: "#2a78d6", individual: "#eb6834" };
+  const lsFlowColors = { foreign: "#4a3aa7", institution: "#2a78d6", individual: "#eb6834", other: "#8a847b" };
   let indicatorState = loadIndicatorState();
   let mainChart, candleSeries, mainPayload, pagePayload;
   let dynamicSeries = [];
@@ -38,6 +39,8 @@
   const flowCache = new Map();
   const historyCache = new Map();
   const hiddenFlowSeries = { KOSPI: new Set(), KOSDAQ: new Set() };
+  let selectedLsScope = "K2I_F_U";
+  let showLsOther = false;
   const warnedLocalIndicators = new Set();
 
   function loadIndicatorState() {
@@ -260,6 +263,38 @@
     body.innerHTML = `<table class="market-table"><thead><tr><th>범위</th><th>거래량 PCR</th><th>미결제 PCR</th><th>콜 거래량</th><th>풋 거래량</th></tr></thead><tbody>${view.rows.map((row) => `<tr><td>${esc(row.label || row.scope)}</td><td class="num">${esc(pcr(row.volume_pcr))}</td><td class="num">${esc(pcr(row.oi_pcr))}</td><td class="num">${esc(fmt(row.call_volume, 0))}</td><td class="num">${esc(fmt(row.put_volume, 0))}</td></tr>`).join("")}</tbody></table>`;
   }
 
+  function renderLsInvestorFlow(section) {
+    const host = $("ls-flow-chart"), meta = $("ls-flow-meta"), selector = $("ls-flow-scope");
+    const view = section && section.ls_futures_investors;
+    const scopes = view && Array.isArray(view.available_scopes) ? view.available_scopes : [];
+    if (!view || view.status !== "VALUE" || !scopes.length) {
+      selector.innerHTML = '<option value="">보존 범위 없음</option>';
+      selector.disabled = true;
+      meta.textContent = "";
+      host.innerHTML = `<div class="unavailable">${unavailable(view && view.reason)}</div>`;
+      return;
+    }
+    selector.disabled = false;
+    if (!scopes.some((item) => item.scope === selectedLsScope)) selectedLsScope = view.scope || scopes[0].scope;
+    selector.innerHTML = scopes.map((item) => `<option value="${esc(item.scope)}">${esc(item.scope_label)}</option>`).join("");
+    selector.value = selectedLsScope;
+    const selected = scopes.find((item) => item.scope === selectedLsScope) || view;
+    const rows = selected.rows || [];
+    const definitions = [
+      ["foreign", "외국인"], ["institution", "기관"], ["individual", "개인"], ["other", "기타법인"],
+    ];
+    const specs = definitions.filter(([key]) => key !== "other" || showLsOther).map(([key, label]) => ({
+      key, label, color: lsFlowColors[key], type: "line",
+      points: rows.map((row) => ({ t: row.date, v: row[key] })).filter((point) => point.t && Number.isFinite(Number(point.v))),
+    }));
+    meta.innerHTML = `<span>${esc(selected.scope_label || "")} · 기준일 ${esc(selected.as_of || "—")} · 단위: 계약<br><small>${esc(selected.basis_label || "LS t8462 · 당일 저녁 수집 · 순계약")}</small></span><span class="market-series-toggles market-ls-series-legend">${definitions.slice(0, 3).map(([key, label]) => `<span><i style="background:${lsFlowColors[key]}"></i>${label}</span>`).join("")}<button type="button" data-ls-other class="${showLsOther ? "" : "off"}"><i style="background:${lsFlowColors.other}"></i>기타법인</button></span>`;
+    meta.querySelector("[data-ls-other]").addEventListener("click", () => { showLsOther = !showLsOther; renderLsInvestorFlow(section); });
+    renderSvg(host, specs[0] ? specs[0].points : [], {
+      height: 210, ariaLabel: `${selected.scope_label || "LS 파생"} 투자자 일별 순계약`, series: specs,
+      axisFormatter: (value) => fmt(value, 0), valueFormatter: (value) => `${signed(Math.round(Number(value)), 0)}계약`,
+    });
+  }
+
   function renderDerivatives() {
     const section = ((pagePayload && pagePayload.sections) || {}).derivatives || {};
     const basis = historySection(rangeValue("basis"), "derivatives");
@@ -270,8 +305,7 @@
     renderLinePanel("basis-chart", "basis-meta", basis.basis, "basis", "basis");
     renderLinePanel("volume-pcr-chart", "volume-pcr-meta", volumePcr.pcr && volumePcr.pcr.volume, "pcr", "volume-pcr");
     renderLinePanel("oi-pcr-chart", "oi-pcr-meta", oiPcr.pcr && oiPcr.pcr.oi, "pcr", "oi-pcr");
-    const ls = section && section.ls_flow;
-    $("ls-flow").innerHTML = ls && ls.status === "VALUE" ? `<b class="num ${Number(ls.value) > 0 ? "up" : Number(ls.value) < 0 ? "down" : ""}">${esc(signed(Math.round(ls.value), 0))}</b><span>${esc(ls.basis_label || `기준일 ${ls.as_of || "—"}`)}</span><small>${esc(ls.warning || "설명용 원시 관측 · 신호 아님")}</small>` : `<div class="unavailable">${unavailable(ls && ls.reason)}</div>`;
+    renderLsInvestorFlow(historySection(rangeValue("ls-flow"), "derivatives"));
     const wall = section && section.wall;
     $("wall-meta").textContent = wall && wall.status === "VALUE" ? (wall.basis_label || `기준일 ${wall.as_of || "—"}`) : "";
     $("wall-unavailable").textContent = wall && wall.status !== "VALUE" ? unavailable(wall.reason) : "";
@@ -452,6 +486,7 @@
       if (group.dataset.rangeCard.endsWith("-flow")) loadFlowRange(button.dataset.v); else loadHistoryRange(button.dataset.v, group.dataset.rangeCard);
     }));
     document.querySelectorAll("[data-flow-mode]").forEach((button) => button.addEventListener("click", () => { button.classList.toggle("on"); rerenderSmallCharts(); }));
+    $("ls-flow-scope").addEventListener("change", (event) => { selectedLsScope = event.target.value; rerenderSmallCharts(); });
     $("market-chart-symbol").addEventListener("change", loadMainChart);
   }
 
