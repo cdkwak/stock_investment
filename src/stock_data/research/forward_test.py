@@ -89,7 +89,7 @@ def record_forward_signals(
     indicators = load_indicator_frame(root)
     proposed: list[dict[str, Any]] = []
     for candidate in registry["candidates"]:
-        if candidate["status"] not in {"active", "experimental"}:
+        if candidate["status"] not in {"active", "adopted", "experimental"}:
             continue
         row, state, _ = current_candidate_state(
             indicators, candidate, as_of=observation_date

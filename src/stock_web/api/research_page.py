@@ -393,7 +393,8 @@ def _status_lines(document: dict[str, object] | None) -> list[str]:
     for candidate in candidates:
         if not isinstance(candidate, dict):
             continue
-        if candidate.get("status") != "active" or candidate.get("basket") != "KR":
+        status = candidate.get("status")
+        if status not in ("active", "adopted") or candidate.get("basket") != "KR":
             continue
         current = candidate.get("current")
         if not isinstance(current, dict):
@@ -406,13 +407,21 @@ def _status_lines(document: dict[str, object] | None) -> list[str]:
         if level is None or max_level is None or exposure is None:
             continue
         analog_text = "—" if mean_60 is None else f"{mean_60 * 100:+.1f}%"
+        # Label rule ④ (vault session 2026-09-05): a candidate must not read as an adopted rule.
+        # "규칙 현재 상태" is reserved for status == "adopted"; registered candidates say so.
+        prefix = "규칙 현재 상태" if status == "adopted" else "후보 규칙 — 채택 전"
         lines.append(
-            f"규칙 현재 상태 · {candidate.get('name') or candidate.get('id')}: "
+            f"{prefix} · {candidate.get('name') or candidate.get('id')}: "
             f"{level}/{max_level}단계 · 노출 {exposure * 100:.0f}% · "
             f"과거 동일 단계 60일 {analog_text}"
         )
         if len(lines) == 2:
             break
+    if lines and not any(line.startswith("규칙 현재 상태") for line in lines):
+        lines.append(
+            "채택된 규칙 없음 · 위 줄은 rule_candidates.json 후보의 전방검증 상태이며 채택 여부는 "
+            "투자 규칙.md가 정한다(채택 시 status=adopted)"
+        )
     return lines or ["규칙 평가 없음"]
 
 

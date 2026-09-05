@@ -16,7 +16,10 @@ from zoneinfo import ZoneInfo
 
 SCHEMA_VERSION = 1
 CANDIDATE_PATH = Path("config/research/rule_candidates.json")
-VALID_STATUSES = frozenset({"active", "experimental", "retired"})
+# "active" = registered candidate under evaluation (NOT adopted); "adopted" = the user adopted
+# the rule in 투자 규칙.md (2026-09-05: candidate lines were read as adopted rules — the label
+# must carry adoption, so adoption is an explicit status, never implied by registration).
+VALID_STATUSES = frozenset({"active", "adopted", "experimental", "retired"})
 VALID_SIDES = frozenset({"drawdown", "overheat", "hybrid"})
 VALID_BASKETS = frozenset({"KR", "US_TECH", "SEMIS", "POOLED"})
 VALID_TYPES = frozenset({"ladder", "vol_target", "hybrid"})

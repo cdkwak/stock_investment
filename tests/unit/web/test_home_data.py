@@ -503,7 +503,9 @@ def test_home_regime_includes_active_kr_research_status_line() -> None:
     regime = home_data._attach_research_current(root, {"markets": [], "rules": None})
 
     assert regime["research_current"] == [
-        "규칙 현재 상태 · 낙폭 2단계 (KR): 1/2단계 · 노출 87% · 과거 동일 단계 60일 +7.5%",
+        "후보 규칙 — 채택 전 · 낙폭 2단계 (KR): 1/2단계 · 노출 87% · 과거 동일 단계 60일 +7.5%",
+        "채택된 규칙 없음 · 위 줄은 rule_candidates.json 후보의 전방검증 상태이며 채택 여부는 "
+        "투자 규칙.md가 정한다(채택 시 status=adopted)",
     ]
 
 
