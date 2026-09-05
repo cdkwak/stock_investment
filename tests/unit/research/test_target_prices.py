@@ -478,7 +478,7 @@ def test_cli_dry_run_prints_exact_synthetic_watchlist_requests(
     assert plan["requests"] == [
         {
             "currency": "USD",
-            "headers": {"User-Agent": "stock-investment-rev1/0.1"},
+            "headers": {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
             "is_fund_product": True,
             "market": "US ETF",
             "method": "GET",
@@ -491,7 +491,7 @@ def test_cli_dry_run_prints_exact_synthetic_watchlist_requests(
         },
         {
             "currency": "KRW",
-            "headers": {"User-Agent": "stock-investment-rev1/0.1"},
+            "headers": {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
             "is_fund_product": False,
             "market": "KOSPI",
             "method": "GET",
@@ -504,7 +504,7 @@ def test_cli_dry_run_prints_exact_synthetic_watchlist_requests(
         },
         {
             "currency": "USD",
-            "headers": {"User-Agent": "stock-investment-rev1/0.1"},
+            "headers": {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
             "is_fund_product": False,
             "market": "NASDAQ",
             "method": "GET",

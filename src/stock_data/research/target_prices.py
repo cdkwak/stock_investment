@@ -33,7 +33,9 @@ YAHOO_SOURCE = "YAHOO_FINANCE_QUOTE_SUMMARY"
 KOREAN_UNAVAILABLE_SOURCE = "NONE_COMPLIANT_KR_CONSENSUS_SOURCE"
 YAHOO_TERMS_REF = "docs/data/sources/TARGET_PRICE_CONSENSUS.md#yahoo-finance-us"
 KOREAN_TERMS_REF = "docs/data/sources/TARGET_PRICE_CONSENSUS.md#korean-markets"
-YAHOO_USER_AGENT = "stock-investment-rev1/0.1"
+# Yahoo's crumb endpoint answers 429 to non-browser agents (checked 2026-09-05: the former
+# "stock-investment-rev1/0.1" agent got 429, a plain browser string got 200 on the same cookie).
+YAHOO_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 YAHOO_TIMEOUT_SECONDS = 30
 YAHOO_MIN_REQUEST_INTERVAL_SECONDS = 1.0
 YAHOO_OPERATION = "quote_summary_financial_data"
