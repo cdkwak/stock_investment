@@ -280,8 +280,20 @@ def test_account_totals_use_local_prices_fx_and_exclude_unpriced_holdings() -> N
     assert len(LocalNetWorthHistoryStore(root / "data/local/net_worth_history").load_history()) == 1
 
 
-def test_toss_buying_power_is_not_rendered_as_cash_balance() -> None:
+def test_toss_buying_power_is_not_rendered_as_cash_balance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     root = _account_project()
+    rules = root / "rules.md"
+    rules.write_text(
+        "| 항목 | 값 | 이유 |\n"
+        "|---|---|---|\n"
+        "| 레버리지 ETF 최대 비중 | 25% | |\n"
+        "| 과열 판정 시 레버리지 상한 | 20% | |\n"
+        "| 최소 현금 비중 | 10% | |\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("STOCK_WEB_RULES_PATH", str(rules))
     snapshot_path = root / "data/normalized/toss_account_snapshot/latest.json"
     snapshot_path.write_text(
         json.dumps(_toss_buying_power_snapshot(), ensure_ascii=False), encoding="utf-8",
@@ -300,10 +312,65 @@ def test_toss_buying_power_is_not_rendered_as_cash_balance() -> None:
     assert payload["summary"]["cash_krw"] is None
     assert payload["summary"]["cash_complete"] is False
     assert payload["summary"]["cash_note"] == "현금 미확인"
+    assert payload["holdings"]["cash_complete"] is False
+    rule_rows = payload["holdings"]["rules"]["rows"]
+    assert rule_rows[0][1].endswith("%")
+    assert "현금 미반영" in rule_rows[0][2]
+    assert "현금 미반영" in rule_rows[1][2]
+    assert rule_rows[2][0] == "현금 · 단기국채 (현금 미확인)"
+    assert rule_rows[2][1].startswith("미확인 · 단기국채 ")
+    assert not rule_rows[2][1].startswith("0%")
     account_javascript = client.get("/static/account.js").text
+    account_template = client.get("/account").text
     assert '${money(row.cash_krw)}' in account_javascript
     assert 'value === null || value === undefined ? "—"' in account_javascript
     assert 'title="${esc(cashTitle)}"' in account_javascript
+    assert 'holdings.cash_complete === false ? " · 현금 미반영"' in account_javascript
+    assert 'id="cash-gauge-value"' in account_template
+
+
+def test_fx_history_cache_reuses_inputs_and_invalidates_after_mtime_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = new_temp_root()
+    relative = "data/normalized/fred_usd_fx_daily/year=2026/data.parquet"
+    _write_parquet(
+        root, relative,
+        pd.DataFrame({"date": [pd.Timestamp("2026-09-01")], "dexkous": [1_320.0]}),
+    )
+    calls: list[str] = []
+    original_load = account_page.datasets.load
+
+    def tracked_load(*args: object, **kwargs: object) -> pd.DataFrame | None:
+        calls.append(str(args[1]))
+        return original_load(*args, **kwargs)
+
+    monkeypatch.setattr(account_page.datasets, "load", tracked_load)
+
+    first = account_page._fx_history(root)
+    second = account_page._fx_history(root)
+    assert second == first
+    assert len(calls) == 2
+
+    _write_parquet(
+        root, relative,
+        pd.DataFrame({
+            "date": pd.to_datetime(["2026-09-01", "2026-09-02"]),
+            "dexkous": [1_320.0, 1_321.0],
+        }),
+    )
+    third = account_page._fx_history(root)
+    assert len(calls) == 4
+    assert len(third) == 2
+
+    _write_parquet(
+        root,
+        "data/normalized/fred_usd_fx_daily/year=2027/data.parquet",
+        pd.DataFrame({"date": [pd.Timestamp("2027-01-02")], "dexkous": [1_322.0]}),
+    )
+    fourth = account_page._fx_history(root)
+    assert len(calls) == 6
+    assert len(fourth) == 3
 
 
 def test_fx_history_prefers_bok_and_uses_fred_only_for_missing_dates() -> None:
@@ -970,4 +1037,3 @@ def test_asset_trend_chart_marks_scope_changes() -> None:
     assert "events: (payload.scope_changes || [])" in account_js
     assert 'class="si-event-line"' in app_js
     assert "세로 점선: 계좌 편입" in template
-

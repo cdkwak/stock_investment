@@ -68,6 +68,76 @@ _AUDIT_COUNT_KEYS = frozenset({
     "lists", "notes", "positions",
 })
 _AUDIT_LOCK = Lock()
+_ACCOUNT_READ_CACHE_LOCK = Lock()
+_ACCOUNT_READ_CACHE: dict[
+    tuple[object, ...],
+    tuple[tuple[Path, ...], tuple[tuple[Path, int, int], ...], object],
+] = {}
+_CACHE_MISS = object()
+
+
+def _input_signature(
+    paths: tuple[Path, ...],
+) -> tuple[tuple[Path, int, int], ...] | None:
+    """Stat only previously discovered inputs, following the web cache pattern."""
+
+    signature: list[tuple[Path, int, int]] = []
+    try:
+        for path in paths:
+            stat = path.stat()
+            signature.append((path, stat.st_mtime_ns, stat.st_size))
+    except OSError:
+        return None
+    return tuple(signature)
+
+
+def _dataset_inputs(project_root: Path, relatives: tuple[str, ...]) -> tuple[Path, ...]:
+    """Discover dataset files once and retain parent dirs to notice new partitions."""
+
+    inputs: list[Path] = []
+    for relative in relatives:
+        root = (Path(project_root) / relative).resolve()
+        if not root.is_dir():
+            inputs.append(root.parent)
+            continue
+        inputs.append(root)
+        try:
+            files = sorted(root.rglob("*.parquet"))
+        except OSError:
+            files = []
+        for path in files:
+            inputs.append(path)
+            parent = path.parent
+            while parent != root:
+                inputs.append(parent)
+                parent = parent.parent
+    return tuple(dict.fromkeys(inputs))
+
+
+def _cached_read(key: tuple[object, ...]) -> object:
+    with _ACCOUNT_READ_CACHE_LOCK:
+        cached = _ACCOUNT_READ_CACHE.get(key)
+    if cached is None:
+        return _CACHE_MISS
+    paths, signature, value = cached
+    if _input_signature(paths) != signature:
+        with _ACCOUNT_READ_CACHE_LOCK:
+            _ACCOUNT_READ_CACHE.pop(key, None)
+        return _CACHE_MISS
+    # Cached objects are private read-only inputs: callers only iterate or index them.
+    return value
+
+
+def _store_cached_read(
+    key: tuple[object, ...], paths: tuple[Path, ...], value: object,
+) -> object:
+    signature = _input_signature(paths)
+    if signature is not None:
+        with _ACCOUNT_READ_CACHE_LOCK:
+            if len(_ACCOUNT_READ_CACHE) >= 64:
+                _ACCOUNT_READ_CACHE.clear()
+            _ACCOUNT_READ_CACHE[key] = (paths, signature, value)
+    return value
 
 ASSET_LABELS = {
     AssetClass.CASH.value: "예금·현금",
@@ -738,10 +808,19 @@ def _latest_kr_prices(
 ) -> dict[str, tuple[float, str]]:
     if not tickers:
         return {}
+    root = Path(project_root).resolve()
+    cache_key = ("latest-kr-prices", str(root), tuple(sorted(tickers)))
+    cached = _cached_read(cache_key)
+    if cached is not _CACHE_MISS:
+        return cached  # type: ignore[return-value]
+    relatives = (
+        "data/normalized/kr_equity_price_daily",
+        "data/normalized/kr_etf_price_daily",
+    )
     # Manual accounts hold KRX stocks (kr_equity_price_daily) AND KRX ETFs
     # (kr_etf_price_daily, which the ETF lane extends with every manual-account ETF).
     frames = []
-    for relative in ("data/normalized/kr_equity_price_daily", "data/normalized/kr_etf_price_daily"):
+    for relative in relatives:
         try:
             frame = datasets.load(
                 project_root, relative,
@@ -753,7 +832,9 @@ def _latest_kr_prices(
         if frame is not None and not frame.empty:
             frames.append(frame)
     if not frames:
-        return {}
+        return _store_cached_read(
+            cache_key, _dataset_inputs(root, relatives), {},
+        )  # type: ignore[return-value]
     work = pd.concat(frames, ignore_index=True, sort=False)
     work["date"] = pd.to_datetime(work["date"], errors="coerce")
     work["symbol"] = work["symbol"].astype(str).str.zfill(6)
@@ -761,10 +842,13 @@ def _latest_kr_prices(
     work = work.dropna(subset=["date", "symbol", "close"])
     work = work[work["close"] > 0].sort_values(["symbol", "date"])
     latest = work.groupby("symbol", as_index=False).tail(1)
-    return {
+    result = {
         str(row.symbol): (float(row.close), row.date.date().isoformat())
         for row in latest.itertuples(index=False)
     }
+    return _store_cached_read(
+        cache_key, _dataset_inputs(root, relatives), result,
+    )  # type: ignore[return-value]
 
 
 def build_manual_account_data(project_root: Path) -> dict[str, object]:
@@ -1055,6 +1139,12 @@ def _asset_identity_catalog(project_root: Path) -> dict[str, dict[str, object]]:
     from stock_data.contracts.global_etf import GLOBAL_ETF_REGISTRY
     from stock_web.api.symbol_resolver import global_equity_identities
 
+    root = Path(project_root).resolve()
+    cache_key = ("asset-identity-catalog", str(root))
+    cached = _cached_read(cache_key)
+    if cached is not _CACHE_MISS:
+        return cached  # type: ignore[return-value]
+
     catalog: dict[str, dict[str, object]] = {}
     for symbol, spec in GLOBAL_ETF_REGISTRY.items():
         catalog[str(symbol).upper()] = {
@@ -1111,7 +1201,10 @@ def _asset_identity_catalog(project_root: Path) -> dict[str, dict[str, object]]:
                     "security_type": str(row.get("security_type_name") or "주식"),
                     "leverage_multiple": 1,
                 })
-    return catalog
+    relatives = tuple(spec[0] for spec in dataset_specs)
+    return _store_cached_read(
+        cache_key, _dataset_inputs(root, relatives), catalog,
+    )  # type: ignore[return-value]
 
 
 def classify_asset(
@@ -1206,6 +1299,7 @@ def build_holdings_data(
     from stock_web.api.regime import build_rules
 
     catalog = _asset_identity_catalog(project_root)
+    cash_complete = bool(api.get("cash_complete", True)) and api.get("cash_krw") is not None
     fx = api.get("fx_krw_per_usd") or manual.get("fx_krw_per_usd")
     rows: list[dict[str, object]] = []
 
@@ -1364,6 +1458,7 @@ def build_holdings_data(
         "effective_exposure_pct": effective_pct,
         "cash_pct": cash_pct,
         "short_treasury_pct": 0.0,
+        "cash_complete": cash_complete,
     }, [], project_root)
     limit_pct = None
     for rule_row in (rule_projection or {}).get("rows", []):
@@ -1376,6 +1471,7 @@ def build_holdings_data(
         "leveraged_weight_pct": nominal_pct,
         "effective_exposure_pct": effective_pct,
         "leverage_limit_pct": limit_pct,
+        "cash_complete": cash_complete,
         "rules": rule_projection,
         "usd_assets_usd": usd_assets_usd if usd_assets_usd else None,
         "fx_effect_pct": None,
@@ -1812,6 +1908,16 @@ def _total_asset_components(
 def _fx_history(project_root: Path) -> list[dict[str, object]]:
     """Return one daily FX series, preferring BOK on every overlapping date."""
 
+    root = Path(project_root).resolve()
+    relatives = (
+        "data/normalized/fred_usd_fx_daily",
+        "data/normalized/bok_ecos_usd_krw_daily",
+    )
+    cache_key = ("fx-history", str(root))
+    cached = _cached_read(cache_key)
+    if cached is not _CACHE_MISS:
+        return cached  # type: ignore[return-value]
+
     merged: dict[date, dict[str, object]] = {}
     sources = (
         (
@@ -1845,7 +1951,10 @@ def _fx_history(project_root: Path) -> list[dict[str, object]]:
                 "value": value,
                 "source_label": source_label,
             }
-    return [merged[observed] for observed in sorted(merged)]
+    result = [merged[observed] for observed in sorted(merged)]
+    return _store_cached_read(
+        cache_key, _dataset_inputs(root, relatives), result,
+    )  # type: ignore[return-value]
 
 
 def _session_age(observed: date, current: date) -> int:
@@ -2084,23 +2193,34 @@ def _kospi_benchmark(
     ]
     if not valid_history:
         return []
-    try:
-        frame = datasets.load(
-            project_root, "data/normalized/kr_index_daily",
-            columns=["date", "market", "symbol", "close"],
+    root = Path(project_root).resolve()
+    relative = "data/normalized/kr_index_daily"
+    cache_key = ("kospi-benchmark-input", str(root))
+    cached = _cached_read(cache_key)
+    if cached is _CACHE_MISS:
+        try:
+            frame = datasets.load(
+                root, relative,
+                columns=["date", "market", "symbol", "close"],
+            )
+        except (KeyError, OSError, PermissionError, TypeError, ValueError):
+            frame = None
+        work = pd.DataFrame(columns=["date", "close"])
+        if frame is not None and not frame.empty:
+            work = frame.copy()
+            if "market" in work:
+                work = work[work["market"].astype(str) == "KOSPI"]
+            if "symbol" in work:
+                work = work[work["symbol"].astype(str) == "KOSPI"]
+            work["date"] = pd.to_datetime(work["date"], errors="coerce").dt.normalize()
+            work["close"] = pd.to_numeric(work["close"], errors="coerce")
+            work = work.dropna(subset=["date", "close"]).sort_values("date")
+        cached = _store_cached_read(
+            cache_key, _dataset_inputs(root, (relative,)), work,
         )
-    except (KeyError, OSError, PermissionError, TypeError, ValueError):
+    work = cached
+    if not isinstance(work, pd.DataFrame):
         return []
-    if frame is None or frame.empty:
-        return []
-    work = frame.copy()
-    if "market" in work:
-        work = work[work["market"].astype(str) == "KOSPI"]
-    if "symbol" in work:
-        work = work[work["symbol"].astype(str) == "KOSPI"]
-    work["date"] = pd.to_datetime(work["date"], errors="coerce").dt.normalize()
-    work["close"] = pd.to_numeric(work["close"], errors="coerce")
-    work = work.dropna(subset=["date", "close"]).sort_values("date")
     if work.empty:
         return []
     account = pd.DataFrame({

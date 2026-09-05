@@ -192,6 +192,7 @@
 }
 .rule-gauge > span { color: var(--muted); }
 .rule-gauge > b { text-align: right; font-weight: 500; }
+.rule-gauge > small { color: var(--muted); line-height: 1.35; }
 .gauge-track { position: relative; height: 8px; border-radius: 2px; background: var(--grid); }
 .gauge-track i { position: absolute; inset: 0 auto 0 0; max-width: 100%; border-radius: 2px; background: var(--amber); }
 .gauge-track em { position: absolute; top: -3px; width: 2px; height: 14px; background: var(--ink); }

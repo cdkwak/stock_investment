@@ -248,8 +248,13 @@
     $("allocation-donut").innerHTML = total ? `<svg viewBox="0 0 156 156" role="img" aria-label="보유 비중 도넛">${arcs}<text x="78" y="72" text-anchor="middle" class="si-axis-label">레버리지</text><text x="78" y="92" text-anchor="middle" font-size="18" font-weight="600" fill="#a8621a">${fmt(leveragedPct, 1)}%</text></svg><div class="donut-legend">${groups.map((item, index) => `<div class="donut-legend-row"><i style="background:${colors[index]}"></i><span>${esc(item[0])}</span><b class="num">${fmt(item[1] / total * 100, 1)}%</b></div>`).join("")}</div>` : `<div class="unavailable">표시할 비중이 없습니다.</div>`;
     const holdings = payload.holdings || {};
     const nominal = holdings.leveraged_weight_pct, exposure = holdings.effective_exposure_pct, limit = holdings.leverage_limit_pct;
-    $("leverage-gauge-value").textContent = `${nominal === null || nominal === undefined ? "—" : `${fmt(nominal, 1)}%`} / 한도 ${limit === null || limit === undefined ? "—" : `${fmt(limit, 0)}%`}`;
-    $("exposure-gauge-value").textContent = exposure === null || exposure === undefined ? "—" : `${fmt(exposure, 1)}%`;
+    const cashCaveat = holdings.cash_complete === false ? " · 현금 미반영" : "";
+    $("leverage-gauge-value").textContent = `${nominal === null || nominal === undefined ? "—" : `${fmt(nominal, 1)}%`} / 한도 ${limit === null || limit === undefined ? "—" : `${fmt(limit, 0)}%`}${cashCaveat}`;
+    $("exposure-gauge-value").textContent = `${exposure === null || exposure === undefined ? "—" : `${fmt(exposure, 1)}%`}${cashCaveat}`;
+    const cashRule = (((holdings.rules || {}).rows) || []).find((row) => Array.isArray(row) && String(row[0] || "").startsWith("현금 · 단기국채"));
+    $("cash-gauge-label").textContent = cashRule ? cashRule[0] : `현금 · 단기국채${holdings.cash_complete === false ? " (현금 미확인)" : ""}`;
+    $("cash-gauge-value").textContent = cashRule ? cashRule[1] : (holdings.cash_complete === false ? "미확인" : "—");
+    $("cash-gauge-note").textContent = cashRule ? cashRule[2] : (holdings.cash_complete === false ? "현금 미확인이라 한도 판정 보류" : "");
     $("leverage-gauge-bar").style.width = `${Math.min(100, Math.max(0, Number(nominal || 0)))}%`;
     $("exposure-gauge-bar").style.width = `${Math.min(100, Math.max(0, Number(exposure || 0)))}%`;
     $("leverage-limit-mark").hidden = limit === null || limit === undefined;

@@ -666,15 +666,21 @@ def build_rules(
     min_cash = values.get("최소 현금 비중")
     # "모름" must not read as 0%: when the brokers did not report cash, say 미확인 and flag
     # that the weights below leave cash out of the denominator (review 09-05 11:40).
-    cash_known = cash is not None
+    cash_incomplete = (
+        account.get("cash_complete") is False
+        or bool(account.get("cash_unknown"))
+        or ("cash_krw" in account and account.get("cash_krw") is None)
+    )
+    cash_known = cash is not None and not cash_incomplete
     cash_caveat = "" if cash_known else " · 현금 미반영(분모 과소 가능)"
     rows = [
         ["레버리지 ETF 비중 (명목)", _fmt(nominal, "{:.0f}%"),
          (f"/ 한도 {max_nominal:.0f}%" if max_nominal is not None else "") + cash_caveat],
         ["실효 노출 (비중 x 배수)", _fmt(exposure, "{:.0f}%"),
          "= 보유 비중 x 확인된 배수" + cash_caveat],
-        ["현금 · 단기국채",
-         f"{_fmt(cash, '{:.0f}%') if cash_known else '미확인'} · {short_treasury:.0f}%",
+        ["현금 · 단기국채" if cash_known else "현금 · 단기국채 (현금 미확인)",
+         (f"{_fmt(cash, '{:.0f}%')} · {short_treasury:.0f}%" if cash_known
+          else f"미확인 · 단기국채 {short_treasury:.0f}%"),
          (f"/ 최소 {min_cash:.0f}%" if min_cash is not None else "") + ("" if cash_known else " · 현금 미확인이라 한도 판정 보류")],
     ]
     warnings: list[str] = []
@@ -686,7 +692,7 @@ def build_rules(
         and nominal > hot_cap
     ):
         warnings.append("과열 시 사용자 레버리지 상한을 초과합니다.")
-    if cash is not None and min_cash is not None and cash + short_treasury < min_cash:
+    if cash_known and min_cash is not None and cash + short_treasury < min_cash:
         warnings.append("현금·단기국채 비중이 사용자 최소값보다 낮습니다.")
     return {
         "rows": rows,

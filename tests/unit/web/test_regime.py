@@ -11,6 +11,66 @@ from stock_web.api.regime import market_score, score_label
 from tests.unit.web import new_temp_root
 
 
+def _rules_file(root: Path) -> Path:
+    path = root / "rules.md"
+    path.write_text(
+        "| 항목 | 값 | 이유 |\n"
+        "|---|---|---|\n"
+        "| 레버리지 ETF 최대 비중 | 25% | |\n"
+        "| 과열 판정 시 레버리지 상한 | 20% | |\n"
+        "| 최소 현금 비중 | 10% | |\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_rules_mark_every_investable_asset_ratio_when_cash_is_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = new_temp_root()
+    monkeypatch.setenv("STOCK_WEB_RULES_PATH", str(_rules_file(root)))
+
+    result = regime.build_rules({
+        "leveraged_weight_pct": 12.5,
+        "effective_exposure_pct": 88.0,
+        "cash_pct": 0.0,
+        "cash_krw": None,
+        "short_treasury_pct": 3.0,
+        "cash_complete": False,
+    }, [], root)
+
+    assert result is not None
+    assert result["rows"] == [
+        ["레버리지 ETF 비중 (명목)", "12%", "/ 한도 25% · 현금 미반영(분모 과소 가능)"],
+        ["실효 노출 (비중 x 배수)", "88%", "= 보유 비중 x 확인된 배수 · 현금 미반영(분모 과소 가능)"],
+        ["현금 · 단기국채 (현금 미확인)", "미확인 · 단기국채 3%", "/ 최소 10% · 현금 미확인이라 한도 판정 보류"],
+    ]
+    assert "사용자 최소값" not in result["warning"]
+
+
+def test_rules_keep_known_cash_rows_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = new_temp_root()
+    monkeypatch.setenv("STOCK_WEB_RULES_PATH", str(_rules_file(root)))
+
+    result = regime.build_rules({
+        "leveraged_weight_pct": 12.5,
+        "effective_exposure_pct": 88.0,
+        "cash_pct": 7.0,
+        "short_treasury_pct": 3.0,
+        "cash_complete": True,
+    }, [], root)
+
+    assert result is not None
+    assert result["rows"] == [
+        ["레버리지 ETF 비중 (명목)", "12%", "/ 한도 25%"],
+        ["실효 노출 (비중 x 배수)", "88%", "= 보유 비중 x 확인된 배수"],
+        ["현금 · 단기국채", "7% · 3%", "/ 최소 10%"],
+    ]
+    assert "사용자 최소값" not in result["warning"]
+
+
 @pytest.mark.parametrize(
     ("rsi", "trend_percentile", "volatility", "expected"),
     [
@@ -358,4 +418,3 @@ def test_implied_volatility_axis_is_empty_without_data() -> None:
         Query(), "normalized/fred_vix_daily", date_column="date", value_column="vixcls",
     )
     assert axis["percentile_10y"] is None and axis["contribution"] is None
-

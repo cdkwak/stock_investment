@@ -36,6 +36,13 @@ exposes account identifiers.
 - A total-cash value is unavailable whenever any included account has
   unverified cash; known accounts are not silently presented as a complete
   cash total.
+- While cash is unavailable, the account gauge and Home rules card show the
+  cash share as `미확인`; every rule ratio whose denominator is total investable
+  assets is visibly marked `현금 미반영`. Once cash is complete, the existing
+  numeric labels are unchanged.
+- Provider-free FX, local price, identity-master, and KOSPI inputs used by this
+  page are reused through file-and-parent mtime/size signatures. A changed or
+  newly partitioned retained input invalidates the corresponding read cache.
 - On narrow screens, the account name owns the wrapped note, while the title
   remains unbroken. Reference date and inclusion state move under the account
   name so the account table does not require horizontal scrolling at 375px.
