@@ -1,6 +1,8 @@
 """Server-rendered data-health page context from retained local artifacts."""
 from __future__ import annotations
 
+import os
+
 import json
 from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
@@ -75,7 +77,7 @@ _DATA_CONTEXT_INPUTS = (
 )
 _DATA_CONTEXT_CACHE: dict[
     tuple[str, str],
-    tuple[str, tuple[tuple[Path, int, int], ...], dict[str, object]],
+    tuple[str, tuple[tuple[Path, int, int, int], ...], dict[str, object]],
 ] = {}
 
 _CALENDAR_MARKETS = {
@@ -105,12 +107,15 @@ def _enum(raw: object, labels: dict[str, str]) -> dict[str, str]:
 
 def _input_signature(
     paths: tuple[Path, ...],
-) -> tuple[tuple[Path, int, int], ...] | None:
-    signature: list[tuple[Path, int, int]] = []
+) -> tuple[tuple[Path, int, int, int], ...] | None:
+    signature: list[tuple[Path, int, int, int]] = []
     try:
         for path in paths:
             stat = path.stat()
-            signature.append((path, stat.st_mtime_ns, stat.st_size))
+            # Directories also carry a hash of their child names: Windows directory mtimes did
+            # not reliably reflect a new file/partition in tests, so listing is the truth.
+            listing = hash(tuple(sorted(entry.name for entry in os.scandir(path)))) if path.is_dir() else 0
+            signature.append((path, stat.st_mtime_ns, stat.st_size, listing))
     except OSError:
         return None
     return tuple(signature)
@@ -130,8 +135,10 @@ def _data_context_input_paths(project_root: Path) -> tuple[Path, ...]:
                 if retained.is_file() and retained.suffix.lower() == ".json":
                     watched.update((retained, retained.parent))
             continue
-        if path.parent.is_dir():
-            watched.add(path.parent)
+        ancestor = path.parent
+        while not ancestor.is_dir() and ancestor != ancestor.parent:
+            ancestor = ancestor.parent
+        watched.add(ancestor)  # nearest existing ancestor: its listing changes when the input appears
     return tuple(sorted(watched))
 
 

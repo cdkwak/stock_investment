@@ -71,21 +71,24 @@ _AUDIT_LOCK = Lock()
 _ACCOUNT_READ_CACHE_LOCK = Lock()
 _ACCOUNT_READ_CACHE: dict[
     tuple[object, ...],
-    tuple[tuple[Path, ...], tuple[tuple[Path, int, int], ...], object],
+    tuple[tuple[Path, ...], tuple[tuple[Path, int, int, int], ...], object],
 ] = {}
 _CACHE_MISS = object()
 
 
 def _input_signature(
     paths: tuple[Path, ...],
-) -> tuple[tuple[Path, int, int], ...] | None:
+) -> tuple[tuple[Path, int, int, int], ...] | None:
     """Stat only previously discovered inputs, following the web cache pattern."""
 
-    signature: list[tuple[Path, int, int]] = []
+    signature: list[tuple[Path, int, int, int]] = []
     try:
         for path in paths:
             stat = path.stat()
-            signature.append((path, stat.st_mtime_ns, stat.st_size))
+            # Directories also carry a hash of their child names: Windows directory mtimes did
+            # not reliably reflect a new file/partition in tests, so listing is the truth.
+            listing = hash(tuple(sorted(entry.name for entry in os.scandir(path)))) if path.is_dir() else 0
+            signature.append((path, stat.st_mtime_ns, stat.st_size, listing))
     except OSError:
         return None
     return tuple(signature)
@@ -98,7 +101,10 @@ def _dataset_inputs(project_root: Path, relatives: tuple[str, ...]) -> tuple[Pat
     for relative in relatives:
         root = (Path(project_root) / relative).resolve()
         if not root.is_dir():
-            inputs.append(root.parent)
+            ancestor = root.parent
+            while not ancestor.is_dir() and ancestor != ancestor.parent:
+                ancestor = ancestor.parent
+            inputs.append(ancestor)
             continue
         inputs.append(root)
         try:
