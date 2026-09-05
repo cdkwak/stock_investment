@@ -79,6 +79,12 @@ INDEX_DEFINITIONS: dict[str, dict[str, str]] = {
     "EURO_STOXX50": {
         "label": "EURO STOXX 50", "index_kind": "price", "retained_from": "2007-04-02",
     },
+    # One European index for every window (vault 2026-09-05: switching indices per window is a
+    # series change). CAC 40 is a PRICE index retained from 1990-03-01 (STOXX Europe 600 on Yahoo
+    # starts 2004-04-26); the legend carries the real name, never just "유럽".
+    "CAC40": {
+        "label": "CAC 40 (프랑스)", "index_kind": "price", "retained_from": "1990-03-01",
+    },
     "DAX": {
         "label": "DAX", "index_kind": "total_return", "retained_from": "1987-12-30",
         "kind_disclosure": "DAX는 총수익지수(배당 포함) — 다른 지수와 기준이 다름",
@@ -93,6 +99,13 @@ _US_YIELDS = (
 _KR_YIELDS = (
     ("3Y", "한국 3Y", "1998-11-13", False),
     ("10Y", "한국 10Y", "2000-12-18", True),
+)
+# 1997 외환위기 has no 국고채 line (3Y starts 1998-11). The representative market rate then was
+# the 3-year AA− corporate bond; the call rate shows the liquidity squeeze. Separate series,
+# separate lines, default off — never spliced into the treasury lines (vault 2026-09-05).
+_KR_MARKET_RATES = (
+    ("CORP_BOND_3Y_AA_MINUS", "kr_corp_bond_3y", "회사채 3년(AA−)", "1995-01-03"),
+    ("CALL_RATE_OVERNIGHT", "kr_call_rate", "콜금리 1일", "1995-01-03"),
 )
 
 _CACHE_LOCK = Lock()
@@ -212,7 +225,7 @@ def _missing_reason(label: str, retained_from: str) -> str:
 _LOCAL_INDEX_BASIS = {"KOSPI": "PRICE"}
 _COUNTRY_BY_SYMBOL = {
     "KOSPI": "한국", "NASDAQ100": "미국", "SP500": "미국", "NIKKEI225": "일본",
-    "EURO_STOXX50": "유럽", "DAX": "유럽(독일)",
+    "EURO_STOXX50": "유럽", "CAC40": "프랑스(유럽)", "DAX": "유럽(독일)",
 }
 
 
@@ -394,6 +407,21 @@ def _mode_a(
                 retained_from=retained_from, normalize=False,
                 source="BOK ECOS · BOK 마지막 관측 이후 Toss 연장",
             ))
+        market_rates = query.read(
+            "normalized/bok_ecos_kr_market_rate_daily",
+            columns=["date", "series", "rate_percent"], start=start, end=end,
+        )
+        for series_key, series_id, label, retained_from in _KR_MARKET_RATES:
+            part = (
+                market_rates[market_rates["series"].astype(str).eq(series_key)]
+                if not market_rates.empty and "series" in market_rates else market_rates
+            )
+            frames.append(_line(
+                series_id=series_id, label=label, symbol=series_key, index_kind=None,
+                axis="right", default_visible=False, frame=_series_frame(part, "rate_percent"),
+                retained_from=retained_from, normalize=False,
+                source="BOK ECOS 817Y002 · 국고채와 별도 계열(이어 붙이지 않음)",
+            ))
     series = [item[0] for item in frames]
     missing = [item[1] for item in frames if item[1]]
     all_dates = [point["time"] for item in series for point in item["data"]]
@@ -442,7 +470,7 @@ def _mode_b(
     if crisis not in MODE_B_ORDER:
         raise CrisisTimelineInputError(f"Mode B에서 지원하지 않는 위기: {crisis}")
     start, end = _window(crisis, today)
-    requested = ("KOSPI", index_choice, "NIKKEI225", "EURO_STOXX50")
+    requested = ("KOSPI", index_choice, "NIKKEI225", "CAC40")
     # One basis for the whole normalised axis (refuses e.g. a total-return DAX).
     _assert_one_price_basis(requested)
     prepared: list[tuple[str, pd.DataFrame]] = [

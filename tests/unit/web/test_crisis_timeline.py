@@ -35,6 +35,7 @@ def _fixtures(root: Path, *, include_nikkei: bool = True) -> None:
         "SP500": 800.0,
         "NIKKEI225": 20000.0,
         "EURO_STOXX50": 4000.0,
+        "CAC40": 3000.0,
         "DAX": 5000.0,
     }
     periods = {
@@ -42,6 +43,8 @@ def _fixtures(root: Path, *, include_nikkei: bool = True) -> None:
         "SP500": [("1928-01-03", "1928-01-03"), ("2000-03-01", "2003-03-31"), ("2007-10-01", "2009-06-30"), ("2026-09-01", "2026-09-01")],
         "NIKKEI225": [("2000-03-01", "2003-03-31"), ("2007-10-01", "2009-06-30")],
         "EURO_STOXX50": [("2007-04-02", "2009-06-30")],
+        # No 2000-window rows on purpose: the absent-country path is tested with CAC 40.
+        "CAC40": [("1990-03-01", "1990-03-09"), ("2007-10-01", "2009-06-30")],
         "DAX": [("2000-03-01", "2003-03-31")],
     }
     if not include_nikkei:
@@ -136,11 +139,11 @@ def test_mode_b_normalizes_each_available_line_at_its_first_window_day() -> None
     )
 
     assert payload["question"] == "같은 위기에 여러 나라는 각각 어떻게 움직였나?"
-    assert payload["drawn_note"] == "이 창에 그려진 나라: 한국 · 미국 · 일본 · 유럽"
+    assert payload["drawn_note"] == "이 창에 그려진 나라: 한국 · 미국 · 일본 · 프랑스(유럽)"
     assert payload["normalization_caption"] == "구간 시작 = 100"
     assert payload["data_kind_caption"] == "전부 가격지수 기준(배당 제외)"
     assert [line["symbol"] for line in payload["series"]] == [
-        "KOSPI", "SP500", "NIKKEI225", "EURO_STOXX50",
+        "KOSPI", "SP500", "NIKKEI225", "CAC40",
     ]
     assert all(line["data"][0]["value"] == pytest.approx(100.0) for line in payload["series"])
     assert all("2007-10-01" <= line["data"][0]["time"] <= "2009-06-30" for line in payload["series"])
@@ -156,14 +159,14 @@ def test_mode_b_never_substitutes_dax_and_names_the_absent_country() -> None:
         root, mode="B", crisis="2000", index_choice="NASDAQ100",
     )
 
-    assert [line["symbol"] for line in payload["series"]] == ["KOSPI", "NASDAQ100", "NIKKEI225", "EURO_STOXX50"]
+    assert [line["symbol"] for line in payload["series"]] == ["KOSPI", "NASDAQ100", "NIKKEI225", "CAC40"]
     assert "DAX" not in {line["symbol"] for line in payload["series"]}
     euro = payload["series"][-1]
     assert euro["data"] == []
-    assert euro["missing_reason"] == "EURO STOXX 50: 선택한 구간에 보존 데이터 없음 (retained from 2007-04-02)"
+    assert euro["missing_reason"] == "CAC 40 (프랑스): 선택한 구간에 보존 데이터 없음 (retained from 1990-03-01)"
     assert payload["data_kind_caption"] == "전부 가격지수 기준(배당 제외)"
-    assert payload["drawn_note"] == "이 창에 그려진 나라: 한국 · 미국 · 일본 (미포함: 유럽)"
-    assert payload["legend_note"].startswith("이 창에 그려진 나라: 한국 · 미국 · 일본 (미포함: 유럽) · 전부 가격지수")
+    assert payload["drawn_note"] == "이 창에 그려진 나라: 한국 · 미국 · 일본 (미포함: 프랑스(유럽))"
+    assert payload["legend_note"].startswith("이 창에 그려진 나라: 한국 · 미국 · 일본 (미포함: 프랑스(유럽)) · 전부 가격지수")
 
 
 def test_mode_b_partial_line_says_where_it_starts() -> None:
@@ -174,9 +177,9 @@ def test_mode_b_partial_line_says_where_it_starts() -> None:
     from stock_web.api import crisis_timeline
 
     payload = build_crisis_timeline_payload(root, mode="B", crisis="1990", index_choice="SP500")
-    euro = next(line for line in payload["series"] if line["symbol"] == "EURO_STOXX50")
-    assert euro["data"][0]["time"] == "2007-04-02" and euro["data"][0]["value"] == pytest.approx(100.0)
-    assert any(note.startswith("EURO STOXX 50: 2007-04-02부터만 표시 — 구간 시작 1989-12-01") for note in payload["missing_notes"])
+    euro = next(line for line in payload["series"] if line["symbol"] == "CAC40")
+    assert euro["data"][0]["time"] == "1990-03-01" and euro["data"][0]["value"] == pytest.approx(100.0)
+    assert any(note.startswith("CAC 40 (프랑스): 1990-03-01부터만 표시 — 구간 시작 1989-12-01") for note in payload["missing_notes"])
 
 
 def test_mode_b_refuses_to_mix_price_and_total_return_bases() -> None:
@@ -186,7 +189,7 @@ def test_mode_b_refuses_to_mix_price_and_total_return_bases() -> None:
         crisis_timeline._assert_one_price_basis(("KOSPI", "SP500", "DAX"))
     with pytest.raises(crisis_timeline.CrisisTimelineInputError, match="index_basis가 계약에 없어"):
         crisis_timeline._basis_for("MYSTERY_INDEX")
-    assert crisis_timeline._assert_one_price_basis(("KOSPI", "NASDAQ100", "NIKKEI225", "EURO_STOXX50")) == "PRICE"
+    assert crisis_timeline._assert_one_price_basis(("KOSPI", "NASDAQ100", "NIKKEI225", "CAC40")) == "PRICE"
 
 
 def test_mode_b_names_a_missing_line_and_its_retained_start() -> None:
@@ -249,3 +252,21 @@ def test_payload_cache_invalidates_when_a_retained_input_changes() -> None:
     second_line = second["series"][0]["data"]
     assert first_line[0]["value"] != second_line[0]["value"]
     assert second_line[0] == {"time": "2007-10-01", "value": 7777.0}
+
+
+def test_mode_a_korea_carries_separate_market_rate_lines_for_1997() -> None:
+    """회사채 3년(AA−)·콜금리 are their own right-axis lines (default off), never spliced into
+    the 국고채 lines; without retained rows they are named as missing with their start date."""
+    root = _root()
+    _fixtures(root)
+
+    payload = build_crisis_timeline_payload(root, mode="A", country="KR", crisis="1997", index_choice="NASDAQ100")
+
+    by_id = {line["id"]: line for line in payload["series"]}
+    assert {"kr3y", "kr10y", "kr_corp_bond_3y", "kr_call_rate"} <= set(by_id)
+    corp, call = by_id["kr_corp_bond_3y"], by_id["kr_call_rate"]
+    assert corp["label"] == "회사채 3년(AA−)" and call["label"] == "콜금리 1일"
+    assert corp["axis"] == "right" and corp["default_visible"] is False
+    assert "별도 계열" in corp["source"]
+    assert corp["missing_reason"] == "회사채 3년(AA−): 선택한 구간에 보존 데이터 없음 (retained from 1995-01-03)"
+
