@@ -876,6 +876,7 @@ def test_compound_panel_static_contract_uses_cached_frame_render_and_existing_ch
     assert "전 구간 기준선 미달" in script
     assert "이 조합에서는 파라미터가 결과를 바꾸지 않음" in script
     assert 'return "전액 손실"' in script
+    assert "보정 추가 드래그" in script and "숫자는 합성과 동일" in script
     assert "function selectBestInScenario(rows, scenario, metricFn)" in script
     assert "best = selectBestInScenario(rows, scenarioValues" in script
     assert "scenario must fix cost/tax/exit/base_exposure" in script
