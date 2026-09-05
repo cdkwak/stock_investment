@@ -366,6 +366,10 @@ def _latest_kr_bundle_failures(
     # (review 09-06 02:30: today's stuck 20:30 claim masked yesterday's exit-1 failure).
     latest_terminal_by_slot: dict[str, tuple[float, Path, dict[str, object], str]] = {}
     claims: list[tuple[float, Path, dict[str, object], str]] = []
+    # Superseded terminal failures inside the window are kept as HISTORY rows (not counted):
+    # 08-31~09-02 had seven consecutive exit-1 bundles that no screen ever showed because the
+    # slot representative hid them (review 2026-09-05 23:54).
+    history_failures: list[tuple[float, Path, dict[str, object], str]] = []
     for path in occurrence_root.glob("*.json"):
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
@@ -385,13 +389,21 @@ def _latest_kr_bundle_failures(
         if occurrence_status.startswith("TERMINAL_"):
             previous = latest_terminal_by_slot.get(slot)
             if previous is None or sort_time > previous[0]:
+                if previous is not None and previous[3] == "TERMINAL_FAILURE":
+                    history_failures.append(previous)
                 latest_terminal_by_slot[slot] = entry
+            elif occurrence_status == "TERMINAL_FAILURE":
+                history_failures.append(entry)
         else:
             claims.append(entry)
 
-    candidates = list(latest_terminal_by_slot.values()) + claims
+    candidates = (
+        [(*item, False) for item in latest_terminal_by_slot.values()]
+        + [(*item, False) for item in claims]
+        + [(*item, True) for item in history_failures]
+    )
     failures: list[dict[str, object]] = []
-    for _, path, payload, occurrence_status in candidates:
+    for _, path, payload, occurrence_status, is_history in candidates:
         claimed_at = str(payload.get("claimed_at_utc") or payload.get("scheduled_for") or "")
         claimed_timestamp = _sort_time(claimed_at)
         stale_claim = (
@@ -415,7 +427,8 @@ def _latest_kr_bundle_failures(
         )
         failures.append({
             "task": f"STOCK_DATA_KR_MARKET_DAILY_{slot.replace(':', '')} 번들",
-            "status": {"raw": occurrence_status, "label": "실패"},
+            "status": {"raw": occurrence_status, "label": "실패 · 이력" if is_history else "실패"},
+            "history": is_history,
             "finished": finished,
             "finished_label": format_kst(finished),
             "api_calls": "—",
@@ -424,9 +437,12 @@ def _latest_kr_bundle_failures(
             "has_result_code": str(result_code) not in {"—", ""},
             "failed": True,
             "older_than_7_days": claimed_timestamp == float("-inf") or claimed_timestamp < cutoff.timestamp(),
-            "note": note or (
-                "번들이 레인 시작 전 점유 상태로 90분 넘게 남아 있습니다."
-                if stale_claim else ""
+            "note": (
+                ("이후 실행이 종결돼 슬롯 대표는 아님 · 7일 이력" + (f" · {note}" if note else ""))
+                if is_history else note or (
+                    "번들이 레인 시작 전 점유 상태로 90분 넘게 남아 있습니다."
+                    if stale_claim else ""
+                )
             ),
             "occurrence_source": path.name,
         })
@@ -455,12 +471,16 @@ def count_failed_receipts(receipts: list[dict[str, object]]) -> int:
     Counts failed bundle occurrences and lane receipts within the 7-day window (a lane's
     ``*_last.json`` is replaced by its next successful run, so a failed one is the lane's
     current state). Anything older than 7 days — retired lanes such as GLOBAL_MARKET_15M
-    from August, abandoned sandbox claims — stays out of the count. Review 2026-09-05 22:00:
+    from August, abandoned sandbox claims — stays out of the count, and so do superseded
+    bundle failures shown as 7-day history rows (history=True): the KPI is a gauge of the
+    current state, the table carries the streak. Review 2026-09-05 22:00:
     the KR_ETF_PRICE_DAILY 20:30 FAIL sat at the top of the receipt table while the KPI
     and the home chip said 실패 0 because only bundle occurrences were counted.
     """
     return sum(
-        bool(row.get("failed")) and not bool(row.get("older_than_7_days"))
+        bool(row.get("failed"))
+        and not bool(row.get("older_than_7_days"))
+        and not bool(row.get("history"))
         for row in receipts
     )
 

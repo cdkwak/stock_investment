@@ -347,7 +347,9 @@ def test_latest_kr_bundle_terminal_or_stale_claim_is_failed_receipt_and_kpi() ->
 
     now = datetime(2026, 9, 5, 7, 0, tzinfo=timezone.utc)
     context = build_data_page_context(tmp_path, "OPERATIONAL", now=now)
-    bundle_rows = [row for row in context["receipts"] if row.get("occurrence_source")]
+    all_bundle_rows = [row for row in context["receipts"] if row.get("occurrence_source")]
+    bundle_rows = [row for row in all_bundle_rows if not row.get("history")]
+    history_rows = [row for row in all_bundle_rows if row.get("history")]
 
     assert [row["task"] for row in bundle_rows] == [
         "STOCK_DATA_KR_MARKET_DAILY_1410 번들", "STOCK_DATA_KR_MARKET_DAILY_2030 번들",
@@ -355,6 +357,9 @@ def test_latest_kr_bundle_terminal_or_stale_claim_is_failed_receipt_and_kpi() ->
     assert bundle_rows[0]["note"] == "번들이 레인 시작 전 점유 상태로 90분 넘게 남아 있습니다."
     assert bundle_rows[1]["note"] == "bundle receipt missing"
     assert all(row["failed"] and row["status"]["label"] == "실패" for row in bundle_rows)
+    # The 09-04 09:10 failure was superseded by the 09-05 success: shown as history, not counted.
+    assert [row["occurrence_source"] for row in history_rows] == ["20260904T001000Z-0910.json"]
+    assert history_rows[0]["status"]["label"] == "실패 · 이력"
     assert context["health_summary"]["display_failed"] == 2
     assert next(item for item in context["freshness_counts"] if item["raw"] == "FAILED")["count"] == 2
     assert context["selected_filter_label"] == "운영 데이터"
@@ -399,6 +404,36 @@ def test_bundle_claim_envelope_status_key_counts_as_stale_and_does_not_hide_yest
     ]
     assert all(row["failed"] for row in stale)
     assert count_failed_receipts(stale) == 2
+
+
+def test_superseded_bundle_failures_stay_visible_as_history_but_are_not_counted() -> None:
+    from stock_web.api.data_page import _latest_kr_bundle_failures, count_failed_receipts
+
+    tmp_path = new_temp_root()
+    occurrence_root = tmp_path / "data/state/provider_scheduler/kr_market_daily_occurrences"
+    occurrence_root.mkdir(parents=True)
+    for stamp in ("2026-08-31", "2026-09-01", "2026-09-02"):
+        compact = stamp.replace("-", "")
+        (occurrence_root / f"{compact}T113000Z-2030.json").write_text(json.dumps({
+            "scheduled_slot": "20:30", "scheduled_for": f"{stamp}T20:30:00+09:00",
+            "claimed_at_utc": f"{stamp}T11:30:02+00:00",
+            "finished_at_utc": f"{stamp}T11:40:00+00:00",
+            "occurrence_status": "TERMINAL_FAILURE", "terminal_exit_code": 1,
+        }), encoding="utf-8")
+    (occurrence_root / "20260903T113000Z-2030.json").write_text(json.dumps({
+        "scheduled_slot": "20:30", "scheduled_for": "2026-09-03T20:30:00+09:00",
+        "claimed_at_utc": "2026-09-03T11:30:02+00:00", "finished_at_utc": "2026-09-03T11:40:00+00:00",
+        "occurrence_status": "TERMINAL_SUCCESS", "terminal_exit_code": 0,
+    }), encoding="utf-8")
+
+    rows = _latest_kr_bundle_failures(tmp_path, now=datetime(2026, 9, 4, 0, 0, tzinfo=timezone.utc))
+
+    assert sorted(row["occurrence_source"] for row in rows) == [
+        "20260831T113000Z-2030.json", "20260901T113000Z-2030.json", "20260902T113000Z-2030.json",
+    ]
+    assert all(row["history"] and row["status"]["label"] == "실패 · 이력" for row in rows)
+    assert all(row["note"].startswith("이후 실행이 종결돼 슬롯 대표는 아님") for row in rows)
+    assert count_failed_receipts(rows) == 0
 
 
 def test_count_failed_receipts_counts_recent_lane_failures_not_retired_ones() -> None:
