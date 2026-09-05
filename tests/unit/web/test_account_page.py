@@ -932,3 +932,31 @@ def test_dividend_endpoint_is_loopback_only_validated_atomic_and_amount_free_in_
     assert "314159" not in audit
     assert "SYNTH" not in audit
     assert [json.loads(line)["status"] for line in audit.splitlines()] == [403, 400, 200]
+
+
+def test_scope_change_flows_treat_a_new_source_first_balance_as_an_inflow() -> None:
+    """Registering an account is a measurement-scope change, not profit (review 09-05 12:00)."""
+    components = [
+        {"source_id": "toss_self:KRW", "currency": "KRW", "points": [
+            {"date": "2026-08-26", "value": 100.0}, {"date": "2026-09-05", "value": 104.0},
+        ]},
+        {"source_id": "manual:pension", "currency": "KRW", "points": [
+            {"date": "2026-09-05", "value": 50.0},
+        ]},
+        {"source_id": "toss_self:USD", "currency": "USD", "points": [
+            {"date": "2026-08-26", "value": 1.0},
+        ]},
+    ]
+    flows = account_page.scope_change_flows(components, [{"date": "2026-08-26", "value": 1300.0}])
+    assert [(flow["date"], flow["amount_krw"], flow["account"]) for flow in flows] == [
+        ("2026-09-05", 50.0, "scope_change"),
+    ]
+    assert flows[0]["synthetic"] is True
+
+    history = account_page._combine_total_asset_series(components, [{"date": "2026-08-26", "value": 1300.0}])
+    metrics = account_page.calculate_return_metrics(history, flows, broker_reported_pnl_krw=None)
+    # 100 + 1300 → 104 + 1300 + 50(new account): the 50 is a flow, so the true P&L is +4.
+    assert metrics["ALL"]["net_flows_krw"] == 50.0
+    assert metrics["ALL"]["true_pnl_krw"] == pytest.approx(4.0)
+    without = account_page.calculate_return_metrics(history, [], broker_reported_pnl_krw=None)
+    assert without["ALL"]["true_pnl_krw"] == pytest.approx(54.0)

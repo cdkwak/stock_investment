@@ -1919,6 +1919,61 @@ def _combine_total_asset_series(
     return result
 
 
+def scope_change_flows(
+    components: list[dict[str, object]], fx_history: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Treat a source's first observation as a dated inflow ("측정 범위 변경").
+
+    Registering an account (or a broker source appearing for the first time) is not a
+    profit: the account already existed, it merely entered the measurement scope. The
+    balance a new source contributes on its first day is therefore counted as a cash flow
+    on that day so Modified Dietz / TWR do not book the jump as a return (review
+    2026-09-05 12:00: registering the pension account moved the ALL return by ~20%p).
+    Sources present on the very first day of the series define the starting value and
+    create no flow. The flows are synthetic — never written into the user's ledger.
+    """
+
+    prepared: list[tuple[str, str, list[tuple[date, float]]]] = []
+    for component in components:
+        points = sorted({
+            date.fromisoformat(str(point["date"])): float(point["value"])
+            for point in component["points"]
+        }.items())
+        if points:
+            prepared.append((str(component.get("source_id") or ""), str(component["currency"]), points))
+    if not prepared:
+        return []
+    fx_points = sorted({
+        date.fromisoformat(str(point["date"])): float(point["value"])
+        for point in fx_history
+    }.items())
+    first_day = min(points[0][0] for _sid, _cur, points in prepared)
+    flows: list[dict[str, object]] = []
+    for source_id, currency, points in prepared:
+        entry_day, value = points[0]
+        if entry_day <= first_day:
+            continue
+        if currency == "KRW":
+            amount = value
+        elif currency == "USD":
+            prior_fx = [rate for fx_day, rate in fx_points if fx_day <= entry_day]
+            if not prior_fx:
+                continue
+            amount = value * prior_fx[-1]
+        else:
+            continue
+        flows.append({
+            "id": f"scope:{source_id}:{entry_day.isoformat()}",
+            "date": entry_day.isoformat(),
+            "amount_krw": float(amount),
+            "account": "scope_change",
+            "source_id": source_id,
+            "memo": "계좌 편입 · 측정 범위 변경 (자동 계상, 원장에 기록되지 않음)",
+            "synthetic": True,
+        })
+    return flows
+
+
 def calculate_return_metrics(
     history: list[dict[str, object]],
     cash_flows: list[dict[str, object]],
@@ -2131,18 +2186,28 @@ def build_account_page_data(project_root: Path) -> dict[str, object]:
             "schema_version": 1, "entries": [], "monthly_subtotals": [],
             "reason": cash_flow_error,
         }
-    history = _combine_total_asset_series(
-        _total_asset_components(project_root, manual), _fx_history(project_root),
-    )
+    components = _total_asset_components(project_root, manual)
+    fx_history = _fx_history(project_root)
+    history = _combine_total_asset_series(components, fx_history)
+    # Account registrations are scope changes, not profit: their first-day balance enters
+    # the flow list as a synthetic inflow (never persisted to the ledger).
+    scope_flows = scope_change_flows(components, fx_history)
     benchmark = _kospi_benchmark(project_root, history)
     if cash_flow_error is None:
+        effective_flows = [*cash_flows["entries"], *scope_flows]
         return_metrics = calculate_return_metrics(
-            history, cash_flows["entries"],
+            history, effective_flows,
             broker_reported_pnl_krw=api.get("broker_reported_pnl_krw"),
         )
+        for metric in return_metrics.values():
+            if isinstance(metric, dict) and metric.get("reason") is None:
+                metric["scope_change_flow_count"] = sum(
+                    1 for flow in scope_flows
+                    if str(metric.get("start_date")) < str(flow["date"]) <= str(metric.get("end_date"))
+                )
         _attach_kospi_returns(return_metrics, benchmark)
-        daily_true_change = _daily_true_change(history, cash_flows["entries"])
-        month_true_pnl = _month_true_pnl(history, cash_flows["entries"])
+        daily_true_change = _daily_true_change(history, effective_flows)
+        month_true_pnl = _month_true_pnl(history, effective_flows)
     else:
         return_metrics = {
             key: {"window": key, "reason": "입출금 원장을 읽을 수 없어 계산할 수 없습니다."}
