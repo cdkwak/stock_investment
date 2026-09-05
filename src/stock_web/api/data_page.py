@@ -401,6 +401,10 @@ def _latest_kr_bundle_failures(
         )
         if occurrence_status != "TERMINAL_FAILURE" and not stale_claim:
             continue
+        if claimed_timestamp != float("-inf") and claimed_timestamp < cutoff.timestamp():
+            # Abandoned claims from before the 7-day window (e.g. 08-24/25 sandbox runs) are
+            # history, not today's operational state: neither the table nor the KPI shows them.
+            continue
         slot = str(payload.get("scheduled_slot") or "").strip()
         finished = _receipt_time(payload)
         result_code = payload.get("terminal_exit_code", "—")
@@ -448,16 +452,15 @@ def _result_code(raw: object) -> dict[str, str]:
 def count_failed_receipts(receipts: list[dict[str, object]]) -> int:
     """Failed scheduler receipts that belong in the 실패 KPI.
 
-    Counts failed bundle occurrences and lane receipts whose LAST run failed within the
-    7-day window (a lane's ``*_last.json`` is replaced by its next successful run, so a
-    failed one is the lane's current state). Receipts older than 7 days are retired lanes
-    (e.g. GLOBAL_MARKET_15M from August) and stay out of the count. Review 2026-09-05 22:00:
+    Counts failed bundle occurrences and lane receipts within the 7-day window (a lane's
+    ``*_last.json`` is replaced by its next successful run, so a failed one is the lane's
+    current state). Anything older than 7 days — retired lanes such as GLOBAL_MARKET_15M
+    from August, abandoned sandbox claims — stays out of the count. Review 2026-09-05 22:00:
     the KR_ETF_PRICE_DAILY 20:30 FAIL sat at the top of the receipt table while the KPI
     and the home chip said 실패 0 because only bundle occurrences were counted.
     """
     return sum(
-        bool(row.get("failed"))
-        and (bool(row.get("occurrence_source")) or not bool(row.get("older_than_7_days")))
+        bool(row.get("failed")) and not bool(row.get("older_than_7_days"))
         for row in receipts
     )
 
