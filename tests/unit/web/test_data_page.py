@@ -408,9 +408,11 @@ def test_count_failed_receipts_counts_recent_lane_failures_not_retired_ones() ->
         {"failed": True, "older_than_7_days": False},                # lane FAIL this week
         {"failed": True, "older_than_7_days": True},                 # retired lane from August
         {"failed": False, "older_than_7_days": False},               # success
-        {"failed": True, "older_than_7_days": True, "occurrence_source": "x.json"},  # bundle row
+        {"failed": True, "older_than_7_days": True, "occurrence_source": "x.json"},  # old bundle row
     ]
-    assert count_failed_receipts(receipts) == 2
+    # Only failures inside the 7-day window count — lane or bundle alike (abandoned August
+    # claims once pushed the chip to 실패 6).
+    assert count_failed_receipts(receipts) == 1
 
 
 def test_missing_scheduler_result_code_uses_dash() -> None:
