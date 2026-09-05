@@ -665,22 +665,21 @@ def build_health(project_root: Path) -> dict[str, object]:
     from stock_data.gui.health_service import _effective_display_status
 
     statuses = [_effective_display_status(row) for row in view.rows]
-    # The 데이터 page adds failed bundle occurrences (e.g. a 20:30 bundle that exited 1) to
-    # the 실패 count; the header chip must say the same number (review 09-05 16:00).
-    bundle_failures = 0
+    # The 데이터 page adds failed scheduler receipts — failed bundle occurrences AND lane
+    # receipts whose last run ended in FAIL (review 09-05 22:00: KR_ETF_PRICE_DAILY died at
+    # 20:30 with ValueError while both counters said 실패 0) — to the 실패 count; the header
+    # chip must say the same number (review 09-05 16:00).
+    receipt_failures = 0
     try:
-        from stock_web.api.data_page import load_scheduler_receipts
+        from stock_web.api.data_page import count_failed_receipts, load_scheduler_receipts
 
-        bundle_failures = sum(
-            bool(row.get("failed")) and bool(row.get("occurrence_source"))
-            for row in load_scheduler_receipts(project_root)
-        )
+        receipt_failures = count_failed_receipts(load_scheduler_receipts(project_root))
     except Exception:  # the chip must never break the home page
-        bundle_failures = 0
+        receipt_failures = 0
     return {
         "current": statuses.count("CURRENT"),
         "lag": statuses.count("LATE"),
-        "fail": statuses.count("FAILED") + bundle_failures,
+        "fail": statuses.count("FAILED") + receipt_failures,
         "preserved": statuses.count("PRESERVED"),
         "reference": statuses.count("REFERENCE"),
         "labels": {"current": "정시", "late": "지연", "failed": "실패"},

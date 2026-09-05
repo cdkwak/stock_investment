@@ -370,6 +370,23 @@ def _result_code(raw: object) -> dict[str, str]:
     return {"raw": value, "label": label}
 
 
+def count_failed_receipts(receipts: list[dict[str, object]]) -> int:
+    """Failed scheduler receipts that belong in the 실패 KPI.
+
+    Counts failed bundle occurrences and lane receipts whose LAST run failed within the
+    7-day window (a lane's ``*_last.json`` is replaced by its next successful run, so a
+    failed one is the lane's current state). Receipts older than 7 days are retired lanes
+    (e.g. GLOBAL_MARKET_15M from August) and stay out of the count. Review 2026-09-05 22:00:
+    the KR_ETF_PRICE_DAILY 20:30 FAIL sat at the top of the receipt table while the KPI
+    and the home chip said 실패 0 because only bundle occurrences were counted.
+    """
+    return sum(
+        bool(row.get("failed"))
+        and (bool(row.get("occurrence_source")) or not bool(row.get("older_than_7_days")))
+        for row in receipts
+    )
+
+
 def load_scheduler_receipts(
     project_root: Path, *, now: datetime | None = None,
 ) -> list[dict[str, object]]:
@@ -509,10 +526,7 @@ def build_data_page_context(
         if grouped:
             groups.append({"raw": raw, "label": label, "class": css_class, "rows": grouped})
     receipts = load_scheduler_receipts(project_root, now=reference)
-    bundle_failure_count = sum(
-        bool(row["failed"]) and bool(row.get("occurrence_source"))
-        for row in receipts
-    )
+    bundle_failure_count = count_failed_receipts(receipts)
     freshness_counts = [
         {"raw": raw, "label": label, "class": css_class,
          "count": sum(row.display_status == raw for row in view.rows)

@@ -59,7 +59,8 @@ a { color: inherit; text-decoration: none; }
 .regime-card .ev-compact { display: none; margin-top: 6px; font-size: 12px; line-height: 1.6; color: #d8d3ca; }
 .regime-card .ev-compact .k { color: #b5aea4; }
 .regime-card .ev-compact b { font-weight: 600; color: #f4f2ee; }
-.regime-card .ev-compact .sep { color: #6f6a62; margin: 0 6px; }
+.regime-card .ev-compact .sep { color: #6f6a62; margin: 0 2px; white-space: pre; }
+.regime-card .ev-compact .ev-compact-item { white-space: nowrap; }
 .regime[data-expanded="false"] .ev-compact, .regime[data-expanded="auto"] .ev-compact { display: block; }
 .regime[data-expanded="true"] .ev-compact { display: none; }
 .regime-rule-card { grid-column: 1 / -1; }
@@ -78,7 +79,10 @@ a { color: inherit; text-decoration: none; }
 .regime-rule-copy { color: #d7d1c8; display: grid; gap: 5px; }
 
 /* tiles */
-.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+/* Column counts are fixed to divisors of the visible tile count (8 below 1200px, 12 above) so the
+   last row is never half empty: 4 cols → 4+4, 6 cols → 6+6, 12 cols → one row. auto-fit drifted
+   between 7 and 10 columns (1265px → 7+5, 1755px → 10+2) — review 22:50. */
+.tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .tile { background: var(--card); border: 1px solid var(--line); border-radius: 4px; padding: 7px 10px 6px; display: flex; flex-direction: column; gap: 2px; min-width: 0; cursor: pointer; }
 .tile[aria-disabled="true"] { cursor: default; }
 .tile:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
@@ -143,7 +147,8 @@ a { color: inherit; text-decoration: none; }
 .watch > .watch-investor-head { overflow: visible; }
 .watch-investor-head small { grid-column: 1 / -1; margin-bottom: 2px; white-space: nowrap; }
 .watch-investor-cell { font-size: 11.5px; }
-.watch-investor-mobile { display: none; font-size: 10px; margin-top: 2px; white-space: nowrap; }
+.watch-investor-mobile { display: none; font-size: 10px; margin-top: 2px; white-space: normal; line-height: 1.3; }
+.watch-investor-mobile > span { white-space: nowrap; } /* 개 −17,118 stays one token; the line wraps between parties (review 21:55: 개인 was clipped with no ellipsis) */
 .flow { grid-template-columns: 3fr 3fr 3fr 3fr; }
 .bal { grid-template-columns: 3fr 4fr 2fr 2fr 2fr 3fr; align-items: center; }
 .balance-table { margin-top: 7px; }
@@ -426,7 +431,7 @@ a { color: inherit; text-decoration: none; }
 
 /* breakpoints ---------------------------------------------------------- */
 @media (min-width: 2200px) {
-  .tiles { grid-template-columns: repeat(8, minmax(150px, 1fr)); }
+  .tiles { grid-template-columns: repeat(12, minmax(0, 1fr)); }
   /* 2200px+: raise the cap together with the floor (min-height beats max-height in CSS). */
   .chart { min-height: 560px; max-height: 640px; }
   .acct-chart { height: 160px; }
@@ -440,6 +445,7 @@ a { color: inherit; text-decoration: none; }
   .regime[data-expanded="auto"] .ev { display: none; }
 }
 @media (min-width: 1200px) {
+  .tiles { grid-template-columns: repeat(6, minmax(0, 1fr)); }
   .tiles.collapsed .tile:nth-child(n+9) { display: flex; }
   .tiles.collapsed .tile:nth-child(n+13) { display: none; }
 }

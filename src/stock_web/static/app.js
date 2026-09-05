@@ -203,7 +203,12 @@
     // Collapsed band: one wrapped line of "label value" pairs so the card is not empty.
     const items = (rows || []).map(regimeRow).filter((row) => !row.hidden && !placeholderEvidence.has(String(row.value).trim()));
     if (!items.length) return `<span class="muted">근거 없음</span>`;
-    return items.map((row) => `<span><span class="k">${esc(row.label)}</span> <b>${esc(row.value)}</b></span>`).join('<span class="sep">·</span>');
+    // Review 22:50: seven "label value" pairs glued with a bare "·" read as a four-line blob.
+    // Show the first four (the score components come first), separated with spaces, and say
+    // how many more the expanded table holds.
+    const shown = items.slice(0, 4), rest = items.length - shown.length;
+    return shown.map((row) => `<span class="ev-compact-item"><span class="k">${esc(row.label)}</span> <b>${esc(row.value)}</b></span>`).join('<span class="sep"> · </span>')
+      + (rest > 0 ? `<span class="sep"> · </span><span class="muted">외 ${rest} · 펼치면 전부</span>` : "");
   }
   const regimeEvidenceStorageKey = "si.regime.evidence";
   function loadRegimeEvidenceOpen() {
@@ -800,7 +805,10 @@
       const t = $("tiles"); const all = [...t.querySelectorAll(".tile")];
       const hidden = all.filter((tile) => t.classList.contains("collapsed") && getComputedStyle(tile).display === "none");
       const names = hidden.map((tile) => ((tile.querySelector(".n") || {}).textContent || "").trim()).filter(Boolean);
-      return t.classList.contains("collapsed") ? `지표 더 보기 (${hidden.length}${names.length ? ": " + names.slice(0, 4).join(" · ") : ""}) ▾` : "지표 접기 ▴";
+      // The count and the list must agree (review 22:10: "(5: a · b · c · d)" dropped WTI).
+      const listed = names.length <= 6 ? names : names.slice(0, 5);
+      const more = names.length - listed.length;
+      return t.classList.contains("collapsed") ? `지표 더 보기 (${hidden.length}${listed.length ? ": " + listed.join(" · ") + (more > 0 ? ` 외 ${more}` : "") : ""}) ▾` : "지표 접기 ▴";
     };
     $("tiles-more").addEventListener("click", () => { $("tiles").classList.toggle("collapsed"); $("tiles-more").textContent = tilesMoreLabel(); });
     window.addEventListener("resize", () => { $("tiles-more").textContent = tilesMoreLabel(); });
