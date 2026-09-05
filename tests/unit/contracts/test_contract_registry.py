@@ -1,5 +1,7 @@
 from datetime import date
 
+import pytest
+
 from stock_data.contracts.registry import CONTRACTS
 from stock_data.contracts.market_15m import MARKET_PRICE_15M_OBSERVATION
 from stock_data.contracts.global_etf import (
@@ -290,3 +292,20 @@ def test_tossinvest_us_quote_contract_is_in_the_authoritative_registry() -> None
     assert contract.primary_key == ("retrieved_at", "symbol")
     assert contract.partition_by == ("date",)
     assert contract.source == "tossinvest_open_api"
+
+
+def test_every_global_index_declares_its_basis_and_mixing_is_refused() -> None:
+    from stock_data.contracts.global_market import (
+        INDEX_BASES, assert_same_index_basis, index_basis,
+    )
+
+    for symbol, spec in GLOBAL_INDEX_REGISTRY.items():
+        assert spec["index_basis"] in INDEX_BASES, symbol
+    assert index_basis("DAX") == "TOTAL_RETURN"          # Performance-Index, dividends included
+    for symbol in ("SP500", "NASDAQ100", "NIKKEI225", "EURO_STOXX50"):
+        assert index_basis(symbol) == "PRICE"
+    assert index_basis("VIX3M") == "NOT_APPLICABLE"
+    assert assert_same_index_basis(("SP500", "NIKKEI225", "EURO_STOXX50")) == "PRICE"
+    with pytest.raises(ValueError, match="DAX=TOTAL_RETURN"):
+        assert_same_index_basis(("SP500", "DAX"))
+

@@ -38,24 +38,28 @@ FRED_TREASURY_YIELD_EXT_STARTS = MappingProxyType({
 GLOBAL_INDEX_REGISTRY = MappingProxyType({
     "SP500": {
         "source_ticker": "^GSPC", "instrument_type": "INDEX",
+        "index_basis": "PRICE",
         "expected_currency": None, "accepted_yahoo_exchanges": (),
         "provider": "yahoo_chart_api",
         "source_url": "https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC",
     },
     "NASDAQ_COMPOSITE": {
         "source_ticker": "^IXIC", "instrument_type": "INDEX",
+        "index_basis": "PRICE",
         "expected_currency": None, "accepted_yahoo_exchanges": (),
         "provider": "yahoo_chart_api",
         "source_url": "https://query1.finance.yahoo.com/v8/finance/chart/%5EIXIC",
     },
     "NASDAQ100": {
         "source_ticker": "^NDX", "instrument_type": "INDEX",
+        "index_basis": "PRICE",
         "expected_currency": None, "accepted_yahoo_exchanges": (),
         "provider": "yahoo_chart_api",
         "source_url": "https://query1.finance.yahoo.com/v8/finance/chart/%5ENDX",
     },
     "SOX": {
         "source_ticker": "^SOX", "instrument_type": "INDEX",
+        "index_basis": "PRICE",
         "expected_currency": None,
         "accepted_yahoo_exchanges": ("NIM", "NGM", "NMS", "NASDAQ"),
         "provider": "yahoo_chart_api",
@@ -63,18 +67,21 @@ GLOBAL_INDEX_REGISTRY = MappingProxyType({
     },
     "DOW_JONES": {
         "source_ticker": "^DJI", "instrument_type": "INDEX",
+        "index_basis": "PRICE",
         "expected_currency": None, "accepted_yahoo_exchanges": (),
         "provider": "yahoo_chart_api",
         "source_url": "https://query1.finance.yahoo.com/v8/finance/chart/%5EDJI",
     },
     "DOLLAR_INDEX": {
         "source_ticker": "DX-Y.NYB", "instrument_type": "INDEX",
+        "index_basis": "NOT_APPLICABLE",
         "expected_currency": None, "accepted_yahoo_exchanges": ("NYB", "ICE"),
         "provider": "yahoo_chart_api",
         "source_url": "https://query1.finance.yahoo.com/v8/finance/chart/DX-Y.NYB",
     },
     "NIKKEI225": {
         "source_ticker": "^N225", "instrument_type": "INDEX",
+        "index_basis": "PRICE",
         "expected_currency": "JPY", "accepted_yahoo_exchanges": ("OSA",),
         "timezone": "Asia/Tokyo", "exchange_calendar": "XTKS",
         "provider": "yahoo_chart_api", "ohlc_fill_from_close": True,
@@ -82,6 +89,7 @@ GLOBAL_INDEX_REGISTRY = MappingProxyType({
     },
     "TAIEX": {
         "source_ticker": "^TWII", "instrument_type": "INDEX",
+        "index_basis": "PRICE",
         "expected_currency": "TWD", "accepted_yahoo_exchanges": ("TAI",),
         "timezone": "Asia/Taipei", "exchange_calendar": "XTAI",
         "provider": "yahoo_chart_api", "ohlc_fill_from_close": True,
@@ -89,6 +97,7 @@ GLOBAL_INDEX_REGISTRY = MappingProxyType({
     },
     "EURO_STOXX50": {
         "source_ticker": "^STOXX50E", "instrument_type": "INDEX",
+        "index_basis": "PRICE",
         "expected_currency": "EUR", "accepted_yahoo_exchanges": ("ZRH",),
         "timezone": "Europe/Zurich", "exchange_calendar": "XETR",
         "provider": "yahoo_chart_api", "ohlc_fill_from_close": True,
@@ -96,6 +105,7 @@ GLOBAL_INDEX_REGISTRY = MappingProxyType({
     },
     "HANG_SENG": {
         "source_ticker": "^HSI", "instrument_type": "INDEX",
+        "index_basis": "PRICE",
         "expected_currency": "HKD", "accepted_yahoo_exchanges": ("HKG",),
         "timezone": "Asia/Hong_Kong", "exchange_calendar": "XHKG",
         "provider": "yahoo_chart_api", "ohlc_fill_from_close": True,
@@ -103,6 +113,7 @@ GLOBAL_INDEX_REGISTRY = MappingProxyType({
     },
     "DAX": {
         "source_ticker": "^GDAXI", "instrument_type": "INDEX",
+        "index_basis": "TOTAL_RETURN",
         "expected_currency": "EUR", "accepted_yahoo_exchanges": ("GER",),
         "timezone": "Europe/Berlin", "exchange_calendar": "XETR",
         "provider": "yahoo_chart_api", "ohlc_fill_from_close": True,
@@ -110,26 +121,53 @@ GLOBAL_INDEX_REGISTRY = MappingProxyType({
     },
     "VIX9D": {
         "source_ticker": "VIX9D", "instrument_type": "INDEX",
+        "index_basis": "NOT_APPLICABLE",
         "expected_currency": None, "provider": "cboe_index_history_csv",
         "source_url": "https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX9D_History.csv",
     },
     "VIX3M": {
         "source_ticker": "VIX3M", "instrument_type": "INDEX",
+        "index_basis": "NOT_APPLICABLE",
         "expected_currency": None, "provider": "cboe_index_history_csv",
         "source_url": "https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX3M_History.csv",
     },
     "VIX6M": {
         "source_ticker": "VIX6M", "instrument_type": "INDEX",
+        "index_basis": "NOT_APPLICABLE",
         "expected_currency": None, "provider": "cboe_index_history_csv",
         "source_url": "https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX6M_History.csv",
     },
     "SKEW": {
         "source_ticker": "SKEW", "instrument_type": "INDEX",
+        "index_basis": "NOT_APPLICABLE",
         "expected_currency": None, "provider": "cboe_index_history_csv",
         "source_url": "https://cdn.cboe.com/api/global/us_indices/daily_prices/SKEW_History.csv",
     },
 })
 GLOBAL_INDEX_DAILY_SYMBOLS = tuple(GLOBAL_INDEX_REGISTRY)
+
+# index_basis (2026-09-05, vault + review): what an index measures. PRICE = price index
+# (dividends excluded: ^GSPC, ^NDX, ^N225, ^STOXX50E, KOSPI in kr_index_daily);
+# TOTAL_RETURN = performance index with dividends reinvested (^GDAXI); NOT_APPLICABLE =
+# volatility/dollar gauges. Charts that normalise several indices to a common base must
+# refuse to mix PRICE with TOTAL_RETURN — the rule lives here, not only in a spec document.
+INDEX_BASES = frozenset({"PRICE", "TOTAL_RETURN", "NOT_APPLICABLE"})
+
+
+def index_basis(symbol: str) -> str:
+    """Return the registry's index_basis for a global index symbol (KeyError if unknown)."""
+    return str(GLOBAL_INDEX_REGISTRY[symbol]["index_basis"])
+
+
+def assert_same_index_basis(symbols: tuple[str, ...] | list[str], *, allow: frozenset[str] = frozenset({"PRICE"})) -> str:
+    """Raise ValueError unless every symbol shares one basis inside ``allow``; return it."""
+    bases = {index_basis(symbol) for symbol in symbols}
+    if len(bases) != 1 or not bases <= allow:
+        raise ValueError(
+            "indices measure different things and cannot share one normalised axis: "
+            + ", ".join(f"{symbol}={index_basis(symbol)}" for symbol in symbols)
+        )
+    return next(iter(bases))
 GLOBAL_INDEX_SYMBOLS_BY_PROVIDER = MappingProxyType({
     provider: tuple(
         symbol for symbol, spec in GLOBAL_INDEX_REGISTRY.items()
