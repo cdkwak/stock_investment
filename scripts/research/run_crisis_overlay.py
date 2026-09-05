@@ -17,6 +17,11 @@ if str(ROOT / "src") not in sys.path:
 
 from scripts.research import run_core_ammunition as core_runner  # noqa: E402
 from stock_data.research.core_ammunition import prepare_value_series  # noqa: E402
+from stock_data.research.compound_ladder import (  # noqa: E402
+    require_disp60_threshold,
+    require_drawdown_threshold,
+    require_product_share_at_max,
+)
 from stock_data.research.crisis_overlay import (  # noqa: E402
     build_overlay_payload,
     round_payload,
@@ -39,9 +44,24 @@ def _write_json(path: Path, payload: Any) -> int:
     return len(body.encode("utf-8"))
 
 
-def run(project_root: Path) -> tuple[Path, dict[str, Any], int]:
+def run(
+    project_root: Path,
+    *,
+    drawdown_threshold: float | None = None,
+    disp60_threshold: float | None = None,
+    product_share_at_max: float | None = None,
+) -> tuple[Path, dict[str, Any], int]:
     root = Path(project_root).resolve()
-    episodes, frames, ladders = core_runner._episode_inputs(root, False)
+    decided_drawdown = require_drawdown_threshold(drawdown_threshold)
+    decided_disp60 = require_disp60_threshold(disp60_threshold)
+    decided_share = require_product_share_at_max(product_share_at_max)
+    episodes, frames, ladders = core_runner._episode_inputs(
+        root,
+        False,
+        drawdown_threshold=decided_drawdown,
+        disp60_threshold=decided_disp60,
+        product_share_at_max=decided_share,
+    )
     assets, _fx = core_runner._assets(root)
     treasury = core_runner._read_dataset(
         root, "fred_treasury_yield_daily", ("date", "dgs10"),
@@ -56,6 +76,9 @@ def run(project_root: Path) -> tuple[Path, dict[str, Any], int]:
         dgs10=dgs10,
         cycle_buckets=core_runner.CYCLE_BUCKETS,
         ladder_universe=universe,
+        drawdown_threshold=decided_drawdown,
+        disp60_threshold=decided_disp60,
+        product_share_at_max=decided_share,
     ))
     validate_overlay_payload(payload)
     output = root / OUTPUT_RELATIVE
@@ -72,12 +95,20 @@ def run(project_root: Path) -> tuple[Path, dict[str, Any], int]:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project-root", type=Path, default=ROOT)
+    parser.add_argument("--drawdown-threshold", type=float, default=None)
+    parser.add_argument("--disp60-threshold", type=float, default=None)
+    parser.add_argument("--product-share-at-max", type=float, default=None)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    run(args.project_root)
+    run(
+        args.project_root,
+        drawdown_threshold=args.drawdown_threshold,
+        disp60_threshold=args.disp60_threshold,
+        product_share_at_max=args.product_share_at_max,
+    )
     return 0
 
 

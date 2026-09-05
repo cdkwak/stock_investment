@@ -55,7 +55,8 @@ CYCLES: tuple[dict[str, str | None], ...] = (
 RESULT_KEYS = (
     "n", "independent_events", "cycles_with_signal", "signals_outside_cycles",
     "mean_20", "mean_60", "mean_90", "median_60", "hit_60",
-    "baseline_60", "diff_60", "vol_60", "mdd_60", "warn_small_sample",
+    "baseline_60", "diff_60", "vol_60", "median_vol_60", "mdd_60",
+    "median_mdd_60", "score_basis", "warn_small_sample",
 )
 # Signal dates closer than this (calendar days, roughly 60 trading sessions = the 60-day
 # return horizon) belong to the same episode: their forward windows overlap, so they are
@@ -310,7 +311,7 @@ def _adjusted(
     return values if candidate["definition"]["type"] == "ladder" else values * state["exposure"]
 
 
-def _independent_episodes(signal_dates: pd.Series) -> int:
+def independent_episodes(signal_dates: pd.Series) -> int:
     """Count signal episodes: pooled dates split wherever the gap exceeds EPISODE_GAP_DAYS."""
 
     dates = pd.to_datetime(signal_dates, errors="coerce").dropna().drop_duplicates().sort_values()
@@ -323,37 +324,35 @@ def _independent_episodes(signal_dates: pd.Series) -> int:
     return episodes
 
 
+# Compatibility for callers and retained tests that used the former private name.
+_independent_episodes = independent_episodes
+
+
 def _stats(
     frame: pd.DataFrame,
     state: pd.DataFrame,
     candidate: Mapping[str, Any],
     period_mask: pd.Series,
 ) -> dict[str, Any]:
+    direction = _direction(candidate)
     eligible = period_mask & frame["forward_return_90"].notna()
     selected = eligible & state["signal"] & state["exposure"].notna()
-    # A hybrid whose signal rows carry zero exposure (overheat ladder at its top level
-    # scales the vol-target exposure to 0) has nothing to measure: exposure × return is
-    # identically 0 and would print as a perfect "0.0%" row. Report the sample size but
-    # leave every metric undefined instead of a fake zero.
-    zero_exposure_n = 0
-    if selected.any() and pd.to_numeric(state.loc[selected, "exposure"], errors="coerce").eq(0.0).all():
-        zero_exposure_n = int(selected.sum())
-        selected = selected & False
-    return_20 = _adjusted(frame, state, "forward_return_20", candidate).loc[selected].dropna()
-    return_60 = _adjusted(frame, state, "forward_return_60", candidate).loc[selected].dropna()
-    return_90 = _adjusted(frame, state, "forward_return_90", candidate).loc[selected].dropna()
+    return_20 = pd.to_numeric(frame["forward_return_20"], errors="coerce").loc[selected].dropna()
+    return_60 = pd.to_numeric(frame["forward_return_60"], errors="coerce").loc[selected].dropna()
+    return_90 = pd.to_numeric(frame["forward_return_90"], errors="coerce").loc[selected].dropna()
     baseline = pd.to_numeric(frame.loc[eligible, "forward_return_60"], errors="coerce").dropna()
-    volatility = _adjusted(
-        frame, state, "forward_realized_volatility_60", candidate
+    volatility = pd.to_numeric(
+        frame["forward_realized_volatility_60"], errors="coerce"
     ).loc[selected].dropna()
-    drawdown = _adjusted(
-        frame, state, "forward_max_drawdown_60", candidate
+    drawdown = pd.to_numeric(
+        frame["forward_max_drawdown_60"], errors="coerce"
     ).loc[selected].dropna()
-    mean_60 = float(return_60.mean()) if not return_60.empty else np.nan
-    baseline_60 = float(baseline.mean()) if not baseline.empty else np.nan
+    buy_side = direction != "overheat"
+    mean_60 = float(return_60.mean()) if buy_side and not return_60.empty else np.nan
+    baseline_60 = float(baseline.mean()) if buy_side and not baseline.empty else np.nan
     observation = pd.to_datetime(frame["observation_date"], errors="raise")
     event_signals = period_mask & state["signal"] & state["exposure"].notna()
-    episodes = _independent_episodes(observation.loc[event_signals])
+    episodes = independent_episodes(observation.loc[event_signals])
     cycles_with_signal = 0
     inside_any = pd.Series(False, index=frame.index)
     for cycle in CYCLES:
@@ -363,20 +362,33 @@ def _stats(
         cycles_with_signal += int(bool((event_signals & inside).any()))
         inside_any |= inside
     result = {
-        "n": int(return_60.size) if not zero_exposure_n else zero_exposure_n,
+        "n": (
+            int(return_60.size) if buy_side else int(min(volatility.size, drawdown.size))
+        ),
         "independent_events": episodes,
         "cycles_with_signal": cycles_with_signal,
         "signals_outside_cycles": int((event_signals & ~inside_any).sum()),
-        "mean_20": float(return_20.mean()) if not return_20.empty else np.nan,
+        "mean_20": float(return_20.mean()) if buy_side and not return_20.empty else np.nan,
         "mean_60": mean_60,
-        "mean_90": float(return_90.mean()) if not return_90.empty else np.nan,
-        "median_60": float(return_60.median()) if not return_60.empty else np.nan,
-        "hit_60": float(return_60.gt(0).mean()) if not return_60.empty else np.nan,
+        "mean_90": float(return_90.mean()) if buy_side and not return_90.empty else np.nan,
+        "median_60": float(return_60.median()) if buy_side and not return_60.empty else np.nan,
+        "hit_60": float(return_60.gt(0).mean()) if buy_side and not return_60.empty else np.nan,
         "baseline_60": baseline_60,
-        "diff_60": mean_60 - baseline_60,
-        "vol_60": float(volatility.mean()) if not volatility.empty else np.nan,
-        "mdd_60": float(drawdown.mean()) if not drawdown.empty else np.nan,
-        "warn_small_sample": int(return_60.size) < MIN_SAMPLE,
+        "diff_60": mean_60 - baseline_60 if buy_side else np.nan,
+        "vol_60": float(volatility.mean()) if not buy_side and not volatility.empty else np.nan,
+        "median_vol_60": (
+            float(volatility.median()) if not buy_side and not volatility.empty else np.nan
+        ),
+        "mdd_60": float(drawdown.mean()) if not buy_side and not drawdown.empty else np.nan,
+        "median_mdd_60": (
+            float(drawdown.median()) if not buy_side and not drawdown.empty else np.nan
+        ),
+        "score_basis": (
+            "return_win_rate" if buy_side else "realized_volatility_max_drawdown"
+        ),
+        "warn_small_sample": (
+            int(return_60.size) if buy_side else int(min(volatility.size, drawdown.size))
+        ) < MIN_SAMPLE,
     }
     assert tuple(result) == RESULT_KEYS
     return result
@@ -390,15 +402,33 @@ def _levels(
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     maximum = int(state["max_level"].iloc[0])
-    adjusted = _adjusted(frame, state, "forward_return_60", candidate)
+    buy_side = _direction(candidate) != "overheat"
+    adjusted = pd.to_numeric(frame["forward_return_60"], errors="coerce")
+    volatility = pd.to_numeric(frame["forward_realized_volatility_60"], errors="coerce")
+    drawdown = pd.to_numeric(frame["forward_max_drawdown_60"], errors="coerce")
     for level in range(maximum + 1):
         row: dict[str, Any] = {"level": level}
         for period in ("fit", "holdout"):
             selected = masks[period] & state["level"].eq(level) & frame["forward_return_90"].notna()
             values = adjusted.loc[selected].dropna()
+            vol_values = volatility.loc[selected].dropna()
+            mdd_values = drawdown.loc[selected].dropna()
             row[period] = {
-                "n": int(values.size),
-                "mean_60": float(values.mean()) if not values.empty else np.nan,
+                "n": int(values.size) if buy_side else int(min(vol_values.size, mdd_values.size)),
+                "mean_60": float(values.mean()) if buy_side and not values.empty else np.nan,
+                "median_60": float(values.median()) if buy_side and not values.empty else np.nan,
+                "hit_60": float(values.gt(0).mean()) if buy_side and not values.empty else np.nan,
+                "vol_60": float(vol_values.mean()) if not buy_side and not vol_values.empty else np.nan,
+                "median_vol_60": (
+                    float(vol_values.median()) if not buy_side and not vol_values.empty else np.nan
+                ),
+                "mdd_60": float(mdd_values.mean()) if not buy_side and not mdd_values.empty else np.nan,
+                "median_mdd_60": (
+                    float(mdd_values.median()) if not buy_side and not mdd_values.empty else np.nan
+                ),
+                "score_basis": (
+                    "return_win_rate" if buy_side else "realized_volatility_max_drawdown"
+                ),
             }
         rows.append(row)
     return rows
@@ -408,7 +438,9 @@ def _cycle_results(
     frame: pd.DataFrame, state: pd.DataFrame, candidate: Mapping[str, Any]
 ) -> list[dict[str, Any]]:
     observation = pd.to_datetime(frame["observation_date"], errors="raise")
-    adjusted = _adjusted(frame, state, "forward_return_60", candidate)
+    adjusted = pd.to_numeric(frame["forward_return_60"], errors="coerce")
+    volatility = pd.to_numeric(frame["forward_realized_volatility_60"], errors="coerce")
+    drawdown = pd.to_numeric(frame["forward_max_drawdown_60"], errors="coerce")
     rows: list[dict[str, Any]] = []
     direction = _direction(candidate)
     for cycle in CYCLES:
@@ -419,21 +451,41 @@ def _cycle_results(
         selected = complete & state["signal"] & state["exposure"].notna()
         values = adjusted.loc[selected].dropna()
         baseline = pd.to_numeric(frame.loc[complete, "forward_return_60"], errors="coerce").dropna()
-        if values.empty or baseline.empty:
+        vol_values = volatility.loc[selected].dropna()
+        mdd_values = drawdown.loc[selected].dropna()
+        baseline_vol = pd.to_numeric(
+            frame.loc[complete, "forward_realized_volatility_60"], errors="coerce"
+        ).dropna()
+        baseline_mdd = pd.to_numeric(
+            frame.loc[complete, "forward_max_drawdown_60"], errors="coerce"
+        ).dropna()
+        if direction == "overheat" and (
+            vol_values.empty or mdd_values.empty or baseline_vol.empty or baseline_mdd.empty
+        ):
             verdict = "none"
         elif direction == "overheat":
-            verdict = "hit" if float(values.mean()) < float(baseline.mean()) else "miss"
+            verdict = "hit" if (
+                float(vol_values.mean()) > float(baseline_vol.mean())
+                and float(mdd_values.mean()) < float(baseline_mdd.mean())
+            ) else "miss"
+        elif values.empty or baseline.empty:
+            verdict = "none"
         else:
             verdict = "hit" if float(values.mean()) > float(baseline.mean()) else "miss"
         rows.append({
             "id": cycle["id"],
-            "signals": int(values.size),
+            "signals": int(values.size) if direction != "overheat" else int(min(vol_values.size, mdd_values.size)),
             "first_signal": (
-                observation.loc[values.index].min().strftime("%Y-%m-%d")
-                if not values.empty
+                observation.loc[selected].min().strftime("%Y-%m-%d")
+                if selected.any()
                 else None
             ),
-            "mean_60": float(values.mean()) if not values.empty else np.nan,
+            "mean_60": float(values.mean()) if direction != "overheat" and not values.empty else np.nan,
+            "vol_60": float(vol_values.mean()) if direction == "overheat" and not vol_values.empty else np.nan,
+            "mdd_60": float(mdd_values.mean()) if direction == "overheat" and not mdd_values.empty else np.nan,
+            "score_basis": (
+                "return_win_rate" if direction != "overheat" else "realized_volatility_max_drawdown"
+            ),
             "verdict": verdict,
         })
     return rows
@@ -449,7 +501,14 @@ def _current(
     same_level = state["level"].eq(current_state["level"]) & frame["forward_return_60"].notna()
     if analog_mask is not None:
         same_level &= analog_mask.reindex(frame.index, fill_value=False)
+    buy_side = _direction(candidate) != "overheat"
     outcomes = pd.to_numeric(frame.loc[same_level, "forward_return_60"], errors="coerce").dropna()
+    volatility = pd.to_numeric(
+        frame.loc[same_level, "forward_realized_volatility_60"], errors="coerce"
+    ).dropna()
+    drawdown = pd.to_numeric(
+        frame.loc[same_level, "forward_max_drawdown_60"], errors="coerce"
+    ).dropna()
     indicators = {
         "drawdown252": current_row.get("drawdown252"),
         "disp60": current_row.get("disp60"),
@@ -463,11 +522,23 @@ def _current(
         "max_level": current_state["max_level"],
         "exposure": current_state["exposure"],
         "indicators": indicators,
-        "analog": {
-            "n": int(outcomes.size),
-            "mean_60": float(outcomes.mean()) if not outcomes.empty else np.nan,
-            "hit_60": float(outcomes.gt(0).mean()) if not outcomes.empty else np.nan,
-        },
+        "analog": (
+            {
+                "n": int(outcomes.size),
+                "mean_60": float(outcomes.mean()) if not outcomes.empty else np.nan,
+                "median_60": float(outcomes.median()) if not outcomes.empty else np.nan,
+                "hit_60": float(outcomes.gt(0).mean()) if not outcomes.empty else np.nan,
+                "score_basis": "return_win_rate",
+            }
+            if buy_side else {
+                "n": int(min(volatility.size, drawdown.size)),
+                "vol_60": float(volatility.mean()) if not volatility.empty else np.nan,
+                "median_vol_60": float(volatility.median()) if not volatility.empty else np.nan,
+                "mdd_60": float(drawdown.mean()) if not drawdown.empty else np.nan,
+                "median_mdd_60": float(drawdown.median()) if not drawdown.empty else np.nan,
+                "score_basis": "realized_volatility_max_drawdown",
+            }
+        ),
     }
 
 
@@ -577,7 +648,11 @@ def _compound_cross_reference(
     labelled in the payload so the UI never implies a different product or exit.
     """
 
-    unavailable = {"status": "unavailable"}
+    unavailable = {
+        "status": "unavailable",
+        "product_share_at_max": None,
+        "effective_exposure_max": None,
+    }
     definition = _compound_definition(candidate)
     basket = str(candidate.get("basket") or "")
     entries = references.get(basket) if references else None
@@ -592,12 +667,13 @@ def _compound_cross_reference(
             return False
 
     underlyings: list[dict[str, Any]] = []
+    decided_shares: set[float] = set()
     for reference in entries:
         rows = reference.get("rows")
         plateau = reference.get("plateau")
         if not isinstance(rows, list) or not isinstance(plateau, Mapping):
             continue
-        matched = next((
+        matching_rows = [
             row for row in rows
             if isinstance(row, Mapping)
             and row.get("row_kind") == "strategy"
@@ -605,7 +681,18 @@ def _compound_cross_reference(
             and same_number(row.get("disp60_threshold"), disp60)
             and row.get("levels") == levels
             and all(row.get(key) == value for key, value in COMPOUND_REFERENCE_COMBINATION.items())
-        ), None)
+            and isinstance(row.get("product_share_at_max"), (int, float))
+            and isinstance(row.get("effective_exposure_max"), (int, float))
+        ]
+        row_shares = {float(row["product_share_at_max"]) for row in matching_rows}
+        if len(row_shares) != 1:
+            continue
+        decided_share = next(iter(row_shares))
+        decided_shares.add(decided_share)
+        matched = next(
+            row for row in matching_rows
+            if math.isclose(float(row["product_share_at_max"]), decided_share, abs_tol=1e-12)
+        )
         holdout = matched.get("holdout") if isinstance(matched, Mapping) else None
         best = plateau.get("best_fit_relative_to_baseline")
         neighbour = plateau.get("neighbourhood_mean")
@@ -620,16 +707,23 @@ def _compound_cross_reference(
             "holdout_final_wealth_multiple": holdout.get("final_wealth_multiple"),
             "holdout_baseline_final_wealth_multiple": holdout.get("baseline_final_wealth_multiple"),
             "holdout_relative_to_baseline": holdout.get("relative_to_baseline"),
+            "product_share_at_max": matched.get("product_share_at_max"),
+            "effective_exposure_max": matched.get("effective_exposure_max"),
             "plateau_verdict": verdict,
         })
-    if not underlyings:
+    if not underlyings or len(decided_shares) != 1:
         return unavailable
+    decided_share = next(iter(decided_shares))
     first = underlyings[0]
     return {
         "status": "matched",
         "product_basis": "synthetic_2x",
         "cost_enabled": True,
-        "combination_label": COMPOUND_REFERENCE_LABEL,
+        "combination_label": (
+            f"{COMPOUND_REFERENCE_LABEL} · 최고단계 상품 비중 {decided_share * 100:g}%"
+        ),
+        "product_share_at_max": decided_share,
+        "effective_exposure_max": first["effective_exposure_max"],
         "underlyings": underlyings,
         # Backward-compatible scalar view = first underlying.
         "underlying": first["underlying"],
@@ -647,8 +741,11 @@ def _evaluate_candidate(
     frame = _scope(evaluation_frame, str(candidate["basket"]))
     state = score_candidate(frame, candidate)
     masks = _period_masks(frame)
+    compound = _compound_cross_reference(candidate, compound_references)
     return {
         **deepcopy(dict(candidate)),
+        "product_share_at_max": compound["product_share_at_max"],
+        "effective_exposure_max": compound["effective_exposure_max"],
         "results": {
             "fit": _stats(frame, state, candidate, masks["fit"]),
             "holdout": _stats(frame, state, candidate, masks["holdout"]),
@@ -656,7 +753,7 @@ def _evaluate_candidate(
         "levels": _levels(frame, state, candidate, masks),
         "cycles": _cycle_results(frame, state, candidate),
         "current": _current(frame, state, candidate, masks["fit"]),
-        "compound_ladder": _compound_cross_reference(candidate, compound_references),
+        "compound_ladder": compound,
     }
 
 
@@ -775,6 +872,6 @@ def run_rule_leaderboard(
 __all__ = [
     "CYCLES", "FIT_END", "HOLDOUT_START", "PRIMARY_SERIES", "RESULT_KEYS",
     "build_leaderboard", "current_candidate_state", "evaluate_definition", "load_evaluation_frame",
-    "load_indicator_frame", "prepare_indicator_frame", "run_rule_leaderboard",
+    "independent_episodes", "load_indicator_frame", "prepare_indicator_frame", "run_rule_leaderboard",
     "score_candidate",
 ]

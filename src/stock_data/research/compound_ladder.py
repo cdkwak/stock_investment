@@ -13,6 +13,8 @@ from typing import Any, Literal
 import numpy as np
 import pandas as pd
 
+from .signals import BuySignalSpec, evaluate_buy_signal
+
 
 FIT_END = pd.Timestamp("2015-12-31")
 HOLDOUT_START = pd.Timestamp("2016-01-01")
@@ -27,28 +29,65 @@ GRID_REQUIRED_FIELDS: tuple[str, ...] = (
     "levels",
     "leverage_multiple",
     "base_exposure",
+    "product_share_at_max",
+    "effective_exposure_max",
     "exit",
     "cost_enabled",
     "fit",
     "holdout",
     "full",
 )
+_UNDECIDED = object()
+
+
+def _require_negative_threshold(value: object, name: str) -> float:
+    if value is _UNDECIDED or value is None:
+        raise ValueError(
+            f"{name} is undecided under rule ⑥; caller must pass it explicitly"
+        )
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not np.isfinite(value):
+        raise ValueError(f"{name} must be a finite number")
+    result = float(value)
+    if not -1.0 < result < 0.0:
+        raise ValueError(f"{name} must be between -1 and 0")
+    return result
+
+
+def require_drawdown_threshold(value: object) -> float:
+    return _require_negative_threshold(value, "drawdown_threshold")
+
+
+def require_disp60_threshold(value: object) -> float:
+    return _require_negative_threshold(value, "disp60_threshold")
+
+
+def require_product_share_at_max(value: object) -> float:
+    if value is _UNDECIDED or value is None:
+        raise ValueError(
+            "product_share_at_max is undecided under rule ⑥; caller must pass it explicitly"
+        )
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not np.isfinite(value):
+        raise ValueError("product_share_at_max must be a finite number")
+    result = float(value)
+    if not 0.0 <= result <= 1.0:
+        raise ValueError("product_share_at_max must be in [0.0, 1.0]")
+    return result
 
 
 @dataclass(frozen=True, slots=True)
 class LadderSpec:
-    drawdown_threshold: float = -0.20
-    disp60_threshold: float = -0.10
+    drawdown_threshold: float | object = _UNDECIDED
+    disp60_threshold: float | object = _UNDECIDED
+    product_share_at_max: float | object = _UNDECIDED
     levels: int = 2
     base_exposure: float = 1.0
 
     def __post_init__(self) -> None:
+        require_drawdown_threshold(self.drawdown_threshold)
+        require_disp60_threshold(self.disp60_threshold)
+        require_product_share_at_max(self.product_share_at_max)
         if self.levels not in (1, 2, 3, 4):
             raise ValueError("levels must be 1, 2, 3, or 4")
-        if not -1.0 < self.drawdown_threshold < 0.0:
-            raise ValueError("drawdown threshold must be between -1 and 0")
-        if not -1.0 < self.disp60_threshold < 0.0:
-            raise ValueError("disp60 threshold must be between -1 and 0")
         if not np.isfinite(self.base_exposure) or not 0.0 <= self.base_exposure <= 3.0:
             raise ValueError("base_exposure must be finite and in [0.0, 3.0]")
 
@@ -59,36 +98,39 @@ class SimulationResult:
     trades: pd.DataFrame
     cycles: pd.DataFrame
     metrics: dict[str, dict[str, float | int | str | None]]
+    effective_exposure_max: float
 
 
-def ladder_levels(signals: pd.DataFrame, spec: LadderSpec) -> pd.DataFrame:
-    """Map the two unchanged rule conditions onto equal capital rungs.
+def ladder_levels(
+    signals: pd.DataFrame,
+    spec: LadderSpec,
+    buy_signal_spec: BuySignalSpec | None = None,
+) -> pd.DataFrame:
+    """Map an explicit buy-signal candidate onto equal ladder rungs.
 
-    The registered two-condition rule has raw scores 0, 1, 2.  Sensitivity
-    split counts rescale that score proportionally: ceil(score / 2 * splits).
-    Consequently every split count reaches full weight when both conditions
-    hold while preserving the exact registered two-split path.
+    Omitting ``buy_signal_spec`` is only a compatibility route for candidate B;
+    its two thresholds still come explicitly from ``LadderSpec``.
     """
 
-    required = {"date", "drawdown252", "disp60"}
-    missing = required.difference(signals.columns)
-    if missing:
-        raise ValueError(f"signal input is missing columns: {sorted(missing)}")
-    frame = signals.loc[:, ["date", "drawdown252", "disp60"]].copy()
-    frame["date"] = pd.to_datetime(frame["date"], errors="raise").dt.normalize()
-    if frame["date"].duplicated().any() or not frame["date"].is_monotonic_increasing:
-        raise ValueError("signal dates must be unique and increasing")
-    dd = pd.to_numeric(frame["drawdown252"], errors="coerce")
-    disp = pd.to_numeric(frame["disp60"], errors="coerce")
-    valid = dd.notna() & disp.notna()
-    raw = dd.le(spec.drawdown_threshold).astype("int8") + disp.le(spec.disp60_threshold).astype("int8")
-    mapped = np.ceil(raw.astype("float64") * spec.levels / 2.0).astype("int64")
-    observed = pd.Series(mapped, index=frame.index, dtype="Int64").where(valid, pd.NA)
+    signal_spec = buy_signal_spec or BuySignalSpec(
+        kind="B",
+        drawdown_threshold=float(spec.drawdown_threshold),
+        disp60_threshold=float(spec.disp60_threshold),
+    )
+    evaluated = evaluate_buy_signal(signals, signal_spec)
+    raw = evaluated["raw_score"]
+    maximum = int(evaluated["max_score"].iloc[0])
+    mapped = np.ceil(raw.astype("float64") * spec.levels / maximum)
+    observed = mapped.round().astype("Int64").where(raw.notna(), pd.NA)
     executable = observed.shift(1)
-    frame["raw_score"] = pd.Series(raw, dtype="Int64").where(valid, pd.NA)
+    frame = evaluated.copy()
     frame["observed_level"] = observed
     frame["executable_level"] = executable
-    frame["target_weight"] = frame["executable_level"].astype("float64") / spec.levels
+    frame["target_weight"] = (
+        frame["executable_level"].astype("float64")
+        / spec.levels
+        * float(spec.product_share_at_max)
+    )
     return frame
 
 
@@ -97,16 +139,23 @@ def _target_allocation(
     *,
     base_exposure: float,
     leverage_multiple: int,
+    product_share_at_max: float,
 ) -> tuple[float, float, float]:
     """Return core weight, product weight, and effective market exposure."""
 
     overlay = min(max(float(overlay_fraction), 0.0), 1.0)
+    base_product_fraction = _base_product_fraction(base_exposure, leverage_multiple)
+    if product_share_at_max + 1e-14 < base_product_fraction:
+        raise ValueError(
+            "product_share_at_max must be at least the product weight implied by base_exposure"
+        )
     if base_exposure <= 1.0:
-        core_weight = base_exposure * (1.0 - overlay)
-        product_weight = overlay
+        product_weight = overlay * product_share_at_max
+        core_weight = base_exposure * (1.0 - product_weight)
     else:
-        base_product_fraction = (base_exposure - 1.0) / (leverage_multiple - 1.0)
-        product_weight = base_product_fraction + (1.0 - base_product_fraction) * overlay
+        product_weight = base_product_fraction + (
+            product_share_at_max - base_product_fraction
+        ) * overlay
         core_weight = 1.0 - product_weight
     exposure = core_weight + leverage_multiple * product_weight
     return core_weight, product_weight, exposure
@@ -115,6 +164,18 @@ def _target_allocation(
 def _validate_base_exposure(base_exposure: float, leverage_multiple: int) -> None:
     if base_exposure > leverage_multiple:
         raise ValueError("base_exposure must be less than or equal to leverage_multiple")
+
+
+def effective_exposure_at_max(spec: LadderSpec, leverage_multiple: int) -> float:
+    """Return core weight + leverage multiple × product weight at the top rung."""
+
+    _validate_base_exposure(spec.base_exposure, leverage_multiple)
+    return _target_allocation(
+        1.0,
+        base_exposure=spec.base_exposure,
+        leverage_multiple=leverage_multiple,
+        product_share_at_max=float(spec.product_share_at_max),
+    )[2]
 
 
 def _base_product_fraction(base_exposure: float, leverage_multiple: int) -> float:
@@ -128,11 +189,13 @@ def _overlay_progress_from_product_weight(
     *,
     base_exposure: float,
     leverage_multiple: int,
+    product_share_at_max: float,
 ) -> float:
     base_fraction = _base_product_fraction(base_exposure, leverage_multiple)
-    if base_fraction >= 1.0:
+    span = product_share_at_max - base_fraction
+    if span <= 0.0:
         return 1.0
-    return min(max((product_weight - base_fraction) / (1.0 - base_fraction), 0.0), 1.0)
+    return min(max((product_weight - base_fraction) / span, 0.0), 1.0)
 
 
 def _rebalance_assets(
@@ -427,6 +490,7 @@ def _simulate_target_events_fast(
             overlay_fraction,
             base_exposure=spec.base_exposure,
             leverage_multiple=leverage_multiple,
+            product_share_at_max=float(spec.product_share_at_max),
         )
         cash, core_units, product_units, notional, cost = _rebalance_assets(
             cash,
@@ -515,6 +579,7 @@ def _simulate_profit_events_fast(
             0.0,
             base_exposure=spec.base_exposure,
             leverage_multiple=leverage_multiple,
+            product_share_at_max=float(spec.product_share_at_max),
         )
         cash, core_units, product_units, notional, cost = _rebalance_assets(
             cash,
@@ -580,12 +645,14 @@ def _simulate_profit_events_fast(
                     current_product_weight,
                     base_exposure=spec.base_exposure,
                     leverage_multiple=leverage_multiple,
+                    product_share_at_max=float(spec.product_share_at_max),
                 )
                 target_overlay = min(1.0, current_overlay + 1.0 / spec.levels)
                 core_weight, product_weight, _ = _target_allocation(
                     target_overlay,
                     base_exposure=spec.base_exposure,
                     leverage_multiple=leverage_multiple,
+                    product_share_at_max=float(spec.product_share_at_max),
                 )
                 prior_product_units = product_units
                 cash, core_units, product_units, notional, cost = _rebalance_assets(
@@ -776,6 +843,7 @@ def _simulate_target_account(
                 events[i],
                 base_exposure=spec.base_exposure,
                 leverage_multiple=leverage_multiple,
+                product_share_at_max=float(spec.product_share_at_max),
             )
             cash, core_units, product_units, notional, cost = _rebalance_assets(
                 cash,
@@ -815,6 +883,7 @@ def _simulate_target_account(
             "product_weight": product_weight,
             "weight": product_weight,
             "exposure": exposure,
+            "effective_exposure": exposure,
             "executable_level": level,
             "underlying_return": underlying_returns[i],
             "product_return": product_returns[i],
@@ -856,6 +925,7 @@ def _simulate_profit_account(
             0.0,
             base_exposure=spec.base_exposure,
             leverage_multiple=leverage_multiple,
+            product_share_at_max=float(spec.product_share_at_max),
         )
         cash, core_units, product_units, notional, cost = _rebalance_assets(
             cash,
@@ -928,12 +998,14 @@ def _simulate_profit_account(
                     current_product_weight,
                     base_exposure=spec.base_exposure,
                     leverage_multiple=leverage_multiple,
+                    product_share_at_max=float(spec.product_share_at_max),
                 )
                 target_overlay = min(1.0, current_overlay + 1.0 / spec.levels)
                 core_weight, product_weight, target_exposure = _target_allocation(
                     target_overlay,
                     base_exposure=spec.base_exposure,
                     leverage_multiple=leverage_multiple,
+                    product_share_at_max=float(spec.product_share_at_max),
                 )
                 prior_product_units = product_units
                 cash, core_units, product_units, notional, cost = _rebalance_assets(
@@ -985,6 +1057,7 @@ def _simulate_profit_account(
             "product_weight": product_weight,
             "weight": product_weight,
             "exposure": core_weight + leverage_multiple * product_weight,
+            "effective_exposure": core_weight + leverage_multiple * product_weight,
             "executable_level": level,
             "underlying_return": underlying_returns[i],
             "product_return": product_returns[i],
@@ -1113,7 +1186,13 @@ def simulate_account(
         base_exposure=spec.base_exposure,
         leverage_multiple=leverage_multiple,
     )
-    return SimulationResult(curve, trades, cycles, performance_metrics(curve))
+    return SimulationResult(
+        curve,
+        trades,
+        cycles,
+        performance_metrics(curve),
+        effective_exposure_at_max(spec, leverage_multiple),
+    )
 
 
 def simulate_baseline(
@@ -1145,6 +1224,7 @@ def simulate_baseline(
             "product_weight": 0.0,
             "weight": 0.0,
             "exposure": asset / (cash + asset) if cash + asset > 0 else 0.0,
+            "effective_exposure": asset / (cash + asset) if cash + asset > 0 else 0.0,
             "executable_level": 0,
             "underlying_return": returns[i],
             "product_return": returns[i],
@@ -1154,7 +1234,7 @@ def simulate_baseline(
         })
     curve = pd.DataFrame(rows)
     trades = pd.DataFrame([_trade_row(calendar[0], "baseline_entry", None, notional, cost, 0.0, 1.0)])
-    return SimulationResult(curve, trades, pd.DataFrame(), performance_metrics(curve))
+    return SimulationResult(curve, trades, pd.DataFrame(), performance_metrics(curve), 1.0)
 
 
 def with_baseline_comparison(
@@ -1187,6 +1267,7 @@ def weekly_curve(curve: pd.DataFrame) -> list[dict[str, float | str]]:
             "date": pd.Timestamp(index).strftime("%Y-%m-%d"),
             "wealth": float(row["wealth"]),
             "weight": float(row["weight"]),
+            "effective_exposure": float(row["effective_exposure"]),
         }
         for index, row in selected.iterrows()
     ]
@@ -1206,6 +1287,27 @@ def validate_grid_row(row: dict[str, Any]) -> None:
     leverage_multiple = row["leverage_multiple"]
     if leverage_multiple is not None and float(base_exposure) > float(leverage_multiple):
         raise ValueError("grid base_exposure must not exceed leverage_multiple")
+    product_share = row["product_share_at_max"]
+    effective_max = row["effective_exposure_max"]
+    if row["row_kind"] == "strategy":
+        if not isinstance(product_share, (int, float)) or not np.isfinite(product_share):
+            raise ValueError("grid product_share_at_max must be finite for strategy rows")
+        if not 0.0 <= float(product_share) <= 1.0:
+            raise ValueError("grid product_share_at_max must be in [0.0, 1.0]")
+        expected = effective_exposure_at_max(
+            LadderSpec(
+                drawdown_threshold=float(row["drawdown_threshold"]),
+                disp60_threshold=float(row["disp60_threshold"]),
+                product_share_at_max=float(product_share),
+                levels=int(row["levels"]),
+                base_exposure=float(base_exposure),
+            ),
+            int(leverage_multiple),
+        )
+        if not isinstance(effective_max, (int, float)) or not np.isclose(effective_max, expected):
+            raise ValueError("grid effective_exposure_max is inconsistent with its weights")
+    elif product_share is not None or not isinstance(effective_max, (int, float)):
+        raise ValueError("baseline rows require product_share_at_max=None and numeric effective_exposure_max")
     for period in ("fit", "holdout", "full"):
         metrics = row[period]
         required = {"final_wealth_multiple", "cagr", "max_drawdown"}
@@ -1219,8 +1321,12 @@ __all__ = [
     "HOLDOUT_START",
     "LadderSpec",
     "SimulationResult",
+    "effective_exposure_at_max",
     "ladder_levels",
     "performance_metrics",
+    "require_disp60_threshold",
+    "require_drawdown_threshold",
+    "require_product_share_at_max",
     "simulate_account",
     "simulate_baseline",
     "simulate_grid_metrics",

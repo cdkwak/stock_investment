@@ -13,6 +13,8 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
+from .compound_ladder import require_disp60_threshold, require_drawdown_threshold
+
 
 FIT_END = pd.Timestamp("2015-12-31")
 HOLDOUT_START = pd.Timestamp("2016-01-01")
@@ -119,14 +121,21 @@ def compute_volatility_scale(market_close: pd.Series, korea_close: pd.Series) ->
     return float(scale)
 
 
-def normalized_thresholds(scale: float) -> tuple[float, float]:
+def normalized_thresholds(
+    scale: float,
+    *,
+    drawdown_threshold: float | None = None,
+    disp60_threshold: float | None = None,
+) -> tuple[float, float]:
     """Scale the two rule thresholds and apply the fixed clamps."""
 
     value = float(scale)
     if not np.isfinite(value) or value <= 0.0:
         raise ValueError("volatility scale must be finite and positive")
-    drawdown = float(np.clip(-0.20 * value, -0.60, -0.05))
-    disp60 = float(np.clip(-0.10 * value, -0.30, -0.03))
+    decided_drawdown = require_drawdown_threshold(drawdown_threshold)
+    decided_disp60 = require_disp60_threshold(disp60_threshold)
+    drawdown = float(np.clip(decided_drawdown * value, -0.60, -0.05))
+    disp60 = float(np.clip(decided_disp60 * value, -0.30, -0.03))
     return drawdown, disp60
 
 

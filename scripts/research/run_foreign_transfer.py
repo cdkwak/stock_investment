@@ -24,6 +24,9 @@ if str(ROOT / "src") not in sys.path:
 from stock_data.research.compound_ladder import (  # noqa: E402
     LadderSpec,
     ladder_levels,
+    require_disp60_threshold,
+    require_drawdown_threshold,
+    require_product_share_at_max,
     simulate_account,
     simulate_baseline,
     weekly_curve,
@@ -53,7 +56,6 @@ from stock_data.research.leveraged_product import (  # noqa: E402
 
 
 TRANSACTION_COST = 0.001
-RAW_THRESHOLDS = (-0.20, -0.10)
 CONFIRMATION_MARKETS = ("TAIEX", "SP500")
 US_DIAGNOSTIC_MARKETS = ("SP500", "NASDAQ100")
 
@@ -185,10 +187,13 @@ def _variant(
     baseline: Any,
     market: str,
     thresholds: tuple[float, float],
+    *,
+    product_share_at_max: float,
 ) -> tuple[dict[str, Any], Any, pd.DataFrame]:
     spec = LadderSpec(
         drawdown_threshold=thresholds[0],
         disp60_threshold=thresholds[1],
+        product_share_at_max=product_share_at_max,
         levels=2,
         base_exposure=1.0,
     )
@@ -265,7 +270,11 @@ def _report(summary: dict[str, Any]) -> str:
     raw_vote_rows = []
     period_rows = []
     episode_rows = []
-    scale_rows = [("KOSPI", "기준", f"{summary['korea_fit_sigma']:.4f}", "1.000", "-0.200", "-0.100")]
+    raw_thresholds = summary["rule"]["raw_thresholds"]
+    scale_rows = [(
+        "KOSPI", "기준", f"{summary['korea_fit_sigma']:.4f}", "1.000",
+        f"{raw_thresholds['drawdown252']:.3f}", f"{raw_thresholds['disp60']:.3f}",
+    )]
     for market, item in markets.items():
         headline = item["normalized"]
         raw = item["raw"]
@@ -357,7 +366,12 @@ def _report(summary: dict[str, Any]) -> str:
         "",
         _table(("시장", "fit raw/기준", "hold-out raw/기준", "full raw/기준"), raw_vote_rows),
         "",
-        "원시 임계값은 `drawdown252≤-0.20`, `disp60≤-0.10` 한 가지만 보조로 실행했다. 정규화 대안은 추가하지 않았다.",
+        (
+            "원시 임계값은 호출자가 명시한 "
+            f"`drawdown252≤{raw_thresholds['drawdown252']:g}`, "
+            f"`disp60≤{raw_thresholds['disp60']:g}` 한 가지만 보조로 실행했다. "
+            "정규화 대안은 추가하지 않았다."
+        ),
         "",
         "## FIT 변동성 배율과 적용 임계값",
         "",
@@ -404,9 +418,20 @@ def _report(summary: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def run(project_root: Path, *, quick: bool) -> dict[str, Any]:
+def run(
+    project_root: Path,
+    *,
+    quick: bool,
+    drawdown_threshold: float | None = None,
+    disp60_threshold: float | None = None,
+    product_share_at_max: float | None = None,
+) -> dict[str, Any]:
     started = time.perf_counter()
     root = project_root.resolve()
+    decided_drawdown = require_drawdown_threshold(drawdown_threshold)
+    decided_disp60 = require_disp60_threshold(disp60_threshold)
+    decided_share = require_product_share_at_max(product_share_at_max)
+    raw_thresholds = (decided_drawdown, decided_disp60)
     output = root / "artifacts/research/foreign_transfer"
     manifest_paths = [
         Path("data/normalized/global_index_price_daily"),
@@ -429,7 +454,11 @@ def run(project_root: Path, *, quick: bool) -> dict[str, Any]:
             raise ValueError(f"{market} has insufficient FIT observations")
         sigma = annualized_log_volatility(fit["close"])
         scale = compute_volatility_scale(fit["close"], korea_fit["close"])
-        thresholds = normalized_thresholds(scale)
+        thresholds = normalized_thresholds(
+            scale,
+            drawdown_threshold=decided_drawdown,
+            disp60_threshold=decided_disp60,
+        )
         signals = compute_signals(frame)
         underlying_returns = frame["close"].pct_change(fill_method=None).fillna(0.0)
         short_rate = load_short_rate(root, frame["date"])
@@ -442,10 +471,22 @@ def run(project_root: Path, *, quick: bool) -> dict[str, Any]:
             frame["date"], underlying_returns, transaction_cost=TRANSACTION_COST
         )
         normalized, normalized_strategy, normalized_cycles = _variant(
-            frame, signals, product_returns, baseline, market, thresholds
+            frame,
+            signals,
+            product_returns,
+            baseline,
+            market,
+            thresholds,
+            product_share_at_max=decided_share,
         )
         raw, raw_strategy, _ = _variant(
-            frame, signals, product_returns, baseline, market, RAW_THRESHOLDS
+            frame,
+            signals,
+            product_returns,
+            baseline,
+            market,
+            raw_thresholds,
+            product_share_at_max=decided_share,
         )
         equity_path = output / f"equity_{_slug(market)}.json"
         _write_json(
@@ -482,7 +523,13 @@ def run(project_root: Path, *, quick: bool) -> dict[str, Any]:
     )
     korea_baseline = simulate_baseline(korea["date"], korea_returns, transaction_cost=TRANSACTION_COST)
     _, _, korea_cycles = _variant(
-        korea, korea_signals, korea_product, korea_baseline, "KOSPI", RAW_THRESHOLDS
+        korea,
+        korea_signals,
+        korea_product,
+        korea_baseline,
+        "KOSPI",
+        raw_thresholds,
+        product_share_at_max=decided_share,
     )
     diagnostic_false_flags = {
         "KOSPI": diagnostic_flags(korea_signals, korea_cycles),
@@ -539,9 +586,13 @@ def run(project_root: Path, *, quick: bool) -> dict[str, Any]:
             "levels": 2,
             "leverage_multiple": 2,
             "base_exposure": 1.0,
+            "product_share_at_max": decided_share,
             "exit": "a",
             "transaction_cost_one_way": TRANSACTION_COST,
-            "raw_thresholds": {"drawdown252": -0.20, "disp60": -0.10},
+            "raw_thresholds": {
+                "drawdown252": decided_drawdown,
+                "disp60": decided_disp60,
+            },
             "normalization": "fit annualized daily-log-return sigma market / KOSPI, fixed clamp",
         },
         "excluded_markets": {"HANG_SENG": "politics/regulation dominate after 2019; not loaded or simulated"},
@@ -580,12 +631,21 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Run the same fixed design with a quick-mode receipt flag",
     )
+    parser.add_argument("--drawdown-threshold", type=float, default=None)
+    parser.add_argument("--disp60-threshold", type=float, default=None)
+    parser.add_argument("--product-share-at-max", type=float, default=None)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    summary = run(args.project_root, quick=args.quick)
+    summary = run(
+        args.project_root,
+        quick=args.quick,
+        drawdown_threshold=args.drawdown_threshold,
+        disp60_threshold=args.disp60_threshold,
+        product_share_at_max=args.product_share_at_max,
+    )
     print("market | group | fit ratio | holdout ratio | full ratio")
     for market, item in summary["markets"].items():
         normalized = item["normalized"]

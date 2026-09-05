@@ -32,7 +32,16 @@ def test_volatility_scale_uses_daily_log_returns_for_synthetic_pair() -> None:
 def test_normalized_thresholds_apply_fixed_clamps(
     scale: float, expected: tuple[float, float]
 ) -> None:
-    assert normalized_thresholds(scale) == pytest.approx(expected)
+    assert normalized_thresholds(
+        scale,
+        drawdown_threshold=-0.20,
+        disp60_threshold=-0.10,
+    ) == pytest.approx(expected)
+
+
+def test_normalized_thresholds_require_explicit_source_thresholds() -> None:
+    with pytest.raises(ValueError, match="drawdown_threshold is undecided.*⑥"):
+        normalized_thresholds(1.0)
 
 
 @pytest.mark.parametrize(

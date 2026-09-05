@@ -24,12 +24,23 @@ from scripts.research.run_compound_backtest import (
     _independent_cycle_counts,
     _parser,
     _plateau,
+    _require_product_share,
     validate_base_sweep_payload,
 )
 
 
 def _dates(n: int) -> pd.Series:
     return pd.Series(pd.bdate_range("2020-01-01", periods=n))
+
+
+def _spec(*, levels: int = 2, base_exposure: float = 1.0, product_share: float = 1.0) -> LadderSpec:
+    return LadderSpec(
+        drawdown_threshold=-0.20,
+        disp60_threshold=-0.10,
+        product_share_at_max=product_share,
+        levels=levels,
+        base_exposure=base_exposure,
+    )
 
 
 def test_known_drawdown_level_path_and_next_session_execution() -> None:
@@ -40,9 +51,35 @@ def test_known_drawdown_level_path_and_next_session_execution() -> None:
             "disp60": [-0.02, -0.05, -0.11, -0.11, -0.11],
         }
     )
-    result = ladder_levels(signals, LadderSpec(levels=2))
+    result = ladder_levels(signals, _spec(levels=2))
     assert result["observed_level"].tolist() == [0, 1, 2, 1, pd.NA]
     assert result["executable_level"].tolist() == [pd.NA, 0, 1, 2, 1]
+
+
+def test_rule_six_rejects_each_undecided_ladder_value() -> None:
+    with pytest.raises(ValueError, match="drawdown_threshold is undecided.*⑥"):
+        LadderSpec()
+    with pytest.raises(ValueError, match="disp60_threshold is undecided.*⑥"):
+        LadderSpec(drawdown_threshold=-0.20)
+    with pytest.raises(ValueError, match="product_share_at_max is undecided.*⑥"):
+        LadderSpec(drawdown_threshold=-0.20, disp60_threshold=-0.10)
+
+
+def test_product_share_knob_caps_top_weight_and_exposes_effective_exposure() -> None:
+    result = simulate_account(
+        _dates(4),
+        pd.Series(np.zeros(4)),
+        pd.Series([np.nan, 0.0, 1.0, 2.0]),
+        underlying_returns=pd.Series(np.zeros(4)),
+        spec=_spec(levels=2, base_exposure=1.0, product_share=0.5),
+        leverage_multiple=3,
+        exit_variant="a",
+        transaction_cost=0.0,
+    )
+    assert result.curve["product_weight"].tolist() == pytest.approx([0.0, 0.0, 0.25, 0.5])
+    assert result.curve["core_weight"].tolist() == pytest.approx([1.0, 1.0, 0.75, 0.5])
+    assert result.curve["effective_exposure"].tolist() == pytest.approx([1.0, 1.0, 1.5, 2.0])
+    assert result.effective_exposure_max == pytest.approx(2.0)
 
 
 def test_execution_at_next_close_earns_only_following_return() -> None:
@@ -53,7 +90,7 @@ def test_execution_at_next_close_earns_only_following_return() -> None:
         returns,
         levels,
         underlying_returns=pd.Series(np.zeros(4)),
-        spec=LadderSpec(levels=1, base_exposure=0.0),
+        spec=_spec(levels=1, base_exposure=0.0),
         leverage_multiple=1,
         transaction_cost=0.0,
     )
@@ -69,7 +106,7 @@ def test_exit_a_reverse_score_partially_sells() -> None:
         returns,
         levels,
         underlying_returns=pd.Series(np.zeros(4)),
-        spec=LadderSpec(levels=2, base_exposure=0.0),
+        spec=_spec(levels=2, base_exposure=0.0),
         leverage_multiple=1,
         transaction_cost=0.0,
     )
@@ -87,7 +124,7 @@ def test_fixed_period_exit_returns_to_base_after_n_sessions(variant: str, holdin
         pd.Series(np.zeros(n)),
         levels,
         underlying_returns=pd.Series(np.zeros(n)),
-        spec=LadderSpec(levels=1, base_exposure=0.0),
+        spec=_spec(levels=1, base_exposure=0.0),
         leverage_multiple=1,
         exit_variant=variant,
         transaction_cost=0.0,
@@ -104,7 +141,7 @@ def test_fixed_period_core_uses_max_exposure_then_returns_to_one() -> None:
         pd.Series(np.zeros(n)),
         pd.Series([np.nan, 1.0] + [1.0] * (n - 2)),
         underlying_returns=pd.Series(np.zeros(n)),
-        spec=LadderSpec(levels=2, base_exposure=1.0),
+        spec=_spec(levels=2, base_exposure=1.0),
         leverage_multiple=3,
         exit_variant="b60",
         transaction_cost=0.0,
@@ -122,7 +159,7 @@ def test_profit_exit_sells_original_thirds_at_each_30_percent_gain() -> None:
         returns,
         levels,
         underlying_returns=pd.Series(np.zeros(5)),
-        spec=LadderSpec(levels=1, base_exposure=0.0),
+        spec=_spec(levels=1, base_exposure=0.0),
         leverage_multiple=1,
         exit_variant="c",
         transaction_cost=0.0,
@@ -145,7 +182,7 @@ def test_never_sell_enters_once_and_holds_forever() -> None:
         returns,
         levels,
         underlying_returns=pd.Series(np.zeros(5)),
-        spec=LadderSpec(levels=2, base_exposure=0.0),
+        spec=_spec(levels=2, base_exposure=0.0),
         leverage_multiple=1,
         exit_variant="d",
         transaction_cost=0.0,
@@ -163,7 +200,7 @@ def test_transaction_cost_is_paid_on_each_one_way_trade() -> None:
         pd.Series([0.0, 0.0, 0.0]),
         pd.Series([np.nan, 1.0, 0.0]),
         underlying_returns=pd.Series(np.zeros(3)),
-        spec=LadderSpec(levels=1, base_exposure=1.0),
+        spec=_spec(levels=1, base_exposure=1.0),
         leverage_multiple=2,
         transaction_cost=0.001,
     )
@@ -180,7 +217,7 @@ def test_chaining_reinvests_cash_from_first_episode() -> None:
         returns,
         levels,
         underlying_returns=pd.Series(np.zeros(6)),
-        spec=LadderSpec(levels=1, base_exposure=0.0),
+        spec=_spec(levels=1, base_exposure=0.0),
         leverage_multiple=1,
         transaction_cost=0.0,
     )
@@ -199,7 +236,7 @@ def test_k1_core_strategy_is_exactly_the_baseline(variant: str) -> None:
         deliberately_different_product,
         levels,
         underlying_returns=underlying,
-        spec=LadderSpec(levels=2, base_exposure=1.0),
+        spec=_spec(levels=2, base_exposure=1.0),
         leverage_multiple=1,
         exit_variant=variant,
         transaction_cost=0.001,
@@ -218,7 +255,7 @@ def test_two_level_core_overlay_has_hand_computed_wealth_and_exposure() -> None:
         product,
         levels,
         underlying_returns=underlying,
-        spec=LadderSpec(levels=2, base_exposure=1.0),
+        spec=_spec(levels=2, base_exposure=1.0),
         leverage_multiple=2,
         exit_variant="a",
         transaction_cost=0.0,
@@ -233,7 +270,7 @@ def test_two_level_ladder_interpolates_product_fraction_above_one_x_base() -> No
         pd.Series(np.zeros(5)),
         pd.Series([np.nan, 0.0, 1.0, 2.0, 0.0]),
         underlying_returns=pd.Series(np.zeros(5)),
-        spec=LadderSpec(levels=2, base_exposure=1.5),
+        spec=_spec(levels=2, base_exposure=1.5),
         leverage_multiple=3,
         exit_variant="a",
         transaction_cost=0.0,
@@ -259,7 +296,7 @@ def test_base_equal_to_product_multiple_makes_ladder_identical_to_permanent_hold
         product,
         pd.Series([np.nan, 1.0, 2.0, 0.0, 1.0]),
         underlying_returns=underlying,
-        spec=LadderSpec(levels=2, base_exposure=float(multiple)),
+        spec=_spec(levels=2, base_exposure=float(multiple)),
         leverage_multiple=multiple,
         exit_variant=exit_variant,
         transaction_cost=0.001,
@@ -269,7 +306,7 @@ def test_base_equal_to_product_multiple_makes_ladder_identical_to_permanent_hold
         product,
         pd.Series(np.zeros(5)),
         underlying_returns=underlying,
-        spec=LadderSpec(levels=2, base_exposure=float(multiple)),
+        spec=_spec(levels=2, base_exposure=float(multiple)),
         leverage_multiple=multiple,
         exit_variant="a",
         transaction_cost=0.001,
@@ -297,11 +334,11 @@ def test_base_exposure_must_not_exceed_product_multiple() -> None:
             pd.Series(np.zeros(3)),
             pd.Series(np.zeros(3)),
             underlying_returns=pd.Series(np.zeros(3)),
-            spec=LadderSpec(levels=2, base_exposure=2.1),
+            spec=_spec(levels=2, base_exposure=2.1),
             leverage_multiple=2,
         )
     with pytest.raises(ValueError, match=r"\[0.0, 3.0\]"):
-        LadderSpec(base_exposure=3.1)
+        _spec(base_exposure=3.1)
 
 
 def test_daily_reset_two_x_path_is_point_nine_six_not_point_nine_nine() -> None:
@@ -344,7 +381,7 @@ def test_zero_nav_is_terminal_and_never_divides_by_zero() -> None:
         returns,
         pd.Series([np.nan, 1.0, 0.0, 1.0]),
         underlying_returns=pd.Series(np.zeros(4)),
-        spec=LadderSpec(levels=1, base_exposure=0.0),
+        spec=_spec(levels=1, base_exposure=0.0),
         leverage_multiple=1,
         transaction_cost=0.0,
     )
@@ -354,7 +391,7 @@ def test_zero_nav_is_terminal_and_never_divides_by_zero() -> None:
         returns,
         pd.Series([np.nan, 1.0, 0.0, 1.0]),
         underlying_returns=pd.Series(np.zeros(4)),
-        spec=LadderSpec(levels=1, base_exposure=0.0),
+        spec=_spec(levels=1, base_exposure=0.0),
         leverage_multiple=1,
         exit_variant="c",
         transaction_cost=0.0,
@@ -381,6 +418,8 @@ def test_grid_row_schema_and_baseline_comparison() -> None:
         "levels": 2,
         "leverage_multiple": 2,
         "base_exposure": 1.0,
+        "product_share_at_max": 0.5,
+        "effective_exposure_max": 1.5,
         "exit": "a",
         "cost_enabled": True,
         **compared,
@@ -408,7 +447,14 @@ def test_plateau_matches_retained_kr_kospi_summary() -> None:
     retained = next(
         item for item in summary["baskets"]["KR"] if item["underlying"] == "KOSPI"
     )["plateau"]
-    recalculated = {item["surface"]: item for item in _plateau(rows)}
+    recalculated = {
+        item["surface"]: item
+        for item in _plateau(
+            rows,
+            drawdown_threshold=-0.20,
+            disp60_threshold=-0.10,
+        )
+    }
 
     assert set(recalculated) == {item["surface"] for item in retained}
     for expected in retained:
@@ -502,8 +548,21 @@ def test_base_sweep_independent_cycles_split_signal_clusters_at_ninety_day_gaps(
 
 def test_base_exposure_cli_is_opt_in_and_accepts_list_or_comma_groups() -> None:
     assert _parser().parse_args([]).base_exposures is None
-    parsed = _parser().parse_args(["--base-exposures", "1.0", "1.3,1.5"])
+    assert _parser().parse_args([]).drawdown_threshold is None
+    assert _parser().parse_args([]).disp60_threshold is None
+    assert _parser().parse_args([]).product_share_at_max is None
+    with pytest.raises(ValueError, match="product_share_at_max is undecided.*⑥"):
+        _require_product_share(None)
+    parsed = _parser().parse_args([
+        "--drawdown-threshold", "-0.20",
+        "--disp60-threshold", "-0.10",
+        "--product-share-at-max", "0.5",
+        "--base-exposures", "1.0", "1.3,1.5",
+    ])
     assert parsed.base_exposures == [(1.0,), (1.3, 1.5)]
+    assert parsed.product_share_at_max == 0.5
+    assert parsed.drawdown_threshold == -0.20
+    assert parsed.disp60_threshold == -0.10
 
 
 @pytest.mark.parametrize("variant", ["a", "b60", "b120", "c", "d"])
@@ -511,7 +570,7 @@ def test_fast_grid_metrics_match_detailed_account(variant: str) -> None:
     returns = pd.Series([0.0, 0.0, 0.10, 0.20, -0.05, 0.30, 0.0])
     underlying = pd.Series([0.0, 0.0, 0.05, 0.10, -0.025, 0.15, 0.0])
     levels = pd.Series([np.nan, 2.0, 1.0, 0.0, 2.0, 1.0, 0.0])
-    spec = LadderSpec(levels=2)
+    spec = _spec(levels=2)
     detailed = simulate_account(
         _dates(len(returns)),
         returns,

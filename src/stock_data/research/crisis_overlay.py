@@ -10,7 +10,13 @@ from typing import Any, Iterable, Mapping, Sequence
 import numpy as np
 import pandas as pd
 
-from stock_data.research.compound_ladder import LadderSpec, ladder_levels
+from stock_data.research.compound_ladder import (
+    LadderSpec,
+    ladder_levels,
+    require_disp60_threshold,
+    require_drawdown_threshold,
+    require_product_share_at_max,
+)
 from stock_data.research.condition_backtest import compute_signals
 from stock_data.research.core_ammunition import (
     Episode,
@@ -213,11 +219,25 @@ def _episode_type(episode: Episode) -> str:
 
 
 def build_ladder_overlay(
-    universe: pd.DataFrame, cycle_buckets: Sequence[str], *, basis: str = "signal",
+    universe: pd.DataFrame,
+    cycle_buckets: Sequence[str],
+    *,
+    drawdown_threshold: float | None = None,
+    disp60_threshold: float | None = None,
+    product_share_at_max: float | None = None,
+    basis: str = "signal",
 ) -> dict[str, dict[str, dict[str, Any]]]:
     """Build per-index cycle paths with the same two-condition ladder levels."""
 
-    spec = LadderSpec(drawdown_threshold=-0.20, disp60_threshold=-0.10, levels=2)
+    decided_drawdown = require_drawdown_threshold(drawdown_threshold)
+    decided_disp60 = require_disp60_threshold(disp60_threshold)
+    decided_share = require_product_share_at_max(product_share_at_max)
+    spec = LadderSpec(
+        drawdown_threshold=decided_drawdown,
+        disp60_threshold=decided_disp60,
+        product_share_at_max=decided_share,
+        levels=2,
+    )
     output: dict[str, dict[str, dict[str, Any]]] = {}
     for basket, series_ids in LADDER_SERIES.items():
         basket_payload: dict[str, dict[str, Any]] = {}
@@ -274,9 +294,16 @@ def build_overlay_payload(
     dgs10: pd.Series,
     cycle_buckets: Sequence[str],
     ladder_universe: pd.DataFrame,
+    drawdown_threshold: float | None = None,
+    disp60_threshold: float | None = None,
+    product_share_at_max: float | None = None,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     """Build the complete crisis-overlay document without provider calls."""
+
+    decided_drawdown = require_drawdown_threshold(drawdown_threshold)
+    decided_disp60 = require_disp60_threshold(disp60_threshold)
+    decided_share = require_product_share_at_max(product_share_at_max)
 
     allowed = set(cycle_buckets)
     cycle_order = {cycle: index for index, cycle in enumerate(cycle_buckets)}
@@ -348,6 +375,9 @@ def build_overlay_payload(
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at": generated_at or datetime.now(timezone.utc).isoformat(),
+        "drawdown_threshold": decided_drawdown,
+        "disp60_threshold": decided_disp60,
+        "product_share_at_max": decided_share,
         "offset_start": OFFSET_START,
         "offset_end": OFFSET_END,
         "episodes": episode_rows,
@@ -362,7 +392,14 @@ def build_overlay_payload(
         "yields": yields,
         "levels": levels,
         "ladder": {
-            basis: build_ladder_overlay(ladder_universe, cycle_buckets, basis=basis)
+            basis: build_ladder_overlay(
+                ladder_universe,
+                cycle_buckets,
+                drawdown_threshold=decided_drawdown,
+                disp60_threshold=decided_disp60,
+                product_share_at_max=decided_share,
+                basis=basis,
+            )
             for basis in NORMALISATION_LABELS
         },
     }

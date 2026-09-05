@@ -19,7 +19,13 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from stock_data.research.compound_ladder import LadderSpec, ladder_levels  # noqa: E402
+from stock_data.research.compound_ladder import (  # noqa: E402
+    LadderSpec,
+    ladder_levels,
+    require_disp60_threshold,
+    require_drawdown_threshold,
+    require_product_share_at_max,
+)
 from stock_data.research.condition_backtest import compute_signals  # noqa: E402
 from stock_data.research.core_ammunition import (  # noqa: E402
     Episode,
@@ -186,7 +192,17 @@ def _index_frame(raw: pd.DataFrame, symbol: str, basket: str) -> pd.DataFrame:
     return frame[["date", "series_id", "basket", "close", "volume"]]
 
 
-def _episode_inputs(root: Path, quick: bool) -> tuple[list[Episode], dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
+def _episode_inputs(
+    root: Path,
+    quick: bool,
+    *,
+    drawdown_threshold: float | None = None,
+    disp60_threshold: float | None = None,
+    product_share_at_max: float | None = None,
+) -> tuple[list[Episode], dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
+    decided_drawdown = require_drawdown_threshold(drawdown_threshold)
+    decided_disp60 = require_disp60_threshold(disp60_threshold)
+    decided_share = require_product_share_at_max(product_share_at_max)
     kr_raw = _read_dataset(root, "kr_index_daily", ("date", "symbol", "close", "volume"))
     global_raw = _read_dataset(
         root, "global_index_price_daily", ("date", "symbol", "close", "volume")
@@ -199,7 +215,12 @@ def _episode_inputs(root: Path, quick: bool) -> tuple[list[Episode], dict[str, p
     series_ids = {"KR": "KOSPI", "US": "NASDAQ100"}
     ladders: dict[str, pd.DataFrame] = {}
     episodes: list[Episode] = []
-    spec = LadderSpec(drawdown_threshold=-0.20, disp60_threshold=-0.10, levels=2)
+    spec = LadderSpec(
+        drawdown_threshold=decided_drawdown,
+        disp60_threshold=decided_disp60,
+        product_share_at_max=decided_share,
+        levels=2,
+    )
     for market in ("KR", "US"):
         signals = compute_signals(frames[market])
         ladder = ladder_levels(signals, spec)
@@ -1446,10 +1467,26 @@ def _followup_markdown(summary: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def run(project_root: Path, *, quick: bool = False) -> dict[str, Any]:
+def run(
+    project_root: Path,
+    *,
+    quick: bool = False,
+    drawdown_threshold: float | None = None,
+    disp60_threshold: float | None = None,
+    product_share_at_max: float | None = None,
+) -> dict[str, Any]:
     root = Path(project_root).resolve()
+    decided_drawdown = require_drawdown_threshold(drawdown_threshold)
+    decided_disp60 = require_disp60_threshold(disp60_threshold)
+    decided_share = require_product_share_at_max(product_share_at_max)
     manifest = _manifest(root)
-    episodes, frames, ladders = _episode_inputs(root, quick)
+    episodes, frames, ladders = _episode_inputs(
+        root,
+        quick,
+        drawdown_threshold=decided_drawdown,
+        disp60_threshold=decided_disp60,
+        product_share_at_max=decided_share,
+    )
     assets, _ = _assets(root)
     records = _measure(episodes, frames, ladders, assets)
     _validate_outputs(episodes, assets, records, quick=quick)
@@ -1462,9 +1499,10 @@ def run(project_root: Path, *, quick: bool = False) -> dict[str, Any]:
         "quick": quick,
         "signal_rule": {
             "id": "kr_dd_ladder_2",
-            "drawdown252": -0.20,
-            "disp60": -0.10,
+            "drawdown252": decided_drawdown,
+            "disp60": decided_disp60,
             "levels": 2,
+            "product_share_at_max": decided_share,
             "level_field": "observed_level",
             "cooldown_sessions": 120,
         },
@@ -1556,10 +1594,26 @@ def _validate_followup(
             raise ValueError("the predefined 2015–16 empty bucket must be explicit")
 
 
-def run_followup(project_root: Path, *, quick: bool = False) -> dict[str, Any]:
+def run_followup(
+    project_root: Path,
+    *,
+    quick: bool = False,
+    drawdown_threshold: float | None = None,
+    disp60_threshold: float | None = None,
+    product_share_at_max: float | None = None,
+) -> dict[str, Any]:
     root = Path(project_root).resolve()
+    decided_drawdown = require_drawdown_threshold(drawdown_threshold)
+    decided_disp60 = require_disp60_threshold(disp60_threshold)
+    decided_share = require_product_share_at_max(product_share_at_max)
     manifest = _manifest(root)
-    episodes, frames, ladders = _episode_inputs(root, quick)
+    episodes, frames, ladders = _episode_inputs(
+        root,
+        quick,
+        drawdown_threshold=decided_drawdown,
+        disp60_threshold=decided_disp60,
+        product_share_at_max=decided_share,
+    )
     assets, _ = _assets(root)
     rows = _followup_measurements(episodes, frames, ladders, assets)
     frame = pd.DataFrame(rows)
@@ -1586,6 +1640,9 @@ def run_followup(project_root: Path, *, quick: bool = False) -> dict[str, Any]:
         "development_only": True,
         "api_calls": 0,
         "quick": quick,
+        "drawdown_threshold": decided_drawdown,
+        "disp60_threshold": decided_disp60,
+        "product_share_at_max": decided_share,
         "decision_clock": "T close descriptive mark; earliest signal-based action is after T close",
         "input_manifest_sha256": manifest["sha256"],
         "input_file_count": manifest["file_count"],
@@ -1634,6 +1691,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project-root", type=Path, default=ROOT)
     parser.add_argument("--quick", action="store_true", help="Use only the latest three episodes per market.")
+    parser.add_argument("--drawdown-threshold", type=float, default=None)
+    parser.add_argument("--disp60-threshold", type=float, default=None)
+    parser.add_argument(
+        "--product-share-at-max",
+        type=float,
+        default=None,
+        help="Required leveraged-product portfolio weight at the highest ladder level.",
+    )
     parser.add_argument(
         "--followup",
         action="store_true",
@@ -1641,9 +1706,21 @@ def main() -> None:
     )
     args = parser.parse_args()
     if args.followup:
-        run_followup(args.project_root, quick=args.quick)
+        run_followup(
+            args.project_root,
+            quick=args.quick,
+            drawdown_threshold=args.drawdown_threshold,
+            disp60_threshold=args.disp60_threshold,
+            product_share_at_max=args.product_share_at_max,
+        )
     else:
-        run(args.project_root, quick=args.quick)
+        run(
+            args.project_root,
+            quick=args.quick,
+            drawdown_threshold=args.drawdown_threshold,
+            disp60_threshold=args.disp60_threshold,
+            product_share_at_max=args.product_share_at_max,
+        )
 
 
 if __name__ == "__main__":

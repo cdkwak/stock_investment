@@ -111,6 +111,7 @@ def test_leaderboard_exact_schema_levels_cycles_current_and_analog() -> None:
                     "row_kind": "strategy", "drawdown_threshold": -.2,
                     "disp60_threshold": -.1, "levels": 2,
                     "leverage_multiple": 2, "base_exposure": 1.0,
+                    "product_share_at_max": 0.5, "effective_exposure_max": 1.5,
                     "exit": "a", "cost_enabled": True,
                     "holdout": {
                         "final_wealth_multiple": 3.2,
@@ -129,6 +130,7 @@ def test_leaderboard_exact_schema_levels_cycles_current_and_analog() -> None:
                     "row_kind": "strategy", "drawdown_threshold": -.2,
                     "disp60_threshold": -.1, "levels": 2,
                     "leverage_multiple": 2, "base_exposure": 1.0,
+                    "product_share_at_max": 0.5, "effective_exposure_max": 1.5,
                     "exit": "a", "cost_enabled": True,
                     "holdout": {
                         "final_wealth_multiple": 2.0,
@@ -156,7 +158,8 @@ def test_leaderboard_exact_schema_levels_cycles_current_and_analog() -> None:
     drawdown, overheat = payload["candidates"]
     assert set(drawdown) == {
         "id", "name", "side", "basket", "status", "definition", "added_on",
-        "reason", "results", "levels", "cycles", "current", "compound_ladder",
+        "reason", "product_share_at_max", "effective_exposure_max", "results",
+        "levels", "cycles", "current", "compound_ladder",
     }
     assert tuple(drawdown["results"]["fit"]) == RESULT_KEYS
     assert tuple(drawdown["results"]["holdout"]) == RESULT_KEYS
@@ -174,6 +177,8 @@ def test_leaderboard_exact_schema_levels_cycles_current_and_analog() -> None:
         "holdout_final_wealth_multiple": 3.2,
         "holdout_baseline_final_wealth_multiple": 2.5,
         "holdout_relative_to_baseline": 1.28,
+        "product_share_at_max": 0.5,
+        "effective_exposure_max": 1.5,
         "plateau_verdict": "뾰족한 봉우리 · 최적 1.26배 / 이웃 0.81배",
     }
     kospi200 = {
@@ -181,36 +186,64 @@ def test_leaderboard_exact_schema_levels_cycles_current_and_analog() -> None:
         "holdout_final_wealth_multiple": 2.0,
         "holdout_baseline_final_wealth_multiple": 2.4,
         "holdout_relative_to_baseline": 0.8333,
+        "product_share_at_max": 0.5,
+        "effective_exposure_max": 1.5,
         "plateau_verdict": "넓은 고원 · 최적 1.10배 / 이웃 1.05배",
     }
     assert drawdown["compound_ladder"] == {
         "status": "matched", "product_basis": "synthetic_2x", "cost_enabled": True,
-        "combination_label": "합성 2배 · 출구 a · 거래비용 포함 · 기본 노출 1.0",
+        "combination_label": "합성 2배 · 출구 a · 거래비용 포함 · 기본 노출 1.0 · 최고단계 상품 비중 50%",
+        "product_share_at_max": 0.5, "effective_exposure_max": 1.5,
         "underlyings": [kospi, kospi200],
         **kospi,
     }
-    assert overheat["compound_ladder"] == {"status": "unavailable"}
+    assert overheat["compound_ladder"] == {
+        "status": "unavailable", "product_share_at_max": None,
+        "effective_exposure_max": None,
+    }
+    assert drawdown["product_share_at_max"] == 0.5
+    assert drawdown["effective_exposure_max"] == 1.5
+    assert overheat["product_share_at_max"] is None
+    assert overheat["effective_exposure_max"] is None
+    assert drawdown["results"]["holdout"]["score_basis"] == "return_win_rate"
+    assert drawdown["results"]["holdout"]["vol_60"] is None
+    assert overheat["results"]["holdout"]["score_basis"] == "realized_volatility_max_drawdown"
+    assert overheat["results"]["holdout"]["mean_60"] is None
+    assert overheat["results"]["holdout"]["vol_60"] == pytest.approx(0.25)
     assert next(
         item for item in drawdown["cycles"] if item["id"] == "dotcom_2000"
     )["verdict"] == "hit"
     assert next(
         item for item in overheat["cycles"] if item["id"] == "bear_2022"
-    )["verdict"] == "hit"
+    )["verdict"] == "miss"
     assert drawdown["current"]["date"] == "2026-09-03"
     assert drawdown["current"]["score"] == drawdown["current"]["level"] == 1
     assert drawdown["current"]["max_level"] == 2
     assert drawdown["current"]["exposure"] == 0.5
     # Analogues are FIT-window rows only (the 2020 hold-out signal no longer leaks in).
-    assert drawdown["current"]["analog"] == {"n": 1, "mean_60": 0.08, "hit_60": 1.0}
+    assert drawdown["current"]["analog"] == {
+        "n": 1,
+        "mean_60": 0.08,
+        "median_60": 0.08,
+        "hit_60": 1.0,
+        "score_basis": "return_win_rate",
+    }
+    assert overheat["current"]["analog"]["score_basis"] == "realized_volatility_max_drawdown"
+    assert "mean_60" not in overheat["current"]["analog"]
     assert set(drawdown["current"]["indicators"]) == {
         "drawdown252", "disp60", "rsi14", "volidx_pct",
     }
     assert set(drawdown["current"]) == {
         "date", "score", "level", "max_level", "exposure", "indicators", "analog",
     }
-    assert set(drawdown["current"]["analog"]) == {"n", "mean_60", "hit_60"}
+    assert set(drawdown["current"]["analog"]) == {
+        "n", "mean_60", "median_60", "hit_60", "score_basis",
+    }
     assert all(
-        set(item) == {"id", "signals", "first_signal", "mean_60", "verdict"}
+        set(item) == {
+            "id", "signals", "first_signal", "mean_60", "vol_60", "mdd_60",
+            "score_basis", "verdict",
+        }
         for item in drawdown["cycles"]
     )
     assert all(
@@ -269,7 +302,8 @@ def test_evaluate_definition_covers_ladder_vol_target_and_hybrid(
 
     assert set(result) == {
         "id", "name", "side", "basket", "status", "definition", "added_on",
-        "reason", "results", "levels", "cycles", "current", "compound_ladder",
+        "reason", "product_share_at_max", "effective_exposure_max", "results",
+        "levels", "cycles", "current", "compound_ladder",
     }
     assert tuple(result["results"]["fit"]) == RESULT_KEYS
     assert tuple(result["results"]["holdout"]) == RESULT_KEYS
@@ -286,6 +320,7 @@ def test_compound_references_are_loaded_from_summary_and_matching_grid() -> None
         "row_kind": "strategy", "basket": "KR", "underlying": "KOSPI",
         "drawdown_threshold": -.2, "disp60_threshold": -.1, "levels": 2,
         "leverage_multiple": 2, "base_exposure": 1.0, "exit": "a",
+        "product_share_at_max": 0.5, "effective_exposure_max": 1.5,
         "cost_enabled": True,
         "holdout": {
             "final_wealth_multiple": 3.0,
@@ -308,6 +343,27 @@ def test_compound_references_are_loaded_from_summary_and_matching_grid() -> None
 
     assert [item["underlying"] for item in references["KR"]] == ["KOSPI"]
     assert references["KR"][0]["rows"][0]["holdout"]["relative_to_baseline"] == 1.2
+
+
+def test_overheat_scoring_keeps_rsi14_upper_with_disparity_and_low_vol_index() -> None:
+    frame = _frame().copy()
+    frame.loc[:, "disp60"] = 0.11
+    frame.loc[:, "rsi14"] = 71.0
+    frame.loc[:, "vol_index_percentile252"] = 0.19
+    candidate = _candidate("sell", "overheat", [
+        {"key": "disp60", "op": ">=", "threshold": 0.10},
+        {"key": "rsi14", "op": ">=", "threshold": 70.0},
+        {"key": "volidx_pct", "op": "<=", "threshold": 0.20},
+    ])
+
+    state = rule_leaderboard.score_candidate(frame, candidate)
+
+    assert state["score"].dropna().eq(3).all()
+    assert state["signal"].all()
+    frame.loc[frame.index[0], "rsi14"] = 69.0
+    state = rule_leaderboard.score_candidate(frame, candidate)
+    assert state.loc[frame.index[0], "score"] == 2
+    assert not bool(state.loc[frame.index[0], "signal"])
 
 
 def test_independent_episodes_pool_series_and_split_on_90_day_gaps() -> None:

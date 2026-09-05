@@ -23,7 +23,10 @@ if str(ROOT / "src") not in sys.path:
 from stock_data.research.compound_ladder import (  # noqa: E402
     GRID_REQUIRED_FIELDS,
     LadderSpec,
+    effective_exposure_at_max,
     ladder_levels,
+    require_disp60_threshold,
+    require_drawdown_threshold,
     simulate_account,
     simulate_baseline,
     simulate_grid_metrics,
@@ -72,14 +75,13 @@ QUICK_GRID = {
 }
 TRANSACTION_COST = 0.001
 CURRENT = {
-    "drawdown_threshold": -0.20,
-    "disp60_threshold": -0.10,
     "levels": 2,
     "leverage_multiple": 2,
     "base_exposure": 1.0,
     "exit": "a",
     "cost_enabled": True,
 }
+_UNDECIDED = object()
 BASE_SWEEP_MULTIPLES = (2, 3)
 BASE_SWEEP_EXITS = ("a", "d")
 BASE_SWEEP_PERIODS = ("fit", "holdout", "full")
@@ -294,8 +296,31 @@ def validate_base_sweep_payload(payload: dict[str, Any]) -> None:
         raise ValueError("base sweep threshold rows are incomplete")
 
 
-def _is_current(row: dict[str, Any]) -> bool:
-    return all(row.get(key) == value for key, value in CURRENT.items())
+def _require_product_share(value: object) -> float:
+    if value is _UNDECIDED or value is None:
+        raise ValueError(
+            "product_share_at_max is undecided under rule ⑥; caller must pass it explicitly"
+        )
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("product_share_at_max must be a finite number")
+    result = float(value)
+    if not math.isfinite(result) or not 0.0 <= result <= 1.0:
+        raise ValueError("product_share_at_max must be finite and in [0.0, 1.0]")
+    return result
+
+
+def _is_current(
+    row: dict[str, Any],
+    drawdown_threshold: float,
+    disp60_threshold: float,
+    product_share_at_max: float,
+) -> bool:
+    return (
+        all(row.get(key) == value for key, value in CURRENT.items())
+        and row.get("drawdown_threshold") == drawdown_threshold
+        and row.get("disp60_threshold") == disp60_threshold
+        and row.get("product_share_at_max") == product_share_at_max
+    )
 
 
 def _strategy_key(row: dict[str, Any]) -> tuple[Any, ...]:
@@ -305,6 +330,7 @@ def _strategy_key(row: dict[str, Any]) -> tuple[Any, ...]:
         "levels",
         "leverage_multiple",
         "base_exposure",
+        "product_share_at_max",
         "exit",
         "cost_enabled",
     ))
@@ -320,6 +346,7 @@ def _build_detailed(
     spec = LadderSpec(
         drawdown_threshold=float(row["drawdown_threshold"]),
         disp60_threshold=float(row["disp60_threshold"]),
+        product_share_at_max=float(row["product_share_at_max"]),
         levels=int(row["levels"]),
         base_exposure=float(row["base_exposure"]),
     )
@@ -340,7 +367,12 @@ def _build_detailed(
     return strategy, baseline
 
 
-def _plateau(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _plateau(
+    rows: list[dict[str, Any]],
+    *,
+    drawdown_threshold: float,
+    disp60_threshold: float,
+) -> list[dict[str, Any]]:
     strategy = [
         row for row in rows
         if row["row_kind"] == "strategy"
@@ -350,28 +382,37 @@ def _plateau(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "threshold_x_levels",
             "drawdown_threshold",
             "levels",
-            {"disp60_threshold": -0.10, "leverage_multiple": 2, "exit": "a", "cost_enabled": True},
+            {"disp60_threshold": disp60_threshold, "leverage_multiple": 2, "exit": "a", "cost_enabled": True},
         ),
         (
             "levels_x_multiple",
             "levels",
             "leverage_multiple",
-            {"drawdown_threshold": -0.20, "disp60_threshold": -0.10, "exit": "a", "cost_enabled": True},
+            {"drawdown_threshold": drawdown_threshold, "disp60_threshold": disp60_threshold, "exit": "a", "cost_enabled": True},
         ),
         (
             "threshold_x_multiple",
             "drawdown_threshold",
             "leverage_multiple",
-            {"disp60_threshold": -0.10, "levels": 2, "exit": "a", "cost_enabled": True},
+            {"disp60_threshold": disp60_threshold, "levels": 2, "exit": "a", "cost_enabled": True},
         ),
     )
     output: list[dict[str, Any]] = []
+    shares = {
+        float(row["product_share_at_max"])
+        for row in strategy
+        if isinstance(row.get("product_share_at_max"), (int, float))
+    }
+    if len(shares) > 1:
+        raise ValueError("plateau rows must fix product_share_at_max")
     for name, x_key, y_key, fixed in definitions:
         scenario = {
             **fixed,
             "base_exposure": 1.0,
             "product_variant": "synthetic",
         }
+        if shares:
+            scenario["product_share_at_max"] = next(iter(shares))
         try:
             best = select_best_in_scenario(strategy, scenario=scenario)
         except ValueError as error:
@@ -415,7 +456,13 @@ def _plateau(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "neighbour_count": len(neighbours),
             "neighbourhood_mean": neighbour_mean,
             "sharp_peak": sharp,
-            "fixed": fixed,
+            "fixed": {
+                **fixed,
+                **(
+                    {"product_share_at_max": next(iter(shares))}
+                    if shares else {}
+                ),
+            },
         })
     return output
 
@@ -427,7 +474,18 @@ def _grid_for_series(
     frame: pd.DataFrame,
     real_products: pd.DataFrame,
     grid: dict[str, tuple[Any, ...]],
+    *,
+    current_drawdown_threshold: float,
+    current_disp60_threshold: float,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    product_shares = grid.get("product_share_at_max")
+    if not product_shares:
+        raise ValueError(
+            "product_share_at_max is undecided under rule ⑥; caller must pass it explicitly"
+        )
+    if len(product_shares) != 1:
+        raise ValueError("compound grid requires exactly one explicit product_share_at_max")
+    product_share = _require_product_share(product_shares[0])
     signals = compute_signals(frame)
     underlying_returns = frame["close"].pct_change(fill_method=None).fillna(0.0)
     short_rate = load_short_rate(root, frame["date"])
@@ -470,7 +528,12 @@ def _grid_for_series(
     for dd in grid["drawdown_threshold"]:
         for disp in grid["disp60_threshold"]:
             for levels_count in grid["levels"]:
-                signal_spec = LadderSpec(float(dd), float(disp), int(levels_count))
+                signal_spec = LadderSpec(
+                    drawdown_threshold=float(dd),
+                    disp60_threshold=float(disp),
+                    product_share_at_max=float(product_shares[0]),
+                    levels=int(levels_count),
+                )
                 cache_key = (float(dd), float(disp), int(levels_count))
                 levels = level_cache.setdefault(
                     cache_key, ladder_levels(signals, signal_spec)["executable_level"]
@@ -479,10 +542,11 @@ def _grid_for_series(
                     returns = returns_by_variant[(int(multiple), 0.0)]
                     for base_exposure in grid["base_exposure"]:
                         spec = LadderSpec(
-                            float(dd),
-                            float(disp),
-                            int(levels_count),
-                            float(base_exposure),
+                            drawdown_threshold=float(dd),
+                            disp60_threshold=float(disp),
+                            product_share_at_max=float(product_share),
+                            levels=int(levels_count),
+                            base_exposure=float(base_exposure),
                         )
                         for exit_variant in grid["exit"]:
                             for cost_enabled in grid["cost_enabled"]:
@@ -516,6 +580,10 @@ def _grid_for_series(
                                     "levels": int(levels_count),
                                     "leverage_multiple": int(multiple),
                                     "base_exposure": float(base_exposure),
+                                    "product_share_at_max": float(product_share),
+                                    "effective_exposure_max": effective_exposure_at_max(
+                                        spec, int(multiple)
+                                    ),
                                     "exit": str(exit_variant),
                                     "cost_enabled": bool(cost_enabled),
                                     "transaction_cost_one_way": cost,
@@ -570,7 +638,15 @@ def _grid_for_series(
             else -math.inf
         ),
     )
-    current = next((row for row in rows if _is_current(row)), None)
+    product_share_at_max = float(product_shares[0])
+    current = next((
+        row for row in rows if _is_current(
+            row,
+            current_drawdown_threshold,
+            current_disp60_threshold,
+            product_share_at_max,
+        )
+    ), None)
     if current is None:
         # Quick mode still includes the exact current row; keep the guard explicit.
         raise RuntimeError("grid omitted the predeclared current rule")
@@ -588,8 +664,16 @@ def _grid_for_series(
             current_detail = (strategy, baseline_detail)
     assert current_detail is not None
     current_strategy, current_baseline = current_detail
-    current_spec = LadderSpec(-0.20, -0.10, 2, 1.0)
-    current_levels = level_cache[(-0.20, -0.10, 2)]
+    current_spec = LadderSpec(
+        drawdown_threshold=current_drawdown_threshold,
+        disp60_threshold=current_disp60_threshold,
+        product_share_at_max=product_share_at_max,
+        levels=2,
+        base_exposure=1.0,
+    )
+    current_levels = level_cache[(
+        current_drawdown_threshold, current_disp60_threshold, 2
+    )]
     underlying_baseline_metrics = _baseline_metrics(
         frame["date"], underlying_returns, transaction_cost=TRANSACTION_COST
     )
@@ -612,6 +696,8 @@ def _grid_for_series(
         "levels": None,
         "leverage_multiple": 1,
         "base_exposure": 1.0,
+        "product_share_at_max": None,
+        "effective_exposure_max": 1.0,
         "exit": None,
         "cost_enabled": True,
         "transaction_cost_one_way": TRANSACTION_COST,
@@ -632,7 +718,11 @@ def _grid_for_series(
     metadata = {
         "headline": current,
         "exploratory_best_fit": best,
-        "plateau": _plateau(rows),
+        "plateau": _plateau(
+            rows,
+            drawdown_threshold=current_drawdown_threshold,
+            disp60_threshold=current_disp60_threshold,
+        ),
         "tracking_gaps": {str(key): asdict(value) for key, value in gaps.items()},
         "volatility_drag": drag_rows,
         "short_rate_source": short_rate.source,
@@ -665,6 +755,8 @@ def _results_markdown(
     summary: dict[str, Any],
     rows_by_underlying: dict[str, list[dict[str, Any]]],
 ) -> str:
+    current_drawdown = float(summary["current_rule"]["drawdown_threshold"])
+    current_disp60 = float(summary["current_rule"]["disp60_threshold"])
     headlines = [row for rows in summary["baskets"].values() for row in rows]
     q1_rows = [
         (symbol, "N/A", "N/A", "별도 시험(foreign_transfer)로 이관")
@@ -676,8 +768,8 @@ def _results_markdown(
         eligible = [
             row for row in rows_by_underlying[item["underlying"]]
             if row["row_kind"] == "strategy"
-            and row["drawdown_threshold"] == -0.20
-            and row["disp60_threshold"] == -0.10
+            and row["drawdown_threshold"] == current_drawdown
+            and row["disp60_threshold"] == current_disp60
             and row["levels"] == 2
             and row["leverage_multiple"] == 2
             and row["base_exposure"] == 1.0
@@ -861,7 +953,13 @@ def _results_markdown(
     return "\n".join(lines)
 
 
-def _surface_summary(basket_items: list[dict[str, Any]], all_rows: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
+def _surface_summary(
+    basket_items: list[dict[str, Any]],
+    all_rows: dict[str, list[dict[str, Any]]],
+    *,
+    drawdown_threshold: float,
+    disp60_threshold: float,
+) -> list[dict[str, Any]]:
     cells: list[dict[str, Any]] = []
     for levels_count in (1, 2, 3, 4):
         for multiple in (1, 2, 3):
@@ -870,8 +968,8 @@ def _surface_summary(basket_items: list[dict[str, Any]], all_rows: dict[str, lis
                 for row in all_rows[item["underlying"]]:
                     if (
                         row["row_kind"] == "strategy"
-                        and row["drawdown_threshold"] == -0.20
-                        and row["disp60_threshold"] == -0.10
+                        and row["drawdown_threshold"] == drawdown_threshold
+                        and row["disp60_threshold"] == disp60_threshold
                         and row["levels"] == levels_count
                         and row["leverage_multiple"] == multiple
                         and row["base_exposure"] == 1.0
@@ -891,11 +989,32 @@ def _surface_summary(basket_items: list[dict[str, Any]], all_rows: dict[str, lis
     return cells
 
 
-def run(project_root: Path, baskets: tuple[str, ...], *, quick: bool) -> dict[str, Any]:
+def run(
+    project_root: Path,
+    baskets: tuple[str, ...],
+    *,
+    quick: bool,
+    drawdown_threshold: float | object = _UNDECIDED,
+    disp60_threshold: float | object = _UNDECIDED,
+    product_share_at_max: float | object = _UNDECIDED,
+) -> dict[str, Any]:
     started = time.perf_counter()
     root = project_root.resolve()
     output = root / "artifacts/research/compound_ladder"
-    grid = QUICK_GRID if quick else FULL_GRID
+    decided_drawdown = require_drawdown_threshold(drawdown_threshold)
+    decided_disp60 = require_disp60_threshold(disp60_threshold)
+    decided_share = _require_product_share(product_share_at_max)
+    selected_grid = QUICK_GRID if quick else FULL_GRID
+    grid = {
+        **selected_grid,
+        "drawdown_threshold": tuple(dict.fromkeys(
+            (*selected_grid["drawdown_threshold"], decided_drawdown)
+        )),
+        "disp60_threshold": tuple(dict.fromkeys(
+            (*selected_grid["disp60_threshold"], decided_disp60)
+        )),
+        "product_share_at_max": (decided_share,),
+    }
     universe = load_index_universe(root)
     real_products = load_real_products(root)
     available = set(universe["series_id"].astype(str))
@@ -911,7 +1030,16 @@ def run(project_root: Path, baskets: tuple[str, ...], *, quick: bool) -> dict[st
                 print(f"SKIP {basket}/{underlying}: retained symbol absent")
                 continue
             frame = universe.loc[universe["series_id"].eq(underlying)].copy().reset_index(drop=True)
-            rows, metadata = _grid_for_series(root, basket, underlying, frame, real_products, grid)
+            rows, metadata = _grid_for_series(
+                root,
+                basket,
+                underlying,
+                frame,
+                real_products,
+                grid,
+                current_drawdown_threshold=decided_drawdown,
+                current_disp60_threshold=decided_disp60,
+            )
             rows_by_underlying[underlying] = rows
             path = output / f"grid_{_slug(basket)}_{_slug(underlying)}.json"
             _write_json(path, rows)
@@ -919,8 +1047,8 @@ def run(project_root: Path, baskets: tuple[str, ...], *, quick: bool) -> dict[st
             exit_candidates = [
                 row for row in rows
                 if row["row_kind"] == "strategy"
-                and row["drawdown_threshold"] == -0.20
-                and row["disp60_threshold"] == -0.10
+                and row["drawdown_threshold"] == decided_drawdown
+                and row["disp60_threshold"] == decided_disp60
                 and row["levels"] == 2
                 and row["leverage_multiple"] == 2
                 and row["base_exposure"] == 1.0
@@ -933,18 +1061,22 @@ def run(project_root: Path, baskets: tuple[str, ...], *, quick: bool) -> dict[st
                 ranking.append({
                     "exit": row["exit"],
                     "base_exposure": row["base_exposure"],
+                    "product_share_at_max": row["product_share_at_max"],
+                    "effective_exposure_max": row["effective_exposure_max"],
                     **metric,
                 })
             ranking.sort(key=lambda item: -math.inf if item["final_wealth_multiple"] is None else float(item["final_wealth_multiple"]), reverse=True)
             real_product_rows = [
                 {
                     "leverage_multiple": row["leverage_multiple"],
+                    "product_share_at_max": row["product_share_at_max"],
+                    "effective_exposure_max": row["effective_exposure_max"],
                     "actual_product_basis": row["actual_product_basis"],
                 }
                 for row in rows
                 if row["row_kind"] == "strategy"
-                and row["drawdown_threshold"] == -0.20
-                and row["disp60_threshold"] == -0.10
+                and row["drawdown_threshold"] == decided_drawdown
+                and row["disp60_threshold"] == decided_disp60
                 and row["levels"] == 2
                 and row["base_exposure"] == 1.0
                 and row["exit"] == "a"
@@ -957,7 +1089,9 @@ def run(project_root: Path, baskets: tuple[str, ...], *, quick: bool) -> dict[st
                 "exploratory_best_fit": {
                     key: metadata["exploratory_best_fit"][key]
                     for key in (
-                        "drawdown_threshold", "disp60_threshold", "levels", "leverage_multiple", "base_exposure", "exit", "cost_enabled", "fit", "holdout", "full"
+                        "drawdown_threshold", "disp60_threshold", "levels", "leverage_multiple",
+                        "base_exposure", "product_share_at_max", "effective_exposure_max",
+                        "exit", "cost_enabled", "fit", "holdout", "full"
                     )
                 },
                 "plateau": metadata["plateau"],
@@ -982,7 +1116,12 @@ def run(project_root: Path, baskets: tuple[str, ...], *, quick: bool) -> dict[st
     ]
     manifest_digest, manifest = retained_manifest_digest(root, retained_paths)
     surface = {
-        basket: _surface_summary(items, rows_by_underlying)
+        basket: _surface_summary(
+            items,
+            rows_by_underlying,
+            drawdown_threshold=decided_drawdown,
+            disp60_threshold=decided_disp60,
+        )
         for basket, items in summary_baskets.items()
     }
     short_sources = sorted({item["short_rate_source"] for items in summary_baskets.values() for item in items})
@@ -994,7 +1133,12 @@ def run(project_root: Path, baskets: tuple[str, ...], *, quick: bool) -> dict[st
         "quick": quick,
         "fit_window": {"end": "2015-12-31"},
         "holdout_window": {"start": "2016-01-01"},
-        "current_rule": CURRENT,
+        "current_rule": {
+            **CURRENT,
+            "drawdown_threshold": decided_drawdown,
+            "disp60_threshold": decided_disp60,
+            "product_share_at_max": decided_share,
+        },
         "headline_policy": "current_rule_not_grid_winner",
         "input_manifest_sha256": manifest_digest,
         "input_manifest": manifest,
@@ -1021,13 +1165,22 @@ def _base_sweep_series(
     real_products: pd.DataFrame,
     base_exposures: tuple[float, ...],
     *,
+    drawdown_threshold: float,
+    disp60_threshold: float,
+    product_share_at_max: float,
     quick: bool,
     manifest_digest: str,
     manifest: list[dict[str, Any]],
 ) -> dict[str, Any]:
     started = time.perf_counter()
     signals = compute_signals(frame)
-    signal_spec = LadderSpec(-0.20, -0.10, 2, 1.0)
+    signal_spec = LadderSpec(
+        drawdown_threshold=drawdown_threshold,
+        disp60_threshold=disp60_threshold,
+        product_share_at_max=product_share_at_max,
+        levels=2,
+        base_exposure=1.0,
+    )
     executable_levels = ladder_levels(signals, signal_spec)["executable_level"]
     no_ladder_levels = pd.Series(np.zeros(len(frame)), index=frame.index, dtype="float64")
     underlying_returns = frame["close"].pct_change(fill_method=None).fillna(0.0)
@@ -1069,7 +1222,13 @@ def _base_sweep_series(
         for base_exposure in base_exposures:
             if base_exposure > multiple:
                 continue
-            spec = LadderSpec(-0.20, -0.10, 2, base_exposure)
+            spec = LadderSpec(
+                drawdown_threshold=drawdown_threshold,
+                disp60_threshold=disp60_threshold,
+                product_share_at_max=product_share_at_max,
+                levels=2,
+                base_exposure=base_exposure,
+            )
             permanent = simulate_grid_metrics(
                 frame["date"],
                 product_returns,
@@ -1084,6 +1243,8 @@ def _base_sweep_series(
                 "row_kind": "permanent_base",
                 "leverage_multiple": multiple,
                 "base_exposure": base_exposure,
+                "product_share_at_max": product_share_at_max,
+                "effective_exposure_max": effective_exposure_at_max(spec, multiple),
                 "calibration_applied": gap is not None,
                 "periods": {
                     period: _metric_pair(permanent[period])
@@ -1105,6 +1266,8 @@ def _base_sweep_series(
                     "row_kind": "ladder_on_base",
                     "leverage_multiple": multiple,
                     "base_exposure": base_exposure,
+                    "product_share_at_max": product_share_at_max,
+                    "effective_exposure_max": effective_exposure_at_max(spec, multiple),
                     "exit": exit_variant,
                     "calibration_applied": gap is not None,
                     "periods": _comparison_periods(ladder, permanent, baseline),
@@ -1119,11 +1282,12 @@ def _base_sweep_series(
         "basket": basket,
         "underlying": underlying,
         "parameters": {
-            "drawdown_threshold": -0.20,
-            "disp60_threshold": -0.10,
+            "drawdown_threshold": drawdown_threshold,
+            "disp60_threshold": disp60_threshold,
             "levels": 2,
             "leverage_multiples": list(BASE_SWEEP_MULTIPLES),
             "base_exposures": list(base_exposures),
+            "product_share_at_max": product_share_at_max,
             "exits": list(BASE_SWEEP_EXITS),
             "cost_enabled": True,
             "transaction_cost_one_way": TRANSACTION_COST,
@@ -1315,9 +1479,15 @@ def run_base_exposure_sweep(
     base_exposures: tuple[float, ...],
     *,
     quick: bool,
+    drawdown_threshold: float | object = _UNDECIDED,
+    disp60_threshold: float | object = _UNDECIDED,
+    product_share_at_max: float | object = _UNDECIDED,
 ) -> dict[str, Any]:
     started = time.perf_counter()
     root = project_root.resolve()
+    decided_drawdown = require_drawdown_threshold(drawdown_threshold)
+    decided_disp60 = require_disp60_threshold(disp60_threshold)
+    decided_share = _require_product_share(product_share_at_max)
     output = root / "artifacts/research/compound_ladder"
     universe = load_index_universe(root)
     real_products = load_real_products(root)
@@ -1347,6 +1517,9 @@ def run_base_exposure_sweep(
                 frame,
                 real_products,
                 base_exposures,
+                drawdown_threshold=decided_drawdown,
+                disp60_threshold=decided_disp60,
+                product_share_at_max=decided_share,
                 quick=quick,
                 manifest_digest=manifest_digest,
                 manifest=manifest,
@@ -1378,10 +1551,8 @@ def _parse_base_exposures(raw: str) -> tuple[float, ...]:
     except ValueError as exc:
         raise argparse.ArgumentTypeError("--base-exposures values must be numeric") from exc
     for value in values:
-        try:
-            LadderSpec(base_exposure=value)
-        except ValueError as exc:
-            raise argparse.ArgumentTypeError(str(exc)) from exc
+        if not math.isfinite(value) or not 0.0 <= value <= 3.0:
+            raise argparse.ArgumentTypeError("base_exposure must be finite and in [0.0, 3.0]")
     return tuple(values)
 
 
@@ -1394,6 +1565,24 @@ def _parser() -> argparse.ArgumentParser:
         help="Comma-separated subset of KR,US_TECH,SEMIS,FOREIGN",
     )
     parser.add_argument("--quick", action="store_true", help="Run the reduced deterministic smoke grid")
+    parser.add_argument(
+        "--drawdown-threshold",
+        type=float,
+        default=None,
+        help="Required selected drawdown252 threshold; no code default.",
+    )
+    parser.add_argument(
+        "--disp60-threshold",
+        type=float,
+        default=None,
+        help="Required selected 60-session disparity threshold; no code default.",
+    )
+    parser.add_argument(
+        "--product-share-at-max",
+        type=float,
+        default=None,
+        help="Required leveraged-product portfolio weight at the highest ladder level.",
+    )
     parser.add_argument(
         "--base-exposures",
         nargs="+",
@@ -1425,6 +1614,9 @@ def main(argv: list[str] | None = None) -> int:
             baskets,
             base_exposures,
             quick=args.quick,
+            drawdown_threshold=args.drawdown_threshold,
+            disp60_threshold=args.disp60_threshold,
+            product_share_at_max=args.product_share_at_max,
         )
         print("basket | underlying | k | exit | holdout smallest b | beats permanent")
         for payload in result["payloads"]:
@@ -1441,7 +1633,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"runtime_seconds={result['runtime_seconds']:.3f}")
         print("BASE_EXPOSURE_SWEEP_COMPLETE")
         return 0
-    summary = run(args.project_root, baskets, quick=args.quick)
+    summary = run(
+        args.project_root,
+        baskets,
+        quick=args.quick,
+        drawdown_threshold=args.drawdown_threshold,
+        disp60_threshold=args.disp60_threshold,
+        product_share_at_max=args.product_share_at_max,
+    )
     print("basket | underlying | holdout strategy | holdout baseline | relative")
     for basket, items in summary["baskets"].items():
         for item in items:
