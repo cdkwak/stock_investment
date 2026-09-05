@@ -305,7 +305,12 @@ def test_every_global_index_declares_its_basis_and_mixing_is_refused() -> None:
     for symbol in ("SP500", "NASDAQ100", "NIKKEI225", "EURO_STOXX50"):
         assert index_basis(symbol) == "PRICE"
     assert index_basis("VIX3M") == "NOT_APPLICABLE"
+    # Mode B (four price indices) and Mode A (price index next to gauges) both pass;
+    # only a total-return index next to price indices is refused (DAX 혼입).
     assert assert_same_index_basis(("SP500", "NIKKEI225", "EURO_STOXX50")) == "PRICE"
+    assert assert_same_index_basis(("NASDAQ100", "VIX3M", "DOLLAR_INDEX")) == "PRICE"
+    assert assert_same_index_basis(("VIX3M", "SKEW")) == "NOT_APPLICABLE"
+    assert assert_same_index_basis(("DAX",)) == "TOTAL_RETURN"
     with pytest.raises(ValueError, match="DAX=TOTAL_RETURN"):
         assert_same_index_basis(("SP500", "DAX"))
 

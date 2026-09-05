@@ -159,15 +159,24 @@ def index_basis(symbol: str) -> str:
     return str(GLOBAL_INDEX_REGISTRY[symbol]["index_basis"])
 
 
-def assert_same_index_basis(symbols: tuple[str, ...] | list[str], *, allow: frozenset[str] = frozenset({"PRICE"})) -> str:
-    """Raise ValueError unless every symbol shares one basis inside ``allow``; return it."""
-    bases = {index_basis(symbol) for symbol in symbols}
-    if len(bases) != 1 or not bases <= allow:
+def assert_same_index_basis(symbols: tuple[str, ...] | list[str]) -> str:
+    """Refuse to mix PRICE with TOTAL_RETURN on one normalised axis; return the shared basis.
+
+    NOT_APPLICABLE gauges (VIX family, dollar index) — and non-index series such as yields,
+    which never enter this registry — may sit next to either kind, so they are ignored here.
+    Returns "PRICE" / "TOTAL_RETURN", or "NOT_APPLICABLE" when no return-bearing index is
+    present.
+    """
+    return_bases = {
+        index_basis(symbol) for symbol in symbols
+        if index_basis(symbol) in {"PRICE", "TOTAL_RETURN"}
+    }
+    if len(return_bases) > 1:
         raise ValueError(
             "indices measure different things and cannot share one normalised axis: "
             + ", ".join(f"{symbol}={index_basis(symbol)}" for symbol in symbols)
         )
-    return next(iter(bases))
+    return next(iter(return_bases)) if return_bases else "NOT_APPLICABLE"
 GLOBAL_INDEX_SYMBOLS_BY_PROVIDER = MappingProxyType({
     provider: tuple(
         symbol for symbol, spec in GLOBAL_INDEX_REGISTRY.items()
