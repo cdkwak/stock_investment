@@ -84,3 +84,38 @@ def test_every_non_guard_ladder_call_names_all_five_fields() -> None:
                 )
 
     assert incomplete == [], "incomplete LadderSpec call sites:\n" + "\n".join(incomplete)
+
+
+def _is_literal(node: ast.AST) -> bool:
+    if isinstance(node, ast.Constant):
+        return True
+    return isinstance(node, ast.UnaryOp) and isinstance(node.operand, ast.Constant)
+
+
+def test_production_ladder_calls_never_pass_literal_values() -> None:
+    """Rule ⑥ forbids the ACT of baking an undecided value in, not just last time's values
+    (review 09-06 13:30: a call with five fresh literals passed the two guards above). In
+    src/ and scripts/ every LadderSpec keyword must be a name/expression the caller resolved
+    (CLI argument, candidate definition, grid row) — never an inline literal. Tests and
+    fixtures are exempt: literals are normal there."""
+    paths = sorted((ROOT / "src").rglob("*.py")) + sorted((ROOT / "scripts").rglob("*.py"))
+    literal_calls: list[str] = []
+    for path in paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            name = node.func.id if isinstance(node.func, ast.Name) else None
+            if name != "LadderSpec":
+                continue
+            for keyword in node.keywords:
+                if keyword.arg is not None and _is_literal(keyword.value):
+                    literal_calls.append(
+                        f"{path.relative_to(ROOT)}:{node.lineno}: {keyword.arg}=<literal>"
+                    )
+
+    assert literal_calls == [], (
+        "LadderSpec called with inline literal values in production code (rule ⑥):\n"
+        + "\n".join(literal_calls)
+    )
+
