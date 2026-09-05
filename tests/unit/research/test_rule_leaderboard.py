@@ -200,7 +200,8 @@ def test_leaderboard_exact_schema_levels_cycles_current_and_analog() -> None:
     assert drawdown["current"]["score"] == drawdown["current"]["level"] == 1
     assert drawdown["current"]["max_level"] == 2
     assert drawdown["current"]["exposure"] == 0.5
-    assert drawdown["current"]["analog"] == {"n": 2, "mean_60": 0.09, "hit_60": 1.0}
+    # Analogues are FIT-window rows only (the 2020 hold-out signal no longer leaks in).
+    assert drawdown["current"]["analog"] == {"n": 1, "mean_60": 0.08, "hit_60": 1.0}
     assert set(drawdown["current"]["indicators"]) == {
         "drawdown252", "disp60", "rsi14", "volidx_pct",
     }

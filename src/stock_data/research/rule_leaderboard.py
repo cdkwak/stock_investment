@@ -440,10 +440,15 @@ def _cycle_results(
 
 
 def _current(
-    frame: pd.DataFrame, state: pd.DataFrame, candidate: Mapping[str, Any]
+    frame: pd.DataFrame, state: pd.DataFrame, candidate: Mapping[str, Any],
+    analog_mask: pd.Series | None = None,
 ) -> dict[str, Any]:
     current_row, current_state, _ = current_candidate_state(frame, candidate)
+    # "과거 같은 단계" analogues come from the FIT window only: the hold-out rows would
+    # otherwise leak into a default-visible statistic without the view counter (audit 09-05).
     same_level = state["level"].eq(current_state["level"]) & frame["forward_return_60"].notna()
+    if analog_mask is not None:
+        same_level &= analog_mask.reindex(frame.index, fill_value=False)
     outcomes = pd.to_numeric(frame.loc[same_level, "forward_return_60"], errors="coerce").dropna()
     indicators = {
         "drawdown252": current_row.get("drawdown252"),
@@ -550,6 +555,18 @@ def _read_compound_references(project_root: Path) -> dict[str, dict[str, Any]]:
     return references
 
 
+def _plateau_verdict_text(best: float, neighbour: float, sharp_peak: bool) -> str:
+    """Three tiers, same as the 검증 page (2e7b6c9): the most positive wording only when
+    the best cell actually beats the baseline; a flat surface is "no effect", not a plateau."""
+
+    if abs(best - neighbour) < 1e-9 and abs(best - 1.0) < 1e-9:
+        return f"이 조합에서는 파라미터가 결과를 바꾸지 않음 (표면 전체 {best:.2f}배)"
+    if best <= 1.0:
+        return f"전 구간 기준선 미달 · 최적 {best:.2f}배"
+    shape = "뾰족한 봉우리" if sharp_peak else "넓은 고원"
+    return f"{shape} · 최적 {best:.2f}배 / 이웃 {neighbour:.2f}배"
+
+
 def _compound_cross_reference(
     candidate: Mapping[str, Any], references: Mapping[str, Sequence[Mapping[str, Any]]] | None,
 ) -> dict[str, Any]:
@@ -597,13 +614,13 @@ def _compound_cross_reference(
             or not isinstance(best, (int, float)) or not isinstance(neighbour, (int, float))
         ):
             continue
-        verdict = "뾰족한 봉우리" if plateau.get("sharp_peak") else "넓은 고원"
+        verdict = _plateau_verdict_text(float(best), float(neighbour), bool(plateau.get("sharp_peak")))
         underlyings.append({
             "underlying": reference.get("underlying"),
             "holdout_final_wealth_multiple": holdout.get("final_wealth_multiple"),
             "holdout_baseline_final_wealth_multiple": holdout.get("baseline_final_wealth_multiple"),
             "holdout_relative_to_baseline": holdout.get("relative_to_baseline"),
-            "plateau_verdict": f"{verdict} · 최적 {float(best):.2f}배 / 이웃 {float(neighbour):.2f}배",
+            "plateau_verdict": verdict,
         })
     if not underlyings:
         return unavailable
@@ -638,7 +655,7 @@ def _evaluate_candidate(
         },
         "levels": _levels(frame, state, candidate, masks),
         "cycles": _cycle_results(frame, state, candidate),
-        "current": _current(frame, state, candidate),
+        "current": _current(frame, state, candidate, masks["fit"]),
         "compound_ladder": _compound_cross_reference(candidate, compound_references),
     }
 
