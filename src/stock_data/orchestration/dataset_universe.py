@@ -1437,6 +1437,7 @@ _AUTO_ENABLED_IDS: frozenset[str] = frozenset({
     "kr_corp_code_map", "kr_fundamentals_quarterly",
     "cboe_daily_pcr_daily",
     "kbsec_transactions_daily",
+    "kr_etf_investor_flow_daily",
 })
 
 
