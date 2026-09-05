@@ -22,8 +22,10 @@ if str(ROOT / "src") not in sys.path:
 from stock_data.research.compound_ladder import (  # noqa: E402
     LadderSpec,
     ladder_levels,
+    require_base_exposure,
     require_disp60_threshold,
     require_drawdown_threshold,
+    require_levels,
     require_product_share_at_max,
 )
 from stock_data.research.condition_backtest import compute_signals  # noqa: E402
@@ -199,10 +201,14 @@ def _episode_inputs(
     drawdown_threshold: float | None = None,
     disp60_threshold: float | None = None,
     product_share_at_max: float | None = None,
+    levels: int | None = None,
+    base_exposure: float | None = None,
 ) -> tuple[list[Episode], dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
     decided_drawdown = require_drawdown_threshold(drawdown_threshold)
     decided_disp60 = require_disp60_threshold(disp60_threshold)
     decided_share = require_product_share_at_max(product_share_at_max)
+    decided_levels = require_levels(levels)
+    decided_base_exposure = require_base_exposure(base_exposure)
     kr_raw = _read_dataset(root, "kr_index_daily", ("date", "symbol", "close", "volume"))
     global_raw = _read_dataset(
         root, "global_index_price_daily", ("date", "symbol", "close", "volume")
@@ -219,7 +225,8 @@ def _episode_inputs(
         drawdown_threshold=decided_drawdown,
         disp60_threshold=decided_disp60,
         product_share_at_max=decided_share,
-        levels=2,
+        levels=decided_levels,
+        base_exposure=decided_base_exposure,
     )
     for market in ("KR", "US"):
         signals = compute_signals(frames[market])
@@ -555,12 +562,18 @@ def _fmt_pair(metrics: dict[str, Any]) -> str:
 def _markdown(summary: dict[str, Any], records: list[dict[str, Any]]) -> str:
     episodes = summary["episodes"]
     assets = summary["assets"]
+    signal_rule = summary["signal_rule"]
     lines = [
-        "# 낙폭 2단계의 코어 자산 실탄 조달력",
+        f"# 낙폭 {signal_rule['levels']}단계의 코어 자산 실탄 조달력",
         "",
-        "> 개발용 retained-data 기술통계다. T는 사다리 2단계가 종가에 관측된 같은 종가의 평가액이며, 그 신호를 보고 T 종가에 체결할 수 있었다는 뜻이 아니다.",
+        f"> 개발용 retained-data 기술통계다. T는 사다리 {signal_rule['levels']}단계가 종가에 관측된 같은 종가의 평가액이며, 그 신호를 보고 T 종가에 체결할 수 있었다는 뜻이 아니다.",
         "",
-        f"- 규칙: `drawdown252 ≤ −20%`, `disp60 ≤ −10%`, 2단계; `compound_ladder.ladder_levels`의 `observed_level` 재사용",
+        (
+            f"- 규칙: `drawdown252 ≤ {signal_rule['drawdown252']:g}`, "
+            f"`disp60 ≤ {signal_rule['disp60']:g}`, {signal_rule['levels']}단계, "
+            f"기본 노출 {signal_rule['base_exposure']:g}; "
+            "`compound_ladder.ladder_levels`의 `observed_level` 재사용"
+        ),
         f"- 에피소드: 총 **{len(episodes)}개** (KR {sum(item['market'] == 'KR' for item in episodes)}, US {sum(item['market'] == 'US' for item in episodes)}), 첫 T 뒤 120세션 재발 억제",
         "- 보유 시작: T−60 또는 T 전 마지막 level-0 중 더 늦은 날의 종가를 100으로 둠",
         f"- 입력 manifest: `{summary['input_manifest_sha256']}` ({summary['input_file_count']} Parquet, `partitioning=None`, API 호출 0)",
@@ -1474,11 +1487,15 @@ def run(
     drawdown_threshold: float | None = None,
     disp60_threshold: float | None = None,
     product_share_at_max: float | None = None,
+    levels: int | None = None,
+    base_exposure: float | None = None,
 ) -> dict[str, Any]:
     root = Path(project_root).resolve()
     decided_drawdown = require_drawdown_threshold(drawdown_threshold)
     decided_disp60 = require_disp60_threshold(disp60_threshold)
     decided_share = require_product_share_at_max(product_share_at_max)
+    decided_levels = require_levels(levels)
+    decided_base_exposure = require_base_exposure(base_exposure)
     manifest = _manifest(root)
     episodes, frames, ladders = _episode_inputs(
         root,
@@ -1486,6 +1503,8 @@ def run(
         drawdown_threshold=decided_drawdown,
         disp60_threshold=decided_disp60,
         product_share_at_max=decided_share,
+        levels=decided_levels,
+        base_exposure=decided_base_exposure,
     )
     assets, _ = _assets(root)
     records = _measure(episodes, frames, ladders, assets)
@@ -1498,10 +1517,11 @@ def run(
         "api_calls": 0,
         "quick": quick,
         "signal_rule": {
-            "id": "kr_dd_ladder_2",
+            "id": f"kr_dd_ladder_{decided_levels}",
             "drawdown252": decided_drawdown,
             "disp60": decided_disp60,
-            "levels": 2,
+            "levels": decided_levels,
+            "base_exposure": decided_base_exposure,
             "product_share_at_max": decided_share,
             "level_field": "observed_level",
             "cooldown_sessions": 120,
@@ -1601,11 +1621,15 @@ def run_followup(
     drawdown_threshold: float | None = None,
     disp60_threshold: float | None = None,
     product_share_at_max: float | None = None,
+    levels: int | None = None,
+    base_exposure: float | None = None,
 ) -> dict[str, Any]:
     root = Path(project_root).resolve()
     decided_drawdown = require_drawdown_threshold(drawdown_threshold)
     decided_disp60 = require_disp60_threshold(disp60_threshold)
     decided_share = require_product_share_at_max(product_share_at_max)
+    decided_levels = require_levels(levels)
+    decided_base_exposure = require_base_exposure(base_exposure)
     manifest = _manifest(root)
     episodes, frames, ladders = _episode_inputs(
         root,
@@ -1613,6 +1637,8 @@ def run_followup(
         drawdown_threshold=decided_drawdown,
         disp60_threshold=decided_disp60,
         product_share_at_max=decided_share,
+        levels=decided_levels,
+        base_exposure=decided_base_exposure,
     )
     assets, _ = _assets(root)
     rows = _followup_measurements(episodes, frames, ladders, assets)
@@ -1643,6 +1669,8 @@ def run_followup(
         "drawdown_threshold": decided_drawdown,
         "disp60_threshold": decided_disp60,
         "product_share_at_max": decided_share,
+        "levels": decided_levels,
+        "base_exposure": decided_base_exposure,
         "decision_clock": "T close descriptive mark; earliest signal-based action is after T close",
         "input_manifest_sha256": manifest["sha256"],
         "input_file_count": manifest["file_count"],
@@ -1700,6 +1728,16 @@ def main() -> None:
         help="Required leveraged-product portfolio weight at the highest ladder level.",
     )
     parser.add_argument(
+        "--levels",
+        type=int,
+        help="Required caller-selected ladder step count (1..4); no code default.",
+    )
+    parser.add_argument(
+        "--base-exposure",
+        type=float,
+        help="Required caller-selected base exposure in [0, 3]; no code default.",
+    )
+    parser.add_argument(
         "--followup",
         action="store_true",
         help="Run the eight-question retained-data follow-up and fixed crisis-type check.",
@@ -1712,6 +1750,8 @@ def main() -> None:
             drawdown_threshold=args.drawdown_threshold,
             disp60_threshold=args.disp60_threshold,
             product_share_at_max=args.product_share_at_max,
+            levels=args.levels,
+            base_exposure=args.base_exposure,
         )
     else:
         run(
@@ -1720,6 +1760,8 @@ def main() -> None:
             drawdown_threshold=args.drawdown_threshold,
             disp60_threshold=args.disp60_threshold,
             product_share_at_max=args.product_share_at_max,
+            levels=args.levels,
+            base_exposure=args.base_exposure,
         )
 
 

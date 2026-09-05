@@ -80,11 +80,11 @@ def score_buy_events(
             if position + horizon < len(close)
         ], dtype="float64")
         rows[str(horizon)] = {
-            "horizon_sessions": horizon,
-            "events_mature": int(values.size),
             "mean_return": _number(float(values.mean())) if values.size else None,
             "median_return": _number(float(np.median(values))) if values.size else None,
             "win_rate": _number(float(np.mean(values > 0.0))) if values.size else None,
+            "events_mature": int(values.size),
+            "horizon_sessions": horizon,
         }
     return {
         "side": "buy",
@@ -129,12 +129,12 @@ def score_sell_events(
         vol = np.asarray(volatilities, dtype="float64")
         mdd = np.asarray(drawdowns, dtype="float64")
         rows[str(horizon)] = {
-            "horizon_sessions": horizon,
-            "events_mature": int(vol.size),
             "mean_realized_volatility": _number(float(vol.mean())) if vol.size else None,
             "median_realized_volatility": _number(float(np.median(vol))) if vol.size else None,
             "mean_max_drawdown": _number(float(mdd.mean())) if mdd.size else None,
             "median_max_drawdown": _number(float(np.median(mdd))) if mdd.size else None,
+            "events_mature": int(vol.size),
+            "horizon_sessions": horizon,
         }
     return {
         "side": "sell",
@@ -182,6 +182,8 @@ def validate_result_card(card: Mapping[str, Any]) -> None:
     for row in table:
         if not isinstance(row, Mapping) or mandatory.difference(row):
             raise ValueError("result card rows require counts, mean, median, and win rate")
+        if tuple(row)[:3] != ("mean_return", "median_return", "win_rate"):
+            raise ValueError("buy result card columns must put return and win rate first")
 
 
 def result_card(signal_spec: BuySignalSpec, prices: pd.DataFrame) -> dict[str, Any]:
@@ -202,10 +204,14 @@ def result_card(signal_spec: BuySignalSpec, prices: pd.DataFrame) -> dict[str, A
     _, positions = _event_rows(frame, event_dates)
     table = [
         {
-            "label": MONTH_LABELS[horizon],
+            "mean_return": scores["horizons"][str(horizon)]["mean_return"],
+            "median_return": scores["horizons"][str(horizon)]["median_return"],
+            "win_rate": scores["horizons"][str(horizon)]["win_rate"],
             "events_total": scores["events_total"],
             "events_independent": scores["events_independent"],
-            **scores["horizons"][str(horizon)],
+            "events_mature": scores["horizons"][str(horizon)]["events_mature"],
+            "label": MONTH_LABELS[horizon],
+            "horizon_sessions": horizon,
         }
         for horizon in BUY_HORIZONS
     ]

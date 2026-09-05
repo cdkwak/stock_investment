@@ -24,8 +24,10 @@ if str(ROOT / "src") not in sys.path:
 from stock_data.research.compound_ladder import (  # noqa: E402
     LadderSpec,
     ladder_levels,
+    require_base_exposure,
     require_disp60_threshold,
     require_drawdown_threshold,
+    require_levels,
     require_product_share_at_max,
     simulate_account,
     simulate_baseline,
@@ -189,13 +191,15 @@ def _variant(
     thresholds: tuple[float, float],
     *,
     product_share_at_max: float,
+    levels: int,
+    base_exposure: float,
 ) -> tuple[dict[str, Any], Any, pd.DataFrame]:
     spec = LadderSpec(
         drawdown_threshold=thresholds[0],
         disp60_threshold=thresholds[1],
         product_share_at_max=product_share_at_max,
-        levels=2,
-        base_exposure=1.0,
+        levels=levels,
+        base_exposure=base_exposure,
     )
     levels = ladder_levels(signals, spec)["executable_level"]
     strategy = simulate_account(
@@ -266,6 +270,7 @@ def _table(headers: Iterable[str], rows: Iterable[Iterable[Any]]) -> str:
 
 def _report(summary: dict[str, Any]) -> str:
     markets = summary["markets"]
+    rule = summary["rule"]
     vote_rows = []
     raw_vote_rows = []
     period_rows = []
@@ -354,7 +359,11 @@ def _report(summary: dict[str, Any]) -> str:
         "",
         "# 해외 전이 복리 사다리 백테스트 결과",
         "",
-        "> 고정 설계: `kr_dd_ladder_2`, 2단계, 일일 재설정 synthetic 2x, exit a, 편도 0.10% 비용, T 신호→다음 retained session 종가 실행. 숫자를 본 뒤 시장군·임계값·정규화 방식을 바꾸지 않았다.",
+        (
+            f"> 호출자 설계: {rule['levels']}단계, 기본 노출 {rule['base_exposure']:g}, "
+            "일일 재설정 synthetic 2x, exit a, 편도 0.10% 비용, "
+            "T 신호→다음 retained session 종가 실행."
+        ),
         "",
         "## 판정표 — 변동성 정규화가 헤드라인",
         "",
@@ -425,12 +434,16 @@ def run(
     drawdown_threshold: float | None = None,
     disp60_threshold: float | None = None,
     product_share_at_max: float | None = None,
+    levels: int | None = None,
+    base_exposure: float | None = None,
 ) -> dict[str, Any]:
     started = time.perf_counter()
     root = project_root.resolve()
     decided_drawdown = require_drawdown_threshold(drawdown_threshold)
     decided_disp60 = require_disp60_threshold(disp60_threshold)
     decided_share = require_product_share_at_max(product_share_at_max)
+    decided_levels = require_levels(levels)
+    decided_base_exposure = require_base_exposure(base_exposure)
     raw_thresholds = (decided_drawdown, decided_disp60)
     output = root / "artifacts/research/foreign_transfer"
     manifest_paths = [
@@ -478,6 +491,8 @@ def run(
             market,
             thresholds,
             product_share_at_max=decided_share,
+            levels=decided_levels,
+            base_exposure=decided_base_exposure,
         )
         raw, raw_strategy, _ = _variant(
             frame,
@@ -487,6 +502,8 @@ def run(
             market,
             raw_thresholds,
             product_share_at_max=decided_share,
+            levels=decided_levels,
+            base_exposure=decided_base_exposure,
         )
         equity_path = output / f"equity_{_slug(market)}.json"
         _write_json(
@@ -530,6 +547,8 @@ def run(
         "KOSPI",
         raw_thresholds,
         product_share_at_max=decided_share,
+        levels=decided_levels,
+        base_exposure=decided_base_exposure,
     )
     diagnostic_false_flags = {
         "KOSPI": diagnostic_flags(korea_signals, korea_cycles),
@@ -583,9 +602,9 @@ def run(
         "fit_window": {"end": "2015-12-31"},
         "holdout_window": {"start": "2016-01-01"},
         "rule": {
-            "levels": 2,
+            "levels": decided_levels,
             "leverage_multiple": 2,
-            "base_exposure": 1.0,
+            "base_exposure": decided_base_exposure,
             "product_share_at_max": decided_share,
             "exit": "a",
             "transaction_cost_one_way": TRANSACTION_COST,
@@ -634,6 +653,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--drawdown-threshold", type=float, default=None)
     parser.add_argument("--disp60-threshold", type=float, default=None)
     parser.add_argument("--product-share-at-max", type=float, default=None)
+    parser.add_argument("--levels", type=int)
+    parser.add_argument("--base-exposure", type=float)
     return parser
 
 
@@ -645,6 +666,8 @@ def main(argv: list[str] | None = None) -> int:
         drawdown_threshold=args.drawdown_threshold,
         disp60_threshold=args.disp60_threshold,
         product_share_at_max=args.product_share_at_max,
+        levels=args.levels,
+        base_exposure=args.base_exposure,
     )
     print("market | group | fit ratio | holdout ratio | full ratio")
     for market, item in summary["markets"].items():

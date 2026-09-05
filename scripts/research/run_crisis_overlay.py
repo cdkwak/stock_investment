@@ -18,8 +18,10 @@ if str(ROOT / "src") not in sys.path:
 from scripts.research import run_core_ammunition as core_runner  # noqa: E402
 from stock_data.research.core_ammunition import prepare_value_series  # noqa: E402
 from stock_data.research.compound_ladder import (  # noqa: E402
+    require_base_exposure,
     require_disp60_threshold,
     require_drawdown_threshold,
+    require_levels,
     require_product_share_at_max,
 )
 from stock_data.research.crisis_overlay import (  # noqa: E402
@@ -50,17 +52,23 @@ def run(
     drawdown_threshold: float | None = None,
     disp60_threshold: float | None = None,
     product_share_at_max: float | None = None,
+    levels: int | None = None,
+    base_exposure: float | None = None,
 ) -> tuple[Path, dict[str, Any], int]:
     root = Path(project_root).resolve()
     decided_drawdown = require_drawdown_threshold(drawdown_threshold)
     decided_disp60 = require_disp60_threshold(disp60_threshold)
     decided_share = require_product_share_at_max(product_share_at_max)
+    decided_levels = require_levels(levels)
+    decided_base_exposure = require_base_exposure(base_exposure)
     episodes, frames, ladders = core_runner._episode_inputs(
         root,
         False,
         drawdown_threshold=decided_drawdown,
         disp60_threshold=decided_disp60,
         product_share_at_max=decided_share,
+        levels=decided_levels,
+        base_exposure=decided_base_exposure,
     )
     assets, _fx = core_runner._assets(root)
     treasury = core_runner._read_dataset(
@@ -79,6 +87,8 @@ def run(
         drawdown_threshold=decided_drawdown,
         disp60_threshold=decided_disp60,
         product_share_at_max=decided_share,
+        levels=decided_levels,
+        base_exposure=decided_base_exposure,
     ))
     validate_overlay_payload(payload)
     output = root / OUTPUT_RELATIVE
@@ -98,6 +108,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--drawdown-threshold", type=float, default=None)
     parser.add_argument("--disp60-threshold", type=float, default=None)
     parser.add_argument("--product-share-at-max", type=float, default=None)
+    parser.add_argument("--levels", type=int)
+    parser.add_argument("--base-exposure", type=float)
     return parser
 
 
@@ -108,6 +120,8 @@ def main(argv: list[str] | None = None) -> int:
         drawdown_threshold=args.drawdown_threshold,
         disp60_threshold=args.disp60_threshold,
         product_share_at_max=args.product_share_at_max,
+        levels=args.levels,
+        base_exposure=args.base_exposure,
     )
     return 0
 

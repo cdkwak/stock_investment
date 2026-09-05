@@ -25,8 +25,10 @@ from stock_data.research.compound_ladder import (  # noqa: E402
     LadderSpec,
     effective_exposure_at_max,
     ladder_levels,
+    require_base_exposure,
     require_disp60_threshold,
     require_drawdown_threshold,
+    require_levels,
     simulate_account,
     simulate_baseline,
     simulate_grid_metrics,
@@ -75,9 +77,7 @@ QUICK_GRID = {
 }
 TRANSACTION_COST = 0.001
 CURRENT = {
-    "levels": 2,
     "leverage_multiple": 2,
-    "base_exposure": 1.0,
     "exit": "a",
     "cost_enabled": True,
 }
@@ -314,12 +314,16 @@ def _is_current(
     drawdown_threshold: float,
     disp60_threshold: float,
     product_share_at_max: float,
+    levels: int,
+    base_exposure: float,
 ) -> bool:
     return (
         all(row.get(key) == value for key, value in CURRENT.items())
         and row.get("drawdown_threshold") == drawdown_threshold
         and row.get("disp60_threshold") == disp60_threshold
         and row.get("product_share_at_max") == product_share_at_max
+        and row.get("levels") == levels
+        and row.get("base_exposure") == base_exposure
     )
 
 
@@ -477,6 +481,8 @@ def _grid_for_series(
     *,
     current_drawdown_threshold: float,
     current_disp60_threshold: float,
+    current_levels: int,
+    current_base_exposure: float,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     product_shares = grid.get("product_share_at_max")
     if not product_shares:
@@ -533,6 +539,7 @@ def _grid_for_series(
                     disp60_threshold=float(disp),
                     product_share_at_max=float(product_shares[0]),
                     levels=int(levels_count),
+                    base_exposure=current_base_exposure,
                 )
                 cache_key = (float(dd), float(disp), int(levels_count))
                 levels = level_cache.setdefault(
@@ -645,6 +652,8 @@ def _grid_for_series(
             current_drawdown_threshold,
             current_disp60_threshold,
             product_share_at_max,
+            current_levels,
+            current_base_exposure,
         )
     ), None)
     if current is None:
@@ -668,11 +677,11 @@ def _grid_for_series(
         drawdown_threshold=current_drawdown_threshold,
         disp60_threshold=current_disp60_threshold,
         product_share_at_max=product_share_at_max,
-        levels=2,
-        base_exposure=1.0,
+        levels=current_levels,
+        base_exposure=current_base_exposure,
     )
-    current_levels = level_cache[(
-        current_drawdown_threshold, current_disp60_threshold, 2
+    current_executable_levels = level_cache[(
+        current_drawdown_threshold, current_disp60_threshold, current_levels
     )]
     underlying_baseline_metrics = _baseline_metrics(
         frame["date"], underlying_returns, transaction_cost=TRANSACTION_COST
@@ -680,7 +689,7 @@ def _grid_for_series(
     underlying_strategy_metrics = simulate_grid_metrics(
         frame["date"],
         underlying_returns,
-        current_levels,
+        current_executable_levels,
         underlying_returns=underlying_returns,
         spec=current_spec,
         leverage_multiple=2,
@@ -997,6 +1006,8 @@ def run(
     drawdown_threshold: float | object = _UNDECIDED,
     disp60_threshold: float | object = _UNDECIDED,
     product_share_at_max: float | object = _UNDECIDED,
+    levels: int | object = _UNDECIDED,
+    base_exposure: float | object = _UNDECIDED,
 ) -> dict[str, Any]:
     started = time.perf_counter()
     root = project_root.resolve()
@@ -1004,6 +1015,8 @@ def run(
     decided_drawdown = require_drawdown_threshold(drawdown_threshold)
     decided_disp60 = require_disp60_threshold(disp60_threshold)
     decided_share = _require_product_share(product_share_at_max)
+    decided_levels = require_levels(levels)
+    decided_base_exposure = require_base_exposure(base_exposure)
     selected_grid = QUICK_GRID if quick else FULL_GRID
     grid = {
         **selected_grid,
@@ -1014,6 +1027,10 @@ def run(
             (*selected_grid["disp60_threshold"], decided_disp60)
         )),
         "product_share_at_max": (decided_share,),
+        "levels": tuple(dict.fromkeys((*selected_grid["levels"], decided_levels))),
+        "base_exposure": tuple(dict.fromkeys(
+            (*selected_grid["base_exposure"], decided_base_exposure)
+        )),
     }
     universe = load_index_universe(root)
     real_products = load_real_products(root)
@@ -1039,6 +1056,8 @@ def run(
                 grid,
                 current_drawdown_threshold=decided_drawdown,
                 current_disp60_threshold=decided_disp60,
+                current_levels=decided_levels,
+                current_base_exposure=decided_base_exposure,
             )
             rows_by_underlying[underlying] = rows
             path = output / f"grid_{_slug(basket)}_{_slug(underlying)}.json"
@@ -1049,9 +1068,9 @@ def run(
                 if row["row_kind"] == "strategy"
                 and row["drawdown_threshold"] == decided_drawdown
                 and row["disp60_threshold"] == decided_disp60
-                and row["levels"] == 2
+                and row["levels"] == decided_levels
                 and row["leverage_multiple"] == 2
-                and row["base_exposure"] == 1.0
+                and row["base_exposure"] == decided_base_exposure
                 and row["cost_enabled"] is True
             ]
             ranking = []
@@ -1077,8 +1096,8 @@ def run(
                 if row["row_kind"] == "strategy"
                 and row["drawdown_threshold"] == decided_drawdown
                 and row["disp60_threshold"] == decided_disp60
-                and row["levels"] == 2
-                and row["base_exposure"] == 1.0
+                and row["levels"] == decided_levels
+                and row["base_exposure"] == decided_base_exposure
                 and row["exit"] == "a"
                 and row["cost_enabled"] is True
                 and row["actual_product_basis"] is not None
@@ -1138,6 +1157,8 @@ def run(
             "drawdown_threshold": decided_drawdown,
             "disp60_threshold": decided_disp60,
             "product_share_at_max": decided_share,
+            "levels": decided_levels,
+            "base_exposure": decided_base_exposure,
         },
         "headline_policy": "current_rule_not_grid_winner",
         "input_manifest_sha256": manifest_digest,
@@ -1168,6 +1189,8 @@ def _base_sweep_series(
     drawdown_threshold: float,
     disp60_threshold: float,
     product_share_at_max: float,
+    levels: int,
+    signal_base_exposure: float,
     quick: bool,
     manifest_digest: str,
     manifest: list[dict[str, Any]],
@@ -1178,8 +1201,8 @@ def _base_sweep_series(
         drawdown_threshold=drawdown_threshold,
         disp60_threshold=disp60_threshold,
         product_share_at_max=product_share_at_max,
-        levels=2,
-        base_exposure=1.0,
+        levels=levels,
+        base_exposure=signal_base_exposure,
     )
     executable_levels = ladder_levels(signals, signal_spec)["executable_level"]
     no_ladder_levels = pd.Series(np.zeros(len(frame)), index=frame.index, dtype="float64")
@@ -1226,7 +1249,7 @@ def _base_sweep_series(
                 drawdown_threshold=drawdown_threshold,
                 disp60_threshold=disp60_threshold,
                 product_share_at_max=product_share_at_max,
-                levels=2,
+                levels=levels,
                 base_exposure=base_exposure,
             )
             permanent = simulate_grid_metrics(
@@ -1284,7 +1307,7 @@ def _base_sweep_series(
         "parameters": {
             "drawdown_threshold": drawdown_threshold,
             "disp60_threshold": disp60_threshold,
-            "levels": 2,
+            "levels": levels,
             "leverage_multiples": list(BASE_SWEEP_MULTIPLES),
             "base_exposures": list(base_exposures),
             "product_share_at_max": product_share_at_max,
@@ -1482,12 +1505,19 @@ def run_base_exposure_sweep(
     drawdown_threshold: float | object = _UNDECIDED,
     disp60_threshold: float | object = _UNDECIDED,
     product_share_at_max: float | object = _UNDECIDED,
+    levels: int | object = _UNDECIDED,
+    base_exposure: float | object = _UNDECIDED,
 ) -> dict[str, Any]:
     started = time.perf_counter()
     root = project_root.resolve()
     decided_drawdown = require_drawdown_threshold(drawdown_threshold)
     decided_disp60 = require_disp60_threshold(disp60_threshold)
     decided_share = _require_product_share(product_share_at_max)
+    decided_levels = require_levels(levels)
+    decided_base_exposure = require_base_exposure(base_exposure)
+    if not base_exposures:
+        raise ValueError("base_exposures must contain caller-provided values")
+    decided_base_exposures = tuple(require_base_exposure(value) for value in base_exposures)
     output = root / "artifacts/research/compound_ladder"
     universe = load_index_universe(root)
     real_products = load_real_products(root)
@@ -1516,10 +1546,12 @@ def run_base_exposure_sweep(
                 underlying,
                 frame,
                 real_products,
-                base_exposures,
+                decided_base_exposures,
                 drawdown_threshold=decided_drawdown,
                 disp60_threshold=decided_disp60,
                 product_share_at_max=decided_share,
+                levels=decided_levels,
+                signal_base_exposure=decided_base_exposure,
                 quick=quick,
                 manifest_digest=manifest_digest,
                 manifest=manifest,
@@ -1584,6 +1616,16 @@ def _parser() -> argparse.ArgumentParser:
         help="Required leveraged-product portfolio weight at the highest ladder level.",
     )
     parser.add_argument(
+        "--levels",
+        type=int,
+        help="Required caller-selected ladder step count (1..4); no code default.",
+    )
+    parser.add_argument(
+        "--base-exposure",
+        type=float,
+        help="Required caller-selected base exposure in [0, 3]; no code default.",
+    )
+    parser.add_argument(
         "--base-exposures",
         nargs="+",
         type=_parse_base_exposures,
@@ -1599,6 +1641,8 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    decided_levels = require_levels(args.levels)
+    decided_base_exposure = require_base_exposure(args.base_exposure)
     baskets = tuple(part.strip().upper() for part in args.baskets.split(",") if part.strip())
     unknown = sorted(set(baskets).difference(BASKET_SERIES))
     if not baskets or unknown:
@@ -1617,6 +1661,8 @@ def main(argv: list[str] | None = None) -> int:
             drawdown_threshold=args.drawdown_threshold,
             disp60_threshold=args.disp60_threshold,
             product_share_at_max=args.product_share_at_max,
+            levels=decided_levels,
+            base_exposure=decided_base_exposure,
         )
         print("basket | underlying | k | exit | holdout smallest b | beats permanent")
         for payload in result["payloads"]:
@@ -1640,6 +1686,8 @@ def main(argv: list[str] | None = None) -> int:
         drawdown_threshold=args.drawdown_threshold,
         disp60_threshold=args.disp60_threshold,
         product_share_at_max=args.product_share_at_max,
+        levels=decided_levels,
+        base_exposure=decided_base_exposure,
     )
     print("basket | underlying | holdout strategy | holdout baseline | relative")
     for basket, items in summary["baskets"].items():

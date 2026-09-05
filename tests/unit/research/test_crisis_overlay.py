@@ -5,6 +5,7 @@ import json
 import pandas as pd
 import pytest
 
+import stock_data.research.crisis_overlay as crisis_overlay_module
 from stock_data.research.core_ammunition import (
     Episode,
     measure_asset_horizons,
@@ -15,6 +16,7 @@ from stock_data.research.crisis_overlay import (
     OFFSETS,
     SCHEMA_VERSION,
     aligned_core_path,
+    overlay_payload_for_reader,
     round_payload,
     select_first_cycle_episodes,
     validate_overlay_payload,
@@ -124,6 +126,11 @@ def test_overlay_json_shape_rounding_and_size_contract() -> None:
     payload = round_payload({
         "schema_version": SCHEMA_VERSION,
         "generated_at": "2026-09-05T00:00:00+00:00",
+        "signal_definition": {
+            "kind": "B", "drawdown_threshold": -0.25,
+            "disp60_threshold": -0.15, "product_share_at_max": 0.5,
+            "levels": 2, "base_exposure": 0.8, "source": "caller",
+        },
         "episodes": [{
             "id": episode_id, "market": "KR", "cycle": "2008–09 금융위기",
             "type": "recession-type", "signal_date": "2008-01-22",
@@ -159,3 +166,30 @@ def test_overlay_json_shape_rounding_and_size_contract() -> None:
     assert payload["series"]["signal"][episode_id]["equity_reference"][0] == 100.13
     assert payload["signal_values"][episode_id]["equity_reference"] == 80.13
     assert len(body) < 3_000_000
+
+    legacy = dict(payload)
+    del legacy["signal_definition"]
+    assert overlay_payload_for_reader(legacy)["signal_definition"] is None
+
+
+def test_overlay_payload_records_the_caller_signal_definition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        crisis_overlay_module, "build_ladder_overlay", lambda *_args, **_kwargs: {},
+    )
+
+    payload = crisis_overlay_module.build_overlay_payload(
+        episodes=[], frames={}, ladders={}, assets={},
+        dgs10=pd.Series(dtype="float64"), cycle_buckets=[],
+        ladder_universe=pd.DataFrame(), drawdown_threshold=-0.25,
+        disp60_threshold=-0.15, product_share_at_max=0.5,
+        levels=3, base_exposure=0.8,
+        generated_at="2026-09-06T00:00:00+00:00",
+    )
+
+    assert payload["signal_definition"] == {
+        "kind": "B", "drawdown_threshold": -0.25,
+        "disp60_threshold": -0.15, "product_share_at_max": 0.5,
+        "levels": 3, "base_exposure": 0.8, "source": "caller",
+    }

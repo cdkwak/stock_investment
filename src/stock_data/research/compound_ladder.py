@@ -74,22 +74,46 @@ def require_product_share_at_max(value: object) -> float:
     return result
 
 
+def require_levels(value: object) -> int:
+    if value is _UNDECIDED or value is None:
+        raise ValueError(
+            "levels is undecided under rule ⑥; caller must pass it explicitly"
+        )
+    if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
+        raise ValueError("levels must be an integer")
+    result = int(value)
+    if result not in (1, 2, 3, 4):
+        raise ValueError("levels must be 1, 2, 3, or 4")
+    return result
+
+
+def require_base_exposure(value: object) -> float:
+    if value is _UNDECIDED or value is None:
+        raise ValueError(
+            "base_exposure is undecided under rule ⑥; caller must pass it explicitly"
+        )
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not np.isfinite(value):
+        raise ValueError("base_exposure must be a finite number")
+    result = float(value)
+    if not 0.0 <= result <= 3.0:
+        raise ValueError("base_exposure must be in [0.0, 3.0]")
+    return result
+
+
 @dataclass(frozen=True, slots=True)
 class LadderSpec:
     drawdown_threshold: float | object = _UNDECIDED
     disp60_threshold: float | object = _UNDECIDED
     product_share_at_max: float | object = _UNDECIDED
-    levels: int = 2
-    base_exposure: float = 1.0
+    levels: int | object = _UNDECIDED
+    base_exposure: float | object = _UNDECIDED
 
     def __post_init__(self) -> None:
         require_drawdown_threshold(self.drawdown_threshold)
         require_disp60_threshold(self.disp60_threshold)
         require_product_share_at_max(self.product_share_at_max)
-        if self.levels not in (1, 2, 3, 4):
-            raise ValueError("levels must be 1, 2, 3, or 4")
-        if not np.isfinite(self.base_exposure) or not 0.0 <= self.base_exposure <= 3.0:
-            raise ValueError("base_exposure must be finite and in [0.0, 3.0]")
+        require_levels(self.levels)
+        require_base_exposure(self.base_exposure)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1324,8 +1348,10 @@ __all__ = [
     "effective_exposure_at_max",
     "ladder_levels",
     "performance_metrics",
+    "require_base_exposure",
     "require_disp60_threshold",
     "require_drawdown_threshold",
+    "require_levels",
     "require_product_share_at_max",
     "simulate_account",
     "simulate_baseline",

@@ -120,6 +120,7 @@ def test_ladder_accepts_pluggable_candidate_and_compatibility_b_is_identical() -
         disp60_threshold=-0.10,
         product_share_at_max=0.5,
         levels=2,
+        base_exposure=1.0,
     )
     explicit = ladder_levels(
         features,

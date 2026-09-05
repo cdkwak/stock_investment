@@ -13,8 +13,10 @@ import pandas as pd
 from stock_data.research.compound_ladder import (
     LadderSpec,
     ladder_levels,
+    require_base_exposure,
     require_disp60_threshold,
     require_drawdown_threshold,
+    require_levels,
     require_product_share_at_max,
 )
 from stock_data.research.condition_backtest import compute_signals
@@ -225,6 +227,8 @@ def build_ladder_overlay(
     drawdown_threshold: float | None = None,
     disp60_threshold: float | None = None,
     product_share_at_max: float | None = None,
+    levels: int | None = None,
+    base_exposure: float | None = None,
     basis: str = "signal",
 ) -> dict[str, dict[str, dict[str, Any]]]:
     """Build per-index cycle paths with the same two-condition ladder levels."""
@@ -232,11 +236,14 @@ def build_ladder_overlay(
     decided_drawdown = require_drawdown_threshold(drawdown_threshold)
     decided_disp60 = require_disp60_threshold(disp60_threshold)
     decided_share = require_product_share_at_max(product_share_at_max)
+    decided_levels = require_levels(levels)
+    decided_base_exposure = require_base_exposure(base_exposure)
     spec = LadderSpec(
         drawdown_threshold=decided_drawdown,
         disp60_threshold=decided_disp60,
         product_share_at_max=decided_share,
-        levels=2,
+        levels=decided_levels,
+        base_exposure=decided_base_exposure,
     )
     output: dict[str, dict[str, dict[str, Any]]] = {}
     for basket, series_ids in LADDER_SERIES.items():
@@ -297,6 +304,8 @@ def build_overlay_payload(
     drawdown_threshold: float | None = None,
     disp60_threshold: float | None = None,
     product_share_at_max: float | None = None,
+    levels: int | None = None,
+    base_exposure: float | None = None,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     """Build the complete crisis-overlay document without provider calls."""
@@ -304,6 +313,8 @@ def build_overlay_payload(
     decided_drawdown = require_drawdown_threshold(drawdown_threshold)
     decided_disp60 = require_disp60_threshold(disp60_threshold)
     decided_share = require_product_share_at_max(product_share_at_max)
+    decided_levels = require_levels(levels)
+    decided_base_exposure = require_base_exposure(base_exposure)
 
     allowed = set(cycle_buckets)
     cycle_order = {cycle: index for index, cycle in enumerate(cycle_buckets)}
@@ -378,6 +389,15 @@ def build_overlay_payload(
         "drawdown_threshold": decided_drawdown,
         "disp60_threshold": decided_disp60,
         "product_share_at_max": decided_share,
+        "signal_definition": {
+            "kind": "B",
+            "drawdown_threshold": decided_drawdown,
+            "disp60_threshold": decided_disp60,
+            "product_share_at_max": decided_share,
+            "levels": decided_levels,
+            "base_exposure": decided_base_exposure,
+            "source": "caller",
+        },
         "offset_start": OFFSET_START,
         "offset_end": OFFSET_END,
         "episodes": episode_rows,
@@ -398,6 +418,8 @@ def build_overlay_payload(
                 drawdown_threshold=decided_drawdown,
                 disp60_threshold=decided_disp60,
                 product_share_at_max=decided_share,
+                levels=decided_levels,
+                base_exposure=decided_base_exposure,
                 basis=basis,
             )
             for basis in NORMALISATION_LABELS
@@ -426,6 +448,14 @@ def round_payload(value: Any, *, digits: int = 2) -> Any:
     return value
 
 
+def overlay_payload_for_reader(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Expose a nullable signal definition for pre-field overlay artifacts."""
+
+    output = dict(payload)
+    output.setdefault("signal_definition", None)
+    return output
+
+
 def validate_overlay_payload(payload: Mapping[str, Any]) -> None:
     """Fail closed on incomplete path dimensions or inconsistent episode keys."""
 
@@ -438,6 +468,23 @@ def validate_overlay_payload(payload: Mapping[str, Any]) -> None:
         raise ValueError(f"overlay payload is missing keys: {sorted(missing)}")
     if payload["schema_version"] != SCHEMA_VERSION:
         raise ValueError(f"overlay schema_version must be {SCHEMA_VERSION}")
+    signal_definition = payload.get("signal_definition")
+    if signal_definition is not None:
+        required_signal_fields = {
+            "kind", "drawdown_threshold", "disp60_threshold",
+            "product_share_at_max", "levels", "base_exposure", "source",
+        }
+        if not isinstance(signal_definition, Mapping) or required_signal_fields.difference(
+            signal_definition
+        ):
+            raise ValueError("overlay signal_definition is incomplete")
+        if signal_definition["kind"] != "B" or signal_definition["source"] != "caller":
+            raise ValueError("overlay signal_definition must identify caller-supplied kind B")
+        require_drawdown_threshold(signal_definition["drawdown_threshold"])
+        require_disp60_threshold(signal_definition["disp60_threshold"])
+        require_product_share_at_max(signal_definition["product_share_at_max"])
+        require_levels(signal_definition["levels"])
+        require_base_exposure(signal_definition["base_exposure"])
     episode_ids = [str(row["id"]) for row in payload["episodes"]]
     asset_ids = [str(row["id"]) for row in payload["assets"]]
     basis_ids = [str(row["id"]) for row in payload["normalisations"]]
@@ -500,6 +547,7 @@ __all__ = [
     "build_ladder_overlay",
     "build_overlay_payload",
     "median_path",
+    "overlay_payload_for_reader",
     "round_payload",
     "select_first_cycle_episodes",
     "validate_overlay_payload",

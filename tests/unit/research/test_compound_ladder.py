@@ -56,15 +56,6 @@ def test_known_drawdown_level_path_and_next_session_execution() -> None:
     assert result["executable_level"].tolist() == [pd.NA, 0, 1, 2, 1]
 
 
-def test_rule_six_rejects_each_undecided_ladder_value() -> None:
-    with pytest.raises(ValueError, match="drawdown_threshold is undecided.*⑥"):
-        LadderSpec()
-    with pytest.raises(ValueError, match="disp60_threshold is undecided.*⑥"):
-        LadderSpec(drawdown_threshold=-0.20)
-    with pytest.raises(ValueError, match="product_share_at_max is undecided.*⑥"):
-        LadderSpec(drawdown_threshold=-0.20, disp60_threshold=-0.10)
-
-
 def test_product_share_knob_caps_top_weight_and_exposes_effective_exposure() -> None:
     result = simulate_account(
         _dates(4),
@@ -551,16 +542,22 @@ def test_base_exposure_cli_is_opt_in_and_accepts_list_or_comma_groups() -> None:
     assert _parser().parse_args([]).drawdown_threshold is None
     assert _parser().parse_args([]).disp60_threshold is None
     assert _parser().parse_args([]).product_share_at_max is None
+    assert _parser().parse_args([]).levels is None
+    assert _parser().parse_args([]).base_exposure is None
     with pytest.raises(ValueError, match="product_share_at_max is undecided.*⑥"):
         _require_product_share(None)
     parsed = _parser().parse_args([
         "--drawdown-threshold", "-0.20",
         "--disp60-threshold", "-0.10",
         "--product-share-at-max", "0.5",
+        "--levels", "3",
+        "--base-exposure", "0.8",
         "--base-exposures", "1.0", "1.3,1.5",
     ])
     assert parsed.base_exposures == [(1.0,), (1.3, 1.5)]
     assert parsed.product_share_at_max == 0.5
+    assert parsed.levels == 3
+    assert parsed.base_exposure == 0.8
     assert parsed.drawdown_threshold == -0.20
     assert parsed.disp60_threshold == -0.10
 

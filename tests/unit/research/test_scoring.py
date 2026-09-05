@@ -47,6 +47,10 @@ def test_sell_scoring_reports_only_volatility_and_max_drawdown_distributions() -
     assert result["events_total"] == 2
     assert result["events_independent"] == 2
     row = result["horizons"]["21"]
+    assert list(row)[:4] == [
+        "mean_realized_volatility", "median_realized_volatility",
+        "mean_max_drawdown", "median_max_drawdown",
+    ]
     assert row["mean_realized_volatility"] > 0.0
     assert row["median_realized_volatility"] > 0.0
     assert row["mean_max_drawdown"] <= 0.0
@@ -66,6 +70,9 @@ def test_result_card_contains_mandatory_counts_medians_and_aligned_path() -> Non
     assert isinstance(card["events_total"], int)
     assert isinstance(card["events_independent"], int)
     assert [row["label"] for row in card["table"]] == ["1개월", "3개월", "6개월", "12개월"]
+    assert list(card["table"][0])[:3] == [
+        "mean_return", "median_return", "win_rate",
+    ]
     assert all(
         {"events_total", "events_independent", "events_mature", "median_return"} <= set(row)
         for row in card["table"]
