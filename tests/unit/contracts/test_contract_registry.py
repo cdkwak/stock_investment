@@ -28,6 +28,7 @@ from stock_data.providers.yahoo import GLOBAL_MARKET_60M_REGISTRY
 
 def test_contract_registry_has_unique_names_and_layer_formats() -> None:
     assert len(CONTRACTS)==len(set(CONTRACTS))
+    assert len(CONTRACTS) == 80
     local = CONTRACTS["kbsec_transactions_daily"]
     assert local.storage_format == "json" and local.layer == "local_user"
     assert all(
@@ -121,19 +122,20 @@ def test_global_index_registry_includes_vix_term_structure_identities() -> None:
     )
 
 
-def test_global_index_registry_includes_five_foreign_equity_indices() -> None:
+def test_global_index_registry_includes_six_foreign_equity_indices() -> None:
     expected = {
         "NIKKEI225": ("^N225", "JPY", ("OSA",), "Asia/Tokyo", "XTKS"),
         "TAIEX": ("^TWII", "TWD", ("TAI",), "Asia/Taipei", "XTAI"),
         "EURO_STOXX50": (
             "^STOXX50E", "EUR", ("ZRH",), "Europe/Zurich", "XETR",
         ),
+        "CAC40": ("^FCHI", "EUR", ("PAR",), "Europe/Paris", "XPAR"),
         "HANG_SENG": ("^HSI", "HKD", ("HKG",), "Asia/Hong_Kong", "XHKG"),
         "DAX": ("^GDAXI", "EUR", ("GER",), "Europe/Berlin", "XETR"),
     }
 
-    assert len(GLOBAL_INDEX_REGISTRY) == 15
-    assert len(GLOBAL_INDEX_SYMBOLS_BY_PROVIDER["yahoo_chart_api"]) == 11
+    assert len(GLOBAL_INDEX_REGISTRY) == 16
+    assert len(GLOBAL_INDEX_SYMBOLS_BY_PROVIDER["yahoo_chart_api"]) == 12
     assert set(expected) <= set(GLOBAL_INDEX_DAILY_SYMBOLS)
     for symbol, identity in expected.items():
         spec = GLOBAL_INDEX_REGISTRY[symbol]
@@ -302,7 +304,7 @@ def test_every_global_index_declares_its_basis_and_mixing_is_refused() -> None:
     for symbol, spec in GLOBAL_INDEX_REGISTRY.items():
         assert spec["index_basis"] in INDEX_BASES, symbol
     assert index_basis("DAX") == "TOTAL_RETURN"          # Performance-Index, dividends included
-    for symbol in ("SP500", "NASDAQ100", "NIKKEI225", "EURO_STOXX50"):
+    for symbol in ("SP500", "NASDAQ100", "NIKKEI225", "EURO_STOXX50", "CAC40"):
         assert index_basis(symbol) == "PRICE"
     assert index_basis("VIX3M") == "NOT_APPLICABLE"
     # Mode B (four price indices) and Mode A (price index next to gauges) both pass;
@@ -313,4 +315,3 @@ def test_every_global_index_declares_its_basis_and_mixing_is_refused() -> None:
     assert assert_same_index_basis(("DAX",)) == "TOTAL_RETURN"
     with pytest.raises(ValueError, match="DAX=TOTAL_RETURN"):
         assert_same_index_basis(("SP500", "DAX"))
-

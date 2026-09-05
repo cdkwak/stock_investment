@@ -64,6 +64,7 @@ def test_yahoo_registered_index_arrays_are_identity_validated_and_normalized(
         ("NIKKEI225", "^N225", "JPY", "OSA", "Asia/Tokyo"),
         ("TAIEX", "^TWII", "TWD", "TAI", "Asia/Taipei"),
         ("EURO_STOXX50", "^STOXX50E", "EUR", "ZRH", "Europe/Zurich"),
+        ("CAC40", "^FCHI", "EUR", "PAR", "Europe/Paris"),
         ("HANG_SENG", "^HSI", "HKD", "HKG", "Asia/Hong_Kong"),
         ("DAX", "^GDAXI", "EUR", "GER", "Europe/Berlin"),
     ),

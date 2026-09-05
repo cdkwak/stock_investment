@@ -103,6 +103,14 @@ GLOBAL_INDEX_REGISTRY = MappingProxyType({
         "provider": "yahoo_chart_api", "ohlc_fill_from_close": True,
         "source_url": "https://query1.finance.yahoo.com/v8/finance/chart/%5ESTOXX50E",
     },
+    "CAC40": {
+        "source_ticker": "^FCHI", "instrument_type": "INDEX",
+        "index_basis": "PRICE",
+        "expected_currency": "EUR", "accepted_yahoo_exchanges": ("PAR",),
+        "timezone": "Europe/Paris", "exchange_calendar": "XPAR",
+        "provider": "yahoo_chart_api", "ohlc_fill_from_close": True,
+        "source_url": "https://query1.finance.yahoo.com/v8/finance/chart/%5EFCHI",
+    },
     "HANG_SENG": {
         "source_ticker": "^HSI", "instrument_type": "INDEX",
         "index_basis": "PRICE",
@@ -147,7 +155,7 @@ GLOBAL_INDEX_REGISTRY = MappingProxyType({
 GLOBAL_INDEX_DAILY_SYMBOLS = tuple(GLOBAL_INDEX_REGISTRY)
 
 # index_basis (2026-09-05, vault + review): what an index measures. PRICE = price index
-# (dividends excluded: ^GSPC, ^NDX, ^N225, ^STOXX50E, KOSPI in kr_index_daily);
+# (dividends excluded: ^GSPC, ^NDX, ^N225, ^STOXX50E, ^FCHI, KOSPI in kr_index_daily);
 # TOTAL_RETURN = performance index with dividends reinvested (^GDAXI); NOT_APPLICABLE =
 # volatility/dollar gauges. Charts that normalise several indices to a common base must
 # refuse to mix PRICE with TOTAL_RETURN — the rule lives here, not only in a spec document.
