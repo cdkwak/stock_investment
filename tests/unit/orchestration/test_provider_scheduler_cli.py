@@ -610,6 +610,69 @@ def test_kr_market_daily_bundle_contains_lane_failure_and_preserves_gates(
     ).exists()
 
 
+def test_kr_bundle_lane_log_write_failure_is_recorded_and_occurrence_still_finalises(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """2026-09-04/05 20:30: an OSError while writing one lane's *_last.json escaped the
+    bundle, the process died and the occurrence stayed CLAIMED_BEFORE_LANES forever."""
+    monkeypatch.setattr(
+        MODULE, "_run_bundle_lane", lambda _root, lane, **_kwargs: {"status": "NOOP", "api_calls": 0},
+    )
+    monkeypatch.setattr(MODULE, "_refresh_health", lambda _root: _health_degraded("x"))
+    original_write = MODULE._write_lane_log
+
+    def flaky_write(root, lane, payload):
+        if lane == "DERIVATIVES_PRICE_DAILY":
+            raise OSError("scheduler log readback differs: STOCK_DATA_DERIVATIVES_PRICE_DAILY_last.json")
+        return original_write(root, lane, payload)
+
+    monkeypatch.setattr(MODULE, "_write_lane_log", flaky_write)
+    occurrence = datetime(2026, 9, 5, 20, 30, tzinfo=MODULE.KR_MARKET_DAILY_TIMEZONE)
+
+    terminal, exit_code = MODULE._run_kr_market_daily_bundle(
+        tmp_path, scheduled_slot="20:30", as_of=occurrence,
+        dry_run=False, scheduled_occurrence=occurrence,
+    )
+
+    assert exit_code == 1
+    assert terminal["lane_log_failures"] == [{
+        "lane": "DERIVATIVES_PRICE_DAILY", "error_type": "OSError",
+        "error": "scheduler log readback differs: STOCK_DATA_DERIVATIVES_PRICE_DAILY_last.json",
+    }]
+    assert terminal["scheduler_process_status"] == "FAIL_AFTER_INDEPENDENT_LANES"
+    # Later lanes were still written and the occurrence reached a terminal state.
+    assert (tmp_path / "artifacts/scheduler_logs/STOCK_DATA_RESEARCH_FORWARD_TEST_DAILY_last.json").is_file()
+    occurrences = list((tmp_path / "data/state/provider_scheduler/kr_market_daily_occurrences").glob("*.json"))
+    assert len(occurrences) == 1
+    receipt = json.loads(occurrences[0].read_text(encoding="utf-8"))
+    assert receipt["occurrence_status"] == "TERMINAL_FAILURE"
+    assert receipt["terminal_exit_code"] == 1
+
+
+def test_lane_log_readback_tolerates_tuples_and_replace_retries_share_violations(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    # tuple values round-trip as lists; the readback must compare normalised JSON, not raise.
+    MODULE._write_lane_log(tmp_path, "LS_T8462_DAILY", {"status": "NOOP", "scopes": ("A", "B")})
+    written = json.loads((tmp_path / "artifacts/scheduler_logs/STOCK_DATA_LS_T8462_DAILY_last.json").read_text(encoding="utf-8"))
+    assert written == {"status": "NOOP", "scopes": ["A", "B"]}
+
+    attempts = {"count": 0}
+    real_replace = MODULE.os.replace
+
+    def flaky_replace(src, dst):
+        attempts["count"] += 1
+        if attempts["count"] < 3:
+            raise PermissionError(32, "The process cannot access the file because it is being used by another process")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(MODULE.os, "replace", flaky_replace)
+
+    MODULE._write_json_atomic(tmp_path / "artifacts/scheduler_logs/RETRY_last.json", {"ok": True})
+    assert attempts["count"] == 3
+    assert json.loads((tmp_path / "artifacts/scheduler_logs/RETRY_last.json").read_text(encoding="utf-8")) == {"ok": True}
+
+
 def test_kr_bundle_keeps_eighteen_good_lane_statuses_after_one_lane_failure(
     tmp_path: Path, monkeypatch,
 ) -> None:

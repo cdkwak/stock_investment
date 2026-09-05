@@ -288,9 +288,24 @@ def _write_json_atomic(path: Path, payload: Mapping[str, object]) -> None:
             stream.write(body)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, path)
+        _replace_with_retry(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _replace_with_retry(temporary: Path, path: Path, *, attempts: int = 5) -> None:
+    """os.replace with a few short retries: on Windows a reader holding the target open
+    (the dashboard reads every *_last.json) makes os.replace raise PermissionError."""
+    import time as _time
+
+    for attempt in range(attempts):
+        try:
+            os.replace(temporary, path)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            _time.sleep(0.2 * (attempt + 1))
 
 
 def _finalize_kr_occurrence_receipt(
@@ -777,7 +792,8 @@ def _write_lane_log(
     )
     path = project_root / "artifacts/scheduler_logs" / log_name
     _write_json_atomic(path, payload)
-    if json.loads(path.read_text(encoding="utf-8")) != payload:
+    expected = json.loads(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+    if json.loads(path.read_text(encoding="utf-8")) != expected:
         raise OSError(f"scheduler log readback differs: {log_name}")
 
 
@@ -1126,6 +1142,7 @@ def _run_kr_market_daily_bundle_unlocked(
             "SUCCESS" if exit_code == 0 else "FAIL_AFTER_INDEPENDENT_LANES"
         )
         health_failed = payload["health_projection"].get("status") == "FAIL"
+        lane_log_failures: list[dict[str, str]] = []
         for item in outcomes:
             lane = str(item["lane"])
             lane_payload = item.get("result")
@@ -1135,17 +1152,32 @@ def _run_kr_market_daily_bundle_unlocked(
                 else "FAIL" if lane_failed
                 else "SUCCESS"
             )
-            if isinstance(lane_payload, dict):
-                lane_payload["advancement_status"] = item["advancement_status"]
-                lane_payload["health_projection"] = payload["health_projection"]
-                lane_payload["scheduler_process_status"] = lane_process_status
-                _write_lane_log(project_root, lane, lane_payload)
-            else:
-                _write_lane_log(project_root, lane, {
-                    **item,
-                    "health_projection": payload["health_projection"],
-                    "scheduler_process_status": lane_process_status,
+            try:
+                if isinstance(lane_payload, dict):
+                    lane_payload["advancement_status"] = item["advancement_status"]
+                    lane_payload["health_projection"] = payload["health_projection"]
+                    lane_payload["scheduler_process_status"] = lane_process_status
+                    _write_lane_log(project_root, lane, lane_payload)
+                else:
+                    _write_lane_log(project_root, lane, {
+                        **item,
+                        "health_projection": payload["health_projection"],
+                        "scheduler_process_status": lane_process_status,
+                    })
+            except (OSError, TypeError, ValueError) as log_error:
+                # 2026-09-04/05 20:30: an OSError while writing one lane's *_last.json
+                # escaped here, the process died, and the occurrence stayed
+                # CLAIMED_BEFORE_LANES for good. Record it and keep finalising.
+                lane_log_failures.append({
+                    "lane": lane,
+                    "error_type": type(log_error).__name__,
+                    "error": str(log_error)[:200],
                 })
+        if lane_log_failures:
+            payload["lane_log_failures"] = lane_log_failures
+            payload["status"] = "DEGRADED"
+            payload["scheduler_process_status"] = "FAIL_AFTER_INDEPENDENT_LANES"
+            exit_code = 1
         if occurrence_receipt is not None:
             payload = _finalize_kr_occurrence_receipt(
                 project_root, occurrence_receipt, payload, exit_code=exit_code,
