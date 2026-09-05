@@ -8,7 +8,7 @@ eligible for the atomic Normalized append.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
 import json
 from math import isfinite
@@ -21,6 +21,7 @@ from urllib.parse import quote
 import pandas as pd
 import requests
 
+from stock_data.contracts.base import ColumnContract
 from stock_data.contracts.research_target_prices import (
     RESEARCH_TARGET_PRICE_CONSENSUS,
 )
@@ -32,14 +33,58 @@ YAHOO_SOURCE = "YAHOO_FINANCE_QUOTE_SUMMARY"
 KOREAN_UNAVAILABLE_SOURCE = "NONE_COMPLIANT_KR_CONSENSUS_SOURCE"
 YAHOO_TERMS_REF = "docs/data/sources/TARGET_PRICE_CONSENSUS.md#yahoo-finance-us"
 KOREAN_TERMS_REF = "docs/data/sources/TARGET_PRICE_CONSENSUS.md#korean-markets"
-KOREAN_UNAVAILABLE_MESSAGE = "출처 없음 — 표시 불가"
 YAHOO_USER_AGENT = "stock-investment-rev1/0.1"
 YAHOO_TIMEOUT_SECONDS = 30
 YAHOO_MIN_REQUEST_INTERVAL_SECONDS = 1.0
 YAHOO_OPERATION = "quote_summary_financial_data"
+YAHOO_COOKIE_OPERATION = "quote_summary_cookie"
+YAHOO_CRUMB_OPERATION = "quote_summary_crumb"
+YAHOO_COOKIE_URL = "https://fc.yahoo.com"
+YAHOO_CRUMB_URL = "https://query2.finance.yahoo.com/v1/test/getcrumb"
+AVAILABLE = "AVAILABLE"
+NOT_APPLICABLE_ETF = "NOT_APPLICABLE_ETF"
+NO_COVERAGE = "NO_COVERAGE"
+NOT_COLLECTED = "NOT_COLLECTED"
+UNAVAILABLE_SOURCE = "UNAVAILABLE_SOURCE"
+TARGET_PRICE_STATUSES = frozenset({
+    AVAILABLE, NOT_APPLICABLE_ETF, NO_COVERAGE, NOT_COLLECTED,
+    UNAVAILABLE_SOURCE,
+})
+TARGET_PRICE_CARD_TEXT = {
+    AVAILABLE: "참고 · 출처 · 기준일 · 표본 n명 · 현재가 대비 괴리율",
+    NOT_APPLICABLE_ETF: "애널리스트 목표가 없음 (ETF)",
+    NO_COVERAGE: "커버리지 없음",
+    NOT_COLLECTED: "미수집 · 수집기 미실행",
+    UNAVAILABLE_SOURCE: "거래소 확인 불가 · 수집 불가",
+}
+# Backward-compatible import name; only unresolved exchange identity uses it.
+KOREAN_UNAVAILABLE_MESSAGE = TARGET_PRICE_CARD_TEXT[UNAVAILABLE_SOURCE]
 _KR_MARKETS = frozenset({"KR", "KRX", "KOSPI", "KOSDAQ"})
 _US_MARKETS = frozenset({"US", "USA", "US ETF", "NASDAQ", "NYSE", "AMEX"})
 _US_SYMBOL = re.compile(r"[A-Z0-9][A-Z0-9.\-=]{0,19}")
+_KR_YAHOO_SUFFIX = {"KOSPI": "KS", "KOSDAQ": "KQ"}
+_CONSENSUS_FIELDS = frozenset({
+    "targetMeanPrice", "targetHighPrice", "targetLowPrice",
+    "numberOfAnalystOpinions", "recommendationMean",
+})
+
+# The user-authorized scope excludes src/stock_data/contracts. The v1
+# declaration remains the backward-read schema; this collector owns the
+# additive status-bearing v2 storage view.
+_STATUS_COLUMN = ColumnContract(
+    "status", "string", False, description="Typed collection/display outcome",
+)
+_V2_COLUMNS = []
+for _column in RESEARCH_TARGET_PRICE_CONSENSUS.columns:
+    _V2_COLUMNS.append(_column)
+    if _column.name == "source":
+        _V2_COLUMNS.append(_STATUS_COLUMN)
+TARGET_PRICE_CONSENSUS = replace(
+    RESEARCH_TARGET_PRICE_CONSENSUS,
+    version=2,
+    source="yahoo_finance_quote_summary_or_unresolved_korean_exchange",
+    columns=tuple(_V2_COLUMNS),
+)
 
 
 class TargetPriceConsensusError(ValueError):
@@ -53,6 +98,7 @@ class WatchlistSecurity:
     name: str | None
     isin: str | None
     currency: str
+    is_fund_product: bool
 
     @property
     def region(self) -> str:
@@ -63,7 +109,9 @@ class WatchlistSecurity:
 class TargetPriceRequest:
     market: str
     symbol: str
+    provider_symbol: str
     currency: str
+    is_fund_product: bool
     method: str
     url: str
     params: Mapping[str, str]
@@ -74,7 +122,10 @@ class TargetPriceRequest:
         return {
             "market": self.market,
             "symbol": self.symbol,
+            "provider_symbol": self.provider_symbol,
             "currency": self.currency,
+            "is_fund_product": self.is_fund_product,
+            "status": NOT_COLLECTED,
             "method": self.method,
             "url": self.url,
             "params": dict(self.params),
@@ -111,6 +162,17 @@ def _currency(value: object, *, region: str) -> str:
     return result
 
 
+def yahoo_provider_symbol(security: WatchlistSecurity) -> str | None:
+    """Resolve only exchange-qualified identities retained by the watchlist."""
+
+    if security.region == "US":
+        return security.symbol
+    suffix = _KR_YAHOO_SUFFIX.get(security.market.strip().upper())
+    if suffix is None:
+        return None
+    return f"{security.symbol}.{suffix}"
+
+
 def load_watchlist(path: Path) -> tuple[WatchlistSecurity, ...]:
     """Load and de-duplicate ``lists[].items[]`` without exposing other fields."""
 
@@ -145,13 +207,23 @@ def load_watchlist(path: Path) -> tuple[WatchlistSecurity, ...]:
                 name=_text(item.get("name"), "name", nullable=True),
                 isin=_text(item.get("isin"), "isin", nullable=True),
                 currency=_currency(item.get("currency"), region=region),
+                is_fund_product=(
+                    market.strip().upper() == "US ETF"
+                    or str(item.get("security_type", "")).strip().upper()
+                    in {"ETF", "ETN"}
+                    or item.get("leverage_multiple") not in (None, "")
+                ),
             )
             identity = (region, symbol)
             previous = seen.get(identity)
             if previous is not None:
-                if previous.currency != security.currency:
+                if (
+                    previous.currency != security.currency
+                    or previous.market.strip().upper() != security.market.strip().upper()
+                    or previous.is_fund_product != security.is_fund_product
+                ):
                     raise TargetPriceConsensusError(
-                        f"duplicate watchlist identity has conflicting currency: {symbol}"
+                        f"duplicate watchlist identity has conflicting metadata: {symbol}"
                     )
                 continue
             seen[identity] = security
@@ -164,21 +236,24 @@ def build_request_plan(
     *,
     completed: Iterable[str] = (),
 ) -> tuple[TargetPriceRequest, ...]:
-    """Return the exact bounded Yahoo requests; Korean rows never create requests."""
+    """Return exact bounded Yahoo requests for every resolvable exchange identity."""
 
     completed_symbols = {symbol.upper() for symbol in completed}
     requests_: list[TargetPriceRequest] = []
     for security in securities:
-        if security.symbol in completed_symbols or security.region == "KR":
+        provider_symbol = yahoo_provider_symbol(security)
+        if security.symbol in completed_symbols or provider_symbol is None:
             continue
         requests_.append(TargetPriceRequest(
             market=security.market,
             symbol=security.symbol,
+            provider_symbol=provider_symbol,
             currency=security.currency,
+            is_fund_product=security.is_fund_product,
             method="GET",
             url=(
-                "https://query1.finance.yahoo.com/v10/finance/quoteSummary/"
-                + quote(security.symbol, safe="")
+                "https://query2.finance.yahoo.com/v10/finance/quoteSummary/"
+                + quote(provider_symbol, safe="")
             ),
             params={"modules": "financialData"},
             headers={"User-Agent": YAHOO_USER_AGENT},
@@ -192,11 +267,16 @@ def korean_unavailable_row(
 ) -> dict[str, object]:
     if security.region != "KR":
         raise TargetPriceConsensusError("Korean unavailable rows require a Korean security")
+    if yahoo_provider_symbol(security) is not None:
+        raise TargetPriceConsensusError(
+            "Korean unavailable rows require unresolved exchange identity"
+        )
     return {
         "date": run_date.isoformat(),
         "symbol": security.symbol,
         "market": security.market,
         "source": KOREAN_UNAVAILABLE_SOURCE,
+        "status": UNAVAILABLE_SOURCE,
         "target_mean": None,
         "target_high": None,
         "target_low": None,
@@ -212,6 +292,28 @@ def _aware_utc(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise TargetPriceConsensusError("retrieved_at must be timezone-aware")
     return value.astimezone(timezone.utc)
+
+
+def _empty_yahoo_row(
+    *, symbol: str, market: str, currency: str, status: str,
+    run_date: date, retrieved_at: datetime, analyst_count: int | None = None,
+) -> dict[str, object]:
+    region = _market_region(market)
+    return {
+        "date": run_date.isoformat(),
+        "symbol": symbol.upper(),
+        "market": market,
+        "source": YAHOO_SOURCE,
+        "status": status,
+        "target_mean": None,
+        "target_high": None,
+        "target_low": None,
+        "analyst_count": analyst_count,
+        "recommendation_mean": None,
+        "currency": _currency(currency, region=region),
+        "retrieved_at": _aware_utc(retrieved_at),
+        "terms_ref": KOREAN_TERMS_REF if region == "KR" else YAHOO_TERMS_REF,
+    }
 
 
 def _raw_number(
@@ -243,11 +345,16 @@ def parse_yahoo_financial_data(
     currency: str,
     run_date: date,
     retrieved_at: datetime,
+    is_fund_product: bool = False,
 ) -> dict[str, object]:
     """Parse one retained ``quoteSummary?modules=financialData`` payload."""
 
-    if _market_region(market) != "US" or _US_SYMBOL.fullmatch(symbol.upper()) is None:
-        raise TargetPriceConsensusError("Yahoo target-price parsing requires a U.S. ticker")
+    region = _market_region(market)
+    if region == "KR":
+        if re.fullmatch(r"\d{6}", symbol.upper()) is None:
+            raise TargetPriceConsensusError("Yahoo Korean parsing requires a six-digit code")
+    elif _US_SYMBOL.fullmatch(symbol.upper()) is None:
+        raise TargetPriceConsensusError("Yahoo target-price parsing requires a valid ticker")
     root = payload.get("quoteSummary")
     if not isinstance(root, Mapping) or root.get("error") is not None:
         raise TargetPriceConsensusError("Yahoo quoteSummary contains an error or is missing")
@@ -256,40 +363,84 @@ def parse_yahoo_financial_data(
         raise TargetPriceConsensusError("Yahoo quoteSummary.result must contain one object")
     financial = result[0].get("financialData")
     if not isinstance(financial, Mapping):
+        if is_fund_product:
+            return _empty_yahoo_row(
+                symbol=symbol, market=market, currency=currency,
+                status=NOT_APPLICABLE_ETF, run_date=run_date,
+                retrieved_at=retrieved_at,
+            )
         raise TargetPriceConsensusError("Yahoo financialData module is missing")
+    if not (_CONSENSUS_FIELDS & set(financial)):
+        if is_fund_product:
+            return _empty_yahoo_row(
+                symbol=symbol, market=market, currency=currency,
+                status=NOT_APPLICABLE_ETF, run_date=run_date,
+                retrieved_at=retrieved_at,
+            )
+        raise TargetPriceConsensusError("Yahoo financialData consensus fields are missing")
     provider_currency = financial.get("financialCurrency")
-    normalized_currency = _currency(currency, region="US")
+    normalized_currency = _currency(currency, region=region)
+    if region == "KR" and provider_currency in (None, ""):
+        raise TargetPriceConsensusError("Yahoo Korean financialCurrency is missing")
     if provider_currency not in (None, ""):
-        observed_currency = _currency(provider_currency, region="US")
+        observed_currency = _currency(provider_currency, region=region)
         if observed_currency != normalized_currency:
             raise TargetPriceConsensusError("Yahoo financialData currency differs from watchlist")
+    analyst_count = _raw_number(
+        financial.get("numberOfAnalystOpinions"),
+        "numberOfAnalystOpinions", integer=True,
+    )
+    if analyst_count in (None, 0):
+        row = _empty_yahoo_row(
+            symbol=symbol, market=market, currency=normalized_currency,
+            status=NO_COVERAGE, run_date=run_date, retrieved_at=retrieved_at,
+            analyst_count=analyst_count,
+        )
+        validate_target_price_consensus(rows_to_frame([row]))
+        return row
     row = {
         "date": run_date.isoformat(),
         "symbol": symbol.upper(),
         "market": market,
         "source": YAHOO_SOURCE,
+        "status": AVAILABLE,
         "target_mean": _raw_number(financial.get("targetMeanPrice"), "targetMeanPrice"),
         "target_high": _raw_number(financial.get("targetHighPrice"), "targetHighPrice"),
         "target_low": _raw_number(financial.get("targetLowPrice"), "targetLowPrice"),
-        "analyst_count": _raw_number(
-            financial.get("numberOfAnalystOpinions"),
-            "numberOfAnalystOpinions",
-            integer=True,
-        ),
+        "analyst_count": analyst_count,
         "recommendation_mean": _raw_number(
             financial.get("recommendationMean"), "recommendationMean",
         ),
         "currency": normalized_currency,
         "retrieved_at": _aware_utc(retrieved_at),
-        "terms_ref": YAHOO_TERMS_REF,
+        "terms_ref": KOREAN_TERMS_REF if region == "KR" else YAHOO_TERMS_REF,
     }
     frame = rows_to_frame([row])
     validate_target_price_consensus(frame)
     return row
 
 
+def _legacy_row_status(row: Mapping[str, object]) -> str:
+    if row.get("source") == KOREAN_UNAVAILABLE_SOURCE:
+        return UNAVAILABLE_SOURCE
+    analyst = _raw_number(
+        row.get("analyst_count"), "legacy analyst_count", integer=True,
+    )
+    if analyst is not None and analyst > 0 and row.get("target_mean") is not None:
+        return AVAILABLE
+    return NO_COVERAGE
+
+
 def rows_to_frame(rows: Sequence[Mapping[str, object]]) -> pd.DataFrame:
-    frame = pd.DataFrame(rows, columns=RESEARCH_TARGET_PRICE_CONSENSUS.column_names)
+    normalized_rows = []
+    for source_row in rows:
+        row = dict(source_row)
+        if "status" not in row:
+            row["status"] = _legacy_row_status(row)
+        normalized_rows.append(row)
+    frame = pd.DataFrame(
+        normalized_rows, columns=TARGET_PRICE_CONSENSUS.column_names,
+    )
     if frame.empty:
         return frame
     frame["retrieved_at"] = pd.to_datetime(frame["retrieved_at"], utc=True, errors="raise")
@@ -300,7 +451,7 @@ def rows_to_frame(rows: Sequence[Mapping[str, object]]) -> pd.DataFrame:
 
 
 def validate_target_price_consensus(frame: pd.DataFrame) -> None:
-    contract = RESEARCH_TARGET_PRICE_CONSENSUS
+    contract = TARGET_PRICE_CONSENSUS
     if tuple(frame.columns) != contract.column_names:
         raise TargetPriceConsensusError("research target-price columns differ from contract")
     if frame.empty:
@@ -332,6 +483,8 @@ def validate_target_price_consensus(frame: pd.DataFrame) -> None:
         or not analyst.dropna().map(lambda value: float(value).is_integer()).all()
     ):
         raise TargetPriceConsensusError("analyst_count must be a non-negative integer or null")
+    if not frame["status"].isin(TARGET_PRICE_STATUSES).all():
+        raise TargetPriceConsensusError("target-price status is invalid")
     target_present = frame[["target_mean", "target_high", "target_low"]].notna().any(axis=1)
     if ((analyst.fillna(0) == 0) & target_present).any():
         raise TargetPriceConsensusError("target prices require a positive analyst_count")
@@ -347,26 +500,69 @@ def validate_target_price_consensus(frame: pd.DataFrame) -> None:
         terms_ref = _text(row["terms_ref"], "terms_ref")
         assert market is not None and symbol is not None and source is not None and terms_ref is not None
         region = _market_region(market)
-        _currency(row["currency"], region=region)
+        currency = _currency(row["currency"], region=region)
+        status = _text(row["status"], "status")
+        assert status is not None
+        if status == AVAILABLE:
+            if row["target_mean"] is None or pd.isna(row["target_mean"]):
+                raise TargetPriceConsensusError("AVAILABLE rows require target_mean")
+            if pd.isna(row["analyst_count"]) or int(row["analyst_count"]) <= 0:
+                raise TargetPriceConsensusError("AVAILABLE rows require positive analyst_count")
+        elif status == NO_COVERAGE:
+            if row[[
+                "target_mean", "target_high", "target_low", "recommendation_mean",
+            ]].notna().any() or (
+                not pd.isna(row["analyst_count"]) and int(row["analyst_count"]) != 0
+            ):
+                raise TargetPriceConsensusError("NO_COVERAGE rows must be value-free")
+        elif row[[
+            "target_mean", "target_high", "target_low", "analyst_count",
+            "recommendation_mean",
+        ]].notna().any():
+            raise TargetPriceConsensusError(f"{status} rows must be value-free")
         if region == "KR":
             if re.fullmatch(r"\d{6}", symbol) is None:
                 raise TargetPriceConsensusError("Korean symbols must be six digits")
-            if source != KOREAN_UNAVAILABLE_SOURCE or terms_ref != KOREAN_TERMS_REF:
-                raise TargetPriceConsensusError("Korean rows must identify the unavailable source decision")
-            if row[[
-                "target_mean", "target_high", "target_low", "analyst_count",
-                "recommendation_mean",
-            ]].notna().any():
-                raise TargetPriceConsensusError("Korean unavailable rows cannot contain consensus values")
+            if currency != "KRW" or terms_ref != KOREAN_TERMS_REF:
+                raise TargetPriceConsensusError("Korean rows require KRW and Korean terms")
+            if status == UNAVAILABLE_SOURCE:
+                if source != KOREAN_UNAVAILABLE_SOURCE:
+                    raise TargetPriceConsensusError("legacy Korean fallback source differs")
+            elif source != YAHOO_SOURCE:
+                raise TargetPriceConsensusError("collectable Korean rows must identify Yahoo")
         else:
             if _US_SYMBOL.fullmatch(symbol) is None:
                 raise TargetPriceConsensusError("U.S. ticker is invalid")
             if source != YAHOO_SOURCE or terms_ref != YAHOO_TERMS_REF:
                 raise TargetPriceConsensusError("U.S. rows must identify Yahoo and its terms reference")
+            if status == UNAVAILABLE_SOURCE:
+                raise TargetPriceConsensusError("U.S. rows cannot use UNAVAILABLE_SOURCE")
+
+
+def _upgrade_legacy_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    upgraded = frame.copy()
+    status = []
+    for _, row in upgraded.iterrows():
+        if row["source"] == KOREAN_UNAVAILABLE_SOURCE:
+            status.append(UNAVAILABLE_SOURCE)
+        elif not pd.isna(row["analyst_count"]) and int(row["analyst_count"]) > 0:
+            status.append(AVAILABLE)
+        else:
+            status.append(NO_COVERAGE)
+    upgraded.insert(upgraded.columns.get_loc("source") + 1, "status", status)
+    upgraded = upgraded[list(TARGET_PRICE_CONSENSUS.column_names)]
+    validate_target_price_consensus(upgraded)
+    return upgraded
 
 
 def read_target_price_consensus(root: Path) -> pd.DataFrame:
-    return read_dataset(root, RESEARCH_TARGET_PRICE_CONSENSUS, validate_target_price_consensus)
+    try:
+        return read_dataset(root, TARGET_PRICE_CONSENSUS, validate_target_price_consensus)
+    except KeyError as error:
+        if "status" not in str(error):
+            raise
+        legacy = read_dataset(root, RESEARCH_TARGET_PRICE_CONSENSUS, lambda _frame: None)
+        return _upgrade_legacy_frame(legacy)
 
 
 def append_target_price_vintages_atomic(frame: pd.DataFrame, root: Path) -> pd.DataFrame:
@@ -378,21 +574,21 @@ def append_target_price_vintages_atomic(frame: pd.DataFrame, root: Path) -> pd.D
     except FileNotFoundError:
         existing = None
     if existing is not None:
-        keys = list(RESEARCH_TARGET_PRICE_CONSENSUS.primary_key)
+        keys = list(TARGET_PRICE_CONSENSUS.primary_key)
         overlap = existing[keys].merge(frame[keys], how="inner", on=keys)
         if not overlap.empty:
             raise TargetPriceConsensusError("refusing to overwrite an existing symbol/run-date vintage")
         combined = pd.concat([existing, frame], ignore_index=True)
     else:
         combined = frame.copy()
-    combined = combined[list(RESEARCH_TARGET_PRICE_CONSENSUS.column_names)].sort_values(
-        list(RESEARCH_TARGET_PRICE_CONSENSUS.sort_key), kind="stable",
+    combined = combined[list(TARGET_PRICE_CONSENSUS.column_names)].sort_values(
+        list(TARGET_PRICE_CONSENSUS.sort_key), kind="stable",
     ).reset_index(drop=True)
     validate_target_price_consensus(combined)
     write_dataset_atomic(
         combined,
         root,
-        RESEARCH_TARGET_PRICE_CONSENSUS,
+        TARGET_PRICE_CONSENSUS,
         validate_target_price_consensus,
     )
     return combined
@@ -411,31 +607,88 @@ def collect_yahoo_rows(
 
     if min_interval_seconds < 0:
         raise ValueError("minimum request interval must be non-negative")
+    if not requests_:
+        return []
     rows: list[dict[str, object]] = []
     previous_started: float | None = None
-    for request in requests_:
-        if request.method != "GET":
-            raise TargetPriceConsensusError("unsupported planned method")
+
+    def get(
+        url: str, *, params: Mapping[str, str],
+        headers: Mapping[str, str] | None = None,
+        timeout_seconds: int = YAHOO_TIMEOUT_SECONDS,
+    ):
+        nonlocal previous_started
         if previous_started is not None:
             remaining = min_interval_seconds - (time.monotonic() - previous_started)
             if remaining > 0:
                 sleep(remaining)
         previous_started = time.monotonic()
-        response = session.get(
-            request.url,
-            params=dict(request.params),
-            headers=dict(request.headers),
-            timeout=request.timeout_seconds,
+        return session.get(
+            url, params=dict(params),
+            headers=dict(headers or {"User-Agent": YAHOO_USER_AGENT}),
+            timeout=timeout_seconds,
+        )
+
+    cookie_response = get(YAHOO_COOKIE_URL, params={})
+    capture_public_response(
+        root=landing_run_root, provider="yahoo",
+        operation=YAHOO_COOKIE_OPERATION, request_url=YAHOO_COOKIE_URL,
+        request_parameters={"phase": "cookie"}, response=cookie_response,
+    )
+    cookies = getattr(session, "cookies", ())
+    if not any(getattr(cookie, "name", None) == "A3" for cookie in cookies):
+        cookie_response.raise_for_status()
+        raise TargetPriceConsensusError("Yahoo A3 cookie handshake failed")
+    if cookie_response.status_code >= 500:
+        cookie_response.raise_for_status()
+
+    crumb_response = get(YAHOO_CRUMB_URL, params={})
+    capture_public_response(
+        root=landing_run_root, provider="yahoo",
+        operation=YAHOO_CRUMB_OPERATION, request_url=YAHOO_CRUMB_URL,
+        request_parameters={"phase": "crumb"}, response=crumb_response,
+    )
+    crumb_response.raise_for_status()
+    crumb = crumb_response.text.strip()
+    if (
+        not crumb or len(crumb) > 256
+        or any(character.isspace() or ord(character) < 32 for character in crumb)
+    ):
+        raise TargetPriceConsensusError("Yahoo crumb response is invalid")
+
+    for request in requests_:
+        if request.method != "GET":
+            raise TargetPriceConsensusError("unsupported planned method")
+        response = get(
+            request.url, params={**request.params, "crumb": crumb},
+            headers=request.headers, timeout_seconds=request.timeout_seconds,
         )
         receipt = capture_public_response(
             root=landing_run_root,
             provider="yahoo",
             operation=YAHOO_OPERATION,
             request_url=request.url,
-            request_parameters={"symbol": request.symbol, **request.params},
+            request_parameters={
+                "symbol": request.symbol,
+                "provider_symbol": request.provider_symbol,
+                **request.params,
+            },
             response=response,
         )
-        response.raise_for_status()
+        retrieved_at = datetime.fromisoformat(
+            receipt.captured_at_utc.replace("Z", "+00:00")
+        )
+        if response.status_code == 404 and request.is_fund_product:
+            rows.append(_empty_yahoo_row(
+                symbol=request.symbol, market=request.market,
+                currency=request.currency, status=NOT_APPLICABLE_ETF,
+                run_date=run_date, retrieved_at=retrieved_at,
+            ))
+            continue
+        if response.status_code >= 400:
+            raise TargetPriceConsensusError(
+                f"Yahoo quoteSummary HTTP {response.status_code}"
+            )
         payload = response.json()
         if not isinstance(payload, Mapping):
             raise TargetPriceConsensusError("Yahoo response root must be an object")
@@ -445,23 +698,32 @@ def collect_yahoo_rows(
             market=request.market,
             currency=request.currency,
             run_date=run_date,
-            retrieved_at=datetime.fromisoformat(
-                receipt.captured_at_utc.replace("Z", "+00:00")
-            ),
+            retrieved_at=retrieved_at,
+            is_fund_product=request.is_fund_product,
         ))
     return rows
 
 
 __all__ = [
+    "AVAILABLE",
     "KOREAN_TERMS_REF",
     "KOREAN_UNAVAILABLE_MESSAGE",
     "KOREAN_UNAVAILABLE_SOURCE",
+    "NOT_APPLICABLE_ETF",
+    "NOT_COLLECTED",
+    "NO_COVERAGE",
+    "TARGET_PRICE_CARD_TEXT",
+    "TARGET_PRICE_CONSENSUS",
+    "TARGET_PRICE_STATUSES",
     "TargetPriceConsensusError",
     "TargetPriceRequest",
     "WatchlistSecurity",
     "YAHOO_MIN_REQUEST_INTERVAL_SECONDS",
+    "YAHOO_COOKIE_URL",
+    "YAHOO_CRUMB_URL",
     "YAHOO_SOURCE",
     "YAHOO_TERMS_REF",
+    "UNAVAILABLE_SOURCE",
     "append_target_price_vintages_atomic",
     "build_request_plan",
     "collect_yahoo_rows",
@@ -471,4 +733,5 @@ __all__ = [
     "read_target_price_consensus",
     "rows_to_frame",
     "validate_target_price_consensus",
+    "yahoo_provider_symbol",
 ]

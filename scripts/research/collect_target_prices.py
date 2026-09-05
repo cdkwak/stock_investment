@@ -19,7 +19,10 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from stock_data.research.target_prices import (  # noqa: E402
-    KOREAN_UNAVAILABLE_MESSAGE,
+    TARGET_PRICE_CARD_TEXT,
+    UNAVAILABLE_SOURCE,
+    YAHOO_COOKIE_URL,
+    YAHOO_CRUMB_URL,
     append_target_price_vintages_atomic,
     build_request_plan,
     collect_yahoo_rows,
@@ -27,6 +30,7 @@ from stock_data.research.target_prices import (  # noqa: E402
     load_watchlist,
     read_target_price_consensus,
     rows_to_frame,
+    yahoo_provider_symbol,
 )
 
 
@@ -46,8 +50,8 @@ def _date(value: str) -> date:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Capture Yahoo target-price consensus for U.S. watchlist tickers and "
-            "record Korean securities as unavailable under the reviewed source policy."
+            "Capture Yahoo target-price consensus for U.S. and exchange-resolved "
+            "Korean watchlist securities with one cookie/crumb handshake."
         )
     )
     parser.add_argument("--project-root", type=Path, default=ROOT)
@@ -91,18 +95,27 @@ def main(argv: list[str] | None = None) -> int:
         {
             "market": security.market,
             "symbol": security.symbol,
-            "status": KOREAN_UNAVAILABLE_MESSAGE,
+            "status": UNAVAILABLE_SOURCE,
+            "card_text": TARGET_PRICE_CARD_TEXT[UNAVAILABLE_SOURCE],
         }
         for security in securities
-        if security.region == "KR" and security.symbol not in completed
+        if (
+            security.region == "KR"
+            and security.symbol not in completed
+            and yahoo_provider_symbol(security) is None
+        )
     ]
     plan = {
-        "schema_version": 1,
+        "schema_version": 2,
         "dataset": "research_target_price_consensus",
         "run_date": run_date.isoformat(),
         "watchlist": str(watchlist_path),
         "normalized_root": str(normalized_root),
-        "network_call_count": len(requests_),
+        "network_call_count": len(requests_) + 2 if requests_ else 0,
+        "handshake": ([
+            {"method": "GET", "url": YAHOO_COOKIE_URL, "capture": True},
+            {"method": "GET", "url": YAHOO_CRUMB_URL, "capture": True},
+        ] if requests_ else []),
         "requests": [request.as_dict() for request in requests_],
         "unavailable": unavailable,
         "dry_run": bool(args.dry_run),
@@ -128,7 +141,11 @@ def main(argv: list[str] | None = None) -> int:
             retrieved_at=started_at,
         )
         for security in securities
-        if security.region == "KR" and security.symbol not in completed
+        if (
+            security.region == "KR"
+            and security.symbol not in completed
+            and yahoo_provider_symbol(security) is None
+        )
     ]
     new_rows = yahoo_rows + unavailable_rows
     if new_rows:
